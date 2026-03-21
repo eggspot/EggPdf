@@ -123,21 +123,27 @@ public static class BlockLayout
             }
             else if (childNode is HtmlTextNode textNode && !string.IsNullOrWhiteSpace(textNode.Data))
             {
-                // Text content
-                float textHeight = fontSize * DefaultLineHeight;
-                var textBox = new LayoutBox
+                // Text content with line wrapping
+                var fontFamily = style.FontFamily;
+                float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
+                var lines = TextMeasurer.WrapText(textNode.Data.Trim(), fontSize, fontFamily, childContainingWidth);
+
+                foreach (var line in lines)
                 {
-                    Style = style,
-                    X = box.X + box.PaddingLeft,
-                    Y = box.Y + box.PaddingTop + childY,
-                    Width = childContainingWidth,
-                    Height = textHeight,
-                    ContentWidth = childContainingWidth,
-                    ContentHeight = textHeight,
-                    Text = textNode.Data.Trim()
-                };
-                box.Children.Add(textBox);
-                childY += textHeight;
+                    var textBox = new LayoutBox
+                    {
+                        Style = style,
+                        X = box.X + box.PaddingLeft,
+                        Y = box.Y + box.PaddingTop + childY,
+                        Width = childContainingWidth,
+                        Height = lineHeight,
+                        ContentWidth = TextMeasurer.MeasureWidth(line, fontSize, fontFamily),
+                        ContentHeight = lineHeight,
+                        Text = line
+                    };
+                    box.Children.Add(textBox);
+                    childY += lineHeight;
+                }
             }
         }
 
