@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;netstandard2.1;net6.0;net8.0;net9.0</TargetFrameworks>
+    <RootNamespace>EggPdf.Pdf</RootNamespace>
+    <Description>PDF 1.7 writer and backend</Description>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EggPdf.Core\EggPdf.Core.csproj" />
+    <ProjectReference Include="..\EggPdf.Paint\EggPdf.Paint.csproj" />
+    <ProjectReference Include="..\EggPdf.Text\EggPdf.Text.csproj" />
+  </ItemGroup>
+
+</Project>
