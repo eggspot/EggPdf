@@ -8,8 +8,8 @@ For user-facing documentation, see [`docs/`](../docs/) (synced to [GitHub Wiki](
 
 ```
 design/
-|-- webui/                   # Web UI design sketches and mockups
-|   |-- webui-sketch.html    # Interactive responsive mockup (open in browser)
+|-- webui/                   # Web UI design sketch (synced from implementation)
+|   |-- webui-sketch.html    # Copy of src/EggPdf.Service/wwwroot/index.html (keep in sync!)
 |-- architecture/            # Architecture Decision Records (ADRs)
 |-- specs/                   # Detailed technical specs for each component
 ```
