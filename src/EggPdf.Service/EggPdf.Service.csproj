@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>EggPdf.Service</RootNamespace>
+    <Description>EggPdf REST API microservice for HTML to PDF conversion</Description>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EggPdf\EggPdf.csproj" />
+  </ItemGroup>
+
+</Project>

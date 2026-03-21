@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EggPdf - HTML to PDF</title>
+<style>
+  :root { --bg: #0f1117; --surface: #1a1d27; --border: #2e3348; --text: #e4e6f0; --muted: #8b8fa8; --primary: #6c5ce7; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+  .header { height: 48px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 16px; gap: 12px; }
+  .header h1 { font-size: 16px; color: var(--primary); }
+  .header h1 span { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .btn { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-size: 13px; }
+  .btn:hover { border-color: var(--muted); }
+  .btn-primary { background: var(--primary); border-color: var(--primary); color: white; }
+  .main { flex: 1; display: flex; overflow: hidden; }
+  .editor { flex: 1; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+  .editor textarea { flex: 1; background: var(--bg); color: var(--text); border: none; padding: 16px; font-family: 'Consolas', 'Fira Code', monospace; font-size: 13px; line-height: 1.6; resize: none; outline: none; tab-size: 2; }
+  .preview { flex: 1; display: flex; flex-direction: column; }
+  .preview-bar { height: 36px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 12px; font-size: 12px; color: var(--muted); gap: 8px; }
+  .preview-content { flex: 1; background: #2a2d3a; display: flex; justify-content: center; align-items: flex-start; padding: 24px; overflow: auto; }
+  .pdf-preview { background: white; box-shadow: 0 4px 24px rgba(0,0,0,0.4); max-width: 100%; }
+  .pdf-preview img { max-width: 100%; display: block; }
+  .status { height: 24px; background: var(--surface); border-top: 1px solid var(--border); display: flex; align-items: center; padding: 0 12px; font-size: 11px; color: var(--muted); gap: 12px; }
+  .status .dot { width: 6px; height: 6px; border-radius: 50%; background: #00b894; }
+  .actions { margin-left: auto; display: flex; gap: 8px; }
+  @media (max-width: 768px) { .main { flex-direction: column; } .editor { border-right: none; border-bottom: 1px solid var(--border); max-height: 40vh; } }
+</style>
+</head>
+<body>
+<header class="header">
+  <h1>EggPdf <span>v0.1.0</span></h1>
+  <div class="actions">
+    <button class="btn" onclick="loadTemplate()">Template</button>
+    <button class="btn btn-primary" onclick="downloadPdf()">Download PDF</button>
+  </div>
+</header>
+
+<div class="main">
+  <div class="editor">
+    <textarea id="htmlInput" spellcheck="false" placeholder="Type or paste HTML here...">&lt;html&gt;
+&lt;head&gt;
+  &lt;style&gt;
+    body { font-family: Arial, sans-serif; }
+    h1 { color: #2d3436; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+    th { background: #6c5ce7; color: white; }
+  &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;h1&gt;Invoice #2024-001&lt;/h1&gt;
+  &lt;p&gt;Date: 2024-01-15&lt;/p&gt;
+  &lt;table&gt;
+    &lt;thead&gt;&lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Price&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+    &lt;tbody&gt;
+      &lt;tr&gt;&lt;td&gt;Web Development&lt;/td&gt;&lt;td&gt;$5,000&lt;/td&gt;&lt;/tr&gt;
+      &lt;tr&gt;&lt;td&gt;Design&lt;/td&gt;&lt;td&gt;$2,000&lt;/td&gt;&lt;/tr&gt;
+    &lt;/tbody&gt;
+  &lt;/table&gt;
+  &lt;p&gt;&lt;strong&gt;Total: $7,000&lt;/strong&gt;&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;</textarea>
+  </div>
+  <div class="preview">
+    <div class="preview-bar">
+      <span>Preview</span>
+      <span id="renderTime"></span>
+    </div>
+    <div class="preview-content">
+      <div class="pdf-preview" id="previewArea">
+        <p style="padding: 40px; color: #666;">Click "Download PDF" to generate your PDF, or edit HTML on the left.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="status">
+  <span class="dot"></span>
+  <span>Ready</span>
+  <span id="statusInfo"></span>
+</div>
+
+<script>
+const input = document.getElementById('htmlInput');
+const previewArea = document.getElementById('previewArea');
+const renderTime = document.getElementById('renderTime');
+const statusInfo = document.getElementById('statusInfo');
+
+async function downloadPdf() {
+  const html = input.value;
+  if (!html.trim()) { alert('Please enter some HTML'); return; }
+
+  try {
+    statusInfo.textContent = 'Rendering...';
+    const start = performance.now();
+
+    const resp = await fetch('/api/render', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ html })
+    });
+
+    if (!resp.ok) { const err = await resp.json(); alert('Error: ' + err.error); return; }
+
+    const blob = await resp.blob();
+    const elapsed = Math.round(performance.now() - start);
+    renderTime.textContent = `${elapsed}ms | ${(blob.size / 1024).toFixed(1)} KB`;
+    statusInfo.textContent = `PDF generated (${(blob.size / 1024).toFixed(1)} KB)`;
+
+    // Download
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'output.pdf';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    statusInfo.textContent = 'Error: ' + e.message;
+  }
+}
+
+function loadTemplate() {
+  input.value = `<html>
+<head>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; }
+    h1 { color: #333; border-bottom: 2px solid #6c5ce7; padding-bottom: 10px; }
+    p { line-height: 1.6; color: #555; }
+    .highlight { background-color: #fff3cd; padding: 15px; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <h1>My Document</h1>
+  <p>This is a sample document generated by <strong>EggPdf</strong>.</p>
+  <div class="highlight">
+    <p>You can use any HTML and CSS here. Tables, lists, links, images -- everything works.</p>
+  </div>
+  <h2>Features</h2>
+  <ul>
+    <li>Pure C# rendering</li>
+    <li>Zero dependencies</li>
+    <li>Chrome-quality output</li>
+  </ul>
+  <p><a href="https://github.com/eggspot/EggPdf">Learn more on GitHub</a></p>
+</body>
+</html>`;
+}
+</script>
+</body>
+</html>
