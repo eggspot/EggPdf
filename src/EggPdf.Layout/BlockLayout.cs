@@ -61,12 +61,25 @@ public static class BlockLayout
         box.PaddingBottom = ResolveLength(style.PaddingBottom ?? paddingShort, containingWidth, fontSize);
         box.PaddingLeft = ResolveLength(style.PaddingLeft ?? paddingShort, containingWidth, fontSize);
 
+        // Box-sizing
+        bool borderBox = style.Get("box-sizing") == "border-box";
+
         // Width
         float? specifiedWidth = ResolveOptionalLength(style.Width, containingWidth, fontSize);
         if (specifiedWidth.HasValue)
         {
-            box.ContentWidth = specifiedWidth.Value;
-            box.Width = specifiedWidth.Value + box.PaddingLeft + box.PaddingRight;
+            if (borderBox)
+            {
+                // border-box: width includes padding
+                box.Width = specifiedWidth.Value;
+                box.ContentWidth = specifiedWidth.Value - box.PaddingLeft - box.PaddingRight;
+                if (box.ContentWidth < 0) box.ContentWidth = 0;
+            }
+            else
+            {
+                box.ContentWidth = specifiedWidth.Value;
+                box.Width = specifiedWidth.Value + box.PaddingLeft + box.PaddingRight;
+            }
         }
         else
         {
@@ -75,8 +88,33 @@ public static class BlockLayout
             box.ContentWidth = box.Width - box.PaddingLeft - box.PaddingRight;
         }
 
+        // Min/max width constraints
+        float? minWidth = ResolveOptionalLength(style.Get("min-width"), containingWidth, fontSize);
+        float? maxWidth = ResolveOptionalLength(style.Get("max-width"), containingWidth, fontSize);
+
+        if (minWidth.HasValue && box.Width < minWidth.Value)
+        {
+            box.Width = minWidth.Value;
+            box.ContentWidth = box.Width - box.PaddingLeft - box.PaddingRight;
+        }
+        if (maxWidth.HasValue && box.Width > maxWidth.Value)
+        {
+            box.Width = maxWidth.Value;
+            box.ContentWidth = box.Width - box.PaddingLeft - box.PaddingRight;
+        }
+
         // Position
         box.X = parent.X + parent.PaddingLeft + box.MarginLeft;
+
+        // Relative positioning offset
+        var position = style.Get("position");
+        if (position == "relative")
+        {
+            float offsetTop = ResolveLength(style.Get("top"), 0, fontSize);
+            float offsetLeft = ResolveLength(style.Get("left"), 0, fontSize);
+            box.X += offsetLeft;
+            // Y offset applied after layout (see below)
+        }
 
         // Layout children
         float childY = 0;
@@ -168,14 +206,39 @@ public static class BlockLayout
         float? specifiedHeight = ResolveOptionalLength(style.Height, 0, fontSize);
         if (specifiedHeight.HasValue)
         {
-            box.ContentHeight = specifiedHeight.Value;
-            box.Height = specifiedHeight.Value + box.PaddingTop + box.PaddingBottom;
+            if (borderBox)
+            {
+                box.Height = specifiedHeight.Value;
+                box.ContentHeight = specifiedHeight.Value - box.PaddingTop - box.PaddingBottom;
+                if (box.ContentHeight < 0) box.ContentHeight = 0;
+            }
+            else
+            {
+                box.ContentHeight = specifiedHeight.Value;
+                box.Height = specifiedHeight.Value + box.PaddingTop + box.PaddingBottom;
+            }
         }
         else
         {
             // Auto height: sum of children
             box.ContentHeight = childY;
             box.Height = childY + box.PaddingTop + box.PaddingBottom;
+        }
+
+        // Min/max height constraints
+        float? minHeight = ResolveOptionalLength(style.Get("min-height"), 0, fontSize);
+        float? maxHeight = ResolveOptionalLength(style.Get("max-height"), 0, fontSize);
+
+        if (minHeight.HasValue && box.Height < minHeight.Value)
+            box.Height = minHeight.Value;
+        if (maxHeight.HasValue && box.Height > maxHeight.Value)
+            box.Height = maxHeight.Value;
+
+        // Apply relative position Y offset
+        if (position == "relative")
+        {
+            float offsetTop = ResolveLength(style.Get("top"), 0, fontSize);
+            box.Y += offsetTop;
         }
 
         return box;
