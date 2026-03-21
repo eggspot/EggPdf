@@ -3,6 +3,7 @@
     <Project Path="benchmarks/EggPdf.Benchmarks/EggPdf.Benchmarks.csproj" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/EggPdf.Cli/EggPdf.Cli.csproj" />
     <Project Path="src/EggPdf.Core/EggPdf.Core.csproj" />
     <Project Path="src/EggPdf.Css/EggPdf.Css.csproj" />
     <Project Path="src/EggPdf.Fragmentation/EggPdf.Fragmentation.csproj" />
