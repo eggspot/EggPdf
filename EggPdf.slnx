@@ -1,0 +1,22 @@
+<Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/EggPdf.Benchmarks/EggPdf.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/EggPdf.Core/EggPdf.Core.csproj" />
+    <Project Path="src/EggPdf.Css/EggPdf.Css.csproj" />
+    <Project Path="src/EggPdf.Fragmentation/EggPdf.Fragmentation.csproj" />
+    <Project Path="src/EggPdf.Html/EggPdf.Html.csproj" />
+    <Project Path="src/EggPdf.Layout/EggPdf.Layout.csproj" />
+    <Project Path="src/EggPdf.Paint/EggPdf.Paint.csproj" />
+    <Project Path="src/EggPdf.Pdf/EggPdf.Pdf.csproj" />
+    <Project Path="src/EggPdf.Style/EggPdf.Style.csproj" />
+    <Project Path="src/EggPdf.Svg/EggPdf.Svg.csproj" />
+    <Project Path="src/EggPdf.Text/EggPdf.Text.csproj" />
+    <Project Path="src/EggPdf/EggPdf.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/EggPdf.Tests.Layout/EggPdf.Tests.Layout.csproj" />
+    <Project Path="tests/EggPdf.Tests.Unit/EggPdf.Tests.Unit.csproj" />
+  </Folder>
+</Solution>
