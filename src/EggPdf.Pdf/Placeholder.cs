@@ -1,1 +1,0 @@
-namespace EggPdf.Pdf;
