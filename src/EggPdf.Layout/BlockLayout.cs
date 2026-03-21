@@ -174,7 +174,7 @@ public static class BlockLayout
         return null;
     }
 
-    internal static float ResolveLength(string? value, float containingSize, float fontSize)
+    public static float ResolveLength(string? value, float containingSize, float fontSize)
     {
         if (string.IsNullOrEmpty(value) || value == "auto" || value == "0")
             return 0;

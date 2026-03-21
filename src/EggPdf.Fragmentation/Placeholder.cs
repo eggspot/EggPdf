@@ -1,1 +1,1 @@
-namespace EggPdf.Fragmentation;
+namespace EggPdf.Fragmentation; public static class Placeholder { }

@@ -1,1 +1,1 @@
-namespace EggPdf.Style;
+namespace EggPdf.Style; public static class Placeholder { }
