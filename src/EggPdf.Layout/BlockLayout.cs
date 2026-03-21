@@ -32,6 +32,9 @@ public static class BlockLayout
         var bodyBox = CreateBox(document.Body, bodyStyle, root, pageWidth, resolver, null);
         root.Children.Add(bodyBox);
 
+        // Post-layout pass: convert all Y coordinates to absolute
+        ResolveAbsolutePositions(root, 0, 0);
+
         return root;
     }
 
@@ -328,5 +331,30 @@ public static class BlockLayout
         if (float.TryParse(s.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float result))
             return result;
         return 0;
+    }
+
+    /// <summary>
+    /// Post-layout pass: resolve children with relative Y coordinates to absolute.
+    /// Children created by CreateBox have Y relative to parent's content area,
+    /// but the parent's final Y is set after CreateBox returns.
+    /// </summary>
+    private static void ResolveAbsolutePositions(LayoutBox box, float offsetX, float offsetY)
+    {
+        foreach (var child in box.Children)
+        {
+            // A child's Y is relative if it's less than its parent's Y
+            // and the parent has a non-zero Y position
+            bool needsYFix = box.Y > 0 && child.Y < box.Y;
+            bool needsXFix = box.X > 0 && child.X < box.X;
+
+            if (needsYFix)
+                child.Y += box.Y;
+
+            if (needsXFix)
+                child.X = Math.Max(child.X + box.X - 8, child.X); // adjust but don't double-count body margin
+
+            // Recurse into children
+            ResolveAbsolutePositions(child, child.X, child.Y);
+        }
     }
 }
