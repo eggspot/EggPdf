@@ -100,6 +100,9 @@ public class BasicStyleResolver
         if (!style.Has("display"))
             style.Set("display", "inline");
 
+        // 1b. Apply HTML presentational attributes (lowest priority, below UA)
+        ApplyPresentationalAttributes(element, style);
+
         // 2. Inherit from parent
         if (parentStyle != null)
         {
@@ -128,5 +131,71 @@ public class BasicStyleResolver
             style.Set("display", "none");
 
         return style;
+    }
+
+    /// <summary>
+    /// Apply legacy HTML presentational attributes as CSS equivalents.
+    /// These have the lowest priority -- any stylesheet or inline style overrides them.
+    /// </summary>
+    private static void ApplyPresentationalAttributes(HtmlElement element, ComputedStyle style)
+    {
+        // width / height attributes (img, table, td, th, col)
+        var widthAttr = element.GetAttribute("width");
+        if (!string.IsNullOrEmpty(widthAttr) && !style.Has("width"))
+        {
+            style.Set("width", widthAttr.EndsWith("%") ? widthAttr : widthAttr + "px");
+        }
+
+        var heightAttr = element.GetAttribute("height");
+        if (!string.IsNullOrEmpty(heightAttr) && !style.Has("height"))
+        {
+            style.Set("height", heightAttr.EndsWith("%") ? heightAttr : heightAttr + "px");
+        }
+
+        // bgcolor
+        var bgcolor = element.GetAttribute("bgcolor");
+        if (!string.IsNullOrEmpty(bgcolor) && !style.Has("background-color"))
+            style.Set("background-color", bgcolor);
+
+        // align
+        var align = element.GetAttribute("align");
+        if (!string.IsNullOrEmpty(align) && !style.Has("text-align"))
+            style.Set("text-align", align.ToLowerInvariant());
+
+        // valign
+        var valign = element.GetAttribute("valign");
+        if (!string.IsNullOrEmpty(valign) && !style.Has("vertical-align"))
+            style.Set("vertical-align", valign.ToLowerInvariant());
+
+        // border (table)
+        var border = element.GetAttribute("border");
+        if (!string.IsNullOrEmpty(border) && element.TagName == "table")
+        {
+            if (!style.Has("border-top-width"))
+            {
+                var bw = border == "0" ? "0" : border + "px";
+                style.Set("border-top-width", bw);
+                style.Set("border-right-width", bw);
+                style.Set("border-bottom-width", bw);
+                style.Set("border-left-width", bw);
+                if (border != "0")
+                {
+                    style.Set("border-top-style", "solid");
+                    style.Set("border-right-style", "solid");
+                    style.Set("border-bottom-style", "solid");
+                    style.Set("border-left-style", "solid");
+                }
+            }
+        }
+
+        // color (font element)
+        var colorAttr = element.GetAttribute("color");
+        if (!string.IsNullOrEmpty(colorAttr) && !style.Has("color"))
+            style.Set("color", colorAttr);
+
+        // face (font element)
+        var face = element.GetAttribute("face");
+        if (!string.IsNullOrEmpty(face) && !style.Has("font-family"))
+            style.Set("font-family", face);
     }
 }
