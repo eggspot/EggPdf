@@ -247,7 +247,10 @@ public static class BlockLayout
     private static bool IsBlockLevel(string display)
     {
         return display == "block" || display == "list-item" ||
-               display == "table" || display == "flex" || display == "grid";
+               display == "table" || display == "flex" || display == "grid" ||
+               display == "table-row-group" || display == "table-header-group" ||
+               display == "table-footer-group" || display == "table-row" ||
+               display == "table-cell" || display == "table-caption";
     }
 
     private static string? GetTextContent(HtmlElement element)
