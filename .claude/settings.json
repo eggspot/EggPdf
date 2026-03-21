@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls docs/*.md)",
+      "Bash(grep -c \"^- \\\\`/\" CLAUDE.md)",
+      "Bash(ls .claude/skills/*/SKILL.md)",
+      "Bash(gh label:*)",
+      "Bash(gh issue:*)",
+      "Bash(__NEW_LINE_30dbef66d43b4246__ gh:*)",
+      "Bash(margin: 10px 20px\"` -> correct declarations:*)",
+      "Bash(__NEW_LINE_c3a9efc9027a5b5c__ gh:*)",
+      "Bash(sort -t'|' -k1 -n)",
+      "Bash(grep -v \"^$\")"
+    ]
+  }
+}

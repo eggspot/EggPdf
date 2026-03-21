@@ -1,0 +1,38 @@
+name: Wiki Sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-wiki:
+    name: Sync docs to Wiki
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync to Wiki
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/eggspot/EggPdf.wiki.git" wiki_repo
+
+          cp docs/*.md wiki_repo/
+
+          cd wiki_repo
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No wiki changes to commit"
+          else
+            git commit -m "docs: sync wiki from docs/ directory"
+            git push
+          fi

@@ -1,0 +1,93 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  benchmark-pr:
+    name: Benchmark (PR Quick Check)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Run benchmarks (short)
+        run: |
+          cd benchmarks/EggPdf.Benchmarks
+          dotnet run -c Release -- --filter * --job short --exporters json markdown
+        continue-on-error: true
+
+      - name: Parse results
+        id: results
+        run: |
+          RESULTS_DIR="benchmarks/EggPdf.Benchmarks/BenchmarkDotNet.Artifacts/results"
+          if [ -d "$RESULTS_DIR" ]; then
+            REPORT=$(find "$RESULTS_DIR" -name "*-report.md" | head -1)
+            if [ -n "$REPORT" ]; then
+              echo "report<<EOF" >> $GITHUB_OUTPUT
+              cat "$REPORT" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Comment on PR
+        if: steps.results.outputs.report != ''
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: benchmarks
+          message: |
+            ## Benchmark Results
+
+            ${{ steps.results.outputs.report }}
+
+            > Quick benchmark (short job). Full benchmarks run on merge to main.
+
+  benchmark-main:
+    name: Benchmark (Full)
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Run benchmarks (full)
+        run: |
+          cd benchmarks/EggPdf.Benchmarks
+          dotnet run -c Release -- --filter * --exporters json markdown
+        continue-on-error: true
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmarks/EggPdf.Benchmarks/BenchmarkDotNet.Artifacts/
+          retention-days: 90
+
+      - name: Update README benchmarks
+        if: github.event_name == 'push'
+        run: |
+          if [ -f "scripts/update-readme-benchmarks.py" ]; then
+            python3 scripts/update-readme-benchmarks.py
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add README.md
+            git diff --staged --quiet || git commit -m "docs: update benchmark results [skip ci]"
+            git push origin main || true
+          fi

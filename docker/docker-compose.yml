@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  eggpdf:
+    image: eggpdf/service:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - AUTH_ENABLED=false
+      - WEBUI_ENABLED=true
+    volumes:
+      - ./fonts:/app/fonts:ro            # Mount custom fonts
+      - ./templates:/app/templates:ro    # Mount Razor templates
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '2'
+    restart: unless-stopped

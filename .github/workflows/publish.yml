@@ -1,0 +1,162 @@
+name: Publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_bump:
+        description: 'Force version bump type (patch/minor/major)'
+        required: false
+        type: choice
+        options:
+          - ''
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish NuGet
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            6.0.x
+            8.0.x
+            9.0.x
+
+      - name: Detect version bump from commits
+        id: bump
+        run: |
+          FORCE="${{ github.event.inputs.force_bump }}"
+          if [ -n "$FORCE" ]; then
+            echo "type=$FORCE" >> $GITHUB_OUTPUT
+            echo "Forced bump: $FORCE"
+            exit 0
+          fi
+
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Last tag: $LAST_TAG"
+
+          COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"%s" 2>/dev/null || git log --pretty=format:"%s")
+
+          if echo "$COMMITS" | grep -qiE "^(feat|fix|perf|refactor|test|docs|chore)(\(.*\))?!:|BREAKING CHANGE"; then
+            echo "type=major" >> $GITHUB_OUTPUT
+          elif echo "$COMMITS" | grep -qiE "^feat(\(.*\))?:"; then
+            echo "type=minor" >> $GITHUB_OUTPUT
+          elif echo "$COMMITS" | grep -qiE "^(fix|perf|chore|refactor|test|docs)(\(.*\))?:"; then
+            echo "type=patch" >> $GITHUB_OUTPUT
+          else
+            echo "type=none" >> $GITHUB_OUTPUT
+            echo "No conventional commits found, skipping publish"
+          fi
+
+      - name: Calculate new version
+        id: version
+        if: steps.bump.outputs.type != 'none'
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          VERSION="${LAST_TAG#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          MAJOR=${MAJOR:-0}
+          MINOR=${MINOR:-0}
+          PATCH=${PATCH:-0}
+
+          case "${{ steps.bump.outputs.type }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "New version: $NEW_VERSION"
+
+      - name: Check if tag exists
+        id: tag_check
+        if: steps.bump.outputs.type != 'none'
+        run: |
+          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag v${{ steps.version.outputs.version }} already exists, skipping"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update version in csproj
+        if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          find src -name "*.csproj" | while read csproj; do
+            if grep -q "<Version>" "$csproj"; then
+              sed -i "s|<Version>.*</Version>|<Version>${VERSION}</Version>|" "$csproj"
+            fi
+          done
+
+      - name: Restore
+        if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
+        run: dotnet restore
+
+      - name: Build
+        if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Test
+        if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
+        run: dotnet test --configuration Release --no-build
+
+      - name: Pack
+        if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
+        run: dotnet pack --configuration Release --no-build --output ./artifacts
+
+      - name: Upload artifacts
+        if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: ./artifacts/*.nupkg
+
+      - name: Push to NuGet
+        if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
+        run: |
+          dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+          dotnet nuget push ./artifacts/*.snupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate || true
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+
+      - name: Create git tag
+        if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
+        run: |
+          git tag -a "v${{ steps.version.outputs.version }}" -m "EggPdf v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
+
+      - name: Create GitHub Release
+        if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
+        run: |
+          gh release create "v${{ steps.version.outputs.version }}" \
+            --title "EggPdf v${{ steps.version.outputs.version }}" \
+            --generate-notes \
+            ./artifacts/*.nupkg
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit version bump
+        if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --staged --quiet || git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
+          git push origin main || true

@@ -1,0 +1,97 @@
+name: Release Binaries
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-cli:
+    name: Build CLI (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+            artifact: eggpdf-win-x64.exe
+          - rid: win-arm64
+            os: windows-latest
+            artifact: eggpdf-win-arm64.exe
+          - rid: linux-x64
+            os: ubuntu-latest
+            artifact: eggpdf-linux-x64
+          - rid: linux-arm64
+            os: ubuntu-latest
+            artifact: eggpdf-linux-arm64
+          - rid: osx-x64
+            os: macos-latest
+            artifact: eggpdf-osx-x64
+          - rid: osx-arm64
+            os: macos-latest
+            artifact: eggpdf-osx-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Publish single-file
+        run: |
+          dotnet publish src/EggPdf.Cli/EggPdf.Cli.csproj \
+            -c Release \
+            -r ${{ matrix.rid }} \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:PublishTrimmed=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -o ./publish
+
+      - name: Rename binary
+        shell: bash
+        run: |
+          if [[ "${{ matrix.rid }}" == win-* ]]; then
+            mv ./publish/EggPdf.Cli.exe ./publish/${{ matrix.artifact }}
+          else
+            mv ./publish/EggPdf.Cli ./publish/${{ matrix.artifact }}
+            chmod +x ./publish/${{ matrix.artifact }}
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ./publish/${{ matrix.artifact }}
+
+  attach-to-release:
+    name: Attach binaries to GitHub Release
+    needs: build-cli
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./binaries
+          merge-multiple: true
+
+      - name: List binaries
+        run: ls -la ./binaries/
+
+      - name: Upload to release
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          for file in ./binaries/eggpdf-*; do
+            gh release upload "$TAG" "$file" --clobber
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}

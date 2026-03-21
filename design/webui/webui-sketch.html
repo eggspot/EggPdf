@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EggPdf Web UI - Design Sketch</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --bg-surface: #1a1d27;
+    --bg-elevated: #232734;
+    --border: #2e3348;
+    --text: #e4e6f0;
+    --text-muted: #8b8fa8;
+    --primary: #6c5ce7;
+    --primary-hover: #7e70f0;
+    --accent: #00cec9;
+    --success: #00b894;
+    --warning: #fdcb6e;
+    --danger: #e17055;
+    --radius: 8px;
+    --header-h: 56px;
+    --sidebar-w: 320px;
+    --toolbar-h: 44px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* === HEADER === */
+  .header {
+    height: var(--header-h);
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 12px;
+    z-index: 100;
+  }
+
+  .header .logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--primary);
+    flex-shrink: 0;
+  }
+
+  .header .logo span { color: var(--text); font-weight: 400; font-size: 13px; opacity: 0.6; }
+
+  .header .tabs {
+    display: flex;
+    gap: 2px;
+    background: var(--bg);
+    border-radius: 6px;
+    padding: 3px;
+    margin-left: 16px;
+  }
+
+  .header .tab {
+    padding: 6px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--text-muted);
+    border: none;
+    background: none;
+    transition: all 0.15s;
+  }
+
+  .header .tab.active {
+    background: var(--bg-elevated);
+    color: var(--text);
+  }
+
+  .header .actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .btn {
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text);
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .btn:hover { border-color: var(--text-muted); }
+
+  .btn-primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: white;
+  }
+
+  .btn-primary:hover { background: var(--primary-hover); }
+
+  .btn-icon {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+  }
+
+  .btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+  /* === MAIN LAYOUT === */
+  .main {
+    display: flex;
+    height: calc(100vh - var(--header-h) - 28px); /* subtract status bar */
+  }
+
+  /* === EDITOR PANEL === */
+  .editor-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    border-right: 1px solid var(--border);
+  }
+
+  .editor-toolbar {
+    height: var(--toolbar-h);
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .editor-toolbar .file-name {
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .editor-toolbar .dot {
+    width: 8px;
+    height: 8px;
+    background: var(--success);
+    border-radius: 50%;
+  }
+
+  .editor-content {
+    flex: 1;
+    background: var(--bg);
+    position: relative;
+    overflow: auto;
+  }
+
+  .code-area {
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    padding: 16px;
+    resize: none;
+    outline: none;
+    tab-size: 2;
+  }
+
+  .line-numbers {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 48px;
+    padding: 16px 8px 16px 0;
+    text-align: right;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-muted);
+    opacity: 0.4;
+    user-select: none;
+    pointer-events: none;
+  }
+
+  .editor-content .code-area { padding-left: 56px; }
+
+  /* === PREVIEW PANEL === */
+  .preview-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .preview-toolbar {
+    height: var(--toolbar-h);
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 8px;
+  }
+
+  .preview-toolbar .zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+  }
+
+  .preview-toolbar .zoom-value {
+    font-size: 12px;
+    color: var(--text-muted);
+    min-width: 40px;
+    text-align: center;
+  }
+
+  .preview-content {
+    flex: 1;
+    background: #2a2d3a;
+    overflow: auto;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;  /* align to top, not center */
+    padding: 24px;
+  }
+
+  .pdf-page {
+    background: white;
+    width: 595px;
+    min-height: 842px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    border-radius: 2px;
+    padding: 60px;
+    color: #333;
+    font-family: Arial, sans-serif;
+    flex-shrink: 0;
+  }
+
+  .pdf-page h1 { font-size: 28px; margin-bottom: 16px; color: #111; }
+  .pdf-page h2 { font-size: 20px; margin: 24px 0 12px; color: #333; }
+  .pdf-page p { font-size: 14px; line-height: 1.6; margin-bottom: 12px; color: #555; }
+  .pdf-page table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  .pdf-page th, .pdf-page td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; font-size: 13px; }
+  .pdf-page th { background: #f5f5f5; font-weight: 600; }
+  .pdf-page .footer { text-align: center; font-size: 11px; color: #999; margin-top: 40px; padding-top: 12px; border-top: 1px solid #eee; }
+
+  /* === OPTIONS SIDEBAR (right) === */
+  .options-sidebar {
+    width: var(--sidebar-w);
+    background: var(--bg-surface);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+
+  .options-section {
+    border-bottom: 1px solid var(--border);
+    padding: 16px;
+  }
+
+  .options-section h3 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+
+  .option-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .option-row label {
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .option-row select, .option-row input[type="text"], .option-row input[type="number"], .option-row input[type="password"] {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 13px;
+    width: 140px;
+  }
+
+  .option-row .input-with-unit {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .option-row .input-with-unit input { width: 80px; }
+  .option-row .input-with-unit .unit { font-size: 12px; color: var(--text-muted); }
+
+  .option-row input[type="checkbox"] {
+    accent-color: var(--primary);
+    width: 16px;
+    height: 16px;
+  }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .toggle {
+    width: 40px;
+    height: 22px;
+    background: var(--border);
+    border-radius: 11px;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .toggle.on { background: var(--primary); }
+
+  .toggle::after {
+    content: '';
+    width: 18px;
+    height: 18px;
+    background: white;
+    border-radius: 50%;
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    transition: left 0.2s;
+  }
+
+  .toggle.on::after { left: 20px; }
+
+  /* === STATUS BAR === */
+  .status-bar {
+    height: 28px;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+    gap: 16px;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+  }
+
+  .status-bar .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+  }
+
+  .status-bar .right { margin-left: auto; display: flex; gap: 16px; }
+
+  .status-bar.error .status-dot { background: var(--danger); }
+  .status-bar.error { color: var(--danger); }
+
+  /* === TEMPLATE GALLERY MODAL === */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal-overlay.show { display: flex; }
+
+  .modal {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 90%;
+    max-width: 800px;
+    max-height: 80vh;
+    overflow: auto;
+    padding: 24px;
+  }
+
+  .modal h2 { font-size: 18px; margin-bottom: 16px; }
+
+  .template-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px;
+  }
+
+  .template-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+  }
+
+  .template-card:hover {
+    border-color: var(--primary);
+    transform: translateY(-2px);
+  }
+
+  .template-card .icon { font-size: 32px; margin-bottom: 8px; }
+  .template-card .name { font-size: 14px; font-weight: 500; }
+  .template-card .desc { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+  /* === MOBILE RESPONSIVE === */
+
+  /* Tablet (768px - 1024px) */
+  @media (max-width: 1024px) {
+    .options-sidebar { display: none; }
+    .options-sidebar.show { display: block; position: fixed; right: 0; top: var(--header-h); bottom: 28px; z-index: 50; width: var(--sidebar-w); }
+  }
+
+  /* Mobile (< 768px) */
+  @media (max-width: 768px) {
+    :root {
+      --header-h: 48px;
+      --bottom-bar-h: 52px;
+      --status-bar-h: 24px;
+    }
+
+    .header { padding: 0 8px; gap: 8px; }
+    .header .logo span { display: none; }
+    .header .tabs { display: none; }
+
+    .main {
+      flex-direction: column;
+      height: calc(100vh - var(--header-h) - var(--bottom-bar-h) - var(--status-bar-h));
+    }
+
+    .editor-panel, .preview-panel {
+      border-right: none;
+    }
+
+    /* Mobile: show one panel at a time */
+    .editor-panel { display: none; }
+    .preview-panel { display: none; }
+    .editor-panel.active-mobile { display: flex; flex: 1; }
+    .preview-panel.active-mobile { display: flex; flex: 1; }
+
+    .options-sidebar {
+      display: none;
+      position: fixed;
+      top: var(--header-h);
+      bottom: calc(var(--bottom-bar-h) + var(--status-bar-h));
+      left: 0;
+      right: 0;
+      width: 100%;
+      z-index: 50;
+    }
+    .options-sidebar.show { display: block; }
+
+    .mobile-bottom-bar {
+      display: flex !important;
+      position: fixed;
+      bottom: var(--status-bar-h);
+      left: 0;
+      right: 0;
+      height: var(--bottom-bar-h);
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border);
+      align-items: center;
+      justify-content: space-around;
+      z-index: 60;
+    }
+
+    .mobile-bottom-bar button {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 11px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      cursor: pointer;
+      padding: 4px 12px;
+    }
+
+    .mobile-bottom-bar button.active { color: var(--primary); }
+    .mobile-bottom-bar button .icon { font-size: 20px; }
+
+    .status-bar {
+      bottom: 0;
+      height: var(--status-bar-h);
+      font-size: 10px;
+      gap: 8px;
+    }
+
+    /* Hide verbose timing on mobile -- just show total */
+    .status-bar .timing-detail { display: none; }
+
+    .pdf-page { width: 100%; min-height: auto; padding: 24px; }
+    .preview-content { padding: 12px; }
+
+    .btn span.label { display: none; }
+
+    /* Template modal responsive */
+    .modal { width: 95%; padding: 16px; }
+    .template-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  }
+
+  /* Very small mobile (< 380px) */
+  @media (max-width: 380px) {
+    .template-grid { grid-template-columns: 1fr; }
+    .mobile-bottom-bar button { padding: 4px 8px; font-size: 10px; }
+  }
+
+  /* Hidden by default, shown on mobile */
+  .mobile-bottom-bar { display: none; }
+
+  /* === LIGHT THEME === */
+  body.light-theme {
+    --bg: #f5f6fa;
+    --bg-surface: #ffffff;
+    --bg-elevated: #eef0f6;
+    --border: #d5d8e3;
+    --text: #1a1d27;
+    --text-muted: #6b7085;
+  }
+
+  body.light-theme .preview-content { background: #e2e4ec; }
+  body.light-theme .code-area { color: var(--text); }
+  body.light-theme .pdf-page { box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
+  body.light-theme .line-numbers { color: var(--text-muted); }
+
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="logo">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+      <rect width="24" height="24" rx="6" fill="#6c5ce7"/>
+      <path d="M7 7h10v2H7V7zm0 4h10v2H7v-2zm0 4h7v2H7v-2z" fill="white"/>
+    </svg>
+    EggPdf
+    <span>v1.0.0</span>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active">HTML</button>
+    <button class="tab">CSS</button>
+  </div>
+
+  <div class="actions">
+    <button class="btn" onclick="document.getElementById('templateModal').classList.add('show')" title="Templates">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2h5v5H2V2zm7 0h5v5H9V2zM2 9h5v5H2V9zm7 0h5v5H9V9z"/></svg>
+      <span class="label">Templates</span>
+    </button>
+    <button class="btn" title="Upload HTML">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1L4 5h3v5h2V5h3L8 1zM2 12v2h12v-2H2z"/></svg>
+      <span class="label">Upload</span>
+    </button>
+    <button class="btn-icon btn" onclick="document.body.classList.toggle('light-theme')" title="Toggle light/dark theme">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 12.5V2.5a5.5 5.5 0 010 11z"/></svg>
+    </button>
+    <button class="btn-icon btn" onclick="document.querySelector('.options-sidebar').classList.toggle('show')" title="Options">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M13.6 5.2l-1.2-2.1-1.8.8c-.4-.3-.8-.6-1.3-.7L9 1H7l-.3 2.2c-.5.1-.9.4-1.3.7l-1.8-.8L2.4 5.2l1.5 1.4c0 .3-.1.6-.1.9s0 .6.1.9l-1.5 1.4 1.2 2.1 1.8-.8c.4.3.8.6 1.3.7L7 14h2l.3-2.2c.5-.1.9-.4 1.3-.7l1.8.8 1.2-2.1-1.5-1.4c0-.3.1-.6.1-.9s0-.6-.1-.9l1.5-1.4zM8 10c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+    </button>
+    <button class="btn btn-primary" title="Download PDF">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 10L4 6h3V1h2v5h3l-4 4zM2 12v2h12v-2H2z"/></svg>
+      <span class="label">Download PDF</span>
+    </button>
+  </div>
+</header>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- EDITOR -->
+  <div class="editor-panel active-mobile">
+    <div class="editor-toolbar">
+      <div class="dot"></div>
+      <span class="file-name">invoice.html</span>
+      <span style="margin-left:auto;">UTF-8</span>
+      <span>HTML</span>
+    </div>
+    <div class="editor-content">
+      <div class="line-numbers">1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>12<br>13<br>14<br>15<br>16<br>17<br>18<br>19<br>20<br>21<br>22<br>23<br>24<br>25<br>26<br>27<br>28</div>
+      <textarea class="code-area" spellcheck="false">&lt;html&gt;
+&lt;head&gt;
+  &lt;style&gt;
+    body { font-family: Arial, sans-serif; }
+    h1 { color: #2d3436; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+    th { background: #6c5ce7; color: white; }
+    .total { font-weight: bold; font-size: 18px; }
+    @page { margin: 2cm; @bottom-center { content: "Page " counter(page); } }
+  &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;h1&gt;Invoice #2024-0042&lt;/h1&gt;
+  &lt;p&gt;Date: March 21, 2026 | Customer: Acme Corporation&lt;/p&gt;
+
+  &lt;table&gt;
+    &lt;thead&gt;&lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Qty&lt;/th&gt;&lt;th&gt;Price&lt;/th&gt;&lt;th&gt;Total&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+    &lt;tbody&gt;
+      &lt;tr&gt;&lt;td&gt;Web Development&lt;/td&gt;&lt;td&gt;40h&lt;/td&gt;&lt;td&gt;$150&lt;/td&gt;&lt;td&gt;$6,000&lt;/td&gt;&lt;/tr&gt;
+      &lt;tr&gt;&lt;td&gt;UI/UX Design&lt;/td&gt;&lt;td&gt;20h&lt;/td&gt;&lt;td&gt;$120&lt;/td&gt;&lt;td&gt;$2,400&lt;/td&gt;&lt;/tr&gt;
+      &lt;tr&gt;&lt;td&gt;QA Testing&lt;/td&gt;&lt;td&gt;10h&lt;/td&gt;&lt;td&gt;$100&lt;/td&gt;&lt;td&gt;$1,000&lt;/td&gt;&lt;/tr&gt;
+    &lt;/tbody&gt;
+  &lt;/table&gt;
+
+  &lt;p class="total"&gt;Total: $9,400.00&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;</textarea>
+    </div>
+  </div>
+
+  <!-- PREVIEW -->
+  <div class="preview-panel">
+    <div class="preview-toolbar">
+      <span style="font-size:12px; color:var(--text-muted);">Preview</span>
+      <span style="font-size:11px; color:var(--success); margin-left:8px;">1 page | 85ms</span>
+      <div class="zoom-controls">
+        <button class="btn-icon btn" style="width:28px;height:28px;font-size:14px;">-</button>
+        <span class="zoom-value">75%</span>
+        <button class="btn-icon btn" style="width:28px;height:28px;font-size:14px;">+</button>
+        <button class="btn-icon btn" style="width:28px;height:28px;font-size:11px;">Fit</button>
+      </div>
+    </div>
+    <div class="preview-content">
+      <div class="pdf-page">
+        <h1>Invoice #2024-0042</h1>
+        <p>Date: March 21, 2026 | Customer: Acme Corporation</p>
+        <table>
+          <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
+          <tbody>
+            <tr><td>Web Development</td><td>40h</td><td>$150</td><td>$6,000</td></tr>
+            <tr><td>UI/UX Design</td><td>20h</td><td>$120</td><td>$2,400</td></tr>
+            <tr><td>QA Testing</td><td>10h</td><td>$100</td><td>$1,000</td></tr>
+          </tbody>
+        </table>
+        <p style="font-weight:bold; font-size:18px;">Total: $9,400.00</p>
+        <div class="footer">Page 1</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPTIONS SIDEBAR -->
+  <aside class="options-sidebar">
+    <div class="options-section">
+      <h3>Page</h3>
+      <div class="option-row">
+        <label>Size</label>
+        <select><option selected>A4</option><option>Letter</option><option>Legal</option><option>A3</option><option>A5</option><option>Custom</option></select>
+      </div>
+      <div class="option-row">
+        <label>Orientation</label>
+        <select><option selected>Portrait</option><option>Landscape</option></select>
+      </div>
+      <div class="option-row">
+        <label>Margin</label>
+        <input type="text" value="20mm">
+      </div>
+    </div>
+
+    <div class="options-section">
+      <h3>Header / Footer</h3>
+      <div class="option-row">
+        <label>Header</label>
+        <input type="text" placeholder="{{title}}">
+      </div>
+      <div class="option-row">
+        <label>Footer</label>
+        <input type="text" value="Page {{page}} of {{pages}}">
+      </div>
+    </div>
+
+    <div class="options-section">
+      <h3>Typography</h3>
+      <div class="option-row">
+        <label>Default Font</label>
+        <select><option selected>Arial</option><option>Helvetica</option><option>Times New Roman</option><option>Roboto</option></select>
+      </div>
+      <div class="option-row">
+        <label>Font Size</label>
+        <div class="input-with-unit">
+          <input type="number" value="12">
+          <span class="unit">pt</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="options-section">
+      <h3>PDF Options</h3>
+      <div class="toggle-row">
+        <label style="font-size:13px;">Compress</label>
+        <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+      </div>
+      <div class="toggle-row">
+        <label style="font-size:13px;">Tagged (Accessible)</label>
+        <div class="toggle" onclick="this.classList.toggle('on')"></div>
+      </div>
+      <div class="toggle-row">
+        <label style="font-size:13px;">PDF/A Archival</label>
+        <div class="toggle" onclick="this.classList.toggle('on')"></div>
+      </div>
+      <div class="toggle-row">
+        <label style="font-size:13px;">Shrink to Fit</label>
+        <div class="toggle" onclick="this.classList.toggle('on')"></div>
+      </div>
+      <div class="toggle-row">
+        <label style="font-size:13px;">Debug Layout</label>
+        <div class="toggle" onclick="this.classList.toggle('on')"></div>
+      </div>
+    </div>
+
+    <div class="options-section">
+      <h3>Watermark</h3>
+      <div class="option-row">
+        <label>Text</label>
+        <input type="text" placeholder="DRAFT">
+      </div>
+      <div class="option-row">
+        <label>Opacity</label>
+        <div class="input-with-unit">
+          <input type="number" value="30">
+          <span class="unit">%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="options-section">
+      <h3>Security</h3>
+      <div class="option-row">
+        <label>Password</label>
+        <input type="password" placeholder="Optional">
+      </div>
+    </div>
+
+    <div class="options-section">
+      <h3>Output</h3>
+      <div class="option-row">
+        <label>Format</label>
+        <select><option selected>PDF</option><option>PNG</option><option>JPEG</option></select>
+      </div>
+      <div class="option-row">
+        <label>DPI (image)</label>
+        <input type="number" value="150">
+      </div>
+    </div>
+
+    <div class="options-section" style="border:none;">
+      <button class="btn btn-primary" style="width:100%; justify-content:center; padding:12px;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 10L4 6h3V1h2v5h3l-4 4zM2 12v2h12v-2H2z"/></svg>
+        Download PDF
+      </button>
+      <button class="btn" style="width:100%; justify-content:center; padding:12px; margin-top:8px;">
+        Copy REST API Call
+      </button>
+    </div>
+  </aside>
+</div>
+
+<!-- MOBILE BOTTOM BAR -->
+<div class="mobile-bottom-bar">
+  <button class="active" onclick="showMobilePanel('editor')">
+    <span class="icon">&lt;/&gt;</span>
+    Editor
+  </button>
+  <button onclick="showMobilePanel('preview')">
+    <span class="icon">&#x25A3;</span>
+    Preview
+  </button>
+  <button onclick="toggleMobileOptions(this)">
+    <span class="icon">&#x2699;</span>
+    Options
+  </button>
+  <button>
+    <span class="icon">&#x2B07;</span>
+    Download
+  </button>
+</div>
+
+<!-- STATUS BAR -->
+<div class="status-bar">
+  <span class="status-dot"></span>
+  <span>Ready</span>
+  <span>|</span>
+  <span>Total: 85ms</span>
+  <span class="timing-detail">Parse: 2ms</span>
+  <span class="timing-detail">Style: 5ms</span>
+  <span class="timing-detail">Layout: 45ms</span>
+  <span class="timing-detail">Paint: 12ms</span>
+  <span class="timing-detail">PDF: 21ms</span>
+  <div class="right">
+    <span>1 page</span>
+    <span>|</span>
+    <span>42 KB</span>
+  </div>
+</div>
+
+<!-- TEMPLATE GALLERY MODAL -->
+<div class="modal-overlay" id="templateModal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="modal">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h2 style="margin:0;">Template Gallery</h2>
+      <button class="btn-icon btn" onclick="document.getElementById('templateModal').classList.remove('show')" style="flex-shrink:0;" title="Close">&#x2715;</button>
+    </div>
+    <p style="color:var(--text-muted); font-size:13px; margin-bottom:16px;">Choose a template to start with. You can customize everything.</p>
+    <div class="template-grid">
+      <div class="template-card" onclick="document.getElementById('templateModal').classList.remove('show')">
+        <div class="icon">&#x1F4C4;</div>
+        <div class="name">Blank</div>
+        <div class="desc">Start from scratch</div>
+      </div>
+      <div class="template-card" onclick="document.getElementById('templateModal').classList.remove('show')">
+        <div class="icon">&#x1F4B0;</div>
+        <div class="name">Invoice</div>
+        <div class="desc">Professional invoice with table</div>
+      </div>
+      <div class="template-card" onclick="document.getElementById('templateModal').classList.remove('show')">
+        <div class="icon">&#x1F4CA;</div>
+        <div class="name">Report</div>
+        <div class="desc">Multi-page report with TOC</div>
+      </div>
+      <div class="template-card" onclick="document.getElementById('templateModal').classList.remove('show')">
+        <div class="icon">&#x2709;</div>
+        <div class="name">Letter</div>
+        <div class="desc">Formal business letter</div>
+      </div>
+      <div class="template-card" onclick="document.getElementById('templateModal').classList.remove('show')">
+        <div class="icon">&#x1F3C6;</div>
+        <div class="name">Certificate</div>
+        <div class="desc">Award or completion certificate</div>
+      </div>
+      <div class="template-card" onclick="document.getElementById('templateModal').classList.remove('show')">
+        <div class="icon">&#x1F4CB;</div>
+        <div class="name">Resume</div>
+        <div class="desc">Modern resume / CV layout</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleMobileOptions(btn) {
+  const sidebar = document.querySelector('.options-sidebar');
+  const isOpen = sidebar.classList.toggle('show');
+  btn.classList.toggle('active', isOpen);
+}
+
+function showMobilePanel(panel) {
+  const editor = document.querySelector('.editor-panel');
+  const preview = document.querySelector('.preview-panel');
+  const sidebar = document.querySelector('.options-sidebar');
+  const buttons = document.querySelectorAll('.mobile-bottom-bar button');
+
+  editor.classList.remove('active-mobile');
+  preview.classList.remove('active-mobile');
+  sidebar.classList.remove('show');
+
+  buttons.forEach(b => b.classList.remove('active'));
+
+  if (panel === 'editor') {
+    editor.classList.add('active-mobile');
+    buttons[0].classList.add('active');
+  } else if (panel === 'preview') {
+    preview.classList.add('active-mobile');
+    buttons[1].classList.add('active');
+  }
+}
+</script>
+
+</body>
+</html>

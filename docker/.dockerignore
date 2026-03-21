@@ -1,0 +1,15 @@
+**/.git
+**/.vs
+**/.vscode
+**/bin
+**/obj
+**/node_modules
+**/.claude
+**/BenchmarkDotNet.Artifacts
+**/TestResults
+**/*.user
+**/*.suo
+**/BLUEPRINT.md
+**/CLAUDE.md
+**/*.md
+!README.md
