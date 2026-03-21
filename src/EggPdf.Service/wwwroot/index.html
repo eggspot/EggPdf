@@ -5,148 +5,367 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EggPdf - HTML to PDF</title>
 <style>
-  :root { --bg: #0f1117; --surface: #1a1d27; --border: #2e3348; --text: #e4e6f0; --muted: #8b8fa8; --primary: #6c5ce7; }
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --elevated: #232734; --border: #2e3348;
+    --text: #e4e6f0; --muted: #8b8fa8; --primary: #6c5ce7; --primary-hover: #7e70f0;
+    --success: #00b894; --warning: #fdcb6e; --danger: #e17055;
+    --header-h: 52px; --status-h: 26px; --toolbar-h: 38px; --sidebar-w: 280px;
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
-  .header { height: 48px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 16px; gap: 12px; }
-  .header h1 { font-size: 16px; color: var(--primary); }
-  .header h1 span { color: var(--muted); font-weight: 400; font-size: 12px; }
-  .btn { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-size: 13px; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* === HEADER === */
+  .header { height: var(--header-h); background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 16px; gap: 12px; flex-shrink: 0; }
+  .logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 17px; color: var(--primary); }
+  .logo span { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .tabs { display: flex; gap: 2px; background: var(--bg); border-radius: 6px; padding: 3px; margin-left: 12px; }
+  .tab { padding: 5px 14px; border-radius: 4px; font-size: 12px; cursor: pointer; color: var(--muted); border: none; background: none; }
+  .tab.active { background: var(--elevated); color: var(--text); }
+  .actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  .btn { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--elevated); color: var(--text); cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 5px; }
   .btn:hover { border-color: var(--muted); }
+  .btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
   .btn-primary { background: var(--primary); border-color: var(--primary); color: white; }
+  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-sm { padding: 4px 8px; font-size: 11px; }
+
+  /* === MAIN === */
   .main { flex: 1; display: flex; overflow: hidden; }
-  .editor { flex: 1; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
-  .editor textarea { flex: 1; background: var(--bg); color: var(--text); border: none; padding: 16px; font-family: 'Consolas', 'Fira Code', monospace; font-size: 13px; line-height: 1.6; resize: none; outline: none; tab-size: 2; }
-  .preview { flex: 1; display: flex; flex-direction: column; }
-  .preview-bar { height: 36px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 12px; font-size: 12px; color: var(--muted); gap: 8px; }
-  .preview-content { flex: 1; background: #2a2d3a; display: flex; justify-content: center; align-items: flex-start; padding: 24px; overflow: auto; }
-  .pdf-preview { background: white; box-shadow: 0 4px 24px rgba(0,0,0,0.4); max-width: 100%; }
-  .pdf-preview img { max-width: 100%; display: block; }
-  .status { height: 24px; background: var(--surface); border-top: 1px solid var(--border); display: flex; align-items: center; padding: 0 12px; font-size: 11px; color: var(--muted); gap: 12px; }
-  .status .dot { width: 6px; height: 6px; border-radius: 50%; background: #00b894; }
-  .actions { margin-left: auto; display: flex; gap: 8px; }
-  @media (max-width: 768px) { .main { flex-direction: column; } .editor { border-right: none; border-bottom: 1px solid var(--border); max-height: 40vh; } }
+
+  /* === EDITOR === */
+  .editor-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--border); }
+  .toolbar { height: var(--toolbar-h); background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 12px; gap: 8px; font-size: 11px; color: var(--muted); }
+  .toolbar .dot { width: 7px; height: 7px; background: var(--success); border-radius: 50%; }
+  .toolbar .filename { color: var(--text); font-weight: 500; }
+  .editor-wrap { flex: 1; position: relative; overflow: hidden; }
+  .editor-wrap textarea { width: 100%; height: 100%; background: var(--bg); color: var(--text); border: none; padding: 12px 12px 12px 48px; font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace; font-size: 13px; line-height: 1.6; resize: none; outline: none; tab-size: 2; }
+  .line-nums { position: absolute; left: 0; top: 0; width: 40px; padding: 12px 6px 12px 0; text-align: right; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 13px; line-height: 1.6; color: var(--muted); opacity: 0.4; user-select: none; pointer-events: none; overflow: hidden; }
+
+  /* === PREVIEW === */
+  .preview-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .preview-toolbar { height: var(--toolbar-h); background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 12px; gap: 6px; }
+  .preview-tabs { display: flex; gap: 2px; background: var(--bg); border-radius: 5px; padding: 2px; }
+  .preview-tab { padding: 4px 12px; border-radius: 3px; font-size: 11px; cursor: pointer; color: var(--muted); border: none; background: none; }
+  .preview-tab.active { background: var(--elevated); color: var(--text); }
+  .preview-info { margin-left: auto; font-size: 11px; color: var(--success); }
+  .preview-content { flex: 1; background: #2a2d3a; overflow: auto; display: flex; justify-content: center; align-items: flex-start; padding: 20px; }
+  .page-frame { background: white; box-shadow: 0 2px 20px rgba(0,0,0,0.4); border-radius: 2px; width: 595px; min-height: 842px; }
+  .page-frame iframe { width: 100%; height: 842px; border: none; }
+  .page-frame.pdf-view { display: flex; align-items: center; justify-content: center; color: #999; font-size: 14px; padding: 40px; }
+  .page-frame.pdf-view embed { width: 100%; height: 842px; }
+
+  /* === SIDEBAR === */
+  .sidebar { width: var(--sidebar-w); background: var(--surface); border-left: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; display: none; }
+  .sidebar.show { display: block; }
+  .sidebar-section { padding: 14px; border-bottom: 1px solid var(--border); }
+  .sidebar-section h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 10px; }
+  .opt-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .opt-row label { font-size: 12px; }
+  .opt-row select, .opt-row input { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px; width: 120px; }
+
+  /* === STATUS === */
+  .status-bar { height: var(--status-h); background: var(--surface); border-top: 1px solid var(--border); display: flex; align-items: center; padding: 0 12px; font-size: 10px; color: var(--muted); gap: 12px; flex-shrink: 0; }
+  .status-bar .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--success); }
+  .status-bar .right { margin-left: auto; display: flex; gap: 12px; }
+
+  /* === MODAL === */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; align-items: center; justify-content: center; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; width: 90%; max-width: 700px; max-height: 80vh; overflow: auto; padding: 20px; }
+  .modal h2 { font-size: 16px; margin-bottom: 12px; }
+  .tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+  .tpl-card { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 14px; cursor: pointer; text-align: center; transition: all 0.15s; }
+  .tpl-card:hover { border-color: var(--primary); transform: translateY(-2px); }
+  .tpl-card .icon { font-size: 28px; margin-bottom: 6px; }
+  .tpl-card .name { font-size: 13px; font-weight: 500; }
+  .tpl-card .desc { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  /* === LIGHT THEME === */
+  body.light { --bg: #f5f6fa; --surface: #fff; --elevated: #eef0f6; --border: #d5d8e3; --text: #1a1d27; --muted: #6b7085; }
+  body.light .preview-content { background: #e2e4ec; }
+  body.light .editor-wrap textarea { color: var(--text); }
+
+  /* === MOBILE === */
+  @media (max-width: 900px) { .sidebar { display: none !important; } }
+  @media (max-width: 700px) {
+    .main { flex-direction: column; }
+    .editor-panel { max-height: 40vh; border-right: none; border-bottom: 1px solid var(--border); }
+    .page-frame { width: 100%; min-height: auto; }
+    .page-frame iframe { height: 500px; }
+    .tabs { display: none; }
+    .btn .lbl { display: none; }
+  }
 </style>
 </head>
 <body>
+
+<!-- HEADER -->
 <header class="header">
-  <h1>EggPdf <span>v0.1.0</span></h1>
+  <div class="logo">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="6" fill="#6c5ce7"/><path d="M7 7h10v2H7V7zm0 4h10v2H7v-2zm0 4h7v2H7v-2z" fill="white"/></svg>
+    EggPdf <span>v0.1.0</span>
+  </div>
+  <div class="tabs">
+    <button class="tab active">HTML</button>
+    <button class="tab">CSS</button>
+  </div>
   <div class="actions">
-    <button class="btn" onclick="loadTemplate()">Template</button>
+    <button class="btn" onclick="document.getElementById('tplModal').classList.add('show')">Templates</button>
+    <label class="btn" style="margin:0"><input type="file" accept=".html,.htm" style="display:none" onchange="loadFile(event)">Upload</label>
+    <button class="btn btn-sm" onclick="document.body.classList.toggle('light')" title="Toggle theme">Theme</button>
+    <button class="btn btn-sm" onclick="document.querySelector('.sidebar').classList.toggle('show')" title="Options">Options</button>
     <button class="btn btn-primary" onclick="downloadPdf()">Download PDF</button>
   </div>
 </header>
 
+<!-- MAIN -->
 <div class="main">
-  <div class="editor">
-    <textarea id="htmlInput" spellcheck="false" placeholder="Type or paste HTML here...">&lt;html&gt;
-&lt;head&gt;
-  &lt;style&gt;
-    body { font-family: Arial, sans-serif; }
-    h1 { color: #2d3436; }
-    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-    th { background: #6c5ce7; color: white; }
-  &lt;/style&gt;
-&lt;/head&gt;
-&lt;body&gt;
-  &lt;h1&gt;Invoice #2024-001&lt;/h1&gt;
-  &lt;p&gt;Date: 2024-01-15&lt;/p&gt;
-  &lt;table&gt;
-    &lt;thead&gt;&lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Price&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
-    &lt;tbody&gt;
-      &lt;tr&gt;&lt;td&gt;Web Development&lt;/td&gt;&lt;td&gt;$5,000&lt;/td&gt;&lt;/tr&gt;
-      &lt;tr&gt;&lt;td&gt;Design&lt;/td&gt;&lt;td&gt;$2,000&lt;/td&gt;&lt;/tr&gt;
-    &lt;/tbody&gt;
-  &lt;/table&gt;
-  &lt;p&gt;&lt;strong&gt;Total: $7,000&lt;/strong&gt;&lt;/p&gt;
-&lt;/body&gt;
-&lt;/html&gt;</textarea>
+  <!-- EDITOR -->
+  <div class="editor-panel">
+    <div class="toolbar">
+      <span class="dot"></span>
+      <span class="filename">document.html</span>
+      <span style="margin-left:auto">UTF-8</span>
+    </div>
+    <div class="editor-wrap">
+      <div class="line-nums" id="lineNums"></div>
+      <textarea id="htmlInput" spellcheck="false" oninput="updateLineNumbers(); debouncedPreview()"></textarea>
+    </div>
   </div>
-  <div class="preview">
-    <div class="preview-bar">
-      <span>Preview</span>
-      <span id="renderTime"></span>
+
+  <!-- PREVIEW -->
+  <div class="preview-panel">
+    <div class="preview-toolbar">
+      <div class="preview-tabs">
+        <button class="preview-tab active" onclick="switchPreview('print')">Print Preview</button>
+        <button class="preview-tab" onclick="switchPreview('pdf')">PDF Preview</button>
+      </div>
+      <span class="preview-info" id="previewInfo"></span>
     </div>
     <div class="preview-content">
-      <div class="pdf-preview" id="previewArea">
-        <p style="padding: 40px; color: #666;">Click "Download PDF" to generate your PDF, or edit HTML on the left.</p>
+      <div class="page-frame" id="printPreview">
+        <iframe id="previewFrame" sandbox="allow-same-origin"></iframe>
+      </div>
+      <div class="page-frame pdf-view" id="pdfPreview" style="display:none">
+        <span>Click "Download PDF" to generate</span>
       </div>
     </div>
   </div>
+
+  <!-- OPTIONS SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <h3>Page</h3>
+      <div class="opt-row"><label>Size</label><select id="optPageSize"><option selected>A4</option><option>Letter</option><option>Legal</option></select></div>
+      <div class="opt-row"><label>Orientation</label><select id="optOrientation"><option selected>Portrait</option><option>Landscape</option></select></div>
+      <div class="opt-row"><label>Margin</label><input type="text" value="20mm" id="optMargin"></div>
+    </div>
+    <div class="sidebar-section">
+      <h3>Header / Footer</h3>
+      <div class="opt-row"><label>Header</label><input type="text" placeholder="{{title}}" id="optHeader"></div>
+      <div class="opt-row"><label>Footer</label><input type="text" value="Page {{page}}" id="optFooter"></div>
+    </div>
+    <div class="sidebar-section">
+      <h3>Typography</h3>
+      <div class="opt-row"><label>Font</label><select id="optFont"><option>Arial</option><option>Helvetica</option><option>Times New Roman</option></select></div>
+      <div class="opt-row"><label>Font Size</label><input type="number" value="12" id="optFontSize" style="width:60px"> pt</div>
+    </div>
+    <div class="sidebar-section">
+      <h3>Output</h3>
+      <div class="opt-row"><label>Format</label><select id="optFormat"><option selected>PDF</option><option>PNG</option></select></div>
+      <button class="btn btn-primary" style="width:100%; justify-content:center; margin-top:8px;" onclick="downloadPdf()">Download PDF</button>
+      <button class="btn" style="width:100%; justify-content:center; margin-top:6px;" onclick="copyApiCall()">Copy API Call</button>
+    </div>
+  </aside>
 </div>
 
-<div class="status">
+<!-- STATUS BAR -->
+<div class="status-bar">
   <span class="dot"></span>
-  <span>Ready</span>
-  <span id="statusInfo"></span>
+  <span id="statusText">Ready</span>
+  <div class="right">
+    <span id="statusTiming"></span>
+    <span id="statusSize"></span>
+  </div>
+</div>
+
+<!-- TEMPLATE MODAL -->
+<div class="modal-overlay" id="tplModal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h2>Templates</h2>
+      <button class="btn btn-sm" onclick="document.getElementById('tplModal').classList.remove('show')">Close</button>
+    </div>
+    <div class="tpl-grid">
+      <div class="tpl-card" onclick="loadTpl('blank')"><div class="icon">&#x1F4C4;</div><div class="name">Blank</div><div class="desc">Start from scratch</div></div>
+      <div class="tpl-card" onclick="loadTpl('invoice')"><div class="icon">&#x1F4B0;</div><div class="name">Invoice</div><div class="desc">Table with totals</div></div>
+      <div class="tpl-card" onclick="loadTpl('report')"><div class="icon">&#x1F4CA;</div><div class="name">Report</div><div class="desc">Multi-section report</div></div>
+      <div class="tpl-card" onclick="loadTpl('letter')"><div class="icon">&#x2709;</div><div class="name">Letter</div><div class="desc">Formal letter</div></div>
+      <div class="tpl-card" onclick="loadTpl('certificate')"><div class="icon">&#x1F3C6;</div><div class="name">Certificate</div><div class="desc">Award certificate</div></div>
+      <div class="tpl-card" onclick="loadTpl('resume')"><div class="icon">&#x1F4CB;</div><div class="name">Resume</div><div class="desc">Modern CV</div></div>
+    </div>
+  </div>
 </div>
 
 <script>
 const input = document.getElementById('htmlInput');
-const previewArea = document.getElementById('previewArea');
-const renderTime = document.getElementById('renderTime');
-const statusInfo = document.getElementById('statusInfo');
+const previewFrame = document.getElementById('previewFrame');
+const printPreview = document.getElementById('printPreview');
+const pdfPreview = document.getElementById('pdfPreview');
+const previewInfo = document.getElementById('previewInfo');
+const statusText = document.getElementById('statusText');
+const statusTiming = document.getElementById('statusTiming');
+const statusSize = document.getElementById('statusSize');
+let previewTimer = null;
+let currentPreview = 'print';
 
+// === INITIAL TEMPLATE ===
+input.value = `<html>
+<head>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; }
+    h1 { color: #2d3436; border-bottom: 2px solid #6c5ce7; padding-bottom: 8px; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+    th { background: #6c5ce7; color: white; }
+    .total { font-size: 18px; font-weight: bold; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Invoice #2024-001</h1>
+  <p>Date: 2024-01-15 | Customer: Acme Corporation</p>
+  <table>
+    <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
+    <tbody>
+      <tr><td>Web Development</td><td>40h</td><td>$150</td><td>$6,000</td></tr>
+      <tr><td>UI/UX Design</td><td>20h</td><td>$120</td><td>$2,400</td></tr>
+      <tr><td>QA Testing</td><td>10h</td><td>$100</td><td>$1,000</td></tr>
+    </tbody>
+  </table>
+  <p class="total">Total: $9,400.00</p>
+  <p><a href="https://example.com/pay">Pay Now</a></p>
+</body>
+</html>`;
+
+// === LINE NUMBERS ===
+function updateLineNumbers() {
+  const lines = input.value.split('\n').length;
+  const nums = [];
+  for (let i = 1; i <= lines; i++) nums.push(i);
+  document.getElementById('lineNums').textContent = nums.join('\n');
+}
+
+// === LIVE PRINT PREVIEW ===
+function updatePrintPreview() {
+  if (currentPreview !== 'print') return;
+  const html = input.value;
+  const doc = previewFrame.contentDocument;
+  doc.open();
+  doc.write(html);
+  doc.close();
+  // Inject print media simulation
+  const style = doc.createElement('style');
+  style.textContent = '@media screen { body { margin: 20px; } }';
+  doc.head?.appendChild(style);
+  previewInfo.textContent = 'Live preview';
+}
+
+function debouncedPreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(updatePrintPreview, 300);
+}
+
+// === SWITCH PREVIEW TABS ===
+function switchPreview(mode) {
+  currentPreview = mode;
+  document.querySelectorAll('.preview-tab').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  if (mode === 'print') {
+    printPreview.style.display = '';
+    pdfPreview.style.display = 'none';
+    updatePrintPreview();
+  } else {
+    printPreview.style.display = 'none';
+    pdfPreview.style.display = '';
+  }
+}
+
+// === DOWNLOAD PDF ===
 async function downloadPdf() {
   const html = input.value;
   if (!html.trim()) { alert('Please enter some HTML'); return; }
-
   try {
-    statusInfo.textContent = 'Rendering...';
+    statusText.textContent = 'Rendering...';
     const start = performance.now();
-
     const resp = await fetch('/api/render', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ html })
     });
-
-    if (!resp.ok) { const err = await resp.json(); alert('Error: ' + err.error); return; }
-
+    if (!resp.ok) { alert('Render error'); return; }
     const blob = await resp.blob();
     const elapsed = Math.round(performance.now() - start);
-    renderTime.textContent = `${elapsed}ms | ${(blob.size / 1024).toFixed(1)} KB`;
-    statusInfo.textContent = `PDF generated (${(blob.size / 1024).toFixed(1)} KB)`;
+    const sizekb = (blob.size / 1024).toFixed(1);
+    statusTiming.textContent = `${elapsed}ms`;
+    statusSize.textContent = `${sizekb} KB`;
+    statusText.textContent = 'PDF ready';
+    previewInfo.textContent = `${elapsed}ms | ${sizekb} KB`;
 
-    // Download
+    // Show in PDF preview
     const url = URL.createObjectURL(blob);
+    pdfPreview.innerHTML = `<embed src="${url}" type="application/pdf" width="100%" height="842">`;
+    switchPreview('pdf');
+    document.querySelectorAll('.preview-tab')[1].classList.add('active');
+    document.querySelectorAll('.preview-tab')[0].classList.remove('active');
+
+    // Also download
     const a = document.createElement('a');
-    a.href = url;
-    a.download = 'output.pdf';
-    a.click();
-    URL.revokeObjectURL(url);
-  } catch (e) {
-    statusInfo.textContent = 'Error: ' + e.message;
-  }
+    a.href = url; a.download = 'output.pdf'; a.click();
+  } catch (e) { statusText.textContent = 'Error: ' + e.message; }
 }
 
-function loadTemplate() {
-  input.value = `<html>
-<head>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 40px; }
-    h1 { color: #333; border-bottom: 2px solid #6c5ce7; padding-bottom: 10px; }
-    p { line-height: 1.6; color: #555; }
-    .highlight { background-color: #fff3cd; padding: 15px; border-radius: 5px; }
-  </style>
-</head>
-<body>
-  <h1>My Document</h1>
-  <p>This is a sample document generated by <strong>EggPdf</strong>.</p>
-  <div class="highlight">
-    <p>You can use any HTML and CSS here. Tables, lists, links, images -- everything works.</p>
-  </div>
-  <h2>Features</h2>
-  <ul>
-    <li>Pure C# rendering</li>
-    <li>Zero dependencies</li>
-    <li>Chrome-quality output</li>
-  </ul>
-  <p><a href="https://github.com/eggspot/EggPdf">Learn more on GitHub</a></p>
-</body>
-</html>`;
+// === UPLOAD FILE ===
+function loadFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => { input.value = e.target.result; updateLineNumbers(); updatePrintPreview(); };
+  reader.readAsText(file);
 }
+
+// === COPY API CALL ===
+function copyApiCall() {
+  const html = input.value.replace(/'/g, "'\\''");
+  const cmd = `curl -X POST http://localhost:8080/api/render -H "Content-Type: application/json" -d '{"html":"${html.substring(0, 100)}..."}' -o output.pdf`;
+  navigator.clipboard.writeText(cmd);
+  statusText.textContent = 'API call copied!';
+}
+
+// === TEMPLATES ===
+const templates = {
+  blank: '<html>\n<head><style>body { font-family: Arial; margin: 40px; }</style></head>\n<body>\n  <h1>Title</h1>\n  <p>Start writing...</p>\n</body>\n</html>',
+  invoice: input.value,
+  report: `<html><head><style>body{font-family:Arial;margin:40px}h1{color:#333}h2{color:#666;border-bottom:1px solid #ddd;padding-bottom:5px}p{line-height:1.6;color:#555}.section{margin:20px 0}</style></head><body><h1>Annual Report 2024</h1><div class="section"><h2>Executive Summary</h2><p>This report covers the key achievements and metrics for the fiscal year 2024.</p></div><div class="section"><h2>Financial Overview</h2><p>Revenue grew by 25% year-over-year, reaching $12.5 million.</p></div><div class="section"><h2>Key Metrics</h2><ul><li>Customer satisfaction: 94%</li><li>Employee retention: 92%</li><li>Market share: 15%</li></ul></div></body></html>`,
+  letter: `<html><head><style>body{font-family:'Times New Roman';margin:60px;line-height:1.8}p{margin:10px 0}.date{text-align:right}.signature{margin-top:40px}</style></head><body><p class="date">March 21, 2026</p><p>Dear Sir/Madam,</p><p>I am writing to inform you about our new product launch scheduled for next quarter. We believe this will significantly improve our service offering.</p><p>Please find enclosed the detailed proposal for your review.</p><p class="signature">Sincerely,<br><strong>John Smith</strong><br>CEO, Acme Corp</p></body></html>`,
+  certificate: `<html><head><style>body{font-family:Georgia;text-align:center;margin:80px;border:3px double #6c5ce7;padding:60px}h1{color:#6c5ce7;font-size:36px;margin-bottom:20px}h2{color:#333;font-weight:normal;font-size:24px}.name{font-size:32px;color:#2d3436;margin:30px 0;font-style:italic}.date{color:#666;margin-top:40px}</style></head><body><h1>Certificate of Achievement</h1><h2>This is proudly presented to</h2><p class="name">Jane Doe</p><p>For outstanding performance in the field of Software Engineering</p><p class="date">Awarded on March 21, 2026</p></body></html>`,
+  resume: `<html><head><style>body{font-family:Arial;margin:40px;color:#333}h1{margin-bottom:5px}h2{color:#6c5ce7;border-bottom:2px solid #6c5ce7;padding-bottom:5px;margin-top:25px}.subtitle{color:#666;margin-bottom:20px}.item{margin:10px 0}.item strong{display:block}.skills{display:flex;flex-wrap:wrap;gap:8px}.skill{background:#f0f0f0;padding:4px 10px;border-radius:12px;font-size:13px}</style></head><body><h1>Jane Smith</h1><p class="subtitle">Senior Software Engineer | jane@example.com</p><h2>Experience</h2><div class="item"><strong>Lead Developer - TechCorp (2022-Present)</strong><p>Led team of 8 engineers building microservices platform.</p></div><div class="item"><strong>Software Engineer - StartupXYZ (2019-2022)</strong><p>Built core backend services handling 10M+ requests/day.</p></div><h2>Skills</h2><div class="skills"><span class="skill">C#</span><span class="skill">.NET</span><span class="skill">TypeScript</span><span class="skill">React</span><span class="skill">Docker</span><span class="skill">Kubernetes</span></div></body></html>`
+};
+
+function loadTpl(name) {
+  input.value = templates[name] || templates.blank;
+  updateLineNumbers();
+  updatePrintPreview();
+  document.getElementById('tplModal').classList.remove('show');
+}
+
+// === INIT ===
+updateLineNumbers();
+setTimeout(updatePrintPreview, 100);
+
+// Sync scroll between textarea and line numbers
+input.addEventListener('scroll', () => {
+  document.getElementById('lineNums').style.transform = `translateY(-${input.scrollTop}px)`;
+});
 </script>
 </body>
 </html>
