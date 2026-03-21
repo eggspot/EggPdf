@@ -81,6 +81,7 @@ public static class BlockLayout
         // Layout children
         float childY = 0;
         float childContainingWidth = box.ContentWidth;
+        float prevMarginBottom = 0; // for margin collapsing
 
         foreach (var childNode in element.ChildNodes)
         {
@@ -94,11 +95,27 @@ public static class BlockLayout
                 if (IsBlockLevel(childStyle.Display))
                 {
                     var childBox = CreateBox(childElem, childStyle, box, childContainingWidth, resolver, style);
-                    childBox.Y = box.Y + box.PaddingTop + childY + childBox.MarginTop;
+
+                    // Margin collapsing between adjacent block siblings:
+                    // The space between them is max(prev.marginBottom, cur.marginTop), not the sum
+                    float effectiveTopMargin;
+                    if (box.Children.OfType<LayoutBox>().Any(c => c.Element != null))
+                    {
+                        // Has a previous block sibling -- collapse margins
+                        effectiveTopMargin = Math.Max(prevMarginBottom, childBox.MarginTop);
+                    }
+                    else
+                    {
+                        // First block child -- use full top margin
+                        effectiveTopMargin = childBox.MarginTop;
+                    }
+
+                    childBox.Y = box.Y + box.PaddingTop + childY + effectiveTopMargin;
                     childBox.X = box.X + box.PaddingLeft + childBox.MarginLeft;
 
                     box.Children.Add(childBox);
-                    childY += childBox.MarginTop + childBox.Height + childBox.MarginBottom;
+                    childY += effectiveTopMargin + childBox.Height;
+                    prevMarginBottom = childBox.MarginBottom;
                 }
                 else
                 {
