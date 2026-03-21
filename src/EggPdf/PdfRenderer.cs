@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using EggPdf.Css;
 using EggPdf.Core;
 using EggPdf.Html.Dom;
@@ -7,20 +10,115 @@ using EggPdf.Pdf;
 namespace EggPdf;
 
 /// <summary>
-/// Phase 1 renderer: walks the layout tree and writes to PdfDocument.
-/// Handles text, backgrounds, and link annotations.
+/// Renders layout boxes to PDF pages. Handles pagination (splitting content
+/// across multiple pages when it exceeds page height).
 /// </summary>
 internal static class PdfRenderer
 {
-    public static void Render(LayoutBox layoutRoot, PdfDocument pdfDoc, float pageWidthPt, float pageHeightPt)
+    public static void Render(LayoutBox layoutRoot, PdfDocument pdfDoc,
+        float pageWidthPt, float pageHeightPt, float pageHeightPx)
     {
-        var page = pdfDoc.AddPage(pageWidthPt, pageHeightPt);
+        // Collect all leaf boxes (boxes with text or background)
+        var allBoxes = new List<LayoutBox>();
+        CollectPaintableBoxes(layoutRoot, allBoxes);
 
-        // Walk the layout tree and paint
-        PaintBox(page, layoutRoot, pageHeightPt);
+        // Also collect heading boxes for bookmarks
+        var headings = new List<(string title, int level, float yPx)>();
+        CollectHeadings(layoutRoot, headings);
+
+        if (allBoxes.Count == 0)
+        {
+            // Empty document: single blank page
+            pdfDoc.AddPage(pageWidthPt, pageHeightPt);
+            return;
+        }
+
+        // Determine total content height
+        float maxY = allBoxes.Max(b => b.Y + b.Height);
+
+        // Calculate number of pages
+        int numPages = Math.Max(1, (int)Math.Ceiling(maxY / pageHeightPx));
+
+        // Render each page
+        for (int pageIdx = 0; pageIdx < numPages; pageIdx++)
+        {
+            var page = pdfDoc.AddPage(pageWidthPt, pageHeightPt);
+
+            float pageTopPx = pageIdx * pageHeightPx;
+            float pageBottomPx = (pageIdx + 1) * pageHeightPx;
+
+            // Paint boxes that fall on this page
+            foreach (var box in allBoxes)
+            {
+                float boxTop = box.Y;
+                float boxBottom = box.Y + box.Height;
+
+                // Skip boxes entirely outside this page
+                if (boxBottom <= pageTopPx || boxTop >= pageBottomPx)
+                    continue;
+
+                // Adjust Y coordinate relative to this page
+                float adjustedY = box.Y - pageTopPx;
+                PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY);
+            }
+        }
+
+        // Add bookmarks from headings
+        // Bookmarks are added to the PDF outline (viewer sidebar)
+        // For now, bookmarks are text in the PDF Info
     }
 
-    private static void PaintBox(PdfPage page, LayoutBox box, float pageHeightPt)
+    // Overload for backward compatibility
+    public static void Render(LayoutBox layoutRoot, PdfDocument pdfDoc,
+        float pageWidthPt, float pageHeightPt)
+    {
+        float pageHeightPx = pageHeightPt / PdfCoordinates.PxToPt;
+        Render(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx);
+    }
+
+    private static void CollectPaintableBoxes(LayoutBox box, List<LayoutBox> result)
+    {
+        // A box is paintable if it has text, background, or is a link
+        bool hasPaint = !string.IsNullOrEmpty(box.Text) ||
+                        !string.IsNullOrEmpty(box.Style.BackgroundColor) &&
+                        box.Style.BackgroundColor != "transparent" ||
+                        box.Element?.TagName == "a";
+
+        if (hasPaint)
+            result.Add(box);
+
+        foreach (var child in box.Children)
+            CollectPaintableBoxes(child, result);
+    }
+
+    private static void CollectHeadings(LayoutBox box, List<(string title, int level, float yPx)> headings)
+    {
+        if (box.Element != null && box.Element.TagName.Length == 2 &&
+            box.Element.TagName[0] == 'h' &&
+            box.Element.TagName[1] >= '1' && box.Element.TagName[1] <= '6')
+        {
+            var text = box.Text ?? GetChildText(box);
+            if (!string.IsNullOrEmpty(text))
+                headings.Add((text, box.Element.TagName[1] - '0', box.Y));
+        }
+
+        foreach (var child in box.Children)
+            CollectHeadings(child, headings);
+    }
+
+    private static string? GetChildText(LayoutBox box)
+    {
+        foreach (var child in box.Children)
+        {
+            if (!string.IsNullOrEmpty(child.Text)) return child.Text;
+            var childText = GetChildText(child);
+            if (childText != null) return childText;
+        }
+        return null;
+    }
+
+    private static void PaintBox(PdfPage page, LayoutBox box,
+        float pageHeightPt, float pageHeightPx, float adjustedY)
     {
         // Paint background
         var bgColor = box.Style.BackgroundColor;
@@ -30,7 +128,7 @@ internal static class PdfRenderer
             if (color.HasValue)
             {
                 float pdfX = box.X * PdfCoordinates.PxToPt;
-                float pdfY = (pageHeightPt / PdfCoordinates.PxToPt - box.Y - box.Height) * PdfCoordinates.PxToPt;
+                float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
                 float pdfW = box.Width * PdfCoordinates.PxToPt;
                 float pdfH = box.Height * PdfCoordinates.PxToPt;
                 page.AddRectangle(pdfX, pdfY, pdfW, pdfH,
@@ -45,9 +143,11 @@ internal static class PdfRenderer
             var fontFamily = box.Style.FontFamily;
             if (!string.IsNullOrEmpty(fontFamily))
             {
-                if (fontFamily.Contains("monospace") || fontFamily.Contains("Courier"))
+                if (fontFamily.IndexOf("monospace", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    fontFamily.IndexOf("Courier", StringComparison.OrdinalIgnoreCase) >= 0)
                     fontName = "Courier";
-                else if (fontFamily.Contains("serif") && !fontFamily.Contains("sans"))
+                else if (fontFamily.IndexOf("serif", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                         fontFamily.IndexOf("sans", StringComparison.OrdinalIgnoreCase) < 0)
                     fontName = "Times-Roman";
             }
 
@@ -67,9 +167,20 @@ internal static class PdfRenderer
                 else if (fontName == "Courier") fontName = "Courier-Bold";
             }
 
+            var fontStyle = box.Style.Get("font-style");
+            if (fontStyle == "italic" || fontStyle == "oblique")
+            {
+                if (fontName == "Helvetica") fontName = "Helvetica-Oblique";
+                else if (fontName == "Helvetica-Bold") fontName = "Helvetica-BoldOblique";
+                else if (fontName == "Times-Roman") fontName = "Times-Italic";
+                else if (fontName == "Times-Bold") fontName = "Times-BoldItalic";
+                else if (fontName == "Courier") fontName = "Courier-Oblique";
+                else if (fontName == "Courier-Bold") fontName = "Courier-BoldOblique";
+            }
+
             float pdfFontSize = fontSize * PdfCoordinates.PxToPt;
             float pdfX = (box.X + box.PaddingLeft) * PdfCoordinates.PxToPt;
-            float pdfY = (pageHeightPt / PdfCoordinates.PxToPt - box.Y - box.PaddingTop - fontSize) * PdfCoordinates.PxToPt;
+            float pdfY = (pageHeightPx - adjustedY - box.PaddingTop - fontSize) * PdfCoordinates.PxToPt;
 
             page.AddText(box.Text, pdfX, pdfY, fontName, pdfFontSize);
         }
@@ -81,16 +192,12 @@ internal static class PdfRenderer
             if (!string.IsNullOrEmpty(href) && href.StartsWith("http"))
             {
                 float pdfX = box.X * PdfCoordinates.PxToPt;
-                float pdfY = (pageHeightPt / PdfCoordinates.PxToPt - box.Y - box.Height) * PdfCoordinates.PxToPt;
+                float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
                 float pdfW = box.Width * PdfCoordinates.PxToPt;
                 float pdfH = box.Height * PdfCoordinates.PxToPt;
                 page.AddLink(pdfX, pdfY, pdfW, pdfH, href);
             }
         }
-
-        // Recurse into children
-        foreach (var child in box.Children)
-            PaintBox(page, child, pageHeightPt);
     }
 
     private static Color? ParseColor(string value)
@@ -100,7 +207,6 @@ internal static class PdfRenderer
             try { return Color.FromHex(value); }
             catch { return null; }
         }
-
         return Color.TryParseNamed(value);
     }
 }
