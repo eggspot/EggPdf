@@ -95,6 +95,138 @@ app.MapPost("/api/render/image", async (HttpContext ctx) =>
     return Results.File(pdf, "application/pdf", "output.pdf");
 });
 
+// === Render HTML as print-preview page (for E2E visual comparison) ===
+app.MapPost("/api/render/print-preview", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+
+    var request = JsonSerializer.Deserialize<RenderRequest>(body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+    if (string.IsNullOrEmpty(request?.Html))
+        return Results.BadRequest(new { error = "html field is required" });
+
+    // Wrap the HTML in a print-media simulation page
+    var previewHtml = $@"<!DOCTYPE html>
+<html>
+<head>
+<meta charset='UTF-8'>
+<style>
+  @media screen {{
+    html {{ background: #f0f0f0; }}
+    body {{ max-width: 210mm; margin: 20mm auto; background: white;
+           box-shadow: 0 0 10px rgba(0,0,0,0.1); padding: 20mm;
+           min-height: 297mm; }}
+  }}
+  @page {{ size: A4; margin: 20mm; }}
+</style>
+</head>
+<body>
+{System.Net.WebUtility.HtmlDecode(request.Html)}
+</body>
+</html>";
+
+    return Results.Content(previewHtml, "text/html");
+});
+
+// === E2E test page: side-by-side comparison ===
+app.MapGet("/e2e", () => Results.Content(@"<!DOCTYPE html>
+<html>
+<head>
+<meta charset='UTF-8'>
+<title>EggPdf E2E Visual Test</title>
+<style>
+  body { font-family: Arial; margin: 0; background: #1a1d27; color: #e4e6f0; }
+  .header { padding: 12px 20px; background: #232734; border-bottom: 1px solid #2e3348; display: flex; align-items: center; gap: 12px; }
+  .header h1 { font-size: 16px; color: #6c5ce7; }
+  .comparison { display: flex; height: calc(100vh - 50px); }
+  .side { flex: 1; display: flex; flex-direction: column; }
+  .side-header { padding: 8px 12px; background: #232734; border-bottom: 1px solid #2e3348; font-size: 13px; text-align: center; }
+  .side:first-child { border-right: 1px solid #2e3348; }
+  .side iframe { flex: 1; border: none; background: white; }
+  .controls { padding: 8px 20px; background: #232734; border-top: 1px solid #2e3348; display: flex; gap: 8px; align-items: center; }
+  select, button { padding: 6px 12px; border-radius: 4px; border: 1px solid #2e3348; background: #1a1d27; color: #e4e6f0; font-size: 12px; cursor: pointer; }
+  button.primary { background: #6c5ce7; border-color: #6c5ce7; color: white; }
+  #result { margin-left: auto; font-size: 12px; }
+  .pass { color: #00b894; } .fail { color: #e17055; }
+</style>
+</head>
+<body>
+<div class='header'><h1>EggPdf E2E Visual Comparison</h1></div>
+<div class='comparison'>
+  <div class='side'>
+    <div class='side-header'>Browser Print Preview (Reference)</div>
+    <iframe id='browserFrame'></iframe>
+  </div>
+  <div class='side'>
+    <div class='side-header'>EggPdf PDF Output</div>
+    <iframe id='pdfFrame'></iframe>
+  </div>
+</div>
+<div class='controls'>
+  <select id='testCase' onchange='runTest()'>
+    <option value='heading'>Heading + Paragraph</option>
+    <option value='table'>Table</option>
+    <option value='invoice'>Invoice</option>
+    <option value='styles'>Mixed Styles</option>
+    <option value='list'>Lists</option>
+  </select>
+  <button class='primary' onclick='runTest()'>Run Test</button>
+  <button onclick='runAll()'>Run All Tests</button>
+  <span id='result'></span>
+</div>
+<script>
+const testCases = {
+  heading: '<h1>Hello World</h1><p>This is a paragraph with <strong>bold</strong> and <em>italic</em> text.</p>',
+  table: '<table border=""1"" style=""width:100%;border-collapse:collapse""><thead><tr><th>Name</th><th>Value</th></tr></thead><tbody><tr><td>Alpha</td><td>100</td></tr><tr><td>Beta</td><td>200</td></tr></tbody></table>',
+  invoice: '<h1>Invoice #001</h1><p>Date: 2024-01-15</p><table border=""1"" style=""width:100%;border-collapse:collapse""><tr><th>Item</th><th>Price</th></tr><tr><td>Widget</td><td>$50</td></tr><tr><td>Gadget</td><td>$75</td></tr></table><p><strong>Total: $125</strong></p>',
+  styles: '<div style=""background-color:#eef;padding:20px;border-radius:8px""><h2 style=""color:#6c5ce7"">Styled Box</h2><p style=""font-size:14px;line-height:1.6"">Text with <span style=""color:red"">red</span>, <span style=""color:blue"">blue</span>, and <strong>bold</strong> formatting.</p></div>',
+  list: '<h2>Features</h2><ul><li>Item One</li><li>Item Two</li><li>Item Three</li></ul><ol><li>First</li><li>Second</li><li>Third</li></ol>'
+};
+
+async function runTest() {
+  const name = document.getElementById('testCase').value;
+  const html = testCases[name];
+  document.getElementById('result').textContent = 'Rendering...';
+
+  // Left: browser print preview
+  const previewResp = await fetch('/api/render/print-preview', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({html})
+  });
+  const previewHtml = await previewResp.text();
+  document.getElementById('browserFrame').srcdoc = previewHtml;
+
+  // Right: EggPdf PDF
+  const pdfResp = await fetch('/api/render', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({html})
+  });
+  const pdfBlob = await pdfResp.blob();
+  const pdfUrl = URL.createObjectURL(pdfBlob);
+  document.getElementById('pdfFrame').src = pdfUrl;
+
+  document.getElementById('result').innerHTML = '<span class=""pass"">Test: ' + name + ' - rendered (compare visually)</span>';
+}
+
+async function runAll() {
+  const names = Object.keys(testCases);
+  let results = [];
+  for (const name of names) {
+    document.getElementById('testCase').value = name;
+    await runTest();
+    await new Promise(r => setTimeout(r, 1000));
+    results.push(name + ': rendered');
+  }
+  document.getElementById('result').innerHTML = '<span class=""pass"">All ' + names.length + ' tests rendered</span>';
+}
+
+runTest();
+</script>
+</body>
+</html>", "text/html"));
+
 app.Run();
 
 // === Request Models ===
