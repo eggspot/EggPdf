@@ -136,10 +136,12 @@ public static class BlockLayout
             // Y offset applied after layout (see below)
         }
 
-        // Layout children
+        // Layout children using inline formatting context awareness
         float childY = 0;
         float childContainingWidth = box.ContentWidth;
         float prevMarginBottom = 0; // for margin collapsing
+        float inlineX = 0; // current X offset within the inline line
+        float inlineLineHeight = 0; // max height of current inline line
 
         foreach (var childNode in element.ChildNodes)
         {
@@ -152,6 +154,14 @@ public static class BlockLayout
 
                 if (IsBlockLevel(childStyle.Display))
                 {
+                    // Flush any pending inline content
+                    if (inlineX > 0)
+                    {
+                        childY += inlineLineHeight;
+                        inlineX = 0;
+                        inlineLineHeight = 0;
+                    }
+
                     // Table row layout: cells go side-by-side (horizontal)
                     if (IsTableRow(style.Display) && IsTableCell(childStyle.Display))
                     {
@@ -201,7 +211,16 @@ public static class BlockLayout
                 {
                     // <br> forces a line break
                     float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
-                    childY += lineHeight;
+                    if (inlineX > 0)
+                    {
+                        childY += Math.Max(inlineLineHeight, lineHeight);
+                        inlineX = 0;
+                        inlineLineHeight = 0;
+                    }
+                    else
+                    {
+                        childY += lineHeight;
+                    }
                 }
                 else if (childElem.TagName == "img")
                 {
@@ -209,11 +228,19 @@ public static class BlockLayout
                     float imgWidth = ResolveImgDimension(childStyle.Width, childElem.GetAttribute("width"), childContainingWidth, fontSize, 150);
                     float imgHeight = ResolveImgDimension(childStyle.Height, childElem.GetAttribute("height"), 0, fontSize, 150);
 
+                    // Check if image fits on current inline line
+                    if (inlineX > 0 && inlineX + imgWidth > childContainingWidth)
+                    {
+                        childY += inlineLineHeight;
+                        inlineX = 0;
+                        inlineLineHeight = 0;
+                    }
+
                     var childBox = new LayoutBox
                     {
                         Element = childElem,
                         Style = childStyle,
-                        X = box.X + box.PaddingLeft,
+                        X = box.X + box.PaddingLeft + inlineX,
                         Y = box.Y + box.PaddingTop + childY,
                         Width = imgWidth,
                         Height = imgHeight,
@@ -222,27 +249,58 @@ public static class BlockLayout
                         ImageSource = childElem.GetAttribute("src")
                     };
                     box.Children.Add(childBox);
-                    childY += childBox.Height;
+                    inlineX += imgWidth;
+                    if (imgHeight > inlineLineHeight)
+                        inlineLineHeight = imgHeight;
                 }
                 else
                 {
-                    // Inline elements: create a simple box with text height
+                    // Inline elements: lay out horizontally on the same line
+                    var inlineText = GetTextContent(childElem);
+                    float inlineFontSize = ResolveFontSize(childStyle.FontSize, fontSize);
+                    float inlineHeight = inlineFontSize * DefaultLineHeight;
+                    float inlineWidth = 0;
+
+                    if (!string.IsNullOrEmpty(inlineText))
+                    {
+                        inlineWidth = TextMeasurer.MeasureWidth(inlineText, inlineFontSize,
+                            childStyle.FontFamily ?? style.FontFamily,
+                            childStyle.FontWeight ?? style.FontWeight,
+                            childStyle.Get("font-style") ?? style.Get("font-style"));
+                    }
+
+                    // Wrap to next line if inline element doesn't fit
+                    if (inlineX > 0 && inlineWidth > 0 && inlineX + inlineWidth > childContainingWidth)
+                    {
+                        childY += inlineLineHeight;
+                        inlineX = 0;
+                        inlineLineHeight = 0;
+                    }
+
                     var childBox = new LayoutBox
                     {
                         Element = childElem,
                         Style = childStyle,
-                        X = box.X + box.PaddingLeft,
+                        X = box.X + box.PaddingLeft + inlineX,
                         Y = box.Y + box.PaddingTop + childY,
-                        Width = childContainingWidth,
-                        Height = fontSize * DefaultLineHeight,
-                        ContentWidth = childContainingWidth,
-                        ContentHeight = fontSize * DefaultLineHeight,
-                        Text = GetTextContent(childElem)
+                        Width = inlineWidth > 0 ? inlineWidth : childContainingWidth,
+                        Height = inlineHeight,
+                        ContentWidth = inlineWidth,
+                        ContentHeight = inlineHeight,
+                        Text = inlineText
                     };
                     box.Children.Add(childBox);
 
-                    if (!string.IsNullOrEmpty(childBox.Text))
-                        childY += childBox.Height;
+                    if (inlineWidth > 0)
+                    {
+                        inlineX += inlineWidth;
+                        if (inlineHeight > inlineLineHeight)
+                            inlineLineHeight = inlineHeight;
+                    }
+                    else if (!string.IsNullOrEmpty(inlineText))
+                    {
+                        childY += inlineHeight;
+                    }
                 }
             }
             else if (childNode is HtmlTextNode textNode)
@@ -253,6 +311,55 @@ public static class BlockLayout
                 // Skip empty text nodes unless preserving whitespace
                 if (!preserveWhitespace && string.IsNullOrWhiteSpace(textNode.Data))
                     continue;
+
+                // Check if parent has mixed inline content (inline elements + text)
+                bool hasInlineSiblings = HasInlineElementSiblings(element);
+
+                // If there are inline siblings, participate in inline flow
+                if (hasInlineSiblings && !preserveWhitespace)
+                {
+                    var ilFontFamily = style.FontFamily;
+                    var ilFontWeight = style.FontWeight;
+                    var ilFontStyle = style.Get("font-style");
+                    float ilLineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
+                    var ilTextData = textNode.Data.Trim();
+                    if (string.IsNullOrEmpty(ilTextData)) continue;
+
+                    // Split into words and lay them out inline
+                    var words = ilTextData.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var word in words)
+                    {
+                        var wordWithSpace = (inlineX > 0 ? " " : "") + word;
+                        float wordWidth = TextMeasurer.MeasureWidth(wordWithSpace, fontSize, ilFontFamily, ilFontWeight, ilFontStyle);
+
+                        // Wrap to next line if word doesn't fit
+                        if (inlineX > 0 && inlineX + wordWidth > childContainingWidth)
+                        {
+                            childY += inlineLineHeight;
+                            inlineX = 0;
+                            inlineLineHeight = 0;
+                            wordWithSpace = word;
+                            wordWidth = TextMeasurer.MeasureWidth(word, fontSize, ilFontFamily, ilFontWeight, ilFontStyle);
+                        }
+
+                        var textBox = new LayoutBox
+                        {
+                            Style = style,
+                            X = box.X + box.PaddingLeft + inlineX,
+                            Y = box.Y + box.PaddingTop + childY,
+                            Width = wordWidth,
+                            Height = ilLineHeight,
+                            ContentWidth = wordWidth,
+                            ContentHeight = ilLineHeight,
+                            Text = wordWithSpace
+                        };
+                        box.Children.Add(textBox);
+                        inlineX += wordWidth;
+                        if (ilLineHeight > inlineLineHeight)
+                            inlineLineHeight = ilLineHeight;
+                    }
+                    continue;
+                }
 
                 // Text content with line wrapping
                 var fontFamily = style.FontFamily;
@@ -270,7 +377,6 @@ public static class BlockLayout
                 // If indent caused wrapping and there are remaining lines, re-wrap with full width
                 if (textIndent > 0 && lines.Count > 1)
                 {
-                    // Keep first line as-is, re-wrap remaining text at full width
                     var firstLine = lines[0];
                     var remaining = textData.Substring(firstLine.Length).TrimStart();
                     lines = new System.Collections.Generic.List<string> { firstLine };
@@ -304,6 +410,12 @@ public static class BlockLayout
                     childY += lineHeight;
                 }
             }
+        }
+
+        // Flush any remaining inline content
+        if (inlineX > 0)
+        {
+            childY += inlineLineHeight;
         }
 
         // List marker for display:list-item
@@ -471,6 +583,29 @@ public static class BlockLayout
         string[] ones = { "", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX" };
         return thousands[number / 1000] + hundreds[(number % 1000) / 100] +
                tens[(number % 100) / 10] + ones[number % 10];
+    }
+
+    /// <summary>Check if an element has any inline element children (not just text nodes or br).</summary>
+    private static bool HasInlineElementSiblings(HtmlElement parent)
+    {
+        foreach (var child in parent.ChildNodes)
+        {
+            if (child is HtmlElement e && e.TagName != "br" && e.TagName != "img")
+            {
+                var tag = e.TagName;
+                // Only count true inline elements (not block-level)
+                if (tag != "div" && tag != "p" && tag != "h1" && tag != "h2" && tag != "h3" &&
+                    tag != "h4" && tag != "h5" && tag != "h6" && tag != "ul" && tag != "ol" &&
+                    tag != "li" && tag != "table" && tag != "blockquote" && tag != "pre" &&
+                    tag != "hr" && tag != "section" && tag != "article" && tag != "nav" &&
+                    tag != "header" && tag != "footer" && tag != "main" && tag != "aside" &&
+                    tag != "figure" && tag != "figcaption" && tag != "details" && tag != "summary")
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static float ResolveImgDimension(string? cssValue, string? htmlAttr, float containingSize, float fontSize, float defaultValue)
