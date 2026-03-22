@@ -135,28 +135,48 @@ public static class BlockLayout
 
                 if (IsBlockLevel(childStyle.Display))
                 {
-                    var childBox = CreateBox(childElem, childStyle, box, childContainingWidth, resolver, style);
-
-                    // Margin collapsing between adjacent block siblings:
-                    // The space between them is max(prev.marginBottom, cur.marginTop), not the sum
-                    float effectiveTopMargin;
-                    if (box.Children.OfType<LayoutBox>().Any(c => c.Element != null))
+                    // Table row layout: cells go side-by-side (horizontal)
+                    if (IsTableRow(style.Display) && IsTableCell(childStyle.Display))
                     {
-                        // Has a previous block sibling -- collapse margins
-                        effectiveTopMargin = Math.Max(prevMarginBottom, childBox.MarginTop);
+                        int cellCount = CountTableCells(element);
+                        float cellWidth = cellCount > 0 ? childContainingWidth / cellCount : childContainingWidth;
+                        int cellIndex = CountPreviousCells(element, childElem);
+
+                        var childBox = CreateBox(childElem, childStyle, box, cellWidth, resolver, style);
+                        childBox.Width = cellWidth;
+                        childBox.ContentWidth = cellWidth - childBox.PaddingLeft - childBox.PaddingRight;
+                        childBox.Y = box.Y + box.PaddingTop;
+                        childBox.X = box.X + box.PaddingLeft + (cellIndex * cellWidth);
+
+                        box.Children.Add(childBox);
+
+                        // Track max cell height for the row
+                        if (childBox.Height > childY)
+                            childY = childBox.Height;
                     }
                     else
                     {
-                        // First block child -- use full top margin
-                        effectiveTopMargin = childBox.MarginTop;
+                        // Normal block layout: stack vertically
+                        var childBox = CreateBox(childElem, childStyle, box, childContainingWidth, resolver, style);
+
+                        // Margin collapsing between adjacent block siblings
+                        float effectiveTopMargin;
+                        if (box.Children.OfType<LayoutBox>().Any(c => c.Element != null))
+                        {
+                            effectiveTopMargin = Math.Max(prevMarginBottom, childBox.MarginTop);
+                        }
+                        else
+                        {
+                            effectiveTopMargin = childBox.MarginTop;
+                        }
+
+                        childBox.Y = box.Y + box.PaddingTop + childY + effectiveTopMargin;
+                        childBox.X = box.X + box.PaddingLeft + childBox.MarginLeft;
+
+                        box.Children.Add(childBox);
+                        childY += effectiveTopMargin + childBox.Height;
+                        prevMarginBottom = childBox.MarginBottom;
                     }
-
-                    childBox.Y = box.Y + box.PaddingTop + childY + effectiveTopMargin;
-                    childBox.X = box.X + box.PaddingLeft + childBox.MarginLeft;
-
-                    box.Children.Add(childBox);
-                    childY += effectiveTopMargin + childBox.Height;
-                    prevMarginBottom = childBox.MarginBottom;
                 }
                 else
                 {
@@ -245,6 +265,33 @@ public static class BlockLayout
         }
 
         return box;
+    }
+
+    private static bool IsTableRow(string display)
+        => display == "table-row";
+
+    private static bool IsTableCell(string display)
+        => display == "table-cell";
+
+    private static int CountTableCells(HtmlElement row)
+    {
+        int count = 0;
+        foreach (var child in row.ChildNodes)
+            if (child is HtmlElement e && (e.TagName == "td" || e.TagName == "th"))
+                count++;
+        return count;
+    }
+
+    private static int CountPreviousCells(HtmlElement row, HtmlElement currentCell)
+    {
+        int index = 0;
+        foreach (var child in row.ChildNodes)
+        {
+            if (child == currentCell) return index;
+            if (child is HtmlElement e && (e.TagName == "td" || e.TagName == "th"))
+                index++;
+        }
+        return index;
     }
 
     private static bool IsBlockLevel(string display)
