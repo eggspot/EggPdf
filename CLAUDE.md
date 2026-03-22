@@ -67,8 +67,8 @@ src/
   EggPdf.Fragmentation/ -- (placeholder for future fragmentation)
 
 tests/
-  EggPdf.Tests.Unit/   -- 310 unit tests (parsers, CSS, colors, PDF, E2E)
-  EggPdf.Tests.Layout/ -- 66 layout tests (block, inline, table, flex, grid, margins)
+  EggPdf.Tests.Unit/   -- 365 unit tests (parsers, CSS, colors, PDF, E2E, rendering)
+  EggPdf.Tests.Layout/ -- 95 layout tests (block, inline, table, flex, grid, margins, lists, white-space)
   EggPdf.Tests.E2E/    -- 20 Playwright tests (WebUI, API endpoints)
 
 benchmarks/
