@@ -220,8 +220,10 @@ public static class BlockLayout
             {
                 // Text content with line wrapping
                 var fontFamily = style.FontFamily;
+                var fontWeight = style.FontWeight;
+                var fontStyle = style.Get("font-style");
                 float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
-                var lines = TextMeasurer.WrapText(textNode.Data.Trim(), fontSize, fontFamily, childContainingWidth);
+                var lines = TextMeasurer.WrapText(textNode.Data.Trim(), fontSize, fontFamily, fontWeight, fontStyle, childContainingWidth);
 
                 foreach (var line in lines)
                 {
@@ -232,13 +234,37 @@ public static class BlockLayout
                         Y = box.Y + box.PaddingTop + childY,
                         Width = childContainingWidth,
                         Height = lineHeight,
-                        ContentWidth = TextMeasurer.MeasureWidth(line, fontSize, fontFamily),
+                        ContentWidth = TextMeasurer.MeasureWidth(line, fontSize, fontFamily, fontWeight, fontStyle),
                         ContentHeight = lineHeight,
                         Text = line
                     };
                     box.Children.Add(textBox);
                     childY += lineHeight;
                 }
+            }
+        }
+
+        // List marker for display:list-item
+        if (style.Display == "list-item")
+        {
+            var listStyleType = style.Get("list-style-type") ?? (parentStyle?.Get("list-style-type")) ?? "disc";
+            string markerText = GetListMarkerText(listStyleType, element, parent.Element);
+            if (!string.IsNullOrEmpty(markerText))
+            {
+                float markerWidth = TextMeasurer.MeasureWidth(markerText + " ", fontSize, null);
+                var markerBox = new LayoutBox
+                {
+                    Style = style,
+                    IsListMarker = true,
+                    X = box.X - markerWidth,
+                    Y = box.Y + box.PaddingTop,
+                    Width = markerWidth,
+                    Height = fontSize * DefaultLineHeight,
+                    ContentWidth = markerWidth,
+                    ContentHeight = fontSize * DefaultLineHeight,
+                    Text = markerText
+                };
+                box.Children.Add(markerBox);
             }
         }
 
@@ -309,6 +335,69 @@ public static class BlockLayout
                 index++;
         }
         return index;
+    }
+
+    private static string GetListMarkerText(string listStyleType, HtmlElement element, HtmlElement? parentElement)
+    {
+        switch (listStyleType)
+        {
+            case "disc":
+                return "\u2022"; // • (bullet, WinAnsi 0x95)
+            case "circle":
+                return "o"; // circle marker (WinAnsi-safe)
+            case "square":
+                return "\u2013"; // – as square substitute (WinAnsi 0x96)
+            case "none":
+                return "";
+            case "decimal":
+                int index = GetListItemIndex(element, parentElement);
+                return index + ".";
+            case "decimal-leading-zero":
+                int idx = GetListItemIndex(element, parentElement);
+                return idx.ToString("D2") + ".";
+            case "lower-alpha":
+            case "lower-latin":
+                int ai = GetListItemIndex(element, parentElement);
+                return ai > 0 && ai <= 26 ? ((char)('a' + ai - 1)).ToString() + "." : ai + ".";
+            case "upper-alpha":
+            case "upper-latin":
+                int bi = GetListItemIndex(element, parentElement);
+                return bi > 0 && bi <= 26 ? ((char)('A' + bi - 1)).ToString() + "." : bi + ".";
+            case "lower-roman":
+                int ri = GetListItemIndex(element, parentElement);
+                return ToRoman(ri).ToLowerInvariant() + ".";
+            case "upper-roman":
+                int ui = GetListItemIndex(element, parentElement);
+                return ToRoman(ui) + ".";
+            default:
+                return "\u2022"; // default to disc
+        }
+    }
+
+    private static int GetListItemIndex(HtmlElement li, HtmlElement? parent)
+    {
+        if (parent == null) return 1;
+        int index = 0;
+        foreach (var child in parent.ChildNodes)
+        {
+            if (child is HtmlElement e && e.TagName == "li")
+            {
+                index++;
+                if (e == li) return index;
+            }
+        }
+        return 1;
+    }
+
+    private static string ToRoman(int number)
+    {
+        if (number <= 0 || number > 3999) return number.ToString();
+        string[] thousands = { "", "M", "MM", "MMM" };
+        string[] hundreds = { "", "C", "CC", "CCC", "CD", "D", "DC", "DCC", "DCCC", "CM" };
+        string[] tens = { "", "X", "XX", "XXX", "XL", "L", "LX", "LXX", "LXXX", "XC" };
+        string[] ones = { "", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX" };
+        return thousands[number / 1000] + hundreds[(number % 1000) / 100] +
+               tens[(number % 100) / 10] + ones[number % 10];
     }
 
     private static bool IsBlockLevel(string display)
@@ -406,6 +495,13 @@ public static class BlockLayout
     {
         foreach (var child in box.Children)
         {
+            // List markers are already absolutely positioned
+            if (child.IsListMarker)
+            {
+                ResolveAbsolutePositions(child, child.X, child.Y);
+                continue;
+            }
+
             // A child's Y is relative if it's less than its parent's Y
             // and the parent has a non-zero Y position
             bool needsYFix = box.Y > 0 && child.Y < box.Y;

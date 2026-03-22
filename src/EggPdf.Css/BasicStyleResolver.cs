@@ -124,12 +124,8 @@ public class BasicStyleResolver
             var declarations = CssInlineParser.Parse(inlineCss);
             foreach (var decl in declarations)
             {
-                // Expand border shorthand: "border: 1px solid red" -> width + style + color
-                if (decl.Property == "border")
-                {
-                    ExpandBorderShorthand(decl.Value, style);
-                }
-                else
+                // Try expanding shorthands (margin, padding, border, background)
+                if (!CssShorthandExpander.TryExpand(decl.Property, decl.Value, style))
                 {
                     style.Set(decl.Property, decl.Value);
                 }

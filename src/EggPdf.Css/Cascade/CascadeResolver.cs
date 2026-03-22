@@ -97,9 +97,12 @@ public class CascadeResolver
             }
         }
 
-        // Apply winners to style
+        // Apply winners to style (expand shorthands)
         foreach (var kv in propertyWinners)
-            style.Set(kv.Key, kv.Value.value);
+        {
+            if (!CssShorthandExpander.TryExpand(kv.Key, kv.Value.value, style))
+                style.Set(kv.Key, kv.Value.value);
+        }
 
         // 5. Apply inline styles (highest priority, except for !important in stylesheets)
         var inlineCss = element.GetAttribute("style");
@@ -112,7 +115,8 @@ public class CascadeResolver
                 if (propertyWinners.TryGetValue(decl.Property, out var existing) && existing.important && !decl.Important)
                     continue; // author !important wins over inline non-important
 
-                style.Set(decl.Property, decl.Value);
+                if (!CssShorthandExpander.TryExpand(decl.Property, decl.Value, style))
+                    style.Set(decl.Property, decl.Value);
             }
         }
 
