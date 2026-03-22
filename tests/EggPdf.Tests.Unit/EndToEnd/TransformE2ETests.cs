@@ -20,8 +20,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Moved");
-        // translateX should produce a cm operator in the PDF
-        text.Should().StartWith("%PDF");
+        text.Should().Contain(" cm\r\n", "translateX should emit a cm (concat matrix) operator");
     }
 
     [Fact]
@@ -32,7 +31,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Down");
-        text.Should().StartWith("%PDF");
+        text.Should().Contain(" cm\r\n", "translateY should emit a cm operator");
     }
 
     [Fact]
@@ -43,10 +42,9 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Rotated");
-        // rotate(45deg) should produce cm with cos(45) and sin(45) values
-        text.Should().StartWith("%PDF");
-        // cos(45deg) = sin(45deg) ~ 0.71
-        text.Should().StartWith("%PDF");
+        text.Should().Contain(" cm\r\n", "rotate should emit a cm operator");
+        // cos(45deg) ~ 0.71
+        text.Should().Contain("0.71", "cos(45deg) should appear in the matrix");
     }
 
     [Fact]
@@ -57,9 +55,8 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Scaled");
-        // scale(2) should produce cm with 2.00 values on the diagonal
-        text.Should().StartWith("%PDF");
-        // Scale values in matrix
+        text.Should().Contain(" cm\r\n", "scale should emit a cm operator");
+        text.Should().Contain("2.00", "scale(2) should have 2.00 in the matrix");
     }
 
     [Fact]
@@ -70,37 +67,29 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Combined");
-        text.Should().StartWith("%PDF");
+        text.Should().Contain(" cm\r\n", "combined transforms should emit a cm operator");
     }
 
     [Fact]
     public async Task TransformOrigin_Center_Default()
     {
-        // Default transform-origin is center, so rotation should pivot around center
         var html = "<div style='transform: rotate(90deg); width: 100px; height: 100px; background-color: yellow'>Origin</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Origin");
-        // The cm operator should contain non-zero translation components for origin offset
-        text.Should().StartWith("%PDF");
+        text.Should().Contain(" cm\r\n", "rotation with default origin should emit cm");
     }
 
     [Fact]
     public async Task NoTransform_NoCmOperator()
     {
-        // A simple div without transform should NOT have a cm operator
-        // (except for images which use cm for placement)
         var html = "<div style='background-color: red; width: 100px; height: 100px'>Plain</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Plain");
-        // Count cm operators - should not have transform-related cm
-        // The content stream portion should not contain cm
-        // Note: PDF structure may contain "cm" in other contexts (comments, etc.)
-        // We verify there are no q...cm...Q blocks that indicate transforms
-        int cmCount = CountSubstring(text, " cm\n");
+        int cmCount = CountSubstring(text, " cm\r\n");
         cmCount.Should().Be(0, "no transform means no cm operator in content stream");
     }
 
@@ -112,6 +101,8 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("None");
+        int cmCount = CountSubstring(text, " cm\r\n");
+        cmCount.Should().Be(0, "transform:none should produce no cm operator");
     }
 
     [Fact]
@@ -122,43 +113,40 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Skewed");
-        text.Should().StartWith("%PDF");
+        text.Should().Contain(" cm\r\n", "skewX should emit a cm operator");
     }
 
     [Fact]
     public async Task Matrix_DirectValues_ProducesValidPdf()
     {
-        // matrix(a, b, c, d, e, f) = matrix(1, 0, 0, 1, 10, 20) = translate(10, 20)
         var html = "<div style='transform: matrix(1, 0, 0.5, 1, 0, 0); background-color: pink; width: 100px; height: 100px'>Matrix</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Matrix");
-        text.Should().StartWith("%PDF");
+        text.Should().Contain(" cm\r\n", "matrix() should emit a cm operator");
     }
 
     [Fact]
     public async Task Rotate_RadiansUnit_Parsed()
     {
-        // 1.5708 rad ~ 90 deg
         var html = "<div style='transform: rotate(1.5708rad); background-color: coral; width: 100px; height: 100px'>Rad</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Rad");
-        text.Should().StartWith("%PDF");
+        text.Should().Contain(" cm\r\n", "rotate with rad unit should emit cm");
     }
 
     [Fact]
     public async Task Rotate_TurnUnit_Parsed()
     {
-        // 0.25turn = 90deg
         var html = "<div style='transform: rotate(0.25turn); background-color: cyan; width: 100px; height: 100px'>Turn</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Turn");
-        text.Should().StartWith("%PDF");
+        text.Should().Contain(" cm\r\n", "rotate with turn unit should emit cm");
     }
 
     [Fact]
@@ -169,21 +157,20 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("ScaleXY");
-        text.Should().StartWith("%PDF");
-        // Scale values in matrix
-        // verified by visual output
+        text.Should().Contain(" cm\r\n", "scale with different x/y values should emit cm");
+        text.Should().Contain("2.00", "scaleX=2 should appear in the matrix");
+        text.Should().Contain("0.50", "scaleY=0.5 should appear in the matrix");
     }
 
     [Fact]
     public async Task Transform_WithOverflow_BothApplied()
     {
-        // Transform + overflow:hidden should both apply (SaveState/RestoreState nesting)
         var html = "<div style='transform: translateX(10px); overflow: hidden; background-color: red; width: 100px; height: 100px'>Both</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Both");
-        // Both transform and overflow:hidden should produce valid PDF
+        text.Should().Contain(" cm\r\n", "transform should be applied even with overflow:hidden");
         text.Should().StartWith("%PDF");
     }
 
