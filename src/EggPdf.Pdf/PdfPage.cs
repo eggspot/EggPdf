@@ -14,6 +14,7 @@ public class PdfPage
     internal StringBuilder ContentStream { get; } = new();
     internal HashSet<string> UsedFonts { get; } = new();
     internal List<PdfLinkAnnotation> Links { get; } = new();
+    internal List<string> UsedImages { get; } = new();
 
     internal PdfPage(float widthPt, float heightPt)
     {
@@ -47,6 +48,27 @@ public class PdfPage
         ContentStream.AppendLine($"{F(lineWidth)} w");
         ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
         ContentStream.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re S");
+    }
+
+    /// <summary>Add an image at a position with specified dimensions (PDF coordinates).</summary>
+    public void AddImage(string imageName, float x, float y, float width, float height)
+    {
+        if (!UsedImages.Contains(imageName))
+            UsedImages.Add(imageName);
+
+        // Save graphics state, apply transformation matrix, draw image, restore
+        ContentStream.AppendLine("q");
+        ContentStream.AppendLine($"{F(width)} 0 0 {F(height)} {F(x)} {F(y)} cm");
+        ContentStream.AppendLine($"/{imageName} Do");
+        ContentStream.AppendLine("Q");
+    }
+
+    /// <summary>Add a stroked line between two points.</summary>
+    public void AddLine(float x1, float y1, float x2, float y2, float r, float g, float b, float lineWidth)
+    {
+        ContentStream.AppendLine($"{F(lineWidth)} w");
+        ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
+        ContentStream.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
     }
 
     /// <summary>Add a clickable link annotation.</summary>

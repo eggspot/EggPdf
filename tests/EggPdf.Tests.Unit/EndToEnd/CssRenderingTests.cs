@@ -185,6 +185,94 @@ public class CssRenderingTests
     }
 
     [Fact]
+    public async Task TextAlign_Center_TextRendered()
+    {
+        var html = "<p style='text-align: center'>Centered text</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Centered text");
+    }
+
+    [Fact]
+    public async Task TextAlign_Right_TextRendered()
+    {
+        var html = "<p style='text-align: right'>Right-aligned text</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Right-aligned text");
+    }
+
+    [Fact]
+    public async Task TextDecoration_Underline_LineDrawn()
+    {
+        var html = "<p style='text-decoration: underline'>Underlined text</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Underlined text");
+        // Should contain a line drawing operator (m...l S pattern)
+        text.Should().Contain("l S", "underline should draw a line");
+    }
+
+    [Fact]
+    public async Task TextDecoration_LineThrough_LineDrawn()
+    {
+        var html = "<p style='text-decoration: line-through'>Struck text</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Struck text");
+        text.Should().Contain("l S", "line-through should draw a line");
+    }
+
+    [Fact]
+    public async Task AnchorTag_Underline_DefaultRendered()
+    {
+        var html = "<a href='https://example.com'>Link text</a>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Link text");
+        text.Should().Contain("l S", "links should have underline by default");
+    }
+
+    [Fact]
+    public async Task ListItem_BulletRendered()
+    {
+        var html = "<ul><li>First item</li><li>Second item</li></ul>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("First item");
+        text.Should().Contain("Second item");
+    }
+
+    [Fact]
+    public async Task OrderedList_NumbersRendered()
+    {
+        var html = "<ol><li>Step one</li><li>Step two</li></ol>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Step one");
+        text.Should().Contain("Step two");
+        text.Should().Contain("1.");
+        text.Should().Contain("2.");
+    }
+
+    [Fact]
+    public async Task MarginShorthand_TwoValues_Rendered()
+    {
+        var html = "<div style='margin: 10px 20px; background-color: red; width: 100px; height: 50px'>Margin test</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Margin test");
+    }
+
+    [Fact]
     public async Task CompleteDocument_AllElementsRendered()
     {
         var html = @"<html><head><style>

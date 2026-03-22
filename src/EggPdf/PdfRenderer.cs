@@ -78,8 +78,9 @@ internal static class PdfRenderer
 
     private static void CollectPaintableBoxes(LayoutBox box, List<LayoutBox> result)
     {
-        // A box is paintable if it has text, background, or is a link
+        // A box is paintable if it has text, background, image, or is a link
         bool hasPaint = !string.IsNullOrEmpty(box.Text) ||
+                        !string.IsNullOrEmpty(box.ImageSource) ||
                         !string.IsNullOrEmpty(box.Style.BackgroundColor) &&
                         box.Style.BackgroundColor != "transparent" ||
                         box.Element?.TagName == "a";
@@ -165,18 +166,6 @@ internal static class PdfRenderer
         // Paint text
         if (!string.IsNullOrEmpty(box.Text))
         {
-            string fontName = "Helvetica";
-            var fontFamily = box.Style.FontFamily;
-            if (!string.IsNullOrEmpty(fontFamily))
-            {
-                if (fontFamily.IndexOf("monospace", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    fontFamily.IndexOf("Courier", StringComparison.OrdinalIgnoreCase) >= 0)
-                    fontName = "Courier";
-                else if (fontFamily.IndexOf("serif", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                         fontFamily.IndexOf("sans", StringComparison.OrdinalIgnoreCase) < 0)
-                    fontName = "Times-Roman";
-            }
-
             float fontSize = 12;
             var fsStr = box.Style.FontSize;
             if (!string.IsNullOrEmpty(fsStr))
@@ -185,27 +174,25 @@ internal static class PdfRenderer
                 if (resolved > 0) fontSize = resolved;
             }
 
-            var fontWeight = box.Style.FontWeight;
-            if (fontWeight == "bold" || fontWeight == "700" || fontWeight == "800" || fontWeight == "900")
-            {
-                if (fontName == "Helvetica") fontName = "Helvetica-Bold";
-                else if (fontName == "Times-Roman") fontName = "Times-Bold";
-                else if (fontName == "Courier") fontName = "Courier-Bold";
-            }
-
-            var fontStyle = box.Style.Get("font-style");
-            if (fontStyle == "italic" || fontStyle == "oblique")
-            {
-                if (fontName == "Helvetica") fontName = "Helvetica-Oblique";
-                else if (fontName == "Helvetica-Bold") fontName = "Helvetica-BoldOblique";
-                else if (fontName == "Times-Roman") fontName = "Times-Italic";
-                else if (fontName == "Times-Bold") fontName = "Times-BoldItalic";
-                else if (fontName == "Courier") fontName = "Courier-Oblique";
-                else if (fontName == "Courier-Bold") fontName = "Courier-BoldOblique";
-            }
+            string fontName = StandardFontMetrics.ResolvePdfFontName(
+                box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"));
 
             float pdfFontSize = fontSize * PdfCoordinates.PxToPt;
-            float pdfX = (box.X + box.PaddingLeft) * PdfCoordinates.PxToPt;
+            float textX = box.X + box.PaddingLeft;
+
+            // Text alignment
+            var textAlign = box.Style.TextAlign;
+            if (!string.IsNullOrEmpty(textAlign) && box.ContentWidth < box.Width)
+            {
+                float availableWidth = box.Width - box.PaddingLeft - box.PaddingRight;
+                float textWidth = box.ContentWidth;
+                if (textAlign == "center")
+                    textX += (availableWidth - textWidth) / 2;
+                else if (textAlign == "right")
+                    textX += availableWidth - textWidth;
+            }
+
+            float pdfX = textX * PdfCoordinates.PxToPt;
             float pdfY = (pageHeightPx - adjustedY - box.PaddingTop - fontSize) * PdfCoordinates.PxToPt;
 
             // Text color
@@ -216,6 +203,41 @@ internal static class PdfRenderer
 
             page.AddText(box.Text, pdfX, pdfY, fontName, pdfFontSize,
                 color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0);
+
+            // Text decoration (underline, line-through)
+            var textDecoration = box.Style.Get("text-decoration");
+            if (!string.IsNullOrEmpty(textDecoration) && textDecoration != "none")
+            {
+                float lineY;
+                float textWidth = box.ContentWidth * PdfCoordinates.PxToPt;
+                float decoLineWidth = Math.Max(fontSize * 0.05f, 0.5f) * PdfCoordinates.PxToPt;
+
+                float dr = 0, dg = 0, db = 0;
+                if (color.HasValue) { dr = color.Value.R / 255f; dg = color.Value.G / 255f; db = color.Value.B / 255f; }
+
+                if (textDecoration.IndexOf("underline", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    lineY = pdfY - fontSize * 0.15f * PdfCoordinates.PxToPt;
+                    page.AddLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth);
+                }
+                if (textDecoration.IndexOf("line-through", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    lineY = pdfY + fontSize * 0.3f * PdfCoordinates.PxToPt;
+                    page.AddLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth);
+                }
+            }
+        }
+
+        // Paint image
+        if (!string.IsNullOrEmpty(box.ImageSource) && box.ImageData != null)
+        {
+            float pdfX = box.X * PdfCoordinates.PxToPt;
+            float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+            float pdfW = box.Width * PdfCoordinates.PxToPt;
+            float pdfH = box.Height * PdfCoordinates.PxToPt;
+
+            string imgName = "Img" + box.ImageSource.GetHashCode().ToString("X8");
+            page.AddImage(imgName, pdfX, pdfY, pdfW, pdfH);
         }
 
         // Paint links

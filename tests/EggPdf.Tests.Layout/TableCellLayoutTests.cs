@@ -86,6 +86,57 @@ public class TableCellLayoutTests
         }
     }
 
+    [Fact]
+    public void Colspan_CellSpansMultipleColumns()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<table style='width: 600px'><tbody>" +
+            "<tr><td colspan='2'>Wide</td><td>Narrow</td></tr>" +
+            "<tr><td>A</td><td>B</td><td>C</td></tr>" +
+            "</tbody></table>", 600, 800);
+
+        var trs = root.FindAllByTag("tr");
+        trs.Should().HaveCountGreaterOrEqualTo(2);
+
+        // First row: 2 cells (one spanning 2 columns)
+        var row1Cells = GetCellsInRow(trs[0]);
+        row1Cells.Should().HaveCount(2);
+
+        // The spanning cell should be roughly 2/3 of the table width
+        float expectedSpanWidth = 600f / 3f * 2f;
+        row1Cells[0].Width.Should().BeApproximately(expectedSpanWidth, 20f,
+            "colspan=2 cell should be twice the width of a single column");
+
+        // The narrow cell should be roughly 1/3
+        row1Cells[1].Width.Should().BeApproximately(600f / 3f, 20f);
+    }
+
+    [Fact]
+    public void Colspan_CellPositionedCorrectly()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<table style='width: 300px'><tbody>" +
+            "<tr><td>A</td><td colspan='2'>BC</td></tr>" +
+            "</tbody></table>", 600, 800);
+
+        var tds = root.FindAllByTag("td");
+        tds.Should().HaveCount(2);
+
+        // First cell at column 0, second cell at column 1 (spanning 2 columns)
+        tds[1].X.Should().BeGreaterThan(tds[0].X);
+    }
+
+    private static System.Collections.Generic.List<LayoutBox> GetCellsInRow(LayoutBox row)
+    {
+        var cells = new System.Collections.Generic.List<LayoutBox>();
+        foreach (var child in row.Children)
+        {
+            if (child.Element?.TagName == "td" || child.Element?.TagName == "th")
+                cells.Add(child);
+        }
+        return cells;
+    }
+
     private static LayoutBox? FindTextInSubtree(LayoutBox box, string text)
     {
         if (box.Text == text) return box;

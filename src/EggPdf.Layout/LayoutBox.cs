@@ -32,6 +32,8 @@ public class LayoutBox
     public ComputedStyle Style { get; set; } = new();
     public string? Text { get; set; }
     public bool IsListMarker { get; set; }
+    public string? ImageSource { get; set; }
+    public byte[]? ImageData { get; set; }
     public List<LayoutBox> Children { get; } = new();
 
     public string? TagName => Element?.TagName;

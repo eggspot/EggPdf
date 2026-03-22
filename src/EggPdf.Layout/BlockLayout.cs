@@ -155,15 +155,17 @@ public static class BlockLayout
                     // Table row layout: cells go side-by-side (horizontal)
                     if (IsTableRow(style.Display) && IsTableCell(childStyle.Display))
                     {
-                        int cellCount = CountTableCells(element);
-                        float cellWidth = cellCount > 0 ? childContainingWidth / cellCount : childContainingWidth;
-                        int cellIndex = CountPreviousCells(element, childElem);
+                        int totalColumns = CountTableColumns(element);
+                        float colWidth = totalColumns > 0 ? childContainingWidth / totalColumns : childContainingWidth;
+                        int colOffset = CountPreviousColumns(element, childElem);
+                        int colspan = GetColspan(childElem);
 
+                        float cellWidth = colWidth * colspan;
                         var childBox = CreateBox(childElem, childStyle, box, cellWidth, resolver, style);
                         childBox.Width = cellWidth;
                         childBox.ContentWidth = cellWidth - childBox.PaddingLeft - childBox.PaddingRight;
                         childBox.Y = box.Y + box.PaddingTop;
-                        childBox.X = box.X + box.PaddingLeft + (cellIndex * cellWidth);
+                        childBox.X = box.X + box.PaddingLeft + (colOffset * colWidth);
 
                         box.Children.Add(childBox);
 
@@ -194,6 +196,27 @@ public static class BlockLayout
                         childY += effectiveTopMargin + childBox.Height;
                         prevMarginBottom = childBox.MarginBottom;
                     }
+                }
+                else if (childElem.TagName == "img")
+                {
+                    // Image element: use width/height attributes or CSS
+                    float imgWidth = ResolveImgDimension(childStyle.Width, childElem.GetAttribute("width"), childContainingWidth, fontSize, 150);
+                    float imgHeight = ResolveImgDimension(childStyle.Height, childElem.GetAttribute("height"), 0, fontSize, 150);
+
+                    var childBox = new LayoutBox
+                    {
+                        Element = childElem,
+                        Style = childStyle,
+                        X = box.X + box.PaddingLeft,
+                        Y = box.Y + box.PaddingTop + childY,
+                        Width = imgWidth,
+                        Height = imgHeight,
+                        ContentWidth = imgWidth,
+                        ContentHeight = imgHeight,
+                        ImageSource = childElem.GetAttribute("src")
+                    };
+                    box.Children.Add(childBox);
+                    childY += childBox.Height;
                 }
                 else
                 {
@@ -316,25 +339,36 @@ public static class BlockLayout
     private static bool IsTableCell(string display)
         => display == "table-cell";
 
-    private static int CountTableCells(HtmlElement row)
+    /// <summary>Count total column slots in a row (respecting colspan).</summary>
+    private static int CountTableColumns(HtmlElement row)
     {
         int count = 0;
         foreach (var child in row.ChildNodes)
             if (child is HtmlElement e && (e.TagName == "td" || e.TagName == "th"))
-                count++;
+                count += GetColspan(e);
         return count;
     }
 
-    private static int CountPreviousCells(HtmlElement row, HtmlElement currentCell)
+    /// <summary>Count column slots before the current cell (respecting colspan).</summary>
+    private static int CountPreviousColumns(HtmlElement row, HtmlElement currentCell)
     {
-        int index = 0;
+        int columns = 0;
         foreach (var child in row.ChildNodes)
         {
-            if (child == currentCell) return index;
+            if (child == currentCell) return columns;
             if (child is HtmlElement e && (e.TagName == "td" || e.TagName == "th"))
-                index++;
+                columns += GetColspan(e);
         }
-        return index;
+        return columns;
+    }
+
+    /// <summary>Get colspan attribute value (default 1).</summary>
+    private static int GetColspan(HtmlElement cell)
+    {
+        var attr = cell.GetAttribute("colspan");
+        if (!string.IsNullOrEmpty(attr) && int.TryParse(attr, out int colspan) && colspan > 0)
+            return colspan;
+        return 1;
     }
 
     private static string GetListMarkerText(string listStyleType, HtmlElement element, HtmlElement? parentElement)
@@ -398,6 +432,22 @@ public static class BlockLayout
         string[] ones = { "", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX" };
         return thousands[number / 1000] + hundreds[(number % 1000) / 100] +
                tens[(number % 100) / 10] + ones[number % 10];
+    }
+
+    private static float ResolveImgDimension(string? cssValue, string? htmlAttr, float containingSize, float fontSize, float defaultValue)
+    {
+        // CSS takes priority
+        var resolved = ResolveOptionalLength(cssValue, containingSize, fontSize);
+        if (resolved.HasValue) return resolved.Value;
+
+        // HTML attribute
+        if (!string.IsNullOrEmpty(htmlAttr))
+        {
+            var attrResolved = ResolveOptionalLength(htmlAttr.EndsWith("%") ? htmlAttr : htmlAttr + "px", containingSize, fontSize);
+            if (attrResolved.HasValue) return attrResolved.Value;
+        }
+
+        return defaultValue;
     }
 
     private static bool IsBlockLevel(string display)

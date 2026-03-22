@@ -8,7 +8,7 @@ namespace EggPdf.Layout;
 /// Widths are in 1/1000 of a unit (standard PDF font metric units).
 /// To get pixel width: charWidth * fontSize / 1000.
 /// </summary>
-internal static class StandardFontMetrics
+public static class StandardFontMetrics
 {
     // Helvetica character widths (ISO Latin-1, chars 32-255)
     // Source: PDF Reference Appendix D / AFM files

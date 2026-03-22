@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -69,9 +70,11 @@ public static class HtmlToPdf
         // 4. Layout (uses cascade resolver for full CSS support)
         var layoutRoot = BlockLayout.LayoutDocument(document, DefaultPageWidthPx, DefaultPageHeightPx, cascadeResolver);
 
-        // 3. Render to PDF
+        // 5. Resolve images (load data from src attributes)
         var pdfDoc = new PdfDocument();
+        ResolveImages(layoutRoot, pdfDoc);
 
+        // 6. Render to PDF
         float pageWidthPt = DefaultPageWidthPx * PdfCoordinates.PxToPt;
         float pageHeightPt = DefaultPageHeightPx * PdfCoordinates.PxToPt;
 
@@ -135,6 +138,68 @@ public static class HtmlToPdf
         foreach (var child in element.ChildNodes)
             if (child is HtmlTextNode text)
                 return text.Data;
+        return null;
+    }
+
+    /// <summary>Walk the layout tree and resolve image sources to byte data.</summary>
+    private static void ResolveImages(LayoutBox box, PdfDocument pdfDoc)
+    {
+        if (!string.IsNullOrEmpty(box.ImageSource))
+        {
+            var data = LoadImageData(box.ImageSource);
+            if (data != null)
+            {
+                box.ImageData = data;
+                string imgName = "Img" + box.ImageSource.GetHashCode().ToString("X8");
+                var pdfImage = PdfImage.FromJpeg(imgName, data);
+                if (pdfImage != null)
+                {
+                    pdfDoc.AddImage(pdfImage);
+                }
+                else
+                {
+                    // Try as raw RGB (for PNG, we'd need a PNG decoder)
+                    // For now, only JPEG pass-through is supported
+                }
+            }
+        }
+
+        foreach (var child in box.Children)
+            ResolveImages(child, pdfDoc);
+    }
+
+    /// <summary>Load image data from a source string (data URI or file path).</summary>
+    private static byte[]? LoadImageData(string src)
+    {
+        // Data URI: data:image/jpeg;base64,...
+        if (src.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            int commaIndex = src.IndexOf(',');
+            if (commaIndex > 0)
+            {
+                var base64 = src.Substring(commaIndex + 1);
+                try
+                {
+                    return Convert.FromBase64String(base64);
+                }
+                catch
+                {
+                    return null; // invalid base64
+                }
+            }
+        }
+
+        // File path
+        try
+        {
+            if (File.Exists(src))
+                return File.ReadAllBytes(src);
+        }
+        catch
+        {
+            // Permission denied, etc.
+        }
+
         return null;
     }
 }

@@ -13,6 +13,7 @@ namespace EggPdf.Pdf;
 public class PdfDocument
 {
     private readonly List<PdfPage> _pages = new();
+    private readonly Dictionary<string, PdfImage> _images = new();
     public string? Title { get; set; }
     public string? Author { get; set; }
 
@@ -22,6 +23,13 @@ public class PdfDocument
         var page = new PdfPage(widthPt, heightPt);
         _pages.Add(page);
         return page;
+    }
+
+    /// <summary>Register an image for embedding. Returns the image name for reference.</summary>
+    public string AddImage(PdfImage image)
+    {
+        _images[image.Name] = image;
+        return image.Name;
     }
 
     /// <summary>Write the PDF to a byte array.</summary>
@@ -76,6 +84,16 @@ public class PdfDocument
         foreach (var font in allFonts)
             fontObjs[font] = nextObj++;
 
+        // Image XObject objects (each image = 1 object, + 1 SMask if alpha)
+        var imageObjs = new Dictionary<string, int>();
+        var imageSMaskObjs = new Dictionary<string, int>();
+        foreach (var kv in _images)
+        {
+            imageObjs[kv.Key] = nextObj++;
+            if (kv.Value.SMaskData != null)
+                imageSMaskObjs[kv.Key] = nextObj++;
+        }
+
         // Info dictionary
         int infoObj = nextObj++;
 
@@ -103,12 +121,97 @@ public class PdfDocument
             writer.WriteLine("endobj");
         }
 
+        // Write image SMask objects first (they're referenced by image objects)
+        foreach (var kv in imageSMaskObjs)
+        {
+            var img = _images[kv.Key];
+            var smaskData = img.SMaskData!;
+
+            // Compress with Deflate
+            byte[] compressedSmask;
+            using (var sms = new MemoryStream())
+            {
+                using (var ds = new DeflateStream(sms, CompressionLevel.Fastest, true))
+                    ds.Write(smaskData, 0, smaskData.Length);
+                compressedSmask = sms.ToArray();
+            }
+
+            offsets[kv.Value] = writer.Position;
+            writer.WriteLine($"{kv.Value} 0 obj");
+            writer.WriteLine($"<< /Type /XObject /Subtype /Image /Width {img.Width} /Height {img.Height}");
+            writer.WriteLine($"/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length {compressedSmask.Length} >>");
+            writer.WriteLine("stream");
+            writer.WriteBytes(compressedSmask);
+            writer.WriteLine("");
+            writer.WriteLine("endstream");
+            writer.WriteLine("endobj");
+        }
+
+        // Write image XObjects
+        foreach (var kv in imageObjs)
+        {
+            var img = _images[kv.Key];
+
+            offsets[kv.Value] = writer.Position;
+            writer.WriteLine($"{kv.Value} 0 obj");
+
+            if (img.Format == PdfImageFormat.Jpeg)
+            {
+                // JPEG: pass-through with DCTDecode
+                var imgDict = new StringBuilder();
+                imgDict.Append($"<< /Type /XObject /Subtype /Image /Width {img.Width} /Height {img.Height}");
+                imgDict.Append($" /ColorSpace /DeviceRGB /BitsPerComponent {img.BitsPerComponent}");
+                imgDict.Append($" /Filter /DCTDecode /Length {img.Data.Length}");
+                imgDict.Append(" >>");
+                writer.WriteLine(imgDict.ToString());
+                writer.WriteLine("stream");
+                writer.WriteBytes(img.Data);
+                writer.WriteLine("");
+                writer.WriteLine("endstream");
+            }
+            else
+            {
+                // Raw RGB: compress with Deflate
+                byte[] compressed;
+                using (var ims = new MemoryStream())
+                {
+                    using (var ds = new DeflateStream(ims, CompressionLevel.Fastest, true))
+                        ds.Write(img.Data, 0, img.Data.Length);
+                    compressed = ims.ToArray();
+                }
+
+                var imgDict = new StringBuilder();
+                imgDict.Append($"<< /Type /XObject /Subtype /Image /Width {img.Width} /Height {img.Height}");
+                imgDict.Append($" /ColorSpace /DeviceRGB /BitsPerComponent {img.BitsPerComponent}");
+                imgDict.Append($" /Filter /FlateDecode /Length {compressed.Length}");
+                if (imageSMaskObjs.TryGetValue(kv.Key, out int smaskObj))
+                    imgDict.Append($" /SMask {smaskObj} 0 R");
+                imgDict.Append(" >>");
+                writer.WriteLine(imgDict.ToString());
+                writer.WriteLine("stream");
+                writer.WriteBytes(compressed);
+                writer.WriteLine("");
+                writer.WriteLine("endstream");
+            }
+            writer.WriteLine("endobj");
+        }
+
         // Build font resource dict reference
         var fontResources = new StringBuilder();
         fontResources.Append("<< ");
         foreach (var kv in fontObjs)
             fontResources.Append($"/{kv.Key} {kv.Value} 0 R ");
         fontResources.Append(">>");
+
+        // Build XObject resource dict reference
+        var xobjectResources = new StringBuilder();
+        if (imageObjs.Count > 0)
+        {
+            xobjectResources.Append("<< ");
+            foreach (var kv in imageObjs)
+                xobjectResources.Append($"/{kv.Key} {kv.Value} 0 R ");
+            xobjectResources.Append(">>");
+        }
 
         // Write each page
         for (int i = 0; i < _pages.Count; i++)
@@ -155,8 +258,17 @@ public class PdfDocument
             pageDict.Append($" /Parent {pagesObj} 0 R");
             pageDict.Append($" /MediaBox [0 0 {F(page.WidthPt)} {F(page.HeightPt)}]");
             pageDict.Append($" /Contents {contentStreamObj} 0 R");
-            if (allFonts.Count > 0)
-                pageDict.Append($" /Resources << /Font {fontResources} >>");
+            // Resources
+            bool hasResources = allFonts.Count > 0 || imageObjs.Count > 0;
+            if (hasResources)
+            {
+                pageDict.Append(" /Resources <<");
+                if (allFonts.Count > 0)
+                    pageDict.Append($" /Font {fontResources}");
+                if (imageObjs.Count > 0)
+                    pageDict.Append($" /XObject {xobjectResources}");
+                pageDict.Append(" >>");
+            }
 
             // Add link annotations inline (simpler approach)
             if (page.Links.Count > 0)
