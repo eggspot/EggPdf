@@ -5,11 +5,14 @@
 EggPdf is a pure C#, zero-dependency HTML/CSS-to-PDF rendering engine targeting Chrome Print parity.
 Open source under MIT license: https://github.com/eggspot/EggPdf
 
+**PRs auto-merge.** Be extra careful -- all tests must pass before any PR.
+
 ## Architecture
 
 8-stage pipeline: HTML Parse -> CSS Parse -> Style Resolve -> Box Generate -> Layout -> Fragment -> Paint -> PDF Write
 
 See `BLUEPRINT.md` for full architecture, CSS coverage, component specs, and phase plan.
+See `design/architecture/` for detailed component specs (8 docs, ~3,000 lines).
 
 ## Core Principles
 
@@ -45,81 +48,91 @@ Every code change follows this loop:
 - `docs:` -- documentation only
 - `chore:` -- build, CI, tooling
 
-## Project Structure
+## Project Structure (actual, as implemented)
 
 ```
 src/
-  EggPdf/              -- main library (public API)
-  EggPdf.Core/         -- shared primitives (units, colors, rect, point)
-  EggPdf.Html/         -- HTML5 parser (WHATWG spec)
-  EggPdf.Css/          -- CSS parser + cascade + selectors
-  EggPdf.Style/        -- style resolution
-  EggPdf.Layout/       -- layout engine (block, inline, flex, grid, table, float)
-  EggPdf.Text/         -- font resolution, metrics, shaping, line breaking
-  EggPdf.Svg/          -- SVG rendering engine
-  EggPdf.Fragmentation/ -- pagination, @page, page breaks
-  EggPdf.Paint/        -- paint commands (abstract rendering)
-  EggPdf.Pdf/          -- PDF 1.7 writer
-  EggPdf.Razor/        -- optional: Razor template integration (has NuGet deps)
-  EggPdf.AspNetCore/   -- optional: ASP.NET Core integration
-  EggPdf.Cli/          -- CLI tool: dotnet-eggpdf
-  EggPdf.Service/      -- standalone HTTP microservice
+  EggPdf/              -- main library (public API: HtmlToPdf.RenderAsync)
+  EggPdf.Core/         -- shared primitives (Color, geometry, warnings, resource resolver)
+  EggPdf.Html/         -- HTML5 parser (tokenizer, tree builder, DOM types)
+  EggPdf.Css/          -- CSS parser + cascade + selectors + inline parser
+  EggPdf.Layout/       -- layout engine (block, inline, table cells horizontal)
+  EggPdf.Text/         -- TrueType parser, system font discovery, line breaking, font resolver
+  EggPdf.Pdf/          -- PDF 1.7 writer (text, rectangles, links, multi-page)
+  EggPdf.Cli/          -- CLI tool: eggpdf input.html -o output.pdf
+  EggPdf.Service/      -- REST API + WebUI (POST /api/render, GET /e2e, GET /)
+  EggPdf.Style/        -- (placeholder for future style resolution module)
+  EggPdf.Svg/          -- (placeholder for future SVG engine)
+  EggPdf.Paint/        -- (placeholder for future paint layer)
+  EggPdf.Fragmentation/ -- (placeholder for future fragmentation)
 
 tests/
-  EggPdf.Tests.Unit/        -- fast isolated unit tests (< 30s)
-  EggPdf.Tests.Layout/      -- layout assertion tests (< 60s)
-  EggPdf.Tests.Visual/      -- visual regression tests (< 5min)
-  EggPdf.Tests.Integration/ -- E2E tests
-  EggPdf.Tests.Fuzz/        -- fuzz testing
-  testdata/
-    html5lib-tests/          -- git submodule
+  EggPdf.Tests.Unit/   -- 310 unit tests (parsers, CSS, colors, PDF, E2E)
+  EggPdf.Tests.Layout/ -- 66 layout tests (block, inline, table, flex, grid, margins)
+  EggPdf.Tests.E2E/    -- 20 Playwright tests (WebUI, API endpoints)
 
 benchmarks/
-  EggPdf.Benchmarks/        -- BenchmarkDotNet suite
-  baselines/                 -- stored baseline results
+  EggPdf.Benchmarks/   -- BenchmarkDotNet suite (3 scenarios)
 
-tools/
-  EggPdf.WptRunner/         -- WPT conformance test runner
-  EggPdf.ChromeRef/         -- Chrome reference PDF generator (uses Playwright)
+design/
+  architecture/        -- 8 detailed component design docs + E2E testing doc
+  specs/               -- 5 technical specs (primitives, CSS properties, UA stylesheet, PDF operators, colors)
+  webui/               -- WebUI design sketch (synced from implementation)
+
+docker/
+  Dockerfile.service   -- REST API + WebUI Docker image
+  Dockerfile.cli       -- CLI Docker image
+  docker-compose.yml
+
+docs/                  -- Wiki pages (14 pages, auto-synced to GitHub Wiki)
 ```
 
 ## Test Commands
 
 ```bash
-# All tests
-dotnet test --configuration Release
+# All unit + layout tests
+dotnet test tests/EggPdf.Tests.Unit -c Release
+dotnet test tests/EggPdf.Tests.Layout -c Release
 
-# Specific project
-dotnet test tests/EggPdf.Tests.Unit/ --configuration Release
+# Playwright E2E tests (starts service automatically)
+PLAYWRIGHT_BROWSERS_PATH=0 dotnet test tests/EggPdf.Tests.E2E -c Release
 
 # Filtered
-dotnet test --configuration Release --filter "FullyQualifiedName~HtmlTokenizer"
+dotnet test -c Release --filter "FullyQualifiedName~TableCell"
 
 # Benchmarks
-cd benchmarks/EggPdf.Benchmarks && dotnet run -c Release -- --filter * --exporters json markdown
-
-# Quick benchmark smoke test
-cd benchmarks/EggPdf.Benchmarks && dotnet run -c Release -- --filter * --job short
+dotnet run --project benchmarks/EggPdf.Benchmarks -c Release -- --filter "*Render*" --job short
 ```
 
-## Performance Targets
+## Current Benchmark Results
 
-| Scenario | Time | Memory |
-|----------|------|--------|
-| Simple page (1 page) | < 50ms | < 10MB |
-| Invoice (1 page, table + logo) | < 100ms | < 20MB |
-| Report (10 pages) | < 1s | < 50MB |
-| Large table (100 pages) | < 5s | < 200MB |
+| Scenario | Time | Memory | Target |
+|----------|------|--------|--------|
+| Simple page (h1 + p) | **13 us** | 20 KB | < 50ms |
+| Invoice (table + styles) | **86 us** | 85 KB | < 100ms |
+| Large table (100 rows) | **1.2 ms** | 939 KB | < 5s |
+
+## WebUI & Service
+
+```bash
+# Start the service with WebUI
+dotnet run --project src/EggPdf.Service -c Release -- --urls http://localhost:8080
+
+# WebUI: http://localhost:8080 (HTML editor + live preview + PDF download)
+# E2E comparison: http://localhost:8080/e2e (browser vs PDF side-by-side)
+# API: POST http://localhost:8080/api/render (HTML -> PDF)
+# Health: GET http://localhost:8080/health
+```
 
 ## Code Style
 
 - C# 12+ features OK, but must compile on netstandard2.0 via `#if`
-- Use `Span<T>` / `ReadOnlySpan<T>` on netstandard2.1+ for parsing hot paths
+- Use `IndexOf(string, StringComparison)` instead of `Contains(string, StringComparison)` for netstandard2.0
+- No `record` types (not available on netstandard2.0 without polyfill)
+- No `Span<T>.Contains` on netstandard2.0
 - Use `ArrayPool<T>` for temporary buffers
 - No LINQ in hot paths -- use `for` loops
-- XML documentation on all public types and members
 - Test naming: `Feature_Condition_ExpectedBehavior`
-- One assertion concept per test (multiple Assert calls OK if testing one thing)
 
 ## Skills (invoke with /slash commands)
 
@@ -133,6 +146,8 @@ cd benchmarks/EggPdf.Benchmarks && dotnet run -c Release -- --filter * --job sho
 
 ## Key Files
 
-- `BLUEPRINT.md` -- comprehensive project blueprint (3000+ lines)
-- `CLAUDE.md` -- this file (Claude Code instructions)
-- `.claude/skills/` -- skill definitions for slash commands
+- `BLUEPRINT.md` -- comprehensive project blueprint (3,400+ lines)
+- `CLAUDE.md` -- this file
+- `.claude/skills/` -- 7 skill definitions
+- `design/architecture/` -- 9 architecture docs
+- `design/specs/` -- 5 technical specs
