@@ -57,6 +57,125 @@ public class PdfPage
         ContentStream.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re S");
     }
 
+    /// <summary>Set dash pattern for subsequent strokes. Empty array = solid.</summary>
+    public void SetDashPattern(float[] dashArray, float dashPhase = 0)
+    {
+        if (dashArray == null || dashArray.Length == 0)
+        {
+            ContentStream.AppendLine("[] 0 d");
+            return;
+        }
+        var sb = new StringBuilder("[");
+        for (int i = 0; i < dashArray.Length; i++)
+        {
+            if (i > 0) sb.Append(' ');
+            sb.Append(F(dashArray[i]));
+        }
+        sb.Append("] ");
+        sb.Append(F(dashPhase));
+        sb.Append(" d");
+        ContentStream.AppendLine(sb.ToString());
+    }
+
+    /// <summary>Set line cap style: 0=butt, 1=round, 2=square.</summary>
+    public void SetLineCap(int cap)
+    {
+        ContentStream.AppendLine($"{cap} J");
+    }
+
+    /// <summary>Add a stroked line between two points (border side).</summary>
+    public void AddBorderLine(float x1, float y1, float x2, float y2,
+        float r, float g, float b, float lineWidth, string borderStyle)
+    {
+        ContentStream.AppendLine($"{F(lineWidth)} w");
+        ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
+
+        switch (borderStyle)
+        {
+            case "dashed":
+                // Dash pattern: 3x line width on, 3x off
+                float dashLen = lineWidth * 3;
+                ContentStream.AppendLine($"[{F(dashLen)} {F(dashLen)}] 0 d");
+                ContentStream.AppendLine("0 J"); // butt cap
+                ContentStream.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+                ContentStream.AppendLine("[] 0 d"); // reset dash
+                break;
+
+            case "dotted":
+                // Dotted: round cap with 0-length dash
+                ContentStream.AppendLine($"[0 {F(lineWidth * 2)}] 0 d");
+                ContentStream.AppendLine("1 J"); // round cap
+                ContentStream.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+                ContentStream.AppendLine("[] 0 d"); // reset dash
+                ContentStream.AppendLine("0 J"); // reset cap
+                break;
+
+            case "double":
+            {
+                // Double: two lines at 1/3 width with 1/3 gap
+                float third = lineWidth / 3;
+                if (third < 0.5f) third = 0.5f;
+                ContentStream.AppendLine($"{F(third)} w");
+
+                // Calculate perpendicular offset for the two lines
+                float dx = x2 - x1, dy = y2 - y1;
+                float len = (float)Math.Sqrt(dx * dx + dy * dy);
+                if (len < 0.001f) break;
+                float nx = -dy / len * third, ny = dx / len * third;
+
+                // First line (offset outward)
+                ContentStream.AppendLine($"{F(x1 + nx)} {F(y1 + ny)} m {F(x2 + nx)} {F(y2 + ny)} l S");
+                // Second line (offset inward)
+                ContentStream.AppendLine($"{F(x1 - nx)} {F(y1 - ny)} m {F(x2 - nx)} {F(y2 - ny)} l S");
+                break;
+            }
+
+            case "groove":
+            case "ridge":
+            {
+                // 3D effect: two half-width lines with lighter/darker colors
+                float half = lineWidth / 2;
+                if (half < 0.5f) half = 0.5f;
+
+                float dx = x2 - x1, dy = y2 - y1;
+                float len = (float)Math.Sqrt(dx * dx + dy * dy);
+                if (len < 0.001f) break;
+                float nx = -dy / len * (half / 2), ny = dx / len * (half / 2);
+
+                float darkR = r * 0.5f, darkG = g * 0.5f, darkB = b * 0.5f;
+                float lightR = Math.Min(r * 1.5f, 1f), lightG = Math.Min(g * 1.5f, 1f), lightB = Math.Min(b * 1.5f, 1f);
+
+                bool grooveFirst = borderStyle == "groove";
+                float r1 = grooveFirst ? darkR : lightR, g1 = grooveFirst ? darkG : lightG, b1 = grooveFirst ? darkB : lightB;
+                float r2 = grooveFirst ? lightR : darkR, g2 = grooveFirst ? lightG : darkG, b2 = grooveFirst ? lightB : darkB;
+
+                ContentStream.AppendLine($"{F(half)} w");
+                ContentStream.AppendLine($"{F(r1)} {F(g1)} {F(b1)} RG");
+                ContentStream.AppendLine($"{F(x1 + nx)} {F(y1 + ny)} m {F(x2 + nx)} {F(y2 + ny)} l S");
+                ContentStream.AppendLine($"{F(r2)} {F(g2)} {F(b2)} RG");
+                ContentStream.AppendLine($"{F(x1 - nx)} {F(y1 - ny)} m {F(x2 - nx)} {F(y2 - ny)} l S");
+                break;
+            }
+
+            case "inset":
+            case "outset":
+            {
+                // Inset/outset: simple color adjustment
+                bool darken = borderStyle == "inset";
+                float adjR = darken ? r * 0.6f : Math.Min(r * 1.4f, 1f);
+                float adjG = darken ? g * 0.6f : Math.Min(g * 1.4f, 1f);
+                float adjB = darken ? b * 0.6f : Math.Min(b * 1.4f, 1f);
+                ContentStream.AppendLine($"{F(adjR)} {F(adjG)} {F(adjB)} RG");
+                ContentStream.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+                break;
+            }
+
+            default: // solid
+                ContentStream.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+                break;
+        }
+    }
+
     /// <summary>Add a filled rounded rectangle using Bézier curves for corners.</summary>
     public void AddRoundedRectangle(float x, float y, float w, float h,
         float r, float g, float b,

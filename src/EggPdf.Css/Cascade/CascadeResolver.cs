@@ -124,7 +124,45 @@ public class CascadeResolver
         if (element.HasAttribute("hidden"))
             style.Set("display", "none");
 
+        // 7. Inherit custom properties from parent (all custom properties inherit per spec)
+        if (parentStyle != null)
+        {
+            foreach (var kv in parentStyle.All)
+            {
+                if (CssVariableResolver.IsCustomProperty(kv.Key) && !style.Has(kv.Key))
+                    style.Set(kv.Key, kv.Value);
+            }
+        }
+
+        // 8. Resolve var() references in all non-custom property values
+        ResolveCustomProperties(style);
+
         return style;
+    }
+
+    /// <summary>
+    /// Resolve all var() references in non-custom property values.
+    /// Custom properties themselves are not resolved (they store raw values).
+    /// </summary>
+    private static void ResolveCustomProperties(ComputedStyle style)
+    {
+        // Collect properties that need resolution (avoid modifying during iteration)
+        var toResolve = new List<KeyValuePair<string, string>>();
+        foreach (var kv in style.All)
+        {
+            if (!CssVariableResolver.IsCustomProperty(kv.Key) &&
+                kv.Value.IndexOf("var(", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                toResolve.Add(kv);
+            }
+        }
+
+        foreach (var kv in toResolve)
+        {
+            var resolved = CssVariableResolver.ResolveVariables(kv.Value, style);
+            if (resolved != kv.Value)
+                style.Set(kv.Key, resolved);
+        }
     }
 
     private bool MediaMatches(string mediaQuery)

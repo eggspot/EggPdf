@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using EggPdf.Css.Cascade;
 using EggPdf.Html.Dom;
 
 namespace EggPdf.Css;
@@ -115,6 +116,13 @@ public class BasicStyleResolver
                         style.Set(prop, parentVal);
                 }
             }
+
+            // Inherit custom properties (all custom properties inherit per CSS spec)
+            foreach (var kv in parentStyle.All)
+            {
+                if (CssVariableResolver.IsCustomProperty(kv.Key) && !style.Has(kv.Key))
+                    style.Set(kv.Key, kv.Value);
+            }
         }
 
         // 3. Apply inline styles (highest priority)
@@ -136,7 +144,33 @@ public class BasicStyleResolver
         if (element.HasAttribute("hidden"))
             style.Set("display", "none");
 
+        // 5. Resolve var() references in all non-custom property values
+        ResolveCustomProperties(style);
+
         return style;
+    }
+
+    /// <summary>
+    /// Resolve all var() references in non-custom property values.
+    /// </summary>
+    private static void ResolveCustomProperties(ComputedStyle style)
+    {
+        var toResolve = new List<KeyValuePair<string, string>>();
+        foreach (var kv in style.All)
+        {
+            if (!CssVariableResolver.IsCustomProperty(kv.Key) &&
+                kv.Value.IndexOf("var(", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                toResolve.Add(kv);
+            }
+        }
+
+        foreach (var kv in toResolve)
+        {
+            var resolved = CssVariableResolver.ResolveVariables(kv.Value, style);
+            if (resolved != kv.Value)
+                style.Set(kv.Key, resolved);
+        }
     }
 
     /// <summary>Expand border shorthand: "1px solid red" -> individual properties.</summary>

@@ -715,6 +715,10 @@ public static class BlockLayout
 
     private static float ResolveLengthValue(string value, float containingSize, float fontSize)
     {
+        // Check for calc(), min(), max(), clamp() expressions
+        if (CalcResolver.IsMathFunction(value))
+            return CalcResolver.Resolve(value, containingSize, fontSize);
+
         if (value.EndsWith("px"))
             return ParseFloat(value.Substring(0, value.Length - 2));
 

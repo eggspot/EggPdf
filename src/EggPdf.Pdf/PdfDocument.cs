@@ -14,8 +14,15 @@ public class PdfDocument
 {
     private readonly List<PdfPage> _pages = new();
     private readonly Dictionary<string, PdfImage> _images = new();
+    private List<PdfBookmark>? _bookmarks;
     public string? Title { get; set; }
     public string? Author { get; set; }
+
+    /// <summary>Set bookmarks (document outline) to include in the PDF.</summary>
+    public void SetBookmarks(List<PdfBookmark> bookmarks)
+    {
+        _bookmarks = bookmarks != null && bookmarks.Count > 0 ? bookmarks : null;
+    }
 
     /// <summary>Add a page with dimensions in PDF points.</summary>
     public PdfPage AddPage(float widthPt, float heightPt)
@@ -106,12 +113,25 @@ public class PdfDocument
         // Info dictionary
         int infoObj = nextObj++;
 
+        // Outline objects for bookmarks
+        int outlineRootObj = 0;
+        var outlineItemObjs = new List<int>();
+        if (_bookmarks != null && _bookmarks.Count > 0)
+        {
+            outlineRootObj = nextObj++;
+            for (int i = 0; i < _bookmarks.Count; i++)
+                outlineItemObjs.Add(nextObj++);
+        }
+
         var offsets = new Dictionary<int, long>();
 
         // Write Catalog
         offsets[catalogObj] = writer.Position;
         writer.WriteLine($"{catalogObj} 0 obj");
-        writer.WriteLine($"<< /Type /Catalog /Pages {pagesObj} 0 R >>");
+        if (outlineRootObj > 0)
+            writer.WriteLine($"<< /Type /Catalog /Pages {pagesObj} 0 R /Outlines {outlineRootObj} 0 R >>");
+        else
+            writer.WriteLine($"<< /Type /Catalog /Pages {pagesObj} 0 R >>");
         writer.WriteLine("endobj");
 
         // Write Pages
@@ -322,6 +342,12 @@ public class PdfDocument
             writer.WriteLine("endobj");
         }
 
+        // Write outline objects (bookmarks)
+        if (_bookmarks != null && _bookmarks.Count > 0 && outlineRootObj > 0)
+        {
+            WriteOutlineObjects(writer, offsets, pageObjs, outlineRootObj, outlineItemObjs);
+        }
+
         // Info dictionary
         offsets[infoObj] = writer.Position;
         writer.WriteLine($"{infoObj} 0 obj");
@@ -357,6 +383,162 @@ public class PdfDocument
         writer.WriteLine("startxref");
         writer.WriteLine(xrefOffset.ToString());
         writer.WriteLine("%%EOF");
+    }
+
+    /// <summary>
+    /// Writes the PDF outline (bookmark) tree objects.
+    /// Builds a nested hierarchy from the flat list of headings based on their levels.
+    /// </summary>
+    private void WriteOutlineObjects(
+        PdfStreamWriter writer,
+        Dictionary<int, long> offsets,
+        List<(int pageDict, int contentStream, int? annotArray)> pageObjs,
+        int outlineRootObj,
+        List<int> outlineItemObjs)
+    {
+        // Build tree structure from flat list:
+        // Each node tracks: parentObjId, firstChildIdx, lastChildIdx, prevIdx, nextIdx, childCount
+        int count = _bookmarks!.Count;
+        var parentObj = new int[count];     // PDF object number of the parent
+        var firstChild = new int[count];    // index of first child (-1 = none)
+        var lastChild = new int[count];     // index of last child (-1 = none)
+        var prevSibling = new int[count];   // index of prev sibling (-1 = none)
+        var nextSibling = new int[count];   // index of next sibling (-1 = none)
+        var childCount = new int[count];    // total visible descendant count
+
+        for (int i = 0; i < count; i++)
+        {
+            parentObj[i] = outlineRootObj;  // default: root is parent
+            firstChild[i] = -1;
+            lastChild[i] = -1;
+            prevSibling[i] = -1;
+            nextSibling[i] = -1;
+        }
+
+        // Build parent-child relationships based on heading levels.
+        // Use a stack to track the "current path" of ancestor indices.
+        // For each bookmark, find its parent by walking back through ancestors
+        // to find the last bookmark with a smaller level.
+        var ancestorStack = new List<int>(); // indices of ancestor bookmarks
+
+        // Track top-level children (direct children of the outline root)
+        var topLevelChildren = new List<int>();
+
+        for (int i = 0; i < count; i++)
+        {
+            int level = _bookmarks[i].Level;
+
+            // Pop ancestors that are not parents of this item
+            // A parent must have a strictly smaller level
+            while (ancestorStack.Count > 0)
+            {
+                int ancestorIdx = ancestorStack[ancestorStack.Count - 1];
+                if (_bookmarks[ancestorIdx].Level < level)
+                    break;
+                ancestorStack.RemoveAt(ancestorStack.Count - 1);
+            }
+
+            if (ancestorStack.Count > 0)
+            {
+                // This item is a child of the last ancestor
+                int parentIdx = ancestorStack[ancestorStack.Count - 1];
+                parentObj[i] = outlineItemObjs[parentIdx];
+
+                if (firstChild[parentIdx] == -1)
+                {
+                    firstChild[parentIdx] = i;
+                }
+                else
+                {
+                    // Link as next sibling of the current last child
+                    int prevIdx = lastChild[parentIdx];
+                    nextSibling[prevIdx] = i;
+                    prevSibling[i] = prevIdx;
+                }
+                lastChild[parentIdx] = i;
+            }
+            else
+            {
+                // Top-level child (parent is outline root)
+                parentObj[i] = outlineRootObj;
+                if (topLevelChildren.Count > 0)
+                {
+                    int prevIdx = topLevelChildren[topLevelChildren.Count - 1];
+                    nextSibling[prevIdx] = i;
+                    prevSibling[i] = prevIdx;
+                }
+                topLevelChildren.Add(i);
+            }
+
+            ancestorStack.Add(i);
+        }
+
+        // Calculate child counts (total visible descendants) bottom-up
+        // We do a simple recursive count
+        for (int i = 0; i < count; i++)
+            childCount[i] = CountDescendants(i, firstChild, nextSibling);
+
+        // Write outline root
+        int rootFirst = topLevelChildren.Count > 0 ? topLevelChildren[0] : 0;
+        int rootLast = topLevelChildren.Count > 0 ? topLevelChildren[topLevelChildren.Count - 1] : 0;
+        int totalTopLevel = topLevelChildren.Count;
+
+        offsets[outlineRootObj] = writer.Position;
+        writer.WriteLine($"{outlineRootObj} 0 obj");
+        writer.WriteLine($"<< /Type /Outlines /First {outlineItemObjs[rootFirst]} 0 R /Last {outlineItemObjs[rootLast]} 0 R /Count {totalTopLevel} >>");
+        writer.WriteLine("endobj");
+
+        // Write each outline item
+        for (int i = 0; i < count; i++)
+        {
+            var bm = _bookmarks[i];
+            int objNum = outlineItemObjs[i];
+
+            // Resolve destination: page reference + Y position
+            int pageIdx = Math.Min(bm.PageIndex, pageObjs.Count - 1);
+            if (pageIdx < 0) pageIdx = 0;
+            int pageRef = pageObjs[pageIdx].pageDict;
+
+            var entry = new StringBuilder();
+            entry.Append("<< /Title (");
+            entry.Append(EscapePdfString(bm.Title));
+            entry.Append(")");
+            entry.Append($" /Parent {parentObj[i]} 0 R");
+            entry.Append($" /Dest [{pageRef} 0 R /XYZ 0 {F(bm.TopPt)} 0]");
+
+            if (firstChild[i] >= 0)
+            {
+                entry.Append($" /First {outlineItemObjs[firstChild[i]]} 0 R");
+                entry.Append($" /Last {outlineItemObjs[lastChild[i]]} 0 R");
+                entry.Append($" /Count {childCount[i]}");
+            }
+
+            if (prevSibling[i] >= 0)
+                entry.Append($" /Prev {outlineItemObjs[prevSibling[i]]} 0 R");
+            if (nextSibling[i] >= 0)
+                entry.Append($" /Next {outlineItemObjs[nextSibling[i]]} 0 R");
+
+            entry.Append(" >>");
+
+            offsets[objNum] = writer.Position;
+            writer.WriteLine($"{objNum} 0 obj");
+            writer.WriteLine(entry.ToString());
+            writer.WriteLine("endobj");
+        }
+    }
+
+    /// <summary>Count total descendants of an outline node.</summary>
+    private static int CountDescendants(int index, int[] firstChild, int[] nextSibling)
+    {
+        int total = 0;
+        int child = firstChild[index];
+        while (child >= 0)
+        {
+            total++; // count this child
+            total += CountDescendants(child, firstChild, nextSibling); // count its descendants
+            child = nextSibling[child];
+        }
+        return total;
     }
 
     private static string F(float value) => value.ToString("F2", CultureInfo.InvariantCulture);

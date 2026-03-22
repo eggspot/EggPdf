@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using EggPdf.Core;
@@ -22,6 +23,7 @@ public static class HtmlToPdf
 {
     private const float DefaultPageWidthPx = 595.28f;   // A4 width
     private const float DefaultPageHeightPx = 841.89f;  // A4 height
+    private const int MaxImportDepth = 10;
 
     /// <summary>Render HTML to PDF as byte array.</summary>
     public static Task<byte[]> RenderAsync(string? html, CancellationToken ct = default)
@@ -53,16 +55,22 @@ public static class HtmlToPdf
     /// <summary>Render HTML to PDF synchronously.</summary>
     public static byte[] Render(string? html)
     {
-        return RenderInternal(html ?? "");
+        return RenderInternal(html ?? "", null);
     }
 
-    private static byte[] RenderInternal(string html)
+    /// <summary>Render HTML to PDF synchronously with a base path for resolving external resources.</summary>
+    public static byte[] Render(string? html, string? basePath)
+    {
+        return RenderInternal(html ?? "", basePath);
+    }
+
+    private static byte[] RenderInternal(string html, string? basePath)
     {
         // 1. Parse HTML -> DOM
         var document = HtmlParser.Parse(html);
 
-        // 2. Extract <style> tags and parse CSS stylesheets
-        var stylesheets = ExtractStyleSheets(document);
+        // 2. Extract <style> tags, <link> stylesheets, and resolve @imports
+        var stylesheets = ExtractStyleSheets(document, basePath);
 
         // 3. Create CascadeResolver with parsed stylesheets (replaces BasicStyleResolver)
         var cascadeResolver = new CascadeResolver(stylesheets, mediaType: "print");
@@ -84,25 +92,36 @@ public static class HtmlToPdf
     }
 
     /// <summary>
-    /// Extract CSS from all &lt;style&gt; tags in the document and parse into stylesheets.
+    /// Extract CSS from &lt;style&gt; tags, &lt;link&gt; stylesheets, and resolve @import rules.
     /// </summary>
-    private static List<CssStyleSheet> ExtractStyleSheets(HtmlDocument document)
+    internal static List<CssStyleSheet> ExtractStyleSheets(HtmlDocument document, string? basePath = null)
     {
         var sheets = new List<CssStyleSheet>();
+        var visitedUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // Find <style> elements in <head>
+        // Find <link> and <style> elements in <head>
         var head = document.Head;
         if (head != null)
         {
             foreach (var node in head.ChildNodes)
             {
-                if (node is HtmlElement elem && elem.TagName == "style")
+                if (node is HtmlElement elem)
                 {
-                    var cssText = GetElementText(elem);
-                    if (!string.IsNullOrWhiteSpace(cssText))
+                    if (elem.TagName == "link")
                     {
-                        var sheet = CssStyleSheetParser.Parse(cssText);
-                        sheets.Add(sheet);
+                        var linkSheet = LoadLinkStylesheet(elem, basePath, visitedUrls);
+                        if (linkSheet != null)
+                            sheets.Add(linkSheet);
+                    }
+                    else if (elem.TagName == "style")
+                    {
+                        var cssText = GetElementText(elem);
+                        if (!string.IsNullOrWhiteSpace(cssText))
+                        {
+                            var sheet = CssStyleSheetParser.Parse(cssText);
+                            ResolveImports(sheet, sheets, basePath, visitedUrls, 0);
+                            sheets.Add(sheet);
+                        }
                     }
                 }
             }
@@ -111,12 +130,195 @@ public static class HtmlToPdf
         // Also find <style> elements in <body> (common in email HTML, CMS output)
         var body = document.Body;
         if (body != null)
-            FindStyleElements(body, sheets);
+            FindStyleElements(body, sheets, basePath, visitedUrls);
 
         return sheets;
     }
 
-    private static void FindStyleElements(HtmlNode node, List<CssStyleSheet> sheets)
+    /// <summary>Load a stylesheet from a &lt;link rel="stylesheet"&gt; element.</summary>
+    private static CssStyleSheet? LoadLinkStylesheet(HtmlElement linkElement, string? basePath, HashSet<string> visitedUrls)
+    {
+        // Must have rel="stylesheet"
+        var rel = linkElement.GetAttribute("rel");
+        if (rel == null || rel.IndexOf("stylesheet", StringComparison.OrdinalIgnoreCase) < 0)
+            return null;
+
+        var href = linkElement.GetAttribute("href");
+        if (string.IsNullOrWhiteSpace(href))
+            return null;
+
+        // Check media attribute: load if absent, "all", or "print"
+        var media = linkElement.GetAttribute("media");
+        if (media != null)
+        {
+            var mediaTrimmed = media.Trim().ToLowerInvariant();
+            if (mediaTrimmed.Length > 0 &&
+                mediaTrimmed != "all" &&
+                mediaTrimmed != "print")
+                return null;
+        }
+
+        var cssText = LoadCssText(href, basePath);
+        if (string.IsNullOrWhiteSpace(cssText))
+            return null;
+
+        // Track visited URLs to prevent circular references
+        var resolvedUrl = ResolveUrl(href, basePath) ?? href;
+        if (!visitedUrls.Add(resolvedUrl))
+            return null;
+
+        var sheet = CssStyleSheetParser.Parse(cssText);
+        // Determine base path for this stylesheet's @import rules
+        var sheetBasePath = GetBasePathForUrl(href, basePath);
+        ResolveImports(sheet, new List<CssStyleSheet>(), sheetBasePath, visitedUrls, 0);
+        return sheet;
+    }
+
+    /// <summary>Resolve @import rules in a stylesheet, inserting imported sheets before the importing sheet.</summary>
+    private static void ResolveImports(CssStyleSheet sheet, List<CssStyleSheet> targetList, string? basePath, HashSet<string> visitedUrls, int depth)
+    {
+        if (depth >= MaxImportDepth) return;
+        if (sheet.ImportRules.Count == 0) return;
+
+        // Insert position: imported sheets go before the current sheet in the target list
+        int insertIndex = targetList.Count;
+
+        for (int i = 0; i < sheet.ImportRules.Count; i++)
+        {
+            var importRule = sheet.ImportRules[i];
+            var url = importRule.Url;
+            if (string.IsNullOrWhiteSpace(url)) continue;
+
+            // Check media query: load if absent, "all", or "print"
+            if (importRule.MediaQuery != null)
+            {
+                var mq = importRule.MediaQuery.Trim().ToLowerInvariant();
+                if (mq.Length > 0 && mq != "all" && mq != "print")
+                    continue;
+            }
+
+            var resolvedUrl = ResolveUrl(url, basePath) ?? url;
+            if (!visitedUrls.Add(resolvedUrl))
+                continue; // already loaded or circular
+
+            var cssText = LoadCssText(url, basePath);
+            if (string.IsNullOrWhiteSpace(cssText))
+                continue;
+
+            var importedSheet = CssStyleSheetParser.Parse(cssText);
+            var importBasePath = GetBasePathForUrl(url, basePath);
+
+            // Recursively resolve @imports in the imported sheet
+            ResolveImports(importedSheet, targetList, importBasePath, visitedUrls, depth + 1);
+
+            // Insert before current sheet's position
+            targetList.Insert(insertIndex, importedSheet);
+            insertIndex++;
+        }
+
+        // Clear import rules after processing
+        sheet.ImportRules.Clear();
+    }
+
+    /// <summary>Load CSS text from a URL (data: URI or file path).</summary>
+    internal static string? LoadCssText(string url, string? basePath)
+    {
+        // Data URI: data:text/css;base64,...  or  data:text/css,...
+        if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            return DecodeDataUri(url);
+        }
+
+        // Resolve relative path against basePath
+        var filePath = ResolveUrl(url, basePath) ?? url;
+
+        try
+        {
+            if (File.Exists(filePath))
+                return File.ReadAllText(filePath, Encoding.UTF8);
+        }
+        catch
+        {
+            // Permission denied, etc. -- silently ignore
+        }
+
+        return null;
+    }
+
+    /// <summary>Decode a data: URI to its text content.</summary>
+    private static string? DecodeDataUri(string dataUri)
+    {
+        // data:[<mediatype>][;base64],<data>
+        int commaIndex = dataUri.IndexOf(',');
+        if (commaIndex < 0) return null;
+
+        var header = dataUri.Substring(5, commaIndex - 5); // after "data:" before ","
+        var data = dataUri.Substring(commaIndex + 1);
+
+        bool isBase64 = header.IndexOf("base64", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        if (isBase64)
+        {
+            try
+            {
+                var bytes = Convert.FromBase64String(data);
+                return Encoding.UTF8.GetString(bytes);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // Plain text (possibly percent-encoded)
+        try
+        {
+            return Uri.UnescapeDataString(data);
+        }
+        catch
+        {
+            return data;
+        }
+    }
+
+    /// <summary>Resolve a relative URL against a base path.</summary>
+    private static string? ResolveUrl(string url, string? basePath)
+    {
+        if (string.IsNullOrEmpty(basePath)) return null;
+        if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return url;
+
+        // Already absolute
+        if (Path.IsPathRooted(url)) return url;
+
+        try
+        {
+            return Path.GetFullPath(Path.Combine(basePath, url));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Get the base path for resolving relative URLs within a stylesheet.</summary>
+    private static string? GetBasePathForUrl(string url, string? currentBasePath)
+    {
+        if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            return currentBasePath;
+
+        var resolvedPath = ResolveUrl(url, currentBasePath) ?? url;
+        try
+        {
+            var dir = Path.GetDirectoryName(resolvedPath);
+            return string.IsNullOrEmpty(dir) ? currentBasePath : dir;
+        }
+        catch
+        {
+            return currentBasePath;
+        }
+    }
+
+    private static void FindStyleElements(HtmlNode node, List<CssStyleSheet> sheets, string? basePath, HashSet<string> visitedUrls)
     {
         foreach (var child in node.ChildNodes)
         {
@@ -124,11 +326,15 @@ public static class HtmlToPdf
             {
                 var cssText = GetElementText(elem);
                 if (!string.IsNullOrWhiteSpace(cssText))
-                    sheets.Add(CssStyleSheetParser.Parse(cssText));
+                {
+                    var sheet = CssStyleSheetParser.Parse(cssText);
+                    ResolveImports(sheet, sheets, basePath, visitedUrls, 0);
+                    sheets.Add(sheet);
+                }
             }
             else if (child is HtmlElement container)
             {
-                FindStyleElements(container, sheets);
+                FindStyleElements(container, sheets, basePath, visitedUrls);
             }
         }
     }

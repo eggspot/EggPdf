@@ -9,6 +9,14 @@ public class CssStyleSheet
     public List<CssMediaRule> MediaRules { get; } = new();
     public List<CssFontFaceRule> FontFaceRules { get; } = new();
     public List<CssPageRule> PageRules { get; } = new();
+    public List<CssImportRule> ImportRules { get; } = new();
+}
+
+/// <summary>@import rule with URL and optional media query.</summary>
+public class CssImportRule
+{
+    public string Url { get; set; } = "";
+    public string? MediaQuery { get; set; }
 }
 
 /// <summary>A style rule: selector + declarations.</summary>

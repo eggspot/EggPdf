@@ -85,6 +85,45 @@ internal static class PdfRenderer
                 PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY);
             }
         }
+
+        // Convert headings to PDF bookmarks
+        if (headings.Count > 0)
+        {
+            var bookmarks = new List<PdfBookmark>();
+            foreach (var (title, level, yPx) in headings)
+            {
+                // Determine which page this heading falls on
+                int pageIndex = 0;
+                float localYPx = yPx;
+                for (int i = 0; i < pageBounds.Count; i++)
+                {
+                    if (yPx >= pageBounds[i].top && yPx < pageBounds[i].bottom)
+                    {
+                        pageIndex = i;
+                        localYPx = yPx - pageBounds[i].top;
+                        break;
+                    }
+                    // If heading Y is beyond the last page, assign to last page
+                    if (i == pageBounds.Count - 1)
+                    {
+                        pageIndex = i;
+                        localYPx = yPx - pageBounds[i].top;
+                    }
+                }
+
+                // Convert from CSS px (top-left origin) to PDF pt (bottom-left origin)
+                float topPt = (pageHeightPx - localYPx) * PdfCoordinates.PxToPt;
+
+                bookmarks.Add(new PdfBookmark
+                {
+                    Title = title,
+                    Level = level,
+                    PageIndex = pageIndex,
+                    TopPt = topPt
+                });
+            }
+            pdfDoc.SetBookmarks(bookmarks);
+        }
     }
 
     // Overload for backward compatibility
@@ -228,36 +267,8 @@ internal static class PdfRenderer
             }
         }
 
-        // Paint border
-        var borderStyle = box.Style.Get("border-top-style") ?? box.Style.Get("border-style");
-        if (!string.IsNullOrEmpty(borderStyle) && borderStyle != "none")
-        {
-            var borderWidthStr = box.Style.Get("border-top-width") ?? box.Style.Get("border-width");
-            float borderWidth = 1;
-            if (!string.IsNullOrEmpty(borderWidthStr))
-                borderWidth = Layout.BlockLayout.ResolveLength(borderWidthStr, 0, 16);
-            if (borderWidth <= 0) borderWidth = 1;
-
-            var borderColorStr = box.Style.Get("border-top-color") ?? box.Style.Get("border-color");
-            float br = 0, bg = 0, bb = 0;
-            if (!string.IsNullOrEmpty(borderColorStr))
-            {
-                var bc = ParseColor(borderColorStr);
-                if (bc.HasValue) { br = bc.Value.R / 255f; bg = bc.Value.G / 255f; bb = bc.Value.B / 255f; }
-            }
-
-            float pdfX = box.X * PdfCoordinates.PxToPt;
-            float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
-            float pdfW = box.Width * PdfCoordinates.PxToPt;
-            float pdfH = box.Height * PdfCoordinates.PxToPt;
-
-            if (hasRadius)
-                page.AddStrokeRoundedRectangle(pdfX, pdfY, pdfW, pdfH, br, bg, bb,
-                    borderWidth * PdfCoordinates.PxToPt,
-                    tlrPt, trrPt, brrPt, blrPt);
-            else
-                page.AddStrokeRectangle(pdfX, pdfY, pdfW, pdfH, br, bg, bb, borderWidth * PdfCoordinates.PxToPt);
-        }
+        // Paint border (per-side with style support)
+        PaintBorders(page, box, pageHeightPt, pageHeightPx, adjustedY, hasRadius, tlrPt, trrPt, brrPt, blrPt);
 
         // Paint text
         if (!string.IsNullOrEmpty(box.Text))
@@ -404,6 +415,109 @@ internal static class PdfRenderer
 
         float resolved = Layout.BlockLayout.ResolveLength(value, boxWidth, 16);
         return Math.Max(0, resolved);
+    }
+
+    /// <summary>Paint all four borders with per-side style, width, and color support.</summary>
+    private static void PaintBorders(PdfPage page, LayoutBox box,
+        float pageHeightPt, float pageHeightPx, float adjustedY,
+        bool hasRadius, float tlrPt, float trrPt, float brrPt, float blrPt)
+    {
+        // Get common fallback values
+        var fallbackStyle = box.Style.Get("border-style");
+        var fallbackWidth = box.Style.Get("border-width");
+        var fallbackColor = box.Style.Get("border-color");
+
+        // Per-side values
+        string[] sides = { "top", "right", "bottom", "left" };
+        string[] sideStyles = new string[4];
+        float[] sideWidths = new float[4];
+        float[] sideR = new float[4], sideG = new float[4], sideB = new float[4];
+        bool anyBorder = false;
+        bool allSolid = true;
+
+        for (int s = 0; s < 4; s++)
+        {
+            string side = sides[s];
+            sideStyles[s] = box.Style.Get($"border-{side}-style") ?? fallbackStyle ?? "";
+            if (string.IsNullOrEmpty(sideStyles[s]) || sideStyles[s] == "none" || sideStyles[s] == "hidden")
+            {
+                sideWidths[s] = 0;
+                continue;
+            }
+
+            anyBorder = true;
+            if (sideStyles[s] != "solid") allSolid = false;
+
+            var widthStr = box.Style.Get($"border-{side}-width") ?? fallbackWidth;
+            sideWidths[s] = 1;
+            if (!string.IsNullOrEmpty(widthStr))
+                sideWidths[s] = Layout.BlockLayout.ResolveLength(widthStr, 0, 16);
+            if (sideWidths[s] <= 0) sideWidths[s] = 1;
+
+            var colorStr = box.Style.Get($"border-{side}-color") ?? fallbackColor;
+            if (!string.IsNullOrEmpty(colorStr))
+            {
+                var bc = ParseColor(colorStr);
+                if (bc.HasValue) { sideR[s] = bc.Value.R / 255f; sideG[s] = bc.Value.G / 255f; sideB[s] = bc.Value.B / 255f; }
+            }
+        }
+
+        if (!anyBorder) return;
+
+        float pdfX = box.X * PdfCoordinates.PxToPt;
+        float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+        float pdfW = box.Width * PdfCoordinates.PxToPt;
+        float pdfH = box.Height * PdfCoordinates.PxToPt;
+
+        // If all sides are solid and same style, use existing rectangle stroke (fast path)
+        if (allSolid && hasRadius)
+        {
+            page.AddStrokeRoundedRectangle(pdfX, pdfY, pdfW, pdfH,
+                sideR[0], sideG[0], sideB[0], sideWidths[0] * PdfCoordinates.PxToPt,
+                tlrPt, trrPt, brrPt, blrPt);
+            return;
+        }
+
+        if (allSolid && !hasRadius &&
+            sideWidths[0] == sideWidths[1] && sideWidths[1] == sideWidths[2] && sideWidths[2] == sideWidths[3] &&
+            sideR[0] == sideR[1] && sideR[1] == sideR[2] && sideR[2] == sideR[3])
+        {
+            page.AddStrokeRectangle(pdfX, pdfY, pdfW, pdfH,
+                sideR[0], sideG[0], sideB[0], sideWidths[0] * PdfCoordinates.PxToPt);
+            return;
+        }
+
+        // Per-side rendering (handles different styles, widths, colors)
+        // Top border: left-top corner to right-top corner
+        if (sideWidths[0] > 0)
+        {
+            float y = pdfY + pdfH; // top edge
+            page.AddBorderLine(pdfX, y, pdfX + pdfW, y,
+                sideR[0], sideG[0], sideB[0], sideWidths[0] * PdfCoordinates.PxToPt, sideStyles[0]);
+        }
+
+        // Right border: right-top to right-bottom
+        if (sideWidths[1] > 0)
+        {
+            float x = pdfX + pdfW; // right edge
+            page.AddBorderLine(x, pdfY + pdfH, x, pdfY,
+                sideR[1], sideG[1], sideB[1], sideWidths[1] * PdfCoordinates.PxToPt, sideStyles[1]);
+        }
+
+        // Bottom border: right-bottom to left-bottom
+        if (sideWidths[2] > 0)
+        {
+            float y = pdfY; // bottom edge
+            page.AddBorderLine(pdfX + pdfW, y, pdfX, y,
+                sideR[2], sideG[2], sideB[2], sideWidths[2] * PdfCoordinates.PxToPt, sideStyles[2]);
+        }
+
+        // Left border: left-bottom to left-top
+        if (sideWidths[3] > 0)
+        {
+            page.AddBorderLine(pdfX, pdfY, pdfX, pdfY + pdfH,
+                sideR[3], sideG[3], sideB[3], sideWidths[3] * PdfCoordinates.PxToPt, sideStyles[3]);
+        }
     }
 
     private static Color? ParseColor(string value)
