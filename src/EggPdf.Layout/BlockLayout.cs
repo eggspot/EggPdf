@@ -45,8 +45,13 @@ public static class BlockLayout
 
         if (document.Body == null) return root;
 
-        var bodyStyle = resolveStyle(document.Body, null);
-        var bodyBox = CreateBox(document.Body, bodyStyle, root, pageWidth, resolveStyle, null);
+        // Resolve html (root) element style first so custom properties on :root are inherited
+        ComputedStyle? htmlStyle = null;
+        if (document.DocumentElement != null)
+            htmlStyle = resolveStyle(document.DocumentElement, null);
+
+        var bodyStyle = resolveStyle(document.Body, htmlStyle);
+        var bodyBox = CreateBox(document.Body, bodyStyle, root, pageWidth, resolveStyle, htmlStyle);
         root.Children.Add(bodyBox);
 
         // Post-layout pass: convert all Y coordinates to absolute

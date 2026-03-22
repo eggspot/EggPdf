@@ -25,10 +25,36 @@ public static class SelectorMatcher
         var selectorList = SplitSelectorList(selector);
         for (int s = 0; s < selectorList.Count; s++)
         {
-            if (MatchesComplex(selectorList[s].Trim(), element))
+            var sel = selectorList[s].Trim();
+
+            // Pseudo-element selectors (::before, ::after) don't match elements directly
+            if (HasPseudoElement(sel))
+                continue;
+
+            if (MatchesComplex(sel, element))
                 return true;
         }
         return false;
+    }
+
+    /// <summary>Check if a selector contains a pseudo-element (::before, ::after, etc.).</summary>
+    private static bool HasPseudoElement(string selector)
+    {
+        int idx = selector.IndexOf("::", StringComparison.Ordinal);
+        if (idx < 0) return false;
+
+        int identStart = idx + 2;
+        if (identStart >= selector.Length) return false;
+
+        var sb = new System.Text.StringBuilder();
+        int pos = identStart;
+        while (pos < selector.Length && (char.IsLetterOrDigit(selector[pos]) || selector[pos] == '-'))
+        {
+            sb.Append(selector[pos]);
+            pos++;
+        }
+        var pseudo = sb.ToString().ToLowerInvariant();
+        return pseudo == "before" || pseudo == "after" || pseudo == "first-line" || pseudo == "first-letter";
     }
 
     /// <summary>Match a single complex selector (with combinators).</summary>
@@ -810,6 +836,51 @@ public static class SelectorMatcher
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Check if a selector targets a pseudo-element (::before or ::after).
+    /// If so, returns the pseudo-element name and the base selector (without the pseudo-element part).
+    /// </summary>
+    public static bool TryGetPseudoElement(string selector, out string pseudoElement, out string baseSelector)
+    {
+        pseudoElement = "";
+        baseSelector = selector;
+
+        if (string.IsNullOrWhiteSpace(selector))
+            return false;
+
+        selector = selector.Trim();
+
+        int doubleColonIdx = selector.LastIndexOf("::", StringComparison.Ordinal);
+        if (doubleColonIdx < 0)
+            return false;
+
+        string pseudoPart = selector.Substring(doubleColonIdx + 2).Trim().ToLowerInvariant();
+        if (pseudoPart == "before" || pseudoPart == "after")
+        {
+            pseudoElement = pseudoPart;
+            baseSelector = selector.Substring(0, doubleColonIdx).Trim();
+            if (string.IsNullOrEmpty(baseSelector))
+                baseSelector = "*";
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Check if a selector matches an element for a specific pseudo-element.
+    /// </summary>
+    public static bool MatchesPseudoElement(string selector, HtmlElement element, string pseudoElement)
+    {
+        if (!TryGetPseudoElement(selector, out string selectorPseudo, out string baseSelector))
+            return false;
+
+        if (!string.Equals(selectorPseudo, pseudoElement, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return Matches(baseSelector, element);
     }
 
     private struct SelectorPart

@@ -288,11 +288,12 @@ public static class CalcResolver
         if (term.EndsWith("px", StringComparison.OrdinalIgnoreCase))
             return ParseFloat(term.Substring(0, term.Length - 2));
 
-        if (term.EndsWith("em", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * fontSize;
-
+        // Check rem before em since "rem" also EndsWith("em")
         if (term.EndsWith("rem", StringComparison.OrdinalIgnoreCase))
             return ParseFloat(term.Substring(0, term.Length - 3)) * DefaultFontSize;
+
+        if (term.EndsWith("em", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 2)) * fontSize;
 
         if (term.EndsWith("%"))
             return ParseFloat(term.Substring(0, term.Length - 1)) / 100f * containingSize;

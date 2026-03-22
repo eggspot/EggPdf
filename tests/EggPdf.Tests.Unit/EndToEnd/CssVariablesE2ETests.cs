@@ -25,8 +25,8 @@ public class CssVariablesE2ETests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Brand colored text");
-        // red = 1 0 0 rg in PDF
-        text.Should().Contain("1 0 0 rg", "var(--brand-color) should resolve to red color");
+        // red = 1.00 0.00 0.00 rg in PDF (F2 formatting)
+        text.Should().Contain("1.00 0.00 0.00 rg", "var(--brand-color) should resolve to red color");
     }
 
     [Fact]
@@ -43,8 +43,8 @@ public class CssVariablesE2ETests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Large heading");
-        // 32px should appear as 24pt (32 * 72/96) in the PDF Tf operator
-        text.Should().Contain("24 Tf", "var(--heading-size) should resolve to 32px = 24pt font size");
+        // 32px should appear as 24.00pt (32 * 72/96) in the PDF Tf operator
+        text.Should().Contain("24.00 Tf", "var(--heading-size) should resolve to 32px = 24pt font size");
     }
 
     [Fact]
