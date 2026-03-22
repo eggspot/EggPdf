@@ -18,6 +18,7 @@
     <Project Path="src/EggPdf/EggPdf.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/EggPdf.Tests.E2E/EggPdf.Tests.E2E.csproj" />
     <Project Path="tests/EggPdf.Tests.Layout/EggPdf.Tests.Layout.csproj" />
     <Project Path="tests/EggPdf.Tests.Unit/EggPdf.Tests.Unit.csproj" />
   </Folder>
