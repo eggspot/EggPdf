@@ -182,6 +182,13 @@ internal static class PdfRenderer
             page.AddClipRect(clipX, clipY, clipW, clipH);
         }
 
+        // CSS opacity property
+        var opacityStr = box.Style.Get("opacity");
+        float cssOpacity = 1f;
+        if (!string.IsNullOrEmpty(opacityStr) && float.TryParse(opacityStr,
+            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float op))
+            cssOpacity = Math.Max(0, Math.Min(1, op));
+
         // Paint background
         var bgColor = box.Style.BackgroundColor;
         if (!string.IsNullOrEmpty(bgColor) && bgColor != "transparent")
@@ -189,6 +196,10 @@ internal static class PdfRenderer
             var color = ParseColor(bgColor);
             if (color.HasValue)
             {
+                float bgAlpha = (color.Value.A / 255f) * cssOpacity;
+                if (bgAlpha < 1f)
+                    page.SetOpacity(bgAlpha);
+
                 float pdfX = box.X * PdfCoordinates.PxToPt;
                 float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
                 float pdfW = box.Width * PdfCoordinates.PxToPt;
@@ -362,11 +373,6 @@ internal static class PdfRenderer
 
     private static Color? ParseColor(string value)
     {
-        if (value.StartsWith("#"))
-        {
-            try { return Color.FromHex(value); }
-            catch { return null; }
-        }
-        return Color.TryParseNamed(value);
+        return Color.TryParse(value);
     }
 }

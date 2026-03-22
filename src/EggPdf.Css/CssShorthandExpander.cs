@@ -37,6 +37,21 @@ public static class CssShorthandExpander
             case "background":
                 ExpandBackgroundShorthand(value, style);
                 return true;
+            case "font":
+                ExpandFontShorthand(value, style);
+                return true;
+            case "list-style":
+                ExpandListStyleShorthand(value, style);
+                return true;
+            case "flex":
+                ExpandFlexShorthand(value, style);
+                return true;
+            case "border-top":
+            case "border-right":
+            case "border-bottom":
+            case "border-left":
+                ExpandBorderSideShorthand(value, property, style);
+                return true;
             default:
                 return false;
         }
@@ -146,5 +161,113 @@ public static class CssShorthandExpander
         if (part == "medium") return "3px";
         if (part == "thick") return "5px";
         return part;
+    }
+
+    /// <summary>
+    /// Expand font shorthand: "bold 14px/1.5 Arial, sans-serif"
+    /// Format: [style] [variant] [weight] [stretch] size[/line-height] family
+    /// </summary>
+    private static void ExpandFontShorthand(string value, ComputedStyle style)
+    {
+        var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return;
+
+        int i = 0;
+
+        // Parse optional style, variant, weight (before size)
+        while (i < parts.Length)
+        {
+            var part = parts[i].ToLowerInvariant();
+            if (part == "italic" || part == "oblique")
+            {
+                style.Set("font-style", part);
+                i++;
+            }
+            else if (part == "small-caps")
+            {
+                style.Set("font-variant", part);
+                i++;
+            }
+            else if (part == "bold" || part == "bolder" || part == "lighter" || part == "normal" ||
+                     (part.Length <= 3 && int.TryParse(part, out int w) && w >= 100 && w <= 900))
+            {
+                style.Set("font-weight", part);
+                i++;
+            }
+            else
+            {
+                break; // must be size
+            }
+        }
+
+        // Parse size (required) and optional /line-height
+        if (i < parts.Length)
+        {
+            var sizePart = parts[i];
+            int slashIdx = sizePart.IndexOf('/');
+            if (slashIdx >= 0)
+            {
+                style.Set("font-size", sizePart.Substring(0, slashIdx));
+                style.Set("line-height", sizePart.Substring(slashIdx + 1));
+            }
+            else
+            {
+                style.Set("font-size", sizePart);
+            }
+            i++;
+        }
+
+        // Remaining parts are font-family (may contain commas)
+        if (i < parts.Length)
+        {
+            var family = string.Join(" ", parts, i, parts.Length - i);
+            style.Set("font-family", family.Trim().Trim(','));
+        }
+    }
+
+    /// <summary>Expand list-style shorthand: "disc outside" -> type + position.</summary>
+    private static void ExpandListStyleShorthand(string value, ComputedStyle style)
+    {
+        var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            if (part == "inside" || part == "outside")
+                style.Set("list-style-position", part);
+            else if (part == "none")
+                style.Set("list-style-type", "none");
+            else
+                style.Set("list-style-type", part);
+        }
+    }
+
+    /// <summary>Expand flex shorthand: "1 0 auto" -> grow + shrink + basis.</summary>
+    private static void ExpandFlexShorthand(string value, ComputedStyle style)
+    {
+        var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 1) style.Set("flex-grow", parts[0]);
+        if (parts.Length >= 2) style.Set("flex-shrink", parts[1]);
+        if (parts.Length >= 3) style.Set("flex-basis", parts[2]);
+    }
+
+    /// <summary>Expand border-top/right/bottom/left: "1px solid red" -> width + style + color for one side.</summary>
+    private static void ExpandBorderSideShorthand(string value, string property, ComputedStyle style)
+    {
+        // property is "border-top", "border-right", etc.
+        var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        string? width = null, borderStyle = null, color = null;
+
+        foreach (var part in parts)
+        {
+            if (IsBorderStyle(part))
+                borderStyle = part;
+            else if (IsBorderWidth(part))
+                width = NormalizeBorderWidth(part);
+            else
+                color = part;
+        }
+
+        if (width != null) style.Set(property + "-width", width);
+        if (borderStyle != null) style.Set(property + "-style", borderStyle);
+        if (color != null) style.Set(property + "-color", color);
     }
 }

@@ -84,6 +84,151 @@ public readonly struct Color : IEquatable<Color>
     public static Color? TryParseNamed(string name)
         => CssNamedColors.TryGet(name, out var color) ? color : null;
 
+    /// <summary>
+    /// Try to parse any CSS color value: hex, named, rgb(), rgba(), hsl(), hsla().
+    /// Returns null if the value cannot be parsed.
+    /// </summary>
+    public static Color? TryParse(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        value = value.Trim();
+
+        if (value == "transparent")
+            return Transparent;
+
+        // Hex colors
+        if (value.StartsWith("#"))
+        {
+            try { return FromHex(value); }
+            catch { return null; }
+        }
+
+        // rgb() / rgba()
+        if (value.StartsWith("rgb", StringComparison.OrdinalIgnoreCase))
+        {
+            return TryParseRgbFunction(value);
+        }
+
+        // hsl() / hsla()
+        if (value.StartsWith("hsl", StringComparison.OrdinalIgnoreCase))
+        {
+            return TryParseHslFunction(value);
+        }
+
+        // Named colors
+        return TryParseNamed(value);
+    }
+
+    private static Color? TryParseRgbFunction(string value)
+    {
+        // rgb(255, 0, 0) or rgba(255, 0, 0, 0.5)
+        // Also modern: rgb(255 0 0 / 0.5)
+        int openParen = value.IndexOf('(');
+        int closeParen = value.LastIndexOf(')');
+        if (openParen < 0 || closeParen < 0) return null;
+
+        var inner = value.Substring(openParen + 1, closeParen - openParen - 1).Trim();
+
+        // Handle / separator for alpha: "255 0 0 / 0.5"
+        float alpha = 1f;
+        int slashIdx = inner.IndexOf('/');
+        if (slashIdx >= 0)
+        {
+            var alphaPart = inner.Substring(slashIdx + 1).Trim();
+            alpha = ParseColorNumber(alphaPart, true);
+            inner = inner.Substring(0, slashIdx).Trim();
+        }
+
+        var parts = inner.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3) return null;
+
+        byte r = ClampByte(ParseColorNumber(parts[0].Trim(), false));
+        byte g = ClampByte(ParseColorNumber(parts[1].Trim(), false));
+        byte b = ClampByte(ParseColorNumber(parts[2].Trim(), false));
+
+        if (parts.Length >= 4 && slashIdx < 0)
+            alpha = ParseColorNumber(parts[3].Trim(), true);
+
+        return FromRgba(r, g, b, ClampByte(alpha * 255f));
+    }
+
+    private static Color? TryParseHslFunction(string value)
+    {
+        // hsl(120, 100%, 50%) or hsla(120, 100%, 50%, 0.5)
+        int openParen = value.IndexOf('(');
+        int closeParen = value.LastIndexOf(')');
+        if (openParen < 0 || closeParen < 0) return null;
+
+        var inner = value.Substring(openParen + 1, closeParen - openParen - 1).Trim();
+
+        float alpha = 1f;
+        int slashIdx = inner.IndexOf('/');
+        if (slashIdx >= 0)
+        {
+            alpha = ParseColorNumber(inner.Substring(slashIdx + 1).Trim(), true);
+            inner = inner.Substring(0, slashIdx).Trim();
+        }
+
+        var parts = inner.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3) return null;
+
+        float h = ParseColorNumber(parts[0].Trim().TrimEnd('d', 'e', 'g'), false); // remove "deg"
+        float s = ParseColorNumber(parts[1].Trim().TrimEnd('%'), false) / 100f;
+        float l = ParseColorNumber(parts[2].Trim().TrimEnd('%'), false) / 100f;
+
+        if (parts.Length >= 4 && slashIdx < 0)
+            alpha = ParseColorNumber(parts[3].Trim(), true);
+
+        // HSL to RGB conversion
+        HslToRgb(h, s, l, out byte r, out byte g, out byte b);
+        return FromRgba(r, g, b, ClampByte(alpha * 255f));
+    }
+
+    private static float ParseColorNumber(string s, bool isAlpha)
+    {
+        s = s.Trim();
+        if (s.EndsWith("%"))
+        {
+            if (float.TryParse(s.Substring(0, s.Length - 1), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float pct))
+                return isAlpha ? pct / 100f : pct / 100f * 255f;
+            return 0;
+        }
+        if (float.TryParse(s, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out float val))
+            return val;
+        return 0;
+    }
+
+    private static byte ClampByte(float value)
+    {
+        if (value <= 0) return 0;
+        if (value >= 255) return 255;
+        return (byte)Math.Round(value);
+    }
+
+    private static void HslToRgb(float h, float s, float l, out byte r, out byte g, out byte b)
+    {
+        h = ((h % 360) + 360) % 360; // normalize to 0-360
+        float c = (1 - Math.Abs(2 * l - 1)) * s;
+        float x = c * (1 - Math.Abs((h / 60f) % 2 - 1));
+        float m = l - c / 2;
+        float r1, g1, b1;
+
+        if (h < 60) { r1 = c; g1 = x; b1 = 0; }
+        else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
+        else if (h < 180) { r1 = 0; g1 = c; b1 = x; }
+        else if (h < 240) { r1 = 0; g1 = x; b1 = c; }
+        else if (h < 300) { r1 = x; g1 = 0; b1 = c; }
+        else { r1 = c; g1 = 0; b1 = x; }
+
+        r = ClampByte((r1 + m) * 255f);
+        g = ClampByte((g1 + m) * 255f);
+        b = ClampByte((b1 + m) * 255f);
+    }
+
     public bool Equals(Color other) => R == other.R && G == other.G && B == other.B && A == other.A;
     public override bool Equals(object? obj) => obj is Color other && Equals(other);
     public override int GetHashCode() => HashCode.Combine(R, G, B, A);

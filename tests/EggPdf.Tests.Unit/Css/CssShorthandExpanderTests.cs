@@ -124,4 +124,70 @@ public class CssShorthandExpanderTests
         style.MarginBottom.Should().Be("0");
         style.MarginLeft.Should().Be("auto");
     }
+
+    [Fact]
+    public void Font_Shorthand_BoldSizeFamily()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("font", "bold 14px Arial", style).Should().BeTrue();
+
+        style.FontWeight.Should().Be("bold");
+        style.FontSize.Should().Be("14px");
+        style.FontFamily.Should().Be("Arial");
+    }
+
+    [Fact]
+    public void Font_Shorthand_SizeLineHeightFamily()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("font", "16px/1.5 Helvetica", style).Should().BeTrue();
+
+        style.FontSize.Should().Be("16px");
+        style.Get("line-height").Should().Be("1.5");
+        style.FontFamily.Should().Be("Helvetica");
+    }
+
+    [Fact]
+    public void Font_Shorthand_ItalicBoldSizeFamily()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("font", "italic bold 12px serif", style).Should().BeTrue();
+
+        style.Get("font-style").Should().Be("italic");
+        style.FontWeight.Should().Be("bold");
+        style.FontSize.Should().Be("12px");
+        style.FontFamily.Should().Be("serif");
+    }
+
+    [Fact]
+    public void ListStyle_Shorthand_TypeAndPosition()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("list-style", "disc outside", style).Should().BeTrue();
+
+        style.Get("list-style-type").Should().Be("disc");
+        style.Get("list-style-position").Should().Be("outside");
+    }
+
+    [Fact]
+    public void BorderTop_Shorthand()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("border-top", "2px solid red", style).Should().BeTrue();
+
+        style.Get("border-top-width").Should().Be("2px");
+        style.Get("border-top-style").Should().Be("solid");
+        style.Get("border-top-color").Should().Be("red");
+    }
+
+    [Fact]
+    public void Flex_Shorthand()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("flex", "1 0 auto", style).Should().BeTrue();
+
+        style.Get("flex-grow").Should().Be("1");
+        style.Get("flex-shrink").Should().Be("0");
+        style.Get("flex-basis").Should().Be("auto");
+    }
 }

@@ -84,6 +84,15 @@ public class PdfDocument
         foreach (var font in allFonts)
             fontObjs[font] = nextObj++;
 
+        // ExtGState objects for opacity
+        var allExtGStates = new HashSet<string>();
+        foreach (var page in _pages)
+            foreach (var gs in page.UsedExtGStates)
+                allExtGStates.Add(gs);
+        var extGStateObjs = new Dictionary<string, int>();
+        foreach (var gs in allExtGStates)
+            extGStateObjs[gs] = nextObj++;
+
         // Image XObject objects (each image = 1 object, + 1 SMask if alpha)
         var imageObjs = new Dictionary<string, int>();
         var imageSMaskObjs = new Dictionary<string, int>();
@@ -118,6 +127,20 @@ public class PdfDocument
             offsets[kv.Value] = writer.Position;
             writer.WriteLine($"{kv.Value} 0 obj");
             writer.WriteLine($"<< /Type /Font /Subtype /Type1 /BaseFont /{kv.Key} >>");
+            writer.WriteLine("endobj");
+        }
+
+        // Write ExtGState objects for opacity
+        foreach (var kv in extGStateObjs)
+        {
+            // Extract opacity from name: "GS50" -> 0.50
+            float opacity = 1.0f;
+            if (kv.Key.StartsWith("GS") && int.TryParse(kv.Key.Substring(2), out int pct))
+                opacity = pct / 100f;
+
+            offsets[kv.Value] = writer.Position;
+            writer.WriteLine($"{kv.Value} 0 obj");
+            writer.WriteLine($"<< /Type /ExtGState /ca {F(opacity)} /CA {F(opacity)} >>");
             writer.WriteLine("endobj");
         }
 
@@ -259,7 +282,7 @@ public class PdfDocument
             pageDict.Append($" /MediaBox [0 0 {F(page.WidthPt)} {F(page.HeightPt)}]");
             pageDict.Append($" /Contents {contentStreamObj} 0 R");
             // Resources
-            bool hasResources = allFonts.Count > 0 || imageObjs.Count > 0;
+            bool hasResources = allFonts.Count > 0 || imageObjs.Count > 0 || extGStateObjs.Count > 0;
             if (hasResources)
             {
                 pageDict.Append(" /Resources <<");
@@ -267,6 +290,13 @@ public class PdfDocument
                     pageDict.Append($" /Font {fontResources}");
                 if (imageObjs.Count > 0)
                     pageDict.Append($" /XObject {xobjectResources}");
+                if (extGStateObjs.Count > 0)
+                {
+                    pageDict.Append(" /ExtGState <<");
+                    foreach (var gs in extGStateObjs)
+                        pageDict.Append($" /{gs.Key} {gs.Value} 0 R");
+                    pageDict.Append(" >>");
+                }
                 pageDict.Append(" >>");
             }
 

@@ -15,6 +15,7 @@ public class PdfPage
     internal HashSet<string> UsedFonts { get; } = new();
     internal List<PdfLinkAnnotation> Links { get; } = new();
     internal List<string> UsedImages { get; } = new();
+    internal HashSet<string> UsedExtGStates { get; } = new();
 
     internal PdfPage(float widthPt, float heightPt)
     {
@@ -53,6 +54,15 @@ public class PdfPage
         ContentStream.AppendLine($"{F(lineWidth)} w");
         ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
         ContentStream.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re S");
+    }
+
+    /// <summary>Set fill and stroke opacity (0.0-1.0). Creates an ExtGState reference.</summary>
+    public void SetOpacity(float opacity)
+    {
+        if (opacity >= 1.0f) return; // fully opaque, no ExtGState needed
+        var gsName = $"GS{(int)(opacity * 100)}";
+        UsedExtGStates.Add(gsName);
+        ContentStream.AppendLine($"/{gsName} gs");
     }
 
     /// <summary>Save graphics state.</summary>
