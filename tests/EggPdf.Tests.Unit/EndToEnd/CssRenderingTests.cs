@@ -375,6 +375,83 @@ public class CssRenderingTests
     }
 
     [Fact]
+    public async Task TextTransform_Uppercase_AppliedInPdf()
+    {
+        var html = "<p style='text-transform: uppercase'>hello world</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("HELLO WORLD");
+        text.Should().NotContain("hello world");
+    }
+
+    [Fact]
+    public async Task TextTransform_Lowercase_AppliedInPdf()
+    {
+        var html = "<p style='text-transform: lowercase'>HELLO WORLD</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("hello world");
+    }
+
+    [Fact]
+    public async Task TextTransform_Capitalize_AppliedInPdf()
+    {
+        var html = "<p style='text-transform: capitalize'>hello world</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Hello World");
+    }
+
+    [Fact]
+    public async Task VisibilityHidden_TextNotRendered()
+    {
+        var html = "<p>Visible</p><p style='visibility: hidden'>Hidden</p><p>Also visible</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Visible");
+        text.Should().Contain("Also visible");
+        text.Should().NotContain("Hidden");
+    }
+
+    [Fact]
+    public async Task HrElement_Rendered()
+    {
+        var html = "<p>Above</p><hr><p>Below</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Above");
+        text.Should().Contain("Below");
+    }
+
+    [Fact]
+    public async Task BrElement_CausesLineBreak()
+    {
+        var html = "<p>Line 1<br>Line 2</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Line 1");
+        text.Should().Contain("Line 2");
+    }
+
+    [Fact]
+    public async Task TableBorderAttribute_CellsHaveBorders()
+    {
+        var html = "<table border='1'><tr><td>Cell</td></tr></table>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Cell");
+        // Border rendering should produce stroke rectangle operators
+        text.Should().Contain("re S", "table border should propagate to cells");
+    }
+
+    [Fact]
     public async Task CompleteDocument_AllElementsRendered()
     {
         var html = @"<html><head><style>

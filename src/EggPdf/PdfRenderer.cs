@@ -97,9 +97,13 @@ internal static class PdfRenderer
 
     private static void CollectPaintableBoxes(LayoutBox box, List<LayoutBox> result)
     {
-        // A box is paintable if it has text, background, image, or is a link
+        // A box is paintable if it has text, background, image, border, or is a link
+        var borderStyle = box.Style.Get("border-top-style");
+        bool hasBorder = !string.IsNullOrEmpty(borderStyle) && borderStyle != "none";
+
         bool hasPaint = !string.IsNullOrEmpty(box.Text) ||
                         !string.IsNullOrEmpty(box.ImageSource) ||
+                        hasBorder ||
                         !string.IsNullOrEmpty(box.Style.BackgroundColor) &&
                         box.Style.BackgroundColor != "transparent" ||
                         box.Element?.TagName == "a";
@@ -160,6 +164,11 @@ internal static class PdfRenderer
     private static void PaintBox(PdfPage page, LayoutBox box,
         float pageHeightPt, float pageHeightPx, float adjustedY)
     {
+        // Visibility:hidden - box takes space but is not painted
+        var visibility = box.Style.Get("visibility");
+        if (visibility == "hidden" || visibility == "collapse")
+            return;
+
         // Overflow:hidden clipping
         var overflow = box.Style.Get("overflow");
         bool hasClip = overflow == "hidden" || overflow == "clip";
@@ -218,6 +227,16 @@ internal static class PdfRenderer
         // Paint text
         if (!string.IsNullOrEmpty(box.Text))
         {
+            // Apply text-transform
+            var textTransform = box.Style.Get("text-transform");
+            var paintText = box.Text;
+            if (!string.IsNullOrEmpty(textTransform))
+            {
+                if (textTransform == "uppercase") paintText = paintText.ToUpperInvariant();
+                else if (textTransform == "lowercase") paintText = paintText.ToLowerInvariant();
+                else if (textTransform == "capitalize") paintText = CapitalizeText(paintText);
+            }
+
             float fontSize = 12;
             var fsStr = box.Style.FontSize;
             if (!string.IsNullOrEmpty(fsStr))
@@ -262,7 +281,7 @@ internal static class PdfRenderer
             if (!string.IsNullOrEmpty(wsStr) && wsStr != "normal")
                 wordSpacing = BlockLayout.ResolveLength(wsStr, 0, fontSize) * PdfCoordinates.PxToPt;
 
-            page.AddText(box.Text, pdfX, pdfY, fontName, pdfFontSize,
+            page.AddText(paintText, pdfX, pdfY, fontName, pdfFontSize,
                 color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
                 letterSpacing, wordSpacing);
 
@@ -319,6 +338,26 @@ internal static class PdfRenderer
         // Restore clipping state
         if (hasClip)
             page.RestoreState();
+    }
+
+    private static string CapitalizeText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        var chars = text.ToCharArray();
+        bool capitalizeNext = true;
+        for (int i = 0; i < chars.Length; i++)
+        {
+            if (char.IsWhiteSpace(chars[i]))
+            {
+                capitalizeNext = true;
+            }
+            else if (capitalizeNext)
+            {
+                chars[i] = char.ToUpperInvariant(chars[i]);
+                capitalizeNext = false;
+            }
+        }
+        return new string(chars);
     }
 
     private static Color? ParseColor(string value)

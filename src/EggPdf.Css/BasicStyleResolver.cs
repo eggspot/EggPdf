@@ -235,6 +235,24 @@ public class BasicStyleResolver
             }
         }
 
+        // Propagate table border attribute to cells (td/th)
+        if ((element.TagName == "td" || element.TagName == "th") && !style.Has("border-top-width"))
+        {
+            var tableBorder = FindAncestorTableBorder(element);
+            if (!string.IsNullOrEmpty(tableBorder) && tableBorder != "0")
+            {
+                var bw = tableBorder + "px";
+                style.Set("border-top-width", bw);
+                style.Set("border-right-width", bw);
+                style.Set("border-bottom-width", bw);
+                style.Set("border-left-width", bw);
+                style.Set("border-top-style", "solid");
+                style.Set("border-right-style", "solid");
+                style.Set("border-bottom-style", "solid");
+                style.Set("border-left-style", "solid");
+            }
+        }
+
         // color (font element)
         var colorAttr = element.GetAttribute("color");
         if (!string.IsNullOrEmpty(colorAttr) && !style.Has("color"))
@@ -244,5 +262,18 @@ public class BasicStyleResolver
         var face = element.GetAttribute("face");
         if (!string.IsNullOrEmpty(face) && !style.Has("font-family"))
             style.Set("font-family", face);
+    }
+
+    /// <summary>Walk up from a td/th to find ancestor table's border attribute.</summary>
+    private static string? FindAncestorTableBorder(HtmlElement element)
+    {
+        var parent = element.Parent as HtmlElement;
+        while (parent != null)
+        {
+            if (parent.TagName == "table")
+                return parent.GetAttribute("border");
+            parent = parent.Parent as HtmlElement;
+        }
+        return null;
     }
 }

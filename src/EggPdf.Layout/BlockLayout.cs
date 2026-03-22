@@ -197,6 +197,12 @@ public static class BlockLayout
                         prevMarginBottom = childBox.MarginBottom;
                     }
                 }
+                else if (childElem.TagName == "br")
+                {
+                    // <br> forces a line break
+                    float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
+                    childY += lineHeight;
+                }
                 else if (childElem.TagName == "img")
                 {
                     // Image element: use width/height attributes or CSS
