@@ -91,6 +91,38 @@ public class PdfImage
             return FromRgb(name, result.Width, result.Height, result.PixelData);
     }
 
+    /// <summary>Create image from GIF data (decoded to RGB or RGBA).</summary>
+    public static PdfImage? FromGif(string name, byte[] gifData)
+    {
+        if (gifData == null || gifData.Length < 6)
+            return null;
+
+        var result = GifDecoder.Decode(gifData);
+        if (result == null)
+            return null;
+
+        if (result.HasAlpha)
+            return FromRgba(name, result.Width, result.Height, result.PixelData);
+        else
+            return FromRgb(name, result.Width, result.Height, result.PixelData);
+    }
+
+    /// <summary>Create image from BMP data (decoded to RGB or RGBA).</summary>
+    public static PdfImage? FromBmp(string name, byte[] bmpData)
+    {
+        if (bmpData == null || bmpData.Length < 14)
+            return null;
+
+        var result = BmpDecoder.Decode(bmpData);
+        if (result == null)
+            return null;
+
+        if (result.HasAlpha)
+            return FromRgba(name, result.Width, result.Height, result.PixelData);
+        else
+            return FromRgb(name, result.Width, result.Height, result.PixelData);
+    }
+
     /// <summary>Create image from raw RGB pixel data.</summary>
     public static PdfImage FromRgb(string name, int width, int height, byte[] rgbData)
     {

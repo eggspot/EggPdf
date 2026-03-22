@@ -72,21 +72,30 @@ public static class HtmlToPdf
         // 2. Extract <style> tags, <link> stylesheets, and resolve @imports
         var stylesheets = ExtractStyleSheets(document, basePath);
 
-        // 3. Create CascadeResolver with parsed stylesheets (replaces BasicStyleResolver)
+        // 3. Resolve @page rules for page size and margins
+        var pageSettings = PageRuleResolver.Resolve(stylesheets);
+        float pageWidthPx = pageSettings.PageWidthPx;
+        float pageHeightPx = pageSettings.PageHeightPx;
+        float contentWidthPx = pageSettings.ContentWidthPx;
+        float contentHeightPx = pageSettings.ContentHeightPx;
+
+        // 4. Create CascadeResolver with parsed stylesheets (replaces BasicStyleResolver)
         var cascadeResolver = new CascadeResolver(stylesheets, mediaType: "print");
 
-        // 4. Layout (uses cascade resolver for full CSS support)
-        var layoutRoot = BlockLayout.LayoutDocument(document, DefaultPageWidthPx, DefaultPageHeightPx, cascadeResolver);
+        // 5. Layout (uses cascade resolver for full CSS support)
+        // Layout uses content area (page minus margins) for body width
+        var layoutRoot = BlockLayout.LayoutDocument(document, contentWidthPx, contentHeightPx, cascadeResolver);
 
-        // 5. Resolve images (load data from src attributes)
+        // 6. Resolve images (load data from src attributes)
         var pdfDoc = new PdfDocument();
         ResolveImages(layoutRoot, pdfDoc);
 
-        // 6. Render to PDF
-        float pageWidthPt = DefaultPageWidthPx * PdfCoordinates.PxToPt;
-        float pageHeightPt = DefaultPageHeightPx * PdfCoordinates.PxToPt;
+        // 7. Render to PDF
+        float pageWidthPt = pageWidthPx * PdfCoordinates.PxToPt;
+        float pageHeightPt = pageHeightPx * PdfCoordinates.PxToPt;
 
-        PdfRenderer.Render(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt);
+        PdfRenderer.Render(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx,
+            pageSettings.MarginLeft, pageSettings.MarginTop);
 
         return pdfDoc.ToByteArray();
     }
@@ -371,6 +380,17 @@ public static class HtmlToPdf
                 {
                     // JPEG SOI marker
                     pdfImage = PdfImage.FromJpeg(imgName, data);
+                }
+                else if (data.Length >= 4 &&
+                    data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x38)
+                {
+                    // GIF signature ("GIF8")
+                    pdfImage = PdfImage.FromGif(imgName, data);
+                }
+                else if (data.Length >= 2 && data[0] == 0x42 && data[1] == 0x4D)
+                {
+                    // BMP signature ("BM")
+                    pdfImage = PdfImage.FromBmp(imgName, data);
                 }
 
                 if (pdfImage != null)

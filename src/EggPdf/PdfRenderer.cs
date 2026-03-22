@@ -15,7 +15,39 @@ namespace EggPdf;
 /// </summary>
 internal static class PdfRenderer
 {
+    /// <summary>Page margin offsets in CSS pixels, applied when painting boxes.</summary>
+    [ThreadStatic]
+    private static float _marginLeftPx;
+    [ThreadStatic]
+    private static float _marginTopPx;
+
     public static void Render(LayoutBox layoutRoot, PdfDocument pdfDoc,
+        float pageWidthPt, float pageHeightPt, float pageHeightPx,
+        float marginLeftPx = 0, float marginTopPx = 0)
+    {
+        _marginLeftPx = marginLeftPx;
+        _marginTopPx = marginTopPx;
+
+        try
+        {
+            RenderCore(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx);
+        }
+        finally
+        {
+            _marginLeftPx = 0;
+            _marginTopPx = 0;
+        }
+    }
+
+    // Overload for backward compatibility
+    public static void Render(LayoutBox layoutRoot, PdfDocument pdfDoc,
+        float pageWidthPt, float pageHeightPt)
+    {
+        float pageHeightPx = pageHeightPt / PdfCoordinates.PxToPt;
+        Render(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx);
+    }
+
+    private static void RenderCore(LayoutBox layoutRoot, PdfDocument pdfDoc,
         float pageWidthPt, float pageHeightPt, float pageHeightPx)
     {
         // Collect all leaf boxes (boxes with text or background)
@@ -54,10 +86,14 @@ internal static class PdfRenderer
             }
         }
 
-        // Fill remaining pages using natural page height
+        // Content area height for pagination (page height minus vertical margins)
+        float paginationHeight = pageHeightPx - _marginTopPx * 2;
+        if (paginationHeight <= 0) paginationHeight = pageHeightPx;
+
+        // Fill remaining pages using content area height
         while (currentTop < maxY)
         {
-            float bottom = Math.Min(currentTop + pageHeightPx, maxY);
+            float bottom = Math.Min(currentTop + paginationHeight, maxY);
             pageBounds.Add((currentTop, bottom));
             currentTop = bottom;
         }
@@ -80,8 +116,8 @@ internal static class PdfRenderer
                 if (boxBottom <= pageTopPx || boxTop >= pageBottomPx)
                     continue;
 
-                // Adjust Y coordinate relative to this page
-                float adjustedY = box.Y - pageTopPx;
+                // Adjust Y coordinate relative to this page, offset by top margin
+                float adjustedY = box.Y - pageTopPx + _marginTopPx;
                 PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY);
             }
         }
@@ -112,7 +148,7 @@ internal static class PdfRenderer
                 }
 
                 // Convert from CSS px (top-left origin) to PDF pt (bottom-left origin)
-                float topPt = (pageHeightPx - localYPx) * PdfCoordinates.PxToPt;
+                float topPt = (pageHeightPx - localYPx - _marginTopPx) * PdfCoordinates.PxToPt;
 
                 bookmarks.Add(new PdfBookmark
                 {
@@ -124,14 +160,6 @@ internal static class PdfRenderer
             }
             pdfDoc.SetBookmarks(bookmarks);
         }
-    }
-
-    // Overload for backward compatibility
-    public static void Render(LayoutBox layoutRoot, PdfDocument pdfDoc,
-        float pageWidthPt, float pageHeightPt)
-    {
-        float pageHeightPx = pageHeightPt / PdfCoordinates.PxToPt;
-        Render(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx);
     }
 
     private static void CollectPaintableBoxes(LayoutBox box, List<LayoutBox> result)
@@ -203,17 +231,23 @@ internal static class PdfRenderer
     private static void PaintBox(PdfPage page, LayoutBox box,
         float pageHeightPt, float pageHeightPx, float adjustedY)
     {
+        // Apply margin left offset: shift all X coordinates by the page margin
+        float effectiveX = box.X + _marginLeftPx;
+
         // Visibility:hidden - box takes space but is not painted
         var visibility = box.Style.Get("visibility");
         if (visibility == "hidden" || visibility == "collapse")
             return;
+
+        // CSS transform: wrap entire box painting in SaveState/cm/RestoreState
+        bool hasTransform = ApplyTransform(page, box, pageHeightPx, adjustedY, effectiveX);
 
         // Overflow:hidden clipping
         var overflow = box.Style.Get("overflow");
         bool hasClip = overflow == "hidden" || overflow == "clip";
         if (hasClip)
         {
-            float clipX = box.X * PdfCoordinates.PxToPt;
+            float clipX = effectiveX * PdfCoordinates.PxToPt;
             float clipY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
             float clipW = box.Width * PdfCoordinates.PxToPt;
             float clipH = box.Height * PdfCoordinates.PxToPt;
@@ -252,7 +286,7 @@ internal static class PdfRenderer
                 if (bgAlpha < 1f)
                     page.SetOpacity(bgAlpha);
 
-                float pdfX = box.X * PdfCoordinates.PxToPt;
+                float pdfX = effectiveX * PdfCoordinates.PxToPt;
                 float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
                 float pdfW = box.Width * PdfCoordinates.PxToPt;
                 float pdfH = box.Height * PdfCoordinates.PxToPt;
@@ -268,7 +302,7 @@ internal static class PdfRenderer
         }
 
         // Paint border (per-side with style support)
-        PaintBorders(page, box, pageHeightPt, pageHeightPx, adjustedY, hasRadius, tlrPt, trrPt, brrPt, blrPt);
+        PaintBorders(page, box, effectiveX, pageHeightPt, pageHeightPx, adjustedY, hasRadius, tlrPt, trrPt, brrPt, blrPt);
 
         // Paint text
         if (!string.IsNullOrEmpty(box.Text))
@@ -295,7 +329,7 @@ internal static class PdfRenderer
                 box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"));
 
             float pdfFontSize = fontSize * PdfCoordinates.PxToPt;
-            float textX = box.X + box.PaddingLeft;
+            float textX = effectiveX + box.PaddingLeft;
 
             // Text alignment
             var textAlign = box.Style.TextAlign;
@@ -358,7 +392,7 @@ internal static class PdfRenderer
         // Paint image
         if (!string.IsNullOrEmpty(box.ImageSource) && box.ImageData != null)
         {
-            float pdfX = box.X * PdfCoordinates.PxToPt;
+            float pdfX = effectiveX * PdfCoordinates.PxToPt;
             float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
             float pdfW = box.Width * PdfCoordinates.PxToPt;
             float pdfH = box.Height * PdfCoordinates.PxToPt;
@@ -373,7 +407,7 @@ internal static class PdfRenderer
             var href = box.Element.GetAttribute("href");
             if (!string.IsNullOrEmpty(href) && href.StartsWith("http"))
             {
-                float pdfX = box.X * PdfCoordinates.PxToPt;
+                float pdfX = effectiveX * PdfCoordinates.PxToPt;
                 float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
                 float pdfW = box.Width * PdfCoordinates.PxToPt;
                 float pdfH = box.Height * PdfCoordinates.PxToPt;
@@ -383,6 +417,10 @@ internal static class PdfRenderer
 
         // Restore clipping state
         if (hasClip)
+            page.RestoreState();
+
+        // Restore transform state
+        if (hasTransform)
             page.RestoreState();
     }
 
@@ -418,7 +456,7 @@ internal static class PdfRenderer
     }
 
     /// <summary>Paint all four borders with per-side style, width, and color support.</summary>
-    private static void PaintBorders(PdfPage page, LayoutBox box,
+    private static void PaintBorders(PdfPage page, LayoutBox box, float effectiveX,
         float pageHeightPt, float pageHeightPx, float adjustedY,
         bool hasRadius, float tlrPt, float trrPt, float brrPt, float blrPt)
     {
@@ -464,7 +502,7 @@ internal static class PdfRenderer
 
         if (!anyBorder) return;
 
-        float pdfX = box.X * PdfCoordinates.PxToPt;
+        float pdfX = effectiveX * PdfCoordinates.PxToPt;
         float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
         float pdfW = box.Width * PdfCoordinates.PxToPt;
         float pdfH = box.Height * PdfCoordinates.PxToPt;
@@ -518,6 +556,297 @@ internal static class PdfRenderer
             page.AddBorderLine(pdfX, pdfY, pdfX, pdfY + pdfH,
                 sideR[3], sideG[3], sideB[3], sideWidths[3] * PdfCoordinates.PxToPt, sideStyles[3]);
         }
+    }
+
+    // ===== CSS Transform support =====
+
+    /// <summary>A 2D affine transform matrix [a, b, c, d, e, f].</summary>
+    private struct Matrix2D
+    {
+        public float A, B, C, D, E, F;
+
+        public static Matrix2D Identity => new Matrix2D { A = 1, B = 0, C = 0, D = 1, E = 0, F = 0 };
+
+        public Matrix2D Multiply(Matrix2D o)
+        {
+            return new Matrix2D
+            {
+                A = A * o.A + C * o.B,
+                B = B * o.A + D * o.B,
+                C = A * o.C + C * o.D,
+                D = B * o.C + D * o.D,
+                E = A * o.E + C * o.F + E,
+                F = B * o.E + D * o.F + F
+            };
+        }
+    }
+
+    /// <summary>Parse a CSS transform property value into a combined affine matrix.</summary>
+    internal static bool TryParseTransformMatrix(string value, float boxWidth, float boxHeight,
+        out float a, out float b, out float c, out float d, out float e, out float f)
+    {
+        a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
+
+        if (string.IsNullOrEmpty(value) || value == "none")
+            return false;
+
+        var result = Matrix2D.Identity;
+        int pos = 0;
+        bool hasTransform = false;
+
+        while (pos < value.Length)
+        {
+            while (pos < value.Length && char.IsWhiteSpace(value[pos])) pos++;
+            if (pos >= value.Length) break;
+
+            int nameStart = pos;
+            while (pos < value.Length && value[pos] != '(') pos++;
+            if (pos >= value.Length) break;
+
+            string funcName = value.Substring(nameStart, pos - nameStart).Trim();
+            pos++; // skip '('
+
+            int argsStart = pos;
+            int depth = 1;
+            while (pos < value.Length && depth > 0)
+            {
+                if (value[pos] == '(') depth++;
+                else if (value[pos] == ')') depth--;
+                if (depth > 0) pos++;
+            }
+            if (pos > value.Length) break;
+
+            string argsStr = value.Substring(argsStart, pos - argsStart);
+            if (pos < value.Length) pos++; // skip ')'
+
+            var args = ParseTransformArgs(argsStr);
+            var m = EvaluateTransformFunction(funcName, args, boxWidth, boxHeight);
+            if (m.HasValue)
+            {
+                result = result.Multiply(m.Value);
+                hasTransform = true;
+            }
+        }
+
+        if (!hasTransform)
+            return false;
+
+        if (Math.Abs(result.A - 1) < 0.0001f && Math.Abs(result.B) < 0.0001f &&
+            Math.Abs(result.C) < 0.0001f && Math.Abs(result.D - 1) < 0.0001f &&
+            Math.Abs(result.E) < 0.0001f && Math.Abs(result.F) < 0.0001f)
+            return false;
+
+        a = result.A; b = result.B; c = result.C; d = result.D; e = result.E; f = result.F;
+        return true;
+    }
+
+    private static float[] ParseTransformArgs(string argsStr)
+    {
+        var result = new List<float>();
+        var parts = argsStr.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 0; i < parts.Length; i++)
+        {
+            string part = parts[i].Trim();
+            if (string.IsNullOrEmpty(part)) continue;
+            result.Add(ParseAngleOrLength(part));
+        }
+        return result.ToArray();
+    }
+
+    private static float ParseAngleOrLength(string value)
+    {
+        value = value.Trim();
+
+        if (value.EndsWith("deg", StringComparison.OrdinalIgnoreCase))
+        {
+            if (float.TryParse(value.Substring(0, value.Length - 3),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float deg))
+                return deg * (float)(Math.PI / 180.0);
+            return 0;
+        }
+        if (value.EndsWith("rad", StringComparison.OrdinalIgnoreCase))
+        {
+            if (float.TryParse(value.Substring(0, value.Length - 3),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float rad))
+                return rad;
+            return 0;
+        }
+        if (value.EndsWith("turn", StringComparison.OrdinalIgnoreCase))
+        {
+            if (float.TryParse(value.Substring(0, value.Length - 4),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float turn))
+                return turn * (float)(2.0 * Math.PI);
+            return 0;
+        }
+        if (value.EndsWith("grad", StringComparison.OrdinalIgnoreCase))
+        {
+            if (float.TryParse(value.Substring(0, value.Length - 4),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float grad))
+                return grad * (float)(Math.PI / 200.0);
+            return 0;
+        }
+
+        return BlockLayout.ResolveLength(value, 0, 16);
+    }
+
+    private static Matrix2D? EvaluateTransformFunction(string name, float[] args, float boxWidth, float boxHeight)
+    {
+        switch (name)
+        {
+            case "translate":
+            {
+                float tx = args.Length > 0 ? args[0] : 0;
+                float ty = args.Length > 1 ? args[1] : 0;
+                return new Matrix2D { A = 1, B = 0, C = 0, D = 1, E = tx, F = ty };
+            }
+            case "translateX":
+            {
+                float tx = args.Length > 0 ? args[0] : 0;
+                return new Matrix2D { A = 1, B = 0, C = 0, D = 1, E = tx, F = 0 };
+            }
+            case "translateY":
+            {
+                float ty = args.Length > 0 ? args[0] : 0;
+                return new Matrix2D { A = 1, B = 0, C = 0, D = 1, E = 0, F = ty };
+            }
+            case "rotate":
+            {
+                float angle = args.Length > 0 ? args[0] : 0;
+                float cos = (float)Math.Cos(angle);
+                float sin = (float)Math.Sin(angle);
+                return new Matrix2D { A = cos, B = sin, C = -sin, D = cos, E = 0, F = 0 };
+            }
+            case "scale":
+            {
+                float sx = args.Length > 0 ? args[0] : 1;
+                float sy = args.Length > 1 ? args[1] : sx;
+                return new Matrix2D { A = sx, B = 0, C = 0, D = sy, E = 0, F = 0 };
+            }
+            case "scaleX":
+            {
+                float sx = args.Length > 0 ? args[0] : 1;
+                return new Matrix2D { A = sx, B = 0, C = 0, D = 1, E = 0, F = 0 };
+            }
+            case "scaleY":
+            {
+                float sy = args.Length > 0 ? args[0] : 1;
+                return new Matrix2D { A = 1, B = 0, C = 0, D = sy, E = 0, F = 0 };
+            }
+            case "skew":
+            {
+                float ax = args.Length > 0 ? args[0] : 0;
+                float ay = args.Length > 1 ? args[1] : 0;
+                return new Matrix2D { A = 1, B = (float)Math.Tan(ay), C = (float)Math.Tan(ax), D = 1, E = 0, F = 0 };
+            }
+            case "skewX":
+            {
+                float ax = args.Length > 0 ? args[0] : 0;
+                return new Matrix2D { A = 1, B = 0, C = (float)Math.Tan(ax), D = 1, E = 0, F = 0 };
+            }
+            case "skewY":
+            {
+                float ay = args.Length > 0 ? args[0] : 0;
+                return new Matrix2D { A = 1, B = (float)Math.Tan(ay), C = 0, D = 1, E = 0, F = 0 };
+            }
+            case "matrix":
+            {
+                if (args.Length >= 6)
+                    return new Matrix2D { A = args[0], B = args[1], C = args[2], D = args[3], E = args[4], F = args[5] };
+                return null;
+            }
+            default:
+                return null;
+        }
+    }
+
+    private static void ResolveTransformOrigin(LayoutBox box, float pageHeightPx, float adjustedY,
+        float effectiveX, out float originXPt, out float originYPt)
+    {
+        var originStr = box.Style.Get("transform-origin");
+        float oxPx, oyPx;
+
+        if (string.IsNullOrEmpty(originStr))
+        {
+            oxPx = effectiveX + box.Width / 2f;
+            oyPx = adjustedY + box.Height / 2f;
+        }
+        else
+        {
+            var parts = originStr.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            float oxLocal = ResolveOriginComponent(parts.Length > 0 ? parts[0] : "50%", box.Width);
+            float oyLocal = ResolveOriginComponent(parts.Length > 1 ? parts[1] : "50%", box.Height);
+            oxPx = effectiveX + oxLocal;
+            oyPx = adjustedY + oyLocal;
+        }
+
+        originXPt = oxPx * PdfCoordinates.PxToPt;
+        originYPt = (pageHeightPx - oyPx) * PdfCoordinates.PxToPt;
+    }
+
+    private static float ResolveOriginComponent(string value, float dimension)
+    {
+        value = value.Trim();
+        switch (value)
+        {
+            case "left":
+            case "top":
+                return 0;
+            case "center":
+                return dimension / 2f;
+            case "right":
+            case "bottom":
+                return dimension;
+            default:
+                if (value.EndsWith("%"))
+                {
+                    if (float.TryParse(value.Substring(0, value.Length - 1),
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out float pct))
+                        return dimension * pct / 100f;
+                    return dimension / 2f;
+                }
+                return BlockLayout.ResolveLength(value, dimension, 16);
+        }
+    }
+
+    /// <summary>
+    /// Apply a CSS transform. Returns true if transform was applied (caller must RestoreState).
+    /// </summary>
+    private static bool ApplyTransform(PdfPage page, LayoutBox box,
+        float pageHeightPx, float adjustedY, float effectiveX)
+    {
+        var transformStr = box.Style.Get("transform");
+        if (string.IsNullOrEmpty(transformStr) || transformStr == "none")
+            return false;
+
+        if (!TryParseTransformMatrix(transformStr, box.Width, box.Height,
+                out float ma, out float mb, out float mc, out float md, out float me, out float mf))
+            return false;
+
+        ResolveTransformOrigin(box, pageHeightPx, adjustedY, effectiveX,
+            out float oxPt, out float oyPt);
+
+        // Convert CSS translation (px) to PDF points, flip Y for PDF coordinate system
+        float ePt = me * PdfCoordinates.PxToPt;
+        float fPt = -mf * PdfCoordinates.PxToPt;
+
+        // Flip sin components for PDF coordinate system (Y up vs CSS Y down)
+        float pdfA = ma;
+        float pdfB = -mb;
+        float pdfC = -mc;
+        float pdfD = md;
+
+        // Compose: translate(origin) * matrix * translate(-origin)
+        float finalE = oxPt + ePt - pdfA * oxPt - pdfC * oyPt;
+        float finalF = oyPt + fPt - pdfB * oxPt - pdfD * oyPt;
+
+        page.SaveState();
+        page.ConcatMatrix(pdfA, pdfB, pdfC, pdfD, finalE, finalF);
+        return true;
     }
 
     private static Color? ParseColor(string value)

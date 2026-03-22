@@ -195,12 +195,69 @@ public static class BlockLayout
             return box;
         }
 
+        // Grid layout: delegate to GridLayout when display is grid
+        if (style.Display == "grid")
+        {
+            GridLayout.LayoutGrid(box, element, style, containingWidth, resolver, parentStyle);
+
+            // Compute height from grid children
+            float? specifiedHeightGrid = ResolveOptionalLength(style.Height, 0, fontSize);
+            if (specifiedHeightGrid.HasValue)
+            {
+                if (borderBox)
+                {
+                    box.Height = specifiedHeightGrid.Value;
+                    box.ContentHeight = specifiedHeightGrid.Value - box.PaddingTop - box.PaddingBottom;
+                    if (box.ContentHeight < 0) box.ContentHeight = 0;
+                }
+                else
+                {
+                    box.ContentHeight = specifiedHeightGrid.Value;
+                    box.Height = specifiedHeightGrid.Value + box.PaddingTop + box.PaddingBottom;
+                }
+            }
+            else
+            {
+                // Auto height: compute from children
+                float maxChildBottom = 0;
+                for (int ci = 0; ci < box.Children.Count; ci++)
+                {
+                    var child = box.Children[ci];
+                    float childBottom = child.Y + child.Height - box.Y - box.PaddingTop;
+                    if (childBottom > maxChildBottom)
+                        maxChildBottom = childBottom;
+                }
+                box.ContentHeight = maxChildBottom;
+                box.Height = maxChildBottom + box.PaddingTop + box.PaddingBottom;
+            }
+
+            // Min/max height constraints for grid
+            float? minHeightGrid = ResolveOptionalLength(style.Get("min-height"), 0, fontSize);
+            float? maxHeightGrid = ResolveOptionalLength(style.Get("max-height"), 0, fontSize);
+            if (minHeightGrid.HasValue && box.Height < minHeightGrid.Value)
+                box.Height = minHeightGrid.Value;
+            if (maxHeightGrid.HasValue && box.Height > maxHeightGrid.Value)
+                box.Height = maxHeightGrid.Value;
+
+            // Apply relative position Y offset
+            if (position == "relative")
+            {
+                float offsetTopGrid = ResolveLength(style.Get("top"), 0, fontSize);
+                box.Y += offsetTopGrid;
+            }
+
+            return box;
+        }
+
         // Layout children using inline formatting context awareness
         float childY = 0;
         float childContainingWidth = box.ContentWidth;
         float prevMarginBottom = 0; // for margin collapsing
         float inlineX = 0; // current X offset within the inline line
         float inlineLineHeight = 0; // max height of current inline line
+
+        // Collect absolutely/fixed positioned children for deferred layout
+        var absChildren = new System.Collections.Generic.List<(HtmlElement elem, ComputedStyle style, string pos)>();
 
         foreach (var childNode in element.ChildNodes)
         {
@@ -210,6 +267,14 @@ public static class BlockLayout
 
                 if (childStyle.Display == "none")
                     continue;
+
+                // Absolutely/fixed positioned elements are removed from normal flow
+                var childPosition = childStyle.Get("position");
+                if (childPosition == "absolute" || childPosition == "fixed")
+                {
+                    absChildren.Add((childElem, childStyle, childPosition));
+                    continue;
+                }
 
                 if (IsBlockLevel(childStyle.Display))
                 {
@@ -533,6 +598,101 @@ public static class BlockLayout
         if (maxHeight.HasValue && box.Height > maxHeight.Value)
             box.Height = maxHeight.Value;
 
+        // Layout absolutely/fixed positioned children (deferred from normal flow)
+        for (int ai = 0; ai < absChildren.Count; ai++)
+        {
+            var absEntry = absChildren[ai];
+            var absElem = absEntry.elem;
+            var absStyle = absEntry.style;
+            var absPos = absEntry.pos;
+            var absBox = CreateBox(absElem, absStyle, box, box.ContentWidth, resolver, style);
+            absBox.IsAbsolutelyPositioned = true;
+
+            // Determine containing block:
+            // - position:fixed -> page root (0,0 with page dimensions)
+            // - position:absolute -> nearest positioned ancestor (position != static) or root
+            float cbX, cbY, cbWidth, cbHeight;
+
+            if (absPos == "fixed")
+            {
+                // Fixed: relative to page origin
+                cbX = 0;
+                cbY = 0;
+                cbWidth = containingWidth;
+                cbHeight = FindPageHeight(parent);
+            }
+            else
+            {
+                // Absolute: relative to nearest positioned ancestor or this box if positioned
+                if (position == "relative" || position == "absolute" || position == "fixed" || position == "sticky")
+                {
+                    // This box is the containing block
+                    cbX = box.X;
+                    cbY = box.Y;
+                    cbWidth = box.Width;
+                    cbHeight = box.Height;
+                }
+                else
+                {
+                    // No positioned ancestor at this level -- use page root
+                    cbX = 0;
+                    cbY = 0;
+                    cbWidth = containingWidth;
+                    cbHeight = FindPageHeight(parent);
+                }
+            }
+
+            float absFontSize = ResolveFontSize(absStyle.FontSize, fontSize);
+
+            // Resolve top/right/bottom/left
+            float? topVal = ResolveOptionalLength(absStyle.Get("top"), cbHeight, absFontSize);
+            float? rightVal = ResolveOptionalLength(absStyle.Get("right"), cbWidth, absFontSize);
+            float? bottomVal = ResolveOptionalLength(absStyle.Get("bottom"), cbHeight, absFontSize);
+            float? leftVal = ResolveOptionalLength(absStyle.Get("left"), cbWidth, absFontSize);
+
+            // If both left and right are set, calculate width from them (when no explicit width)
+            if (leftVal.HasValue && rightVal.HasValue && absStyle.Width == null)
+            {
+                float newWidth = cbWidth - leftVal.Value - rightVal.Value
+                    - absBox.MarginLeft - absBox.MarginRight;
+                if (newWidth > 0)
+                {
+                    absBox.Width = newWidth;
+                    absBox.ContentWidth = newWidth - absBox.PaddingLeft - absBox.PaddingRight;
+                }
+            }
+
+            // If both top and bottom are set, calculate height from them (when no explicit height)
+            if (topVal.HasValue && bottomVal.HasValue && absStyle.Height == null)
+            {
+                float newHeight = cbHeight - topVal.Value - bottomVal.Value
+                    - absBox.MarginTop - absBox.MarginBottom;
+                if (newHeight > 0)
+                {
+                    absBox.Height = newHeight;
+                    absBox.ContentHeight = newHeight - absBox.PaddingTop - absBox.PaddingBottom;
+                }
+            }
+
+            // Position X
+            if (leftVal.HasValue)
+                absBox.X = cbX + leftVal.Value + absBox.MarginLeft;
+            else if (rightVal.HasValue)
+                absBox.X = cbX + cbWidth - rightVal.Value - absBox.Width - absBox.MarginRight;
+            else
+                absBox.X = cbX + absBox.MarginLeft; // default: top-left of containing block
+
+            // Position Y
+            if (topVal.HasValue)
+                absBox.Y = cbY + topVal.Value + absBox.MarginTop;
+            else if (bottomVal.HasValue)
+                absBox.Y = cbY + cbHeight - bottomVal.Value - absBox.Height - absBox.MarginBottom;
+            else
+                absBox.Y = cbY + absBox.MarginTop; // default: top-left of containing block
+
+            box.Children.Add(absBox);
+        }
+
         // Apply relative position Y offset
         if (position == "relative")
         {
@@ -541,6 +701,16 @@ public static class BlockLayout
         }
 
         return box;
+    }
+
+    /// <summary>Walk up parent chain to find page height.</summary>
+    private static float FindPageHeight(LayoutBox parent)
+    {
+        // The root box has Height set to page height and no Element
+        if (parent.Element == null && parent.Height > 0)
+            return parent.Height;
+        // Default A4 page height in CSS px
+        return parent.Height > 0 ? parent.Height : 841.89f;
     }
 
     private static bool IsTableRow(string display)
@@ -784,6 +954,13 @@ public static class BlockLayout
         {
             // List markers are already absolutely positioned
             if (child.IsListMarker)
+            {
+                ResolveAbsolutePositions(child, child.X, child.Y);
+                continue;
+            }
+
+            // Absolutely positioned children already have final coordinates
+            if (child.IsAbsolutelyPositioned)
             {
                 ResolveAbsolutePositions(child, child.X, child.Y);
                 continue;

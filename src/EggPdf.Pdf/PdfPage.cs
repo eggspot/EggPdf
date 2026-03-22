@@ -290,6 +290,12 @@ public class PdfPage
         ContentStream.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re W n");
     }
 
+    /// <summary>Concatenate a transformation matrix (PDF cm operator).</summary>
+    public void ConcatMatrix(float a, float b, float c, float d, float e, float f)
+    {
+        ContentStream.AppendLine($"{F(a)} {F(b)} {F(c)} {F(d)} {F(e)} {F(f)} cm");
+    }
+
     /// <summary>Add an image at a position with specified dimensions (PDF coordinates).</summary>
     public void AddImage(string imageName, float x, float y, float width, float height)
     {

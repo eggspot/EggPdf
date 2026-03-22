@@ -34,6 +34,7 @@ public class LayoutBox
     public bool IsListMarker { get; set; }
     public bool IsGeneratedContent { get; set; }
     public bool IsFloat { get; set; }
+    public bool IsAbsolutelyPositioned { get; set; }
     public string? ImageSource { get; set; }
     public byte[]? ImageData { get; set; }
     public List<LayoutBox> Children { get; } = new();
