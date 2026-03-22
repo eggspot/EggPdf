@@ -239,21 +239,53 @@ public static class BlockLayout
                         childY += childBox.Height;
                 }
             }
-            else if (childNode is HtmlTextNode textNode && !string.IsNullOrWhiteSpace(textNode.Data))
+            else if (childNode is HtmlTextNode textNode)
             {
+                var whiteSpaceProp = style.Get("white-space") ?? "normal";
+                bool preserveWhitespace = whiteSpaceProp == "pre" || whiteSpaceProp == "pre-wrap" || whiteSpaceProp == "pre-line";
+
+                // Skip empty text nodes unless preserving whitespace
+                if (!preserveWhitespace && string.IsNullOrWhiteSpace(textNode.Data))
+                    continue;
+
                 // Text content with line wrapping
                 var fontFamily = style.FontFamily;
                 var fontWeight = style.FontWeight;
                 var fontStyle = style.Get("font-style");
                 float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
-                var lines = TextMeasurer.WrapText(textNode.Data.Trim(), fontSize, fontFamily, fontWeight, fontStyle, childContainingWidth);
+                float textIndent = ResolveLength(style.Get("text-indent"), childContainingWidth, fontSize);
+                var textData = preserveWhitespace ? textNode.Data : textNode.Data.Trim();
 
+                // For text-indent, reduce first line's available width
+                float firstLineWidth = textIndent > 0 ? childContainingWidth - textIndent : childContainingWidth;
+                var lines = TextMeasurer.WrapText(textData, fontSize, fontFamily, fontWeight, fontStyle,
+                    firstLineWidth > 0 ? firstLineWidth : childContainingWidth, whiteSpaceProp);
+
+                // If indent caused wrapping and there are remaining lines, re-wrap with full width
+                if (textIndent > 0 && lines.Count > 1)
+                {
+                    // Keep first line as-is, re-wrap remaining text at full width
+                    var firstLine = lines[0];
+                    var remaining = textData.Substring(firstLine.Length).TrimStart();
+                    lines = new System.Collections.Generic.List<string> { firstLine };
+                    if (!string.IsNullOrEmpty(remaining))
+                    {
+                        var moreLines = TextMeasurer.WrapText(remaining, fontSize, fontFamily, fontWeight, fontStyle, childContainingWidth, whiteSpaceProp);
+                        lines.AddRange(moreLines);
+                    }
+                }
+
+                bool isFirstLine = true;
                 foreach (var line in lines)
                 {
+                    float lineX = box.X + box.PaddingLeft;
+                    if (isFirstLine && textIndent > 0)
+                        lineX += textIndent;
+
                     var textBox = new LayoutBox
                     {
                         Style = style,
-                        X = box.X + box.PaddingLeft,
+                        X = lineX,
                         Y = box.Y + box.PaddingTop + childY,
                         Width = childContainingWidth,
                         Height = lineHeight,
@@ -261,6 +293,7 @@ public static class BlockLayout
                         ContentHeight = lineHeight,
                         Text = line
                     };
+                    isFirstLine = false;
                     box.Children.Add(textBox);
                     childY += lineHeight;
                 }

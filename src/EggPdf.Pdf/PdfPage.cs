@@ -24,12 +24,17 @@ public class PdfPage
 
     /// <summary>Add text at a position (PDF coordinates, bottom-left origin).</summary>
     public void AddText(string text, float x, float y, string fontName, float fontSize,
-        float colorR = 0, float colorG = 0, float colorB = 0)
+        float colorR = 0, float colorG = 0, float colorB = 0,
+        float letterSpacing = 0, float wordSpacing = 0)
     {
         UsedFonts.Add(fontName);
         ContentStream.AppendLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
         ContentStream.Append("BT ");
         ContentStream.Append($"/{fontName} {F(fontSize)} Tf ");
+        if (letterSpacing != 0)
+            ContentStream.Append($"{F(letterSpacing)} Tc ");
+        if (wordSpacing != 0)
+            ContentStream.Append($"{F(wordSpacing)} Tw ");
         ContentStream.Append($"{F(x)} {F(y)} Td ");
         ContentStream.Append($"({EscapePdfString(text)}) Tj ");
         ContentStream.AppendLine("ET");
@@ -48,6 +53,24 @@ public class PdfPage
         ContentStream.AppendLine($"{F(lineWidth)} w");
         ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
         ContentStream.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re S");
+    }
+
+    /// <summary>Save graphics state.</summary>
+    public void SaveState()
+    {
+        ContentStream.AppendLine("q");
+    }
+
+    /// <summary>Restore graphics state.</summary>
+    public void RestoreState()
+    {
+        ContentStream.AppendLine("Q");
+    }
+
+    /// <summary>Add a clipping rectangle (clips all subsequent drawing).</summary>
+    public void AddClipRect(float x, float y, float width, float height)
+    {
+        ContentStream.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re W n");
     }
 
     /// <summary>Add an image at a position with specified dimensions (PDF coordinates).</summary>

@@ -273,6 +273,108 @@ public class CssRenderingTests
     }
 
     [Fact]
+    public async Task TextIndent_AppliedToFirstLine()
+    {
+        var html = "<p style='text-indent: 40px'>This is a paragraph with indented first line</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("This is a paragraph");
+    }
+
+    [Fact]
+    public async Task LetterSpacing_PdfOperatorEmitted()
+    {
+        var html = "<p style='letter-spacing: 2px'>Spaced text</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Spaced text");
+        text.Should().Contain("Tc", "letter-spacing should emit Tc operator");
+    }
+
+    [Fact]
+    public async Task WordSpacing_PdfOperatorEmitted()
+    {
+        var html = "<p style='word-spacing: 5px'>Word spaced text</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Word spaced text");
+        text.Should().Contain("Tw", "word-spacing should emit Tw operator");
+    }
+
+    [Fact]
+    public async Task WhiteSpacePre_NewlinesPreserved()
+    {
+        var html = "<pre>Line 1\nLine 2\nLine 3</pre>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Line 1");
+        text.Should().Contain("Line 2");
+        text.Should().Contain("Line 3");
+    }
+
+    [Fact]
+    public async Task OverflowHidden_ContentRendered()
+    {
+        var html = "<div style='overflow: hidden; width: 100px; height: 50px; background-color: #eee'>Clipped</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        // PDF should be non-empty and contain the text
+        pdf.Length.Should().BeGreaterThan(100);
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("%PDF-1.7", "should be a valid PDF");
+        text.Should().Contain("Clipped");
+    }
+
+    [Fact]
+    public async Task PageBreakBefore_CreatesNewPage()
+    {
+        var html = @"
+            <p>Page 1 content</p>
+            <p style='page-break-before: always'>Page 2 content</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Page 1 content");
+        text.Should().Contain("Page 2 content");
+
+        // Count page objects
+        int pageCount = CountOccurrences(text, "/Type /Page ");
+        pageCount.Should().BeGreaterOrEqualTo(2, "page-break-before:always should create at least 2 pages");
+    }
+
+    [Fact]
+    public async Task PageBreakAfter_CreatesNewPage()
+    {
+        var html = @"
+            <p style='page-break-after: always'>Page 1 content</p>
+            <p>Page 2 content</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Page 1 content");
+        text.Should().Contain("Page 2 content");
+
+        int pageCount = CountOccurrences(text, "/Type /Page ");
+        pageCount.Should().BeGreaterOrEqualTo(2, "page-break-after:always should create at least 2 pages");
+    }
+
+    private static int CountOccurrences(string text, string pattern)
+    {
+        int count = 0;
+        int index = 0;
+        while ((index = text.IndexOf(pattern, index, StringComparison.Ordinal)) != -1)
+        {
+            count++;
+            index += pattern.Length;
+        }
+        return count;
+    }
+
+    [Fact]
     public async Task CompleteDocument_AllElementsRendered()
     {
         var html = @"<html><head><style>

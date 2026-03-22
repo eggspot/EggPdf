@@ -33,19 +33,42 @@ internal static class PdfRenderer
             return;
         }
 
+        // Collect forced page break Y positions
+        var pageBreakYs = new List<float>();
+        CollectPageBreaks(layoutRoot, pageBreakYs);
+        pageBreakYs.Sort();
+
         // Determine total content height
         float maxY = allBoxes.Max(b => b.Y + b.Height);
 
-        // Calculate number of pages
-        int numPages = Math.Max(1, (int)Math.Ceiling(maxY / pageHeightPx));
+        // Build page boundaries (combining natural page breaks with forced ones)
+        var pageBounds = new List<(float top, float bottom)>();
+        float currentTop = 0;
+
+        foreach (float breakY in pageBreakYs)
+        {
+            if (breakY > currentTop && breakY < maxY)
+            {
+                pageBounds.Add((currentTop, breakY));
+                currentTop = breakY;
+            }
+        }
+
+        // Fill remaining pages using natural page height
+        while (currentTop < maxY)
+        {
+            float bottom = Math.Min(currentTop + pageHeightPx, maxY);
+            pageBounds.Add((currentTop, bottom));
+            currentTop = bottom;
+        }
+
+        if (pageBounds.Count == 0)
+            pageBounds.Add((0, maxY));
 
         // Render each page
-        for (int pageIdx = 0; pageIdx < numPages; pageIdx++)
+        foreach (var (pageTopPx, pageBottomPx) in pageBounds)
         {
             var page = pdfDoc.AddPage(pageWidthPt, pageHeightPt);
-
-            float pageTopPx = pageIdx * pageHeightPx;
-            float pageBottomPx = (pageIdx + 1) * pageHeightPx;
 
             // Paint boxes that fall on this page
             foreach (var box in allBoxes)
@@ -62,10 +85,6 @@ internal static class PdfRenderer
                 PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY);
             }
         }
-
-        // Add bookmarks from headings
-        // Bookmarks are added to the PDF outline (viewer sidebar)
-        // For now, bookmarks are text in the PDF Info
     }
 
     // Overload for backward compatibility
@@ -90,6 +109,26 @@ internal static class PdfRenderer
 
         foreach (var child in box.Children)
             CollectPaintableBoxes(child, result);
+    }
+
+    private static void CollectPageBreaks(LayoutBox box, List<float> breakYs)
+    {
+        // Check page-break-before
+        var breakBefore = box.Style.Get("page-break-before") ?? box.Style.Get("break-before");
+        if (breakBefore == "always" || breakBefore == "page")
+        {
+            breakYs.Add(box.Y);
+        }
+
+        // Check page-break-after
+        var breakAfter = box.Style.Get("page-break-after") ?? box.Style.Get("break-after");
+        if (breakAfter == "always" || breakAfter == "page")
+        {
+            breakYs.Add(box.Y + box.Height);
+        }
+
+        foreach (var child in box.Children)
+            CollectPageBreaks(child, breakYs);
     }
 
     private static void CollectHeadings(LayoutBox box, List<(string title, int level, float yPx)> headings)
@@ -121,6 +160,19 @@ internal static class PdfRenderer
     private static void PaintBox(PdfPage page, LayoutBox box,
         float pageHeightPt, float pageHeightPx, float adjustedY)
     {
+        // Overflow:hidden clipping
+        var overflow = box.Style.Get("overflow");
+        bool hasClip = overflow == "hidden" || overflow == "clip";
+        if (hasClip)
+        {
+            float clipX = box.X * PdfCoordinates.PxToPt;
+            float clipY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+            float clipW = box.Width * PdfCoordinates.PxToPt;
+            float clipH = box.Height * PdfCoordinates.PxToPt;
+            page.SaveState();
+            page.AddClipRect(clipX, clipY, clipW, clipH);
+        }
+
         // Paint background
         var bgColor = box.Style.BackgroundColor;
         if (!string.IsNullOrEmpty(bgColor) && bgColor != "transparent")
@@ -201,8 +253,18 @@ internal static class PdfRenderer
             if (!string.IsNullOrEmpty(textColor))
                 color = ParseColor(textColor);
 
+            // Letter-spacing and word-spacing
+            float letterSpacing = 0, wordSpacing = 0;
+            var lsStr = box.Style.Get("letter-spacing");
+            if (!string.IsNullOrEmpty(lsStr) && lsStr != "normal")
+                letterSpacing = BlockLayout.ResolveLength(lsStr, 0, fontSize) * PdfCoordinates.PxToPt;
+            var wsStr = box.Style.Get("word-spacing");
+            if (!string.IsNullOrEmpty(wsStr) && wsStr != "normal")
+                wordSpacing = BlockLayout.ResolveLength(wsStr, 0, fontSize) * PdfCoordinates.PxToPt;
+
             page.AddText(box.Text, pdfX, pdfY, fontName, pdfFontSize,
-                color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0);
+                color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
+                letterSpacing, wordSpacing);
 
             // Text decoration (underline, line-through)
             var textDecoration = box.Style.Get("text-decoration");
@@ -253,6 +315,10 @@ internal static class PdfRenderer
                 page.AddLink(pdfX, pdfY, pdfW, pdfH, href);
             }
         }
+
+        // Restore clipping state
+        if (hasClip)
+            page.RestoreState();
     }
 
     private static Color? ParseColor(string value)
