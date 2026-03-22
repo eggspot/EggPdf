@@ -204,7 +204,6 @@ This is the core of what "Chrome Print parity" means. Below is the full matrix o
 | **CSS `visibility`** | `visibility: hidden` -- box is laid out but invisible (different from `display: none`). `visibility: collapse` for table rows/columns | Low |
 | **CSS `vertical-align` (inline)** | `vertical-align: baseline/middle/super/sub/top/bottom/text-top/text-bottom/<length>/<percentage>` on inline elements and table cells | Medium |
 | **CSS `line-height`** | Normal, `<number>`, `<length>`, `<percentage>`. Inherited. Affects inline box height and baseline spacing | Medium |
-
 | **CSS Logical Properties Level 1** | `margin-block-start/end`, `margin-inline-start/end`, `padding-block/inline`, `border-block/inline`, `block-size`, `inline-size`, `min/max-block-size/inline-size`, `inset-block/inline`, `text-align: start/end`. Essential for RTL-friendly code. Chrome 87+ | High |
 | **CSS Table (additional)** | `border-spacing`, `caption-side` (top/bottom), `empty-cells` (show/hide), `table-layout` (auto/fixed) | Medium |
 | **CSS Text (additional)** | `text-align-last` (last line in justified), `text-justify` (inter-word/inter-character), `text-emphasis` (CJK emphasis dots), `text-underline-offset`, `text-underline-position` | Medium |
