@@ -14,11 +14,28 @@ public static class BlockLayout
     private const float DefaultLineHeight = 1.2f;
 
     /// <summary>
-    /// Lay out an entire document into a layout tree.
+    /// Lay out an entire document into a layout tree using BasicStyleResolver.
     /// </summary>
     public static LayoutBox LayoutDocument(HtmlDocument document, float pageWidth, float pageHeight)
     {
         var resolver = new BasicStyleResolver();
+        return LayoutDocumentInternal(document, pageWidth, pageHeight,
+            (elem, parent) => resolver.Resolve(elem, parent));
+    }
+
+    /// <summary>
+    /// Lay out with CascadeResolver for full CSS support (style tags, selectors, specificity, @media).
+    /// </summary>
+    public static LayoutBox LayoutDocument(HtmlDocument document, float pageWidth, float pageHeight,
+        Css.Cascade.CascadeResolver cascadeResolver)
+    {
+        return LayoutDocumentInternal(document, pageWidth, pageHeight,
+            (elem, parent) => cascadeResolver.Resolve(elem, parent));
+    }
+
+    private static LayoutBox LayoutDocumentInternal(HtmlDocument document, float pageWidth, float pageHeight,
+        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolveStyle)
+    {
         var root = new LayoutBox
         {
             X = 0, Y = 0,
@@ -28,8 +45,8 @@ public static class BlockLayout
 
         if (document.Body == null) return root;
 
-        var bodyStyle = resolver.Resolve(document.Body, null);
-        var bodyBox = CreateBox(document.Body, bodyStyle, root, pageWidth, resolver, null);
+        var bodyStyle = resolveStyle(document.Body, null);
+        var bodyBox = CreateBox(document.Body, bodyStyle, root, pageWidth, resolveStyle, null);
         root.Children.Add(bodyBox);
 
         // Post-layout pass: convert all Y coordinates to absolute
@@ -39,7 +56,7 @@ public static class BlockLayout
     }
 
     private static LayoutBox CreateBox(HtmlElement element, ComputedStyle style,
-        LayoutBox parent, float containingWidth, BasicStyleResolver resolver, ComputedStyle? parentStyle)
+        LayoutBox parent, float containingWidth, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
     {
         var box = new LayoutBox { Element = element, Style = style };
 
@@ -128,7 +145,7 @@ public static class BlockLayout
         {
             if (childNode is HtmlElement childElem)
             {
-                var childStyle = resolver.Resolve(childElem, style);
+                var childStyle = resolver(childElem, style);
 
                 if (childStyle.Display == "none")
                     continue;

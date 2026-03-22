@@ -22,9 +22,11 @@ public class PdfPage
     }
 
     /// <summary>Add text at a position (PDF coordinates, bottom-left origin).</summary>
-    public void AddText(string text, float x, float y, string fontName, float fontSize)
+    public void AddText(string text, float x, float y, string fontName, float fontSize,
+        float colorR = 0, float colorG = 0, float colorB = 0)
     {
         UsedFonts.Add(fontName);
+        ContentStream.AppendLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
         ContentStream.Append("BT ");
         ContentStream.Append($"/{fontName} {F(fontSize)} Tf ");
         ContentStream.Append($"{F(x)} {F(y)} Td ");

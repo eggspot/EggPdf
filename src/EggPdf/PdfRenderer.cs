@@ -182,7 +182,14 @@ internal static class PdfRenderer
             float pdfX = (box.X + box.PaddingLeft) * PdfCoordinates.PxToPt;
             float pdfY = (pageHeightPx - adjustedY - box.PaddingTop - fontSize) * PdfCoordinates.PxToPt;
 
-            page.AddText(box.Text, pdfX, pdfY, fontName, pdfFontSize);
+            // Text color
+            var textColor = box.Style.Color;
+            Color? color = null;
+            if (!string.IsNullOrEmpty(textColor))
+                color = ParseColor(textColor);
+
+            page.AddText(box.Text, pdfX, pdfY, fontName, pdfFontSize,
+                color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0);
         }
 
         // Paint links
