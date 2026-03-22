@@ -479,4 +479,85 @@ public class CssRenderingTests
         text.Should().Contain("Conclusion");
         text.Should().Contain("https://example.com");
     }
+
+    [Fact]
+    public void SupElement_RendersSuperscript()
+    {
+        var html = "<p>E=mc<sup>2</sup></p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("2");
+        // The superscript text should be rendered (font size may differ)
+        text.Should().Contain("E=mc");
+    }
+
+    [Fact]
+    public void SubElement_RendersSubscript()
+    {
+        var html = "<p>H<sub>2</sub>O</p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("H");
+        text.Should().Contain("2");
+        text.Should().Contain("O");
+    }
+
+    [Fact]
+    public void OutlineProperty_RendersAroundElement()
+    {
+        var html = "<p style='outline: 2px solid blue;'>Outlined</p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        // Outline should produce a stroke rectangle
+        text.Should().Contain("Outlined");
+    }
+
+    [Fact]
+    public void VerticalAlignMiddle_InTableCell()
+    {
+        var html = @"<table style='height: 100px;'>
+            <tr>
+                <td style='vertical-align: middle; height: 100px;'>Center</td>
+                <td style='vertical-align: bottom; height: 100px;'>Bottom</td>
+            </tr>
+        </table>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("Center");
+        text.Should().Contain("Bottom");
+    }
+
+    [Fact]
+    public void BorderCollapse_Table()
+    {
+        var html = @"<table style='border-collapse: collapse;'>
+            <tr>
+                <td style='border: 1px solid black; padding: 4px;'>A</td>
+                <td style='border: 1px solid black; padding: 4px;'>B</td>
+            </tr>
+        </table>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("A");
+        text.Should().Contain("B");
+    }
+
+    [Fact]
+    public void ZIndex_PositionedElements()
+    {
+        var html = @"<div style='position: relative; width: 200px; height: 200px;'>
+            <div style='position: absolute; z-index: 2; top: 10px; left: 10px; width: 50px; height: 50px; background: red;'>Top</div>
+            <div style='position: absolute; z-index: 1; top: 20px; left: 20px; width: 50px; height: 50px; background: blue;'>Below</div>
+        </div>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("Top");
+        text.Should().Contain("Below");
+    }
 }

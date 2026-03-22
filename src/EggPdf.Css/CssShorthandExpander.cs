@@ -52,6 +52,9 @@ public static class CssShorthandExpander
             case "border-left":
                 ExpandBorderSideShorthand(value, property, style);
                 return true;
+            case "outline":
+                ExpandOutlineShorthand(value, style);
+                return true;
             default:
                 return false;
         }
@@ -269,5 +272,26 @@ public static class CssShorthandExpander
         if (width != null) style.Set(property + "-width", width);
         if (borderStyle != null) style.Set(property + "-style", borderStyle);
         if (color != null) style.Set(property + "-color", color);
+    }
+
+    /// <summary>Expand outline shorthand: "2px solid blue" -> outline-width + style + color.</summary>
+    private static void ExpandOutlineShorthand(string value, ComputedStyle style)
+    {
+        var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        string? width = null, outlineStyle = null, color = null;
+
+        foreach (var part in parts)
+        {
+            if (IsBorderStyle(part))
+                outlineStyle = part;
+            else if (IsBorderWidth(part))
+                width = NormalizeBorderWidth(part);
+            else
+                color = part;
+        }
+
+        if (width != null) style.Set("outline-width", width);
+        if (outlineStyle != null) style.Set("outline-style", outlineStyle);
+        if (color != null) style.Set("outline-color", color);
     }
 }

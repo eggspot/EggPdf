@@ -301,6 +301,15 @@ public static class BlockLayout
                         childBox.Y = box.Y + box.PaddingTop;
                         childBox.X = box.X + box.PaddingLeft + (colOffset * colWidth);
 
+                        // border-collapse: remove interior borders on shared edges
+                        var borderCollapse = style.Get("border-collapse") ?? parentStyle?.Get("border-collapse");
+                        if (borderCollapse == "collapse")
+                        {
+                            // Not first column: zero left border (shared with prev cell's right border)
+                            if (colOffset > 0)
+                                childBox.Style.Set("border-left-width", "0");
+                        }
+
                         box.Children.Add(childBox);
 
                         // Track max cell height for the row
@@ -540,6 +549,36 @@ public static class BlockLayout
         if (inlineX > 0)
         {
             childY += inlineLineHeight;
+        }
+
+        // Post-pass: equalize table cell heights and apply vertical-align
+        if (IsTableRow(style.Display) && childY > 0)
+        {
+            float rowHeight = childY;
+            for (int ci = 0; ci < box.Children.Count; ci++)
+            {
+                var cell = box.Children[ci];
+                if (cell.Element == null) continue;
+
+                float contentHeight = cell.ContentHeight;
+                // Equalize cell height to row height
+                cell.Height = rowHeight;
+
+                // Apply vertical-align within the cell
+                var vAlign = cell.Style.Get("vertical-align") ?? "top";
+                float offset = 0;
+                if (vAlign == "middle")
+                    offset = (rowHeight - cell.PaddingTop - cell.PaddingBottom - contentHeight) / 2f;
+                else if (vAlign == "bottom")
+                    offset = rowHeight - cell.PaddingTop - cell.PaddingBottom - contentHeight;
+
+                if (offset > 0)
+                {
+                    // Shift all children of this cell down by offset
+                    for (int gi = 0; gi < cell.Children.Count; gi++)
+                        cell.Children[gi].Y += offset;
+                }
+            }
         }
 
         // List marker for display:list-item

@@ -190,4 +190,24 @@ public class CssShorthandExpanderTests
         style.Get("flex-shrink").Should().Be("0");
         style.Get("flex-basis").Should().Be("auto");
     }
+
+    [Fact]
+    public void Outline_Shorthand_WidthStyleColor()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("outline", "2px solid blue", style).Should().BeTrue();
+
+        style.Get("outline-width").Should().Be("2px");
+        style.Get("outline-style").Should().Be("solid");
+        style.Get("outline-color").Should().Be("blue");
+    }
+
+    [Fact]
+    public void Outline_Shorthand_None()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("outline", "none", style).Should().BeTrue();
+
+        style.Get("outline-style").Should().Be("none");
+    }
 }

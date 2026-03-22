@@ -233,4 +233,24 @@ public class PositionedLayoutTests
         // not the absolute child (500px)
         container.Height.Should().BeLessThan(100, "absolute children should not contribute to parent auto height");
     }
+
+    [Fact]
+    public void ZIndex_PositionedElements_StylePreserved()
+    {
+        var html = @"<div style='position: relative; width: 200px; height: 200px;'>
+            <div style='position: absolute; z-index: 10; top: 0; left: 0; width: 50px; height: 50px;'>High</div>
+            <div style='position: absolute; z-index: 1; top: 0; left: 0; width: 50px; height: 50px;'>Low</div>
+        </div>";
+        var root = LayoutTestHelper.Layout(html, 600, 800);
+
+        var divs = root.FindAllByTag("div");
+        // Should have 3 divs: container + 2 positioned children
+        divs.Should().HaveCountGreaterOrEqualTo(3);
+
+        // z-index should be stored in style
+        var highDiv = divs.Find(d => d.Style.Get("z-index") == "10");
+        var lowDiv = divs.Find(d => d.Style.Get("z-index") == "1");
+        highDiv.Should().NotBeNull("should find z-index:10 element");
+        lowDiv.Should().NotBeNull("should find z-index:1 element");
+    }
 }

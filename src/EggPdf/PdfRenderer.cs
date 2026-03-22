@@ -54,6 +54,10 @@ internal static class PdfRenderer
         var allBoxes = new List<LayoutBox>();
         CollectPaintableBoxes(layoutRoot, allBoxes);
 
+        // Sort by z-index stacking order: non-positioned first (doc order),
+        // then positioned elements sorted by z-index ascending (higher = painted later = on top)
+        SortByZIndex(allBoxes);
+
         // Also collect heading boxes for bookmarks
         var headings = new List<(string title, int level, float yPx)>();
         CollectHeadings(layoutRoot, headings);
@@ -304,6 +308,24 @@ internal static class PdfRenderer
         // Paint border (per-side with style support)
         PaintBorders(page, box, effectiveX, pageHeightPt, pageHeightPx, adjustedY, hasRadius, tlrPt, trrPt, brrPt, blrPt);
 
+        // Paint outline (outside border, doesn't affect layout)
+        var outlineStyle = box.Style.Get("outline-style");
+        if (!string.IsNullOrEmpty(outlineStyle) && outlineStyle != "none")
+        {
+            float outlineWidth = BlockLayout.ResolveLength(box.Style.Get("outline-width"), 0, 16);
+            if (outlineWidth <= 0) outlineWidth = 1;
+            var outlineColorStr = box.Style.Get("outline-color");
+            Color outlineColor = ParseColor(outlineColorStr ?? "") ?? Color.Black;
+
+            float owPt = outlineWidth * PdfCoordinates.PxToPt;
+            float olX = (effectiveX - outlineWidth) * PdfCoordinates.PxToPt;
+            float olY = (pageHeightPx - adjustedY - box.Height - outlineWidth) * PdfCoordinates.PxToPt;
+            float olW = (box.Width + outlineWidth * 2) * PdfCoordinates.PxToPt;
+            float olH = (box.Height + outlineWidth * 2) * PdfCoordinates.PxToPt;
+            page.AddStrokeRectangle(olX, olY, olW, olH,
+                outlineColor.R / 255f, outlineColor.G / 255f, outlineColor.B / 255f, owPt);
+        }
+
         // Paint text
         if (!string.IsNullOrEmpty(box.Text))
         {
@@ -345,6 +367,16 @@ internal static class PdfRenderer
 
             float pdfX = textX * PdfCoordinates.PxToPt;
             float pdfY = (pageHeightPx - adjustedY - box.PaddingTop - fontSize) * PdfCoordinates.PxToPt;
+
+            // Vertical-align baseline shift (sup/sub/super/sub)
+            var verticalAlign = box.Style.Get("vertical-align");
+            if (!string.IsNullOrEmpty(verticalAlign))
+            {
+                if (verticalAlign == "super" || verticalAlign == "sup")
+                    pdfY += fontSize * 0.4f * PdfCoordinates.PxToPt; // shift up
+                else if (verticalAlign == "sub")
+                    pdfY -= fontSize * 0.2f * PdfCoordinates.PxToPt; // shift down
+            }
 
             // Text color
             var textColor = box.Style.Color;
@@ -847,6 +879,30 @@ internal static class PdfRenderer
         page.SaveState();
         page.ConcatMatrix(pdfA, pdfB, pdfC, pdfD, finalE, finalF);
         return true;
+    }
+
+    /// <summary>
+    /// Sort boxes by z-index stacking order. Non-positioned boxes stay in document order,
+    /// positioned boxes with z-index sort ascending (higher z-index paints later = on top).
+    /// </summary>
+    private static void SortByZIndex(List<LayoutBox> boxes)
+    {
+        // Stable sort: preserve document order within same z-index
+        boxes.Sort((a, b) =>
+        {
+            int zA = GetZIndex(a);
+            int zB = GetZIndex(b);
+            return zA.CompareTo(zB);
+        });
+    }
+
+    private static int GetZIndex(LayoutBox box)
+    {
+        var zStr = box.Style.Get("z-index");
+        if (!string.IsNullOrEmpty(zStr) && zStr != "auto" &&
+            int.TryParse(zStr, out int z))
+            return z;
+        return 0; // auto = 0
     }
 
     private static Color? ParseColor(string value)
