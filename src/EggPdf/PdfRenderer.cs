@@ -136,6 +136,32 @@ internal static class PdfRenderer
             }
         }
 
+        // Paint border
+        var borderStyle = box.Style.Get("border-top-style") ?? box.Style.Get("border-style");
+        if (!string.IsNullOrEmpty(borderStyle) && borderStyle != "none")
+        {
+            var borderWidthStr = box.Style.Get("border-top-width") ?? box.Style.Get("border-width");
+            float borderWidth = 1;
+            if (!string.IsNullOrEmpty(borderWidthStr))
+                borderWidth = Layout.BlockLayout.ResolveLength(borderWidthStr, 0, 16);
+            if (borderWidth <= 0) borderWidth = 1;
+
+            var borderColorStr = box.Style.Get("border-top-color") ?? box.Style.Get("border-color");
+            float br = 0, bg = 0, bb = 0;
+            if (!string.IsNullOrEmpty(borderColorStr))
+            {
+                var bc = ParseColor(borderColorStr);
+                if (bc.HasValue) { br = bc.Value.R / 255f; bg = bc.Value.G / 255f; bb = bc.Value.B / 255f; }
+            }
+
+            float pdfX = box.X * PdfCoordinates.PxToPt;
+            float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+            float pdfW = box.Width * PdfCoordinates.PxToPt;
+            float pdfH = box.Height * PdfCoordinates.PxToPt;
+
+            page.AddStrokeRectangle(pdfX, pdfY, pdfW, pdfH, br, bg, bb, borderWidth * PdfCoordinates.PxToPt);
+        }
+
         // Paint text
         if (!string.IsNullOrEmpty(box.Text))
         {

@@ -123,7 +123,17 @@ public class BasicStyleResolver
         {
             var declarations = CssInlineParser.Parse(inlineCss);
             foreach (var decl in declarations)
-                style.Set(decl.Property, decl.Value);
+            {
+                // Expand border shorthand: "border: 1px solid red" -> width + style + color
+                if (decl.Property == "border")
+                {
+                    ExpandBorderShorthand(decl.Value, style);
+                }
+                else
+                {
+                    style.Set(decl.Property, decl.Value);
+                }
+            }
         }
 
         // 4. Handle hidden attribute
@@ -131,6 +141,47 @@ public class BasicStyleResolver
             style.Set("display", "none");
 
         return style;
+    }
+
+    /// <summary>Expand border shorthand: "1px solid red" -> individual properties.</summary>
+    private static void ExpandBorderShorthand(string value, ComputedStyle style)
+    {
+        var parts = value.Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries);
+        string? width = null, borderStyle = null, color = null;
+
+        foreach (var part in parts)
+        {
+            if (part == "solid" || part == "dashed" || part == "dotted" || part == "double" ||
+                part == "groove" || part == "ridge" || part == "inset" || part == "outset" || part == "none")
+                borderStyle = part;
+            else if (part.EndsWith("px") || part.EndsWith("em") || part.EndsWith("pt") ||
+                     part == "thin" || part == "medium" || part == "thick")
+                width = part == "thin" ? "1px" : part == "medium" ? "3px" : part == "thick" ? "5px" : part;
+            else
+                color = part;
+        }
+
+        if (width != null)
+        {
+            style.Set("border-top-width", width);
+            style.Set("border-right-width", width);
+            style.Set("border-bottom-width", width);
+            style.Set("border-left-width", width);
+        }
+        if (borderStyle != null)
+        {
+            style.Set("border-top-style", borderStyle);
+            style.Set("border-right-style", borderStyle);
+            style.Set("border-bottom-style", borderStyle);
+            style.Set("border-left-style", borderStyle);
+        }
+        if (color != null)
+        {
+            style.Set("border-top-color", color);
+            style.Set("border-right-color", color);
+            style.Set("border-bottom-color", color);
+            style.Set("border-left-color", color);
+        }
     }
 
     /// <summary>
