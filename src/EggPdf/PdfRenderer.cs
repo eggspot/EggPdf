@@ -189,6 +189,19 @@ internal static class PdfRenderer
             System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float op))
             cssOpacity = Math.Max(0, Math.Min(1, op));
 
+        // Resolve border-radius values
+        float tlr = ResolveBorderRadius(box.Style, "border-top-left-radius", box.Width);
+        float trr = ResolveBorderRadius(box.Style, "border-top-right-radius", box.Width);
+        float brr = ResolveBorderRadius(box.Style, "border-bottom-right-radius", box.Width);
+        float blr = ResolveBorderRadius(box.Style, "border-bottom-left-radius", box.Width);
+        bool hasRadius = tlr > 0 || trr > 0 || brr > 0 || blr > 0;
+
+        // Convert radii from px to pt
+        float tlrPt = tlr * PdfCoordinates.PxToPt;
+        float trrPt = trr * PdfCoordinates.PxToPt;
+        float brrPt = brr * PdfCoordinates.PxToPt;
+        float blrPt = blr * PdfCoordinates.PxToPt;
+
         // Paint background
         var bgColor = box.Style.BackgroundColor;
         if (!string.IsNullOrEmpty(bgColor) && bgColor != "transparent")
@@ -204,8 +217,14 @@ internal static class PdfRenderer
                 float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
                 float pdfW = box.Width * PdfCoordinates.PxToPt;
                 float pdfH = box.Height * PdfCoordinates.PxToPt;
-                page.AddRectangle(pdfX, pdfY, pdfW, pdfH,
-                    color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f);
+
+                if (hasRadius)
+                    page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH,
+                        color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f,
+                        tlrPt, trrPt, brrPt, blrPt);
+                else
+                    page.AddRectangle(pdfX, pdfY, pdfW, pdfH,
+                        color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f);
             }
         }
 
@@ -232,7 +251,12 @@ internal static class PdfRenderer
             float pdfW = box.Width * PdfCoordinates.PxToPt;
             float pdfH = box.Height * PdfCoordinates.PxToPt;
 
-            page.AddStrokeRectangle(pdfX, pdfY, pdfW, pdfH, br, bg, bb, borderWidth * PdfCoordinates.PxToPt);
+            if (hasRadius)
+                page.AddStrokeRoundedRectangle(pdfX, pdfY, pdfW, pdfH, br, bg, bb,
+                    borderWidth * PdfCoordinates.PxToPt,
+                    tlrPt, trrPt, brrPt, blrPt);
+            else
+                page.AddStrokeRectangle(pdfX, pdfY, pdfW, pdfH, br, bg, bb, borderWidth * PdfCoordinates.PxToPt);
         }
 
         // Paint text
@@ -369,6 +393,17 @@ internal static class PdfRenderer
             }
         }
         return new string(chars);
+    }
+
+    private static float ResolveBorderRadius(Css.ComputedStyle style, string property, float boxWidth)
+    {
+        // Try specific corner property first, then shorthand
+        var value = style.Get(property) ?? style.Get("border-radius");
+        if (string.IsNullOrEmpty(value) || value == "0" || value == "0px")
+            return 0;
+
+        float resolved = Layout.BlockLayout.ResolveLength(value, boxWidth, 16);
+        return Math.Max(0, resolved);
     }
 
     private static Color? ParseColor(string value)

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
@@ -54,6 +55,93 @@ public class PdfPage
         ContentStream.AppendLine($"{F(lineWidth)} w");
         ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
         ContentStream.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re S");
+    }
+
+    /// <summary>Add a filled rounded rectangle using Bézier curves for corners.</summary>
+    public void AddRoundedRectangle(float x, float y, float w, float h,
+        float r, float g, float b,
+        float tlr, float trr, float brr, float blr)
+    {
+        // Clamp radii to half dimensions
+        float maxRadiusW = w / 2f;
+        float maxRadiusH = h / 2f;
+        tlr = Math.Min(tlr, Math.Min(maxRadiusW, maxRadiusH));
+        trr = Math.Min(trr, Math.Min(maxRadiusW, maxRadiusH));
+        brr = Math.Min(brr, Math.Min(maxRadiusW, maxRadiusH));
+        blr = Math.Min(blr, Math.Min(maxRadiusW, maxRadiusH));
+
+        ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} rg");
+        AppendRoundedRectPath(x, y, w, h, tlr, trr, brr, blr);
+        ContentStream.AppendLine("h f");
+    }
+
+    /// <summary>Add a stroked rounded rectangle using Bézier curves for corners.</summary>
+    public void AddStrokeRoundedRectangle(float x, float y, float w, float h,
+        float r, float g, float b, float lineWidth,
+        float tlr, float trr, float brr, float blr)
+    {
+        // Clamp radii to half dimensions
+        float maxRadiusW = w / 2f;
+        float maxRadiusH = h / 2f;
+        tlr = Math.Min(tlr, Math.Min(maxRadiusW, maxRadiusH));
+        trr = Math.Min(trr, Math.Min(maxRadiusW, maxRadiusH));
+        brr = Math.Min(brr, Math.Min(maxRadiusW, maxRadiusH));
+        blr = Math.Min(blr, Math.Min(maxRadiusW, maxRadiusH));
+
+        ContentStream.AppendLine($"{F(lineWidth)} w");
+        ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
+        AppendRoundedRectPath(x, y, w, h, tlr, trr, brr, blr);
+        ContentStream.AppendLine("h S");
+    }
+
+    /// <summary>Appends the rounded rectangle path operators (m, l, c) to the content stream.</summary>
+    private void AppendRoundedRectPath(float x, float y, float w, float h,
+        float tlr, float trr, float brr, float blr)
+    {
+        // Kappa constant for approximating quarter-circle arcs with cubic Bézier curves
+        const float k = 0.5522847498f;
+
+        // PDF coordinate system: Y increases upward
+        // Start at top-left corner (after TL radius), go clockwise
+
+        // Move to start of top edge (after TL radius)
+        ContentStream.AppendLine($"{F(x + tlr)} {F(y + h)} m");
+
+        // Top edge line to start of TR radius
+        ContentStream.AppendLine($"{F(x + w - trr)} {F(y + h)} l");
+
+        // TR corner curve
+        if (trr > 0)
+            ContentStream.AppendLine($"{F(x + w - trr + trr * k)} {F(y + h)} {F(x + w)} {F(y + h - trr + trr * k)} {F(x + w)} {F(y + h - trr)} c");
+        else
+            ContentStream.AppendLine($"{F(x + w)} {F(y + h)} l");
+
+        // Right edge line to start of BR radius
+        ContentStream.AppendLine($"{F(x + w)} {F(y + brr)} l");
+
+        // BR corner curve
+        if (brr > 0)
+            ContentStream.AppendLine($"{F(x + w)} {F(y + brr - brr * k)} {F(x + w - brr + brr * k)} {F(y)} {F(x + w - brr)} {F(y)} c");
+        else
+            ContentStream.AppendLine($"{F(x + w)} {F(y)} l");
+
+        // Bottom edge line to start of BL radius
+        ContentStream.AppendLine($"{F(x + blr)} {F(y)} l");
+
+        // BL corner curve
+        if (blr > 0)
+            ContentStream.AppendLine($"{F(x + blr - blr * k)} {F(y)} {F(x)} {F(y + blr - blr * k)} {F(x)} {F(y + blr)} c");
+        else
+            ContentStream.AppendLine($"{F(x)} {F(y)} l");
+
+        // Left edge line to start of TL radius
+        ContentStream.AppendLine($"{F(x)} {F(y + h - tlr)} l");
+
+        // TL corner curve
+        if (tlr > 0)
+            ContentStream.AppendLine($"{F(x)} {F(y + h - tlr + tlr * k)} {F(x + tlr - tlr * k)} {F(y + h)} {F(x + tlr)} {F(y + h)} c");
+        else
+            ContentStream.AppendLine($"{F(x)} {F(y + h)} l");
     }
 
     /// <summary>Set fill and stroke opacity (0.0-1.0). Creates an ExtGState reference.</summary>

@@ -151,15 +151,25 @@ public static class HtmlToPdf
             {
                 box.ImageData = data;
                 string imgName = "Img" + box.ImageSource.GetHashCode().ToString("X8");
-                var pdfImage = PdfImage.FromJpeg(imgName, data);
+                PdfImage? pdfImage = null;
+
+                // Detect format by magic bytes
+                if (data.Length >= 8 &&
+                    data[0] == 137 && data[1] == 80 && data[2] == 78 && data[3] == 71 &&
+                    data[4] == 13 && data[5] == 10 && data[6] == 26 && data[7] == 10)
+                {
+                    // PNG signature
+                    pdfImage = PdfImage.FromPng(imgName, data);
+                }
+                else if (data.Length >= 2 && data[0] == 0xFF && data[1] == 0xD8)
+                {
+                    // JPEG SOI marker
+                    pdfImage = PdfImage.FromJpeg(imgName, data);
+                }
+
                 if (pdfImage != null)
                 {
                     pdfDoc.AddImage(pdfImage);
-                }
-                else
-                {
-                    // Try as raw RGB (for PNG, we'd need a PNG decoder)
-                    // For now, only JPEG pass-through is supported
                 }
             }
         }

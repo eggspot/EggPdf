@@ -55,7 +55,7 @@ public static class BlockLayout
         return root;
     }
 
-    private static LayoutBox CreateBox(HtmlElement element, ComputedStyle style,
+    internal static LayoutBox CreateBox(HtmlElement element, ComputedStyle style,
         LayoutBox parent, float containingWidth, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
     {
         var box = new LayoutBox { Element = element, Style = style };
@@ -134,6 +134,60 @@ public static class BlockLayout
             float offsetLeft = ResolveLength(style.Get("left"), 0, fontSize);
             box.X += offsetLeft;
             // Y offset applied after layout (see below)
+        }
+
+        // Flex layout: delegate to FlexLayout when display is flex
+        if (style.Display == "flex")
+        {
+            FlexLayout.LayoutFlex(box, element, style, containingWidth, resolver, parentStyle);
+
+            // Compute height from flex children
+            float? specifiedHeightFlex = ResolveOptionalLength(style.Height, 0, fontSize);
+            if (specifiedHeightFlex.HasValue)
+            {
+                if (borderBox)
+                {
+                    box.Height = specifiedHeightFlex.Value;
+                    box.ContentHeight = specifiedHeightFlex.Value - box.PaddingTop - box.PaddingBottom;
+                    if (box.ContentHeight < 0) box.ContentHeight = 0;
+                }
+                else
+                {
+                    box.ContentHeight = specifiedHeightFlex.Value;
+                    box.Height = specifiedHeightFlex.Value + box.PaddingTop + box.PaddingBottom;
+                }
+            }
+            else
+            {
+                // Auto height: compute from children
+                float maxChildBottom = 0;
+                for (int ci = 0; ci < box.Children.Count; ci++)
+                {
+                    var child = box.Children[ci];
+                    float childBottom = child.Y + child.Height - box.Y - box.PaddingTop;
+                    if (childBottom > maxChildBottom)
+                        maxChildBottom = childBottom;
+                }
+                box.ContentHeight = maxChildBottom;
+                box.Height = maxChildBottom + box.PaddingTop + box.PaddingBottom;
+            }
+
+            // Min/max height constraints for flex
+            float? minHeightFlex = ResolveOptionalLength(style.Get("min-height"), 0, fontSize);
+            float? maxHeightFlex = ResolveOptionalLength(style.Get("max-height"), 0, fontSize);
+            if (minHeightFlex.HasValue && box.Height < minHeightFlex.Value)
+                box.Height = minHeightFlex.Value;
+            if (maxHeightFlex.HasValue && box.Height > maxHeightFlex.Value)
+                box.Height = maxHeightFlex.Value;
+
+            // Apply relative position Y offset
+            if (position == "relative")
+            {
+                float offsetTopFlex = ResolveLength(style.Get("top"), 0, fontSize);
+                box.Y += offsetTopFlex;
+            }
+
+            return box;
         }
 
         // Layout children using inline formatting context awareness
@@ -692,7 +746,7 @@ public static class BlockLayout
         return 0;
     }
 
-    private static float ResolveFontSize(string? value, float parentFontSize)
+    internal static float ResolveFontSize(string? value, float parentFontSize)
     {
         if (string.IsNullOrEmpty(value))
             return parentFontSize;

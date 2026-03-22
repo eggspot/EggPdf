@@ -75,6 +75,22 @@ public class PdfImage
         return new PdfImage(name, width, height, jpegData, PdfImageFormat.Jpeg, 8, null);
     }
 
+    /// <summary>Create image from PNG data (decoded to RGB or RGBA).</summary>
+    public static PdfImage? FromPng(string name, byte[] pngData)
+    {
+        if (pngData == null || pngData.Length < 8)
+            return null;
+
+        var result = PngDecoder.Decode(pngData);
+        if (result == null)
+            return null;
+
+        if (result.HasAlpha)
+            return FromRgba(name, result.Width, result.Height, result.PixelData);
+        else
+            return FromRgb(name, result.Width, result.Height, result.PixelData);
+    }
+
     /// <summary>Create image from raw RGB pixel data.</summary>
     public static PdfImage FromRgb(string name, int width, int height, byte[] rgbData)
     {

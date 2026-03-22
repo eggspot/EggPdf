@@ -56,9 +56,9 @@ src/
   EggPdf.Core/         -- shared primitives (Color, geometry, warnings, resource resolver)
   EggPdf.Html/         -- HTML5 parser (tokenizer, tree builder, DOM types)
   EggPdf.Css/          -- CSS parser + cascade + selectors + inline parser
-  EggPdf.Layout/       -- layout engine (block, inline, table cells horizontal)
+  EggPdf.Layout/       -- layout engine (block, inline, flex, table cells horizontal)
   EggPdf.Text/         -- TrueType parser, system font discovery, line breaking, font resolver
-  EggPdf.Pdf/          -- PDF 1.7 writer (text, rectangles, links, multi-page)
+  EggPdf.Pdf/          -- PDF 1.7 writer (text, rectangles, rounded rects, links, multi-page, PNG/JPEG images)
   EggPdf.Cli/          -- CLI tool: eggpdf input.html -o output.pdf
   EggPdf.Service/      -- REST API + WebUI (POST /api/render, GET /e2e, GET /)
   EggPdf.Style/        -- (placeholder for future style resolution module)
@@ -67,8 +67,8 @@ src/
   EggPdf.Fragmentation/ -- (placeholder for future fragmentation)
 
 tests/
-  EggPdf.Tests.Unit/   -- 365 unit tests (parsers, CSS, colors, PDF, E2E, rendering)
-  EggPdf.Tests.Layout/ -- 95 layout tests (block, inline, table, flex, grid, margins, lists, white-space)
+  EggPdf.Tests.Unit/   -- 437 unit tests (parsers, CSS, selectors, colors, PDF, PNG, rounded rects, E2E, rendering)
+  EggPdf.Tests.Layout/ -- 118 layout tests (block, inline, flex, table, grid, margins, lists, white-space)
   EggPdf.Tests.E2E/    -- 20 Playwright tests (WebUI, API endpoints)
 
 benchmarks/
