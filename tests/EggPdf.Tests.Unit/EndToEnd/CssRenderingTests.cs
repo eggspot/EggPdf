@@ -560,4 +560,90 @@ public class CssRenderingTests
         text.Should().Contain("Top");
         text.Should().Contain("Below");
     }
+
+    [Fact]
+    public void OverflowWrap_BreakWord_LongWord()
+    {
+        var html = @"<div style='width: 100px; overflow-wrap: break-word;'>Superlongwordthatwillnotfitinasmallcontainer</div>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        // The long word should be present (broken across lines)
+        text.Should().Contain("Super");
+    }
+
+    [Fact]
+    public void WordBreak_BreakAll()
+    {
+        var html = @"<div style='width: 80px; word-break: break-all;'>ABCDEFGHIJKLMNOP</div>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("ABCDE");
+    }
+
+    [Fact]
+    public void TextOverflow_Ellipsis()
+    {
+        var html = @"<div style='width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'>This is a very long text that should be truncated</div>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("...");
+    }
+
+    [Fact]
+    public void TextDecoration_Overline()
+    {
+        var html = @"<p style='text-decoration: overline;'>Overlined text</p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("Overlined text");
+    }
+
+    [Fact]
+    public void TextDecoration_Multiple()
+    {
+        var html = @"<p style='text-decoration: underline overline;'>Both decorations</p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("Both decorations");
+    }
+
+    [Fact]
+    public void RgbaColor_InPdf()
+    {
+        var html = @"<p style='color: rgba(255, 0, 0, 0.5);'>Semi-transparent</p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("Semi-transparent");
+        // Should have red color operator (1.00 0.00 0.00 rg)
+        text.Should().Contain("1.00 0.00 0.00 rg");
+    }
+
+    [Fact]
+    public void HslColor_InPdf()
+    {
+        var html = @"<p style='color: hsl(0, 100%, 50%);'>HSL Red</p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("HSL Red");
+        text.Should().Contain("1.00 0.00 0.00 rg");
+    }
+
+    [Fact]
+    public void FontShorthand_AppliesAllProperties()
+    {
+        var html = @"<style>p { font: bold 20px serif; }</style><p>Bold serif</p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("Bold serif");
+        // Should use Times-Bold (serif + bold)
+        text.Should().Contain("Times-Bold");
+    }
 }

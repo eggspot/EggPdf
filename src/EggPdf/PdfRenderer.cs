@@ -347,6 +347,33 @@ internal static class PdfRenderer
                 if (resolved > 0) fontSize = resolved;
             }
 
+            // text-overflow: ellipsis — truncate text that overflows container
+            var textOverflow = box.Style.Get("text-overflow");
+            var ellipsisOverflow = box.Style.Get("overflow");
+            if (textOverflow == "ellipsis" && (ellipsisOverflow == "hidden" || ellipsisOverflow == "clip"))
+            {
+                float availWidth = box.Width - box.PaddingLeft - box.PaddingRight;
+                float textWidth = TextMeasurer.MeasureWidth(paintText, fontSize,
+                    box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"));
+                if (textWidth > availWidth && paintText.Length > 3)
+                {
+                    float ellipsisWidth = TextMeasurer.MeasureWidth("...", fontSize,
+                        box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"));
+                    float targetWidth = availWidth - ellipsisWidth;
+                    // Binary search for truncation point
+                    int lo = 1, hi = paintText.Length;
+                    while (lo < hi)
+                    {
+                        int mid = (lo + hi + 1) / 2;
+                        float w = TextMeasurer.MeasureWidth(paintText.Substring(0, mid), fontSize,
+                            box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"));
+                        if (w <= targetWidth) lo = mid;
+                        else hi = mid - 1;
+                    }
+                    paintText = paintText.Substring(0, lo) + "...";
+                }
+            }
+
             string fontName = StandardFontMetrics.ResolvePdfFontName(
                 box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"));
 
@@ -416,6 +443,11 @@ internal static class PdfRenderer
                 if (textDecoration.IndexOf("line-through", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     lineY = pdfY + fontSize * 0.3f * PdfCoordinates.PxToPt;
+                    page.AddLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth);
+                }
+                if (textDecoration.IndexOf("overline", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    lineY = pdfY + fontSize * 0.85f * PdfCoordinates.PxToPt;
                     page.AddLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth);
                 }
             }

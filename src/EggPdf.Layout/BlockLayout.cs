@@ -502,10 +502,16 @@ public static class BlockLayout
                 float textIndent = ResolveLength(style.Get("text-indent"), childContainingWidth, fontSize);
                 var textData = preserveWhitespace ? textNode.Data : textNode.Data.Trim();
 
+                // Check overflow-wrap/word-break for character-level breaking
+                var overflowWrap = style.Get("overflow-wrap") ?? style.Get("word-wrap");
+                var wordBreak = style.Get("word-break");
+                bool breakWord = overflowWrap == "break-word" || overflowWrap == "anywhere" ||
+                                 wordBreak == "break-all" || wordBreak == "break-word";
+
                 // For text-indent, reduce first line's available width
                 float firstLineWidth = textIndent > 0 ? childContainingWidth - textIndent : childContainingWidth;
                 var lines = TextMeasurer.WrapText(textData, fontSize, fontFamily, fontWeight, fontStyle,
-                    firstLineWidth > 0 ? firstLineWidth : childContainingWidth, whiteSpaceProp);
+                    firstLineWidth > 0 ? firstLineWidth : childContainingWidth, whiteSpaceProp, breakWord);
 
                 // If indent caused wrapping and there are remaining lines, re-wrap with full width
                 if (textIndent > 0 && lines.Count > 1)
@@ -515,7 +521,7 @@ public static class BlockLayout
                     lines = new System.Collections.Generic.List<string> { firstLine };
                     if (!string.IsNullOrEmpty(remaining))
                     {
-                        var moreLines = TextMeasurer.WrapText(remaining, fontSize, fontFamily, fontWeight, fontStyle, childContainingWidth, whiteSpaceProp);
+                        var moreLines = TextMeasurer.WrapText(remaining, fontSize, fontFamily, fontWeight, fontStyle, childContainingWidth, whiteSpaceProp, breakWord);
                         lines.AddRange(moreLines);
                     }
                 }

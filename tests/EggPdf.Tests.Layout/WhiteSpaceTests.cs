@@ -140,4 +140,47 @@ public class WhiteSpaceTests
         var textBoxes = pre!.Children.Where(c => !string.IsNullOrEmpty(c.Text)).ToList();
         textBoxes.Count.Should().BeGreaterOrEqualTo(3, "pre with newlines should produce multiple text lines");
     }
+
+    [Fact]
+    public void OverflowWrap_BreakWord_BreaksLongWord()
+    {
+        // A very long word in a narrow container with overflow-wrap:break-word
+        var html = @"<div style='width: 60px; overflow-wrap: break-word;'>ABCDEFGHIJKLMNOPQRSTUVWXYZ</div>";
+        var root = LayoutTestHelper.Layout(html, 600, 800);
+
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+
+        // The long word should produce multiple text lines
+        var textBoxes = div!.Children.Where(c => !string.IsNullOrEmpty(c.Text)).ToList();
+        textBoxes.Count.Should().BeGreaterThan(1, "long word should break across multiple lines");
+    }
+
+    [Fact]
+    public void WordBreak_BreakAll_BreaksAtCharacter()
+    {
+        var html = @"<div style='width: 50px; word-break: break-all;'>LONGWORDHERE</div>";
+        var root = LayoutTestHelper.Layout(html, 600, 800);
+
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+
+        var textBoxes = div!.Children.Where(c => !string.IsNullOrEmpty(c.Text)).ToList();
+        textBoxes.Count.Should().BeGreaterThan(1, "word should break at character boundary");
+    }
+
+    [Fact]
+    public void NoBreakWord_LongWordOnSingleLine()
+    {
+        // Without overflow-wrap, long word stays on one line
+        var html = @"<div style='width: 60px;'>ABCDEFGHIJKLMNOPQRSTUVWXYZ</div>";
+        var root = LayoutTestHelper.Layout(html, 600, 800);
+
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+
+        // Without break-word, the text is on a single line (overflows)
+        var textBoxes = div!.Children.Where(c => !string.IsNullOrEmpty(c.Text)).ToList();
+        textBoxes.Count.Should().Be(1, "without break-word, long word stays as single line");
+    }
 }

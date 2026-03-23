@@ -63,6 +63,16 @@ public static class TextMeasurer
     public static List<string> WrapText(string text, float fontSize, string? fontFamily,
         string? fontWeight, string? fontStyle, float maxWidth, string whiteSpace)
     {
+        return WrapText(text, fontSize, fontFamily, fontWeight, fontStyle, maxWidth, whiteSpace, false);
+    }
+
+    /// <summary>
+    /// Break text into lines respecting white-space and overflow-wrap/word-break.
+    /// When breakWord is true, words that exceed maxWidth are broken character-by-character.
+    /// </summary>
+    public static List<string> WrapText(string text, float fontSize, string? fontFamily,
+        string? fontWeight, string? fontStyle, float maxWidth, string whiteSpace, bool breakWord)
+    {
         var lines = new List<string>();
         if (string.IsNullOrEmpty(text))
             return lines;
@@ -73,7 +83,6 @@ public static class TextMeasurer
 
         if (preserveNewlines)
         {
-            // Split on newlines first
             var physicalLines = text.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None);
             foreach (var physLine in physicalLines)
             {
@@ -81,32 +90,28 @@ public static class TextMeasurer
 
                 if (allowWrap && maxWidth > 0)
                 {
-                    // pre-wrap or pre-line: wrap within each physical line
-                    var wrappedLines = WrapSingleLine(processedLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth, preserveSpaces);
+                    var wrappedLines = WrapSingleLine(processedLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth, preserveSpaces, breakWord);
                     lines.AddRange(wrappedLines);
                 }
                 else
                 {
-                    // pre or nowrap: no wrapping, output as-is
                     lines.Add(processedLine);
                 }
             }
         }
         else if (!allowWrap)
         {
-            // nowrap: collapse whitespace, no wrapping
             lines.Add(CollapseWhitespace(text));
         }
         else
         {
-            // normal: collapse whitespace, wrap at word boundaries
             var collapsed = CollapseWhitespace(text);
             if (maxWidth <= 0)
             {
                 if (!string.IsNullOrEmpty(collapsed)) lines.Add(collapsed);
                 return lines;
             }
-            var wrappedLines = WrapSingleLine(collapsed, fontSize, fontFamily, fontWeight, fontStyle, maxWidth, false);
+            var wrappedLines = WrapSingleLine(collapsed, fontSize, fontFamily, fontWeight, fontStyle, maxWidth, false, breakWord);
             lines.AddRange(wrappedLines);
         }
 
@@ -115,7 +120,7 @@ public static class TextMeasurer
 
     /// <summary>Wrap a single line of text at word boundaries.</summary>
     private static List<string> WrapSingleLine(string text, float fontSize, string? fontFamily,
-        string? fontWeight, string? fontStyle, float maxWidth, bool preserveSpaces)
+        string? fontWeight, string? fontStyle, float maxWidth, bool preserveSpaces, bool breakWord = false)
     {
         var lines = new List<string>();
         if (string.IsNullOrEmpty(text))
@@ -134,7 +139,6 @@ public static class TextMeasurer
         string[] words;
         if (preserveSpaces)
         {
-            // For pre/pre-wrap: split on spaces but keep them as separate "words"
             words = SplitPreservingSpaces(text);
         }
         else
@@ -149,6 +153,16 @@ public static class TextMeasurer
         }
 
         var currentLine = words[0];
+
+        // If first word is too wide and breakWord enabled, break it
+        if (breakWord && MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle) > maxWidth)
+        {
+            var broken = BreakWordByCharacter(currentLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth);
+            for (int bi = 0; bi < broken.Count - 1; bi++)
+                lines.Add(broken[bi]);
+            currentLine = broken.Count > 0 ? broken[broken.Count - 1] : "";
+        }
+
         for (int i = 1; i < words.Length; i++)
         {
             string separator = preserveSpaces ? "" : " ";
@@ -163,6 +177,15 @@ public static class TextMeasurer
             {
                 lines.Add(currentLine);
                 currentLine = words[i];
+
+                // If this word alone exceeds maxWidth, break it by character
+                if (breakWord && MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle) > maxWidth)
+                {
+                    var broken = BreakWordByCharacter(currentLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth);
+                    for (int bi = 0; bi < broken.Count - 1; bi++)
+                        lines.Add(broken[bi]);
+                    currentLine = broken.Count > 0 ? broken[broken.Count - 1] : "";
+                }
             }
         }
 
@@ -170,6 +193,33 @@ public static class TextMeasurer
             lines.Add(currentLine);
 
         return lines;
+    }
+
+    /// <summary>Break a single word into chunks that each fit within maxWidth.</summary>
+    private static List<string> BreakWordByCharacter(string word, float fontSize,
+        string? fontFamily, string? fontWeight, string? fontStyle, float maxWidth)
+    {
+        var chunks = new List<string>();
+        if (string.IsNullOrEmpty(word))
+        {
+            chunks.Add("");
+            return chunks;
+        }
+
+        int start = 0;
+        for (int i = 1; i <= word.Length; i++)
+        {
+            var chunk = word.Substring(start, i - start);
+            if (MeasureWidth(chunk, fontSize, fontFamily, fontWeight, fontStyle) > maxWidth && i - start > 1)
+            {
+                chunks.Add(word.Substring(start, i - 1 - start));
+                start = i - 1;
+            }
+        }
+        if (start < word.Length)
+            chunks.Add(word.Substring(start));
+
+        return chunks;
     }
 
     /// <summary>Collapse sequences of whitespace into single spaces and trim.</summary>
