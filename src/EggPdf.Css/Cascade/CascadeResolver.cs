@@ -224,6 +224,11 @@ public class CascadeResolver
             case "text-transform":
             case "direction":
             case "list-style-type":
+            case "list-style-position":
+            case "border-collapse":
+            case "border-spacing":
+            case "caption-side":
+            case "empty-cells":
                 return true;
             default:
                 return CssVariableResolver.IsCustomProperty(property);

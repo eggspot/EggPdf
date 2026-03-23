@@ -129,7 +129,7 @@
     </div>
     <div class="editor-wrap">
       <div class="line-nums" id="lineNums"></div>
-      <textarea id="htmlInput" spellcheck="false" oninput="updateLineNumbers(); debouncedPreview()"></textarea>
+      <textarea id="htmlInput" spellcheck="false" oninput="updateLineNumbers(); debouncedPreview(); debouncedPdfPreview()"></textarea>
     </div>
   </div>
 
@@ -137,8 +137,8 @@
   <div class="preview-panel">
     <div class="preview-toolbar">
       <div class="preview-tabs">
-        <button class="preview-tab active" onclick="switchPreview('print')">Print Preview</button>
-        <button class="preview-tab" onclick="switchPreview('pdf')">PDF Preview</button>
+        <button class="preview-tab active" onclick="switchPreview('print', this)">Print Preview</button>
+        <button class="preview-tab" onclick="switchPreview('pdf', this)">PDF Preview</button>
       </div>
       <span class="preview-info" id="previewInfo"></span>
     </div>
@@ -276,10 +276,11 @@ function debouncedPreview() {
 }
 
 // === SWITCH PREVIEW TABS ===
-function switchPreview(mode) {
+function switchPreview(mode, el) {
   currentPreview = mode;
   document.querySelectorAll('.preview-tab').forEach(t => t.classList.remove('active'));
-  event.target.classList.add('active');
+  if (el) el.classList.add('active');
+  else document.querySelectorAll('.preview-tab').forEach(t => { if (t.textContent.toLowerCase().includes(mode)) t.classList.add('active'); });
   if (mode === 'print') {
     printPreview.style.display = '';
     pdfPreview.style.display = 'none';
@@ -287,7 +288,43 @@ function switchPreview(mode) {
   } else {
     printPreview.style.display = 'none';
     pdfPreview.style.display = '';
+    updatePdfPreview();
   }
+}
+
+// === LIVE PDF PREVIEW ===
+let pdfTimer = null;
+let lastPdfHtml = '';
+async function updatePdfPreview() {
+  if (currentPreview !== 'pdf') return;
+  const html = input.value;
+  if (!html.trim()) { pdfPreview.innerHTML = '<span>Enter HTML to preview PDF</span>'; return; }
+  if (html === lastPdfHtml && pdfPreview.querySelector('embed')) return;
+  lastPdfHtml = html;
+  try {
+    previewInfo.textContent = 'Rendering PDF...';
+    const start = performance.now();
+    const resp = await fetch('/api/render', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({html})
+    });
+    if (!resp.ok) { pdfPreview.innerHTML = '<span>Render error</span>'; return; }
+    const blob = await resp.blob();
+    const elapsed = Math.round(performance.now() - start);
+    const sizekb = (blob.size / 1024).toFixed(1);
+    statusTiming.textContent = `${elapsed}ms`;
+    statusSize.textContent = `${sizekb} KB`;
+    statusText.textContent = 'Ready';
+    previewInfo.textContent = `${elapsed}ms | ${sizekb} KB`;
+    const url = URL.createObjectURL(blob);
+    pdfPreview.innerHTML = `<embed src="${url}" type="application/pdf" width="100%" height="842">`;
+  } catch (e) { pdfPreview.innerHTML = '<span>Error: ' + e.message + '</span>'; }
+}
+
+function debouncedPdfPreview() {
+  clearTimeout(pdfTimer);
+  lastPdfHtml = '';
+  pdfTimer = setTimeout(updatePdfPreview, 500);
 }
 
 // === DOWNLOAD PDF ===
@@ -311,16 +348,14 @@ async function downloadPdf() {
     statusText.textContent = 'PDF ready';
     previewInfo.textContent = `${elapsed}ms | ${sizekb} KB`;
 
-    // Show in PDF preview
+    // Download the file
     const url = URL.createObjectURL(blob);
-    pdfPreview.innerHTML = `<embed src="${url}" type="application/pdf" width="100%" height="842">`;
-    switchPreview('pdf');
-    document.querySelectorAll('.preview-tab')[1].classList.add('active');
-    document.querySelectorAll('.preview-tab')[0].classList.remove('active');
-
-    // Also download
     const a = document.createElement('a');
     a.href = url; a.download = 'output.pdf'; a.click();
+
+    // Also update the PDF preview if visible
+    pdfPreview.innerHTML = `<embed src="${url}" type="application/pdf" width="100%" height="842">`;
+    lastPdfHtml = html;
   } catch (e) { statusText.textContent = 'Error: ' + e.message; }
 }
 

@@ -290,22 +290,37 @@ public static class BlockLayout
                     if (IsTableRow(style.Display) && IsTableCell(childStyle.Display))
                     {
                         int totalColumns = CountTableColumns(element);
-                        float colWidth = totalColumns > 0 ? childContainingWidth / totalColumns : childContainingWidth;
                         int colOffset = CountPreviousColumns(element, childElem);
                         int colspan = GetColspan(childElem);
 
-                        float cellWidth = colWidth * colspan;
+                        // border-collapse inherits from <table> via CSS inheritance
+                        var borderCollapse = style.Get("border-collapse") ?? parentStyle?.Get("border-collapse");
+                        bool isCollapse = borderCollapse == "collapse";
+
+                        // border-spacing: 0 when collapsed, otherwise use inherited value
+                        float borderSpacing = 0;
+                        if (!isCollapse)
+                        {
+                            var spacingVal = style.Get("border-spacing") ?? parentStyle?.Get("border-spacing");
+                            borderSpacing = !string.IsNullOrEmpty(spacingVal) ? ResolveLength(spacingVal, 0, fontSize) : 2;
+                        }
+
+                        // Subtract total border-spacing from available width for cells
+                        float spacingTotal = totalColumns > 1 ? borderSpacing * (totalColumns - 1) : 0;
+                        float availableForCells = childContainingWidth - spacingTotal;
+                        float colWidth = totalColumns > 0 ? availableForCells / totalColumns : childContainingWidth;
+
+                        float cellWidth = colWidth * colspan + (colspan > 1 ? borderSpacing * (colspan - 1) : 0);
                         var childBox = CreateBox(childElem, childStyle, box, cellWidth, resolver, style);
                         childBox.Width = cellWidth;
                         childBox.ContentWidth = cellWidth - childBox.PaddingLeft - childBox.PaddingRight;
+                        if (childBox.ContentWidth < 0) childBox.ContentWidth = 0;
                         childBox.Y = box.Y + box.PaddingTop;
-                        childBox.X = box.X + box.PaddingLeft + (colOffset * colWidth);
+                        childBox.X = box.X + box.PaddingLeft + (colOffset * (colWidth + borderSpacing));
 
                         // border-collapse: remove interior borders on shared edges
-                        var borderCollapse = style.Get("border-collapse") ?? parentStyle?.Get("border-collapse");
-                        if (borderCollapse == "collapse")
+                        if (isCollapse)
                         {
-                            // Not first column: zero left border (shared with prev cell's right border)
                             if (colOffset > 0)
                                 childBox.Style.Set("border-left-width", "0");
                         }
@@ -763,6 +778,7 @@ public static class BlockLayout
 
     private static bool IsTableCell(string display)
         => display == "table-cell";
+
 
     /// <summary>Count total column slots in a row (respecting colspan).</summary>
     private static int CountTableColumns(HtmlElement row)
