@@ -577,10 +577,33 @@ internal static class PdfRenderer
         return Math.Max(0, resolved);
     }
 
-    /// <summary>Paint a background-image: url(...) behind the element.</summary>
+    /// <summary>Paint a background-image: url(...) or gradient behind the element.</summary>
     private static void PaintBackgroundImage(PdfPage page, LayoutBox box, string bgImage,
         float effectiveX, float pageHeightPx, float adjustedY)
     {
+        // Handle CSS gradients
+        if (bgImage.StartsWith("linear-gradient(", StringComparison.OrdinalIgnoreCase) ||
+            bgImage.StartsWith("repeating-linear-gradient(", StringComparison.OrdinalIgnoreCase))
+        {
+            float pdfX = effectiveX * PdfCoordinates.PxToPt;
+            float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+            float pdfW = box.Width * PdfCoordinates.PxToPt;
+            float pdfH = box.Height * PdfCoordinates.PxToPt;
+            var commands = Pdf.PdfGradient.RenderLinearGradient(bgImage, pdfX, pdfY, pdfW, pdfH);
+            if (commands != null) page.AppendRawContent(commands);
+            return;
+        }
+        if (bgImage.StartsWith("radial-gradient(", StringComparison.OrdinalIgnoreCase))
+        {
+            float pdfX = effectiveX * PdfCoordinates.PxToPt;
+            float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+            float pdfW = box.Width * PdfCoordinates.PxToPt;
+            float pdfH = box.Height * PdfCoordinates.PxToPt;
+            var commands = Pdf.PdfRadialGradient.Render(bgImage, pdfX, pdfY, pdfW, pdfH);
+            if (commands != null) page.AppendRawContent(commands);
+            return;
+        }
+
         // Extract URL from "url(...)" or "url('...')" or "url("...")"
         string? url = null;
         if (bgImage.StartsWith("url(", StringComparison.OrdinalIgnoreCase))
