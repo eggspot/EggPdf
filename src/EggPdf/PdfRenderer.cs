@@ -176,9 +176,12 @@ internal static class PdfRenderer
         var borderStyle = box.Style.Get("border-top-style");
         bool hasBorder = !string.IsNullOrEmpty(borderStyle) && borderStyle != "none";
 
+        var bgImageStyle = box.Style.Get("background-image");
+        bool hasBgImage = !string.IsNullOrEmpty(bgImageStyle) && bgImageStyle != "none";
+
         bool hasPaint = !string.IsNullOrEmpty(box.Text) ||
                         !string.IsNullOrEmpty(box.ImageSource) ||
-                        hasBorder ||
+                        hasBorder || hasBgImage ||
                         !string.IsNullOrEmpty(box.Style.BackgroundColor) &&
                         box.Style.BackgroundColor != "transparent" ||
                         box.Element?.TagName == "a";
@@ -307,6 +310,13 @@ internal static class PdfRenderer
                     page.AddRectangle(pdfX, pdfY, pdfW, pdfH,
                         color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f);
             }
+        }
+
+        // Paint background-image
+        var bgImage = box.Style.Get("background-image");
+        if (!string.IsNullOrEmpty(bgImage) && bgImage != "none" && _currentPdfDoc != null)
+        {
+            PaintBackgroundImage(page, box, bgImage, effectiveX, pageHeightPx, adjustedY);
         }
 
         // Paint border (per-side with style support)
@@ -541,6 +551,174 @@ internal static class PdfRenderer
 
         float resolved = Layout.BlockLayout.ResolveLength(value, boxWidth, 16);
         return Math.Max(0, resolved);
+    }
+
+    /// <summary>Paint a background-image: url(...) behind the element.</summary>
+    private static void PaintBackgroundImage(PdfPage page, LayoutBox box, string bgImage,
+        float effectiveX, float pageHeightPx, float adjustedY)
+    {
+        // Extract URL from "url(...)" or "url('...')" or "url("...")"
+        string? url = null;
+        if (bgImage.StartsWith("url(", StringComparison.OrdinalIgnoreCase))
+        {
+            int start = 4;
+            int end = bgImage.Length - 1;
+            if (end > start)
+            {
+                url = bgImage.Substring(start, end - start).Trim();
+                // Remove quotes
+                if (url.Length >= 2 && ((url[0] == '\'' && url[url.Length - 1] == '\'') ||
+                    (url[0] == '"' && url[url.Length - 1] == '"')))
+                    url = url.Substring(1, url.Length - 2);
+            }
+        }
+
+        if (string.IsNullOrEmpty(url)) return;
+
+        // Load image data
+        var data = LoadBackgroundImageData(url);
+        if (data == null || data.Length == 0) return;
+
+        // Register image with PDF document
+        string imgName = "BgImg" + url.GetHashCode().ToString("X8");
+        Pdf.PdfImage? pdfImage = null;
+
+        if (data.Length >= 8 && data[0] == 137 && data[1] == 80 && data[2] == 78 && data[3] == 71)
+            pdfImage = Pdf.PdfImage.FromPng(imgName, data);
+        else if (data.Length >= 2 && data[0] == 0xFF && data[1] == 0xD8)
+            pdfImage = Pdf.PdfImage.FromJpeg(imgName, data);
+        else if (data.Length >= 4 && data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46)
+            pdfImage = Pdf.PdfImage.FromGif(imgName, data);
+
+        if (pdfImage == null) return;
+
+        _currentPdfDoc?.AddImage(pdfImage);
+
+        // Parse background-size
+        float imgW = box.Width;
+        float imgH = box.Height;
+        var bgSize = box.Style.Get("background-size");
+        if (!string.IsNullOrEmpty(bgSize) && bgSize != "auto")
+        {
+            if (bgSize == "cover")
+            {
+                float scaleX = box.Width / pdfImage.Width;
+                float scaleY = box.Height / pdfImage.Height;
+                float scale = Math.Max(scaleX, scaleY);
+                imgW = pdfImage.Width * scale;
+                imgH = pdfImage.Height * scale;
+            }
+            else if (bgSize == "contain")
+            {
+                float scaleX = box.Width / pdfImage.Width;
+                float scaleY = box.Height / pdfImage.Height;
+                float scale = Math.Min(scaleX, scaleY);
+                imgW = pdfImage.Width * scale;
+                imgH = pdfImage.Height * scale;
+            }
+            else
+            {
+                // Try px values
+                var parts = bgSize.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 1)
+                {
+                    float? w = ResolveOptionalLength(parts[0], box.Width);
+                    if (w.HasValue) imgW = w.Value;
+                }
+                if (parts.Length >= 2)
+                {
+                    float? h = ResolveOptionalLength(parts[1], box.Height);
+                    if (h.HasValue) imgH = h.Value;
+                }
+            }
+        }
+
+        // Parse background-position (simplified: px or keywords)
+        float bgX = 0, bgY = 0;
+        var bgPos = box.Style.Get("background-position");
+        if (!string.IsNullOrEmpty(bgPos))
+        {
+            var parts = bgPos.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 1)
+            {
+                if (parts[0] == "center") bgX = (box.Width - imgW) / 2;
+                else if (parts[0] == "right") bgX = box.Width - imgW;
+                else { var v = ResolveOptionalLength(parts[0], box.Width); if (v.HasValue) bgX = v.Value; }
+            }
+            if (parts.Length >= 2)
+            {
+                if (parts[1] == "center") bgY = (box.Height - imgH) / 2;
+                else if (parts[1] == "bottom") bgY = box.Height - imgH;
+                else { var v = ResolveOptionalLength(parts[1], box.Height); if (v.HasValue) bgY = v.Value; }
+            }
+        }
+
+        // Parse background-repeat
+        var bgRepeat = box.Style.Get("background-repeat") ?? "repeat";
+
+        // Calculate PDF coordinates
+        float baseX = effectiveX + bgX;
+        float baseY = adjustedY + bgY;
+
+        if (bgRepeat == "no-repeat")
+        {
+            float pdfX = baseX * PdfCoordinates.PxToPt;
+            float pdfY = (pageHeightPx - baseY - imgH) * PdfCoordinates.PxToPt;
+            float pdfW = imgW * PdfCoordinates.PxToPt;
+            float pdfH = imgH * PdfCoordinates.PxToPt;
+            page.AddImage(imgName, pdfX, pdfY, pdfW, pdfH);
+        }
+        else
+        {
+            // Tile the image
+            bool repeatX = bgRepeat == "repeat" || bgRepeat == "repeat-x";
+            bool repeatY = bgRepeat == "repeat" || bgRepeat == "repeat-y";
+
+            float startX = repeatX ? 0 : bgX;
+            float endX = repeatX ? box.Width : bgX + imgW;
+            float startY = repeatY ? 0 : bgY;
+            float endY = repeatY ? box.Height : bgY + imgH;
+
+            for (float ty = startY; ty < endY; ty += imgH)
+            {
+                for (float tx = startX; tx < endX; tx += imgW)
+                {
+                    float pdfX = (effectiveX + tx) * PdfCoordinates.PxToPt;
+                    float pdfY = (pageHeightPx - adjustedY - ty - imgH) * PdfCoordinates.PxToPt;
+                    float pdfW = imgW * PdfCoordinates.PxToPt;
+                    float pdfH = imgH * PdfCoordinates.PxToPt;
+                    page.AddImage(imgName, pdfX, pdfY, pdfW, pdfH);
+                }
+            }
+        }
+    }
+
+    private static byte[]? LoadBackgroundImageData(string url)
+    {
+        if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            int comma = url.IndexOf(',');
+            if (comma > 0)
+            {
+                try { return Convert.FromBase64String(url.Substring(comma + 1)); }
+                catch { return null; }
+            }
+        }
+        try { if (System.IO.File.Exists(url)) return System.IO.File.ReadAllBytes(url); }
+        catch { }
+        return null;
+    }
+
+    private static float? ResolveOptionalLength(string value, float containingSize)
+    {
+        if (string.IsNullOrEmpty(value) || value == "auto") return null;
+        if (value.EndsWith("%"))
+        {
+            if (float.TryParse(value.TrimEnd('%'), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float pct))
+                return containingSize * pct / 100f;
+        }
+        return BlockLayout.ResolveLength(value, containingSize, 16);
     }
 
     /// <summary>Paint all four borders with per-side style, width, and color support.</summary>
