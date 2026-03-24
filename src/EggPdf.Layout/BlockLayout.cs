@@ -318,15 +318,28 @@ public static class BlockLayout
                         // Subtract total border-spacing from available width for cells
                         float spacingTotal = totalColumns > 1 ? borderSpacing * (totalColumns - 1) : 0;
                         float availableForCells = childContainingWidth - spacingTotal;
-                        float colWidth = totalColumns > 0 ? availableForCells / totalColumns : childContainingWidth;
 
-                        float cellWidth = colWidth * colspan + (colspan > 1 ? borderSpacing * (colspan - 1) : 0);
+                        // Auto table layout: compute column widths based on content
+                        var columnWidths = ComputeAutoColumnWidths(element, totalColumns, availableForCells, fontSize, resolver, style);
+                        float colWidth = colOffset < columnWidths.Length ? columnWidths[colOffset] : availableForCells / Math.Max(totalColumns, 1);
+
+                        float cellWidth = 0;
+                        for (int ci = colOffset; ci < colOffset + colspan && ci < columnWidths.Length; ci++)
+                            cellWidth += columnWidths[ci];
+                        if (colspan > 1) cellWidth += borderSpacing * (colspan - 1);
+                        if (cellWidth <= 0) cellWidth = availableForCells / Math.Max(totalColumns, 1);
+
                         var childBox = CreateBox(childElem, childStyle, box, cellWidth, resolver, style);
                         childBox.Width = cellWidth;
                         childBox.ContentWidth = cellWidth - childBox.PaddingLeft - childBox.PaddingRight;
                         if (childBox.ContentWidth < 0) childBox.ContentWidth = 0;
                         childBox.Y = box.Y + box.PaddingTop;
-                        childBox.X = box.X + box.PaddingLeft + (colOffset * (colWidth + borderSpacing));
+
+                        // Calculate X from sum of preceding column widths
+                        float cellX = box.X + box.PaddingLeft;
+                        for (int ci = 0; ci < colOffset && ci < columnWidths.Length; ci++)
+                            cellX += columnWidths[ci] + borderSpacing;
+                        childBox.X = cellX;
 
                         // border-collapse: remove interior borders on shared edges
                         if (isCollapse)
@@ -810,6 +823,194 @@ public static class BlockLayout
     private static bool IsTableCell(string display)
         => display == "table-cell";
 
+
+    /// <summary>
+    /// Compute auto column widths by measuring content across all rows in the table.
+    /// Walks up from the row to find the table, scans all rows, measures text width
+    /// per column, then distributes available width proportionally.
+    /// Results are cached per table element to avoid re-computation for each row.
+    /// </summary>
+    [ThreadStatic]
+    private static System.Collections.Generic.Dictionary<HtmlElement, float[]>? _tableColumnWidthCache;
+
+    private static float[] ComputeAutoColumnWidths(HtmlElement row, int totalColumns, float availableWidth,
+        float fontSize, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
+    {
+        if (totalColumns <= 0) return new float[] { availableWidth };
+
+        // Find the table element (walk up through thead/tbody/tfoot)
+        HtmlElement? tableElement = row.Parent as HtmlElement;
+        while (tableElement != null && tableElement.TagName != "table")
+            tableElement = tableElement.Parent as HtmlElement;
+
+        if (tableElement == null)
+        {
+            // Fallback: equal distribution
+            float eq = availableWidth / totalColumns;
+            var eqWidths = new float[totalColumns];
+            for (int i = 0; i < totalColumns; i++) eqWidths[i] = eq;
+            return eqWidths;
+        }
+
+        // Check cache
+        if (_tableColumnWidthCache == null)
+            _tableColumnWidthCache = new System.Collections.Generic.Dictionary<HtmlElement, float[]>();
+
+        if (_tableColumnWidthCache.TryGetValue(tableElement, out var cached))
+            return cached;
+
+        // Scan all rows in the table to find max content width per column
+        var maxContentWidths = new float[totalColumns];
+        var hasExplicitWidth = new bool[totalColumns];
+        var explicitWidths = new float[totalColumns];
+
+        ScanTableForColumnWidths(tableElement, totalColumns, maxContentWidths, hasExplicitWidth, explicitWidths,
+            fontSize, availableWidth, resolver, parentStyle);
+
+        // Distribute available width proportionally based on content
+        float totalContentWidth = 0;
+        float totalExplicitWidth = 0;
+        int flexColumns = 0;
+
+        for (int i = 0; i < totalColumns; i++)
+        {
+            if (hasExplicitWidth[i])
+            {
+                totalExplicitWidth += explicitWidths[i];
+            }
+            else
+            {
+                totalContentWidth += Math.Max(maxContentWidths[i], 20); // minimum 20px per column
+                flexColumns++;
+            }
+        }
+
+        float remainingWidth = availableWidth - totalExplicitWidth;
+        if (remainingWidth < 0) remainingWidth = availableWidth;
+
+        var result = new float[totalColumns];
+        for (int i = 0; i < totalColumns; i++)
+        {
+            if (hasExplicitWidth[i])
+            {
+                result[i] = explicitWidths[i];
+            }
+            else if (totalContentWidth > 0)
+            {
+                float contentW = Math.Max(maxContentWidths[i], 20);
+                result[i] = remainingWidth * contentW / totalContentWidth;
+            }
+            else
+            {
+                result[i] = remainingWidth / Math.Max(flexColumns, 1);
+            }
+        }
+
+        _tableColumnWidthCache[tableElement] = result;
+        return result;
+    }
+
+    private static void ScanTableForColumnWidths(HtmlElement tableElement, int totalColumns,
+        float[] maxContentWidths, bool[] hasExplicitWidth, float[] explicitWidths,
+        float fontSize, float availableWidth,
+        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
+    {
+        // Walk: table -> thead/tbody/tfoot -> tr -> td/th
+        foreach (var child in tableElement.ChildNodes)
+        {
+            var group = child as HtmlElement;
+            if (group == null) continue;
+
+            // Direct <tr> children of <table>
+            if (group.TagName == "tr")
+            {
+                ScanRowForColumnWidths(group, totalColumns, maxContentWidths, hasExplicitWidth, explicitWidths,
+                    fontSize, availableWidth, resolver, parentStyle);
+            }
+            // <thead>, <tbody>, <tfoot> contain <tr>
+            else if (group.TagName == "thead" || group.TagName == "tbody" || group.TagName == "tfoot")
+            {
+                foreach (var trNode in group.ChildNodes)
+                {
+                    var tr = trNode as HtmlElement;
+                    if (tr != null && tr.TagName == "tr")
+                    {
+                        ScanRowForColumnWidths(tr, totalColumns, maxContentWidths, hasExplicitWidth, explicitWidths,
+                            fontSize, availableWidth, resolver, parentStyle);
+                    }
+                }
+            }
+        }
+    }
+
+    private static void ScanRowForColumnWidths(HtmlElement row, int totalColumns,
+        float[] maxContentWidths, bool[] hasExplicitWidth, float[] explicitWidths,
+        float fontSize, float availableWidth,
+        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
+    {
+        int colIdx = 0;
+        foreach (var cellNode in row.ChildNodes)
+        {
+            var cell = cellNode as HtmlElement;
+            if (cell == null || (cell.TagName != "td" && cell.TagName != "th"))
+                continue;
+
+            if (colIdx >= totalColumns) break;
+            int colspan = GetColspan(cell);
+
+            // Check for explicit width on cell
+            var cellStyle = resolver(cell, parentStyle);
+            var widthStr = cellStyle?.Width;
+            if (!string.IsNullOrEmpty(widthStr) && widthStr != "auto")
+            {
+                float? w = ResolveOptionalLength(widthStr, availableWidth, fontSize);
+                if (w.HasValue && colspan == 1)
+                {
+                    hasExplicitWidth[colIdx] = true;
+                    explicitWidths[colIdx] = Math.Max(explicitWidths[colIdx], w.Value);
+                }
+            }
+
+            // Measure text content width
+            if (colspan == 1)
+            {
+                float textWidth = MeasureElementTextWidth(cell, fontSize);
+                // Add padding estimate (10px each side default for cells with padding:10px)
+                float padding = 0;
+                if (cellStyle != null)
+                {
+                    padding += ResolveLength(cellStyle.PaddingLeft ?? "0", 0, fontSize);
+                    padding += ResolveLength(cellStyle.PaddingRight ?? "0", 0, fontSize);
+                }
+                textWidth += padding;
+
+                if (textWidth > maxContentWidths[colIdx])
+                    maxContentWidths[colIdx] = textWidth;
+            }
+
+            colIdx += colspan;
+        }
+    }
+
+    /// <summary>Measure the total text width of an element and its children.</summary>
+    private static float MeasureElementTextWidth(HtmlElement element, float fontSize)
+    {
+        float totalWidth = 0;
+        foreach (var node in element.ChildNodes)
+        {
+            if (node is Html.Dom.HtmlTextNode textNode)
+            {
+                var text = textNode.Data?.Trim();
+                if (!string.IsNullOrEmpty(text))
+                    totalWidth += TextMeasurer.MeasureWidth(text, fontSize, "Helvetica");
+            }
+            else if (node is HtmlElement child)
+            {
+                totalWidth += MeasureElementTextWidth(child, fontSize);
+            }
+        }
+        return totalWidth;
+    }
 
     /// <summary>Count total column slots in a row (respecting colspan).</summary>
     private static int CountTableColumns(HtmlElement row)
