@@ -14,9 +14,52 @@ public class PdfDocument
 {
     private readonly List<PdfPage> _pages = new();
     private readonly Dictionary<string, PdfImage> _images = new();
+    private readonly Dictionary<string, EmbeddedFontData> _embeddedFonts = new();
     private List<PdfBookmark>? _bookmarks;
     public string? Title { get; set; }
     public string? Author { get; set; }
+
+    /// <summary>Register an embedded TrueType font for CIDFont Type 2 embedding.</summary>
+    public void AddEmbeddedFont(string fontName, byte[] subsetData, Dictionary<int, ushort> codepointToGid, ushort[] widths,
+        int unitsPerEm, int ascent, int descent)
+    {
+        _embeddedFonts[fontName] = new EmbeddedFontData
+        {
+            SubsetData = subsetData,
+            CodepointToGlyphId = codepointToGid,
+            Widths = widths,
+            UnitsPerEm = unitsPerEm,
+            Ascent = ascent,
+            Descent = descent,
+        };
+    }
+
+    /// <summary>Check if a font is embedded (CIDFont) vs built-in Type1.</summary>
+    public bool IsEmbeddedFont(string fontName) => _embeddedFonts.ContainsKey(fontName);
+
+    /// <summary>Convert text to glyph IDs for an embedded CIDFont.</summary>
+    public ushort[]? GetGlyphIds(string fontName, string text)
+    {
+        if (!_embeddedFonts.TryGetValue(fontName, out var fontData))
+            return null;
+
+        var glyphIds = new ushort[text.Length];
+        for (int i = 0; i < text.Length; i++)
+        {
+            int codepoint = text[i];
+            // Handle surrogate pairs
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                codepoint = char.ConvertToUtf32(text[i], text[i + 1]);
+                i++; // skip low surrogate
+            }
+
+            if (fontData.CodepointToGlyphId.TryGetValue(codepoint, out var gid))
+                glyphIds[i] = gid;
+            // else stays 0 (.notdef)
+        }
+        return glyphIds;
+    }
 
     /// <summary>Set bookmarks (document outline) to include in the PDF.</summary>
     public void SetBookmarks(List<PdfBookmark> bookmarks)
@@ -86,10 +129,26 @@ public class PdfDocument
             pageObjs.Add((pd, cs, ann));
         }
 
-        // Font objects
-        var fontObjs = new Dictionary<string, int>();
+        // Font objects — Type1 (built-in) get 1 object, CIDFont (embedded) get 5 objects
+        var fontObjs = new Dictionary<string, int>(); // main font object ref
+        var cidFontObjs = new Dictionary<string, (int type0, int cidFont, int descriptor, int stream, int toUnicode)>();
         foreach (var font in allFonts)
-            fontObjs[font] = nextObj++;
+        {
+            if (_embeddedFonts.ContainsKey(font))
+            {
+                int type0 = nextObj++;
+                int cidFont = nextObj++;
+                int descriptor = nextObj++;
+                int stream = nextObj++;
+                int toUnicode = nextObj++;
+                fontObjs[font] = type0;
+                cidFontObjs[font] = (type0, cidFont, descriptor, stream, toUnicode);
+            }
+            else
+            {
+                fontObjs[font] = nextObj++;
+            }
+        }
 
         // ExtGState objects for opacity
         var allExtGStates = new HashSet<string>();
@@ -144,10 +203,19 @@ public class PdfDocument
         // Write font objects
         foreach (var kv in fontObjs)
         {
-            offsets[kv.Value] = writer.Position;
-            writer.WriteLine($"{kv.Value} 0 obj");
-            writer.WriteLine($"<< /Type /Font /Subtype /Type1 /BaseFont /{kv.Key} >>");
-            writer.WriteLine("endobj");
+            if (cidFontObjs.TryGetValue(kv.Key, out var cid))
+            {
+                // Write CIDFont Type 2 (embedded TrueType)
+                WriteCIDFont(writer, offsets, kv.Key, cid, _embeddedFonts[kv.Key]);
+            }
+            else
+            {
+                // Write built-in Type1 font
+                offsets[kv.Value] = writer.Position;
+                writer.WriteLine($"{kv.Value} 0 obj");
+                writer.WriteLine($"<< /Type /Font /Subtype /Type1 /BaseFont /{kv.Key} >>");
+                writer.WriteLine("endobj");
+            }
         }
 
         // Write ExtGState objects for opacity
@@ -541,10 +609,166 @@ public class PdfDocument
         return total;
     }
 
+    /// <summary>Write a CIDFont Type 2 (embedded TrueType) with all required objects.</summary>
+    private void WriteCIDFont(PdfStreamWriter writer, Dictionary<int, long> offsets,
+        string fontName, (int type0, int cidFont, int descriptor, int stream, int toUnicode) objs,
+        EmbeddedFontData fontData)
+    {
+        // 1. Compress the subset font data
+        byte[] compressed;
+        using (var ms = new MemoryStream())
+        {
+            using (var ds = new DeflateStream(ms, CompressionLevel.Fastest, true))
+                ds.Write(fontData.SubsetData, 0, fontData.SubsetData.Length);
+            compressed = ms.ToArray();
+        }
+
+        // 2. Build W (widths) array: /W [0 [w0 w1 w2 ...]]
+        var wArray = new StringBuilder();
+        wArray.Append("[0 [");
+        for (int i = 0; i < fontData.Widths.Length; i++)
+        {
+            if (i > 0) wArray.Append(' ');
+            // Convert from font units to 1/1000 of text space
+            int w = fontData.UnitsPerEm > 0 ? (int)(fontData.Widths[i] * 1000L / fontData.UnitsPerEm) : fontData.Widths[i];
+            wArray.Append(w);
+        }
+        wArray.Append("]]");
+
+        // 3. Build ToUnicode CMap
+        byte[] toUnicodeData = BuildToUnicodeCMap(fontData.CodepointToGlyphId);
+
+        byte[] toUnicodeCompressed;
+        using (var ms = new MemoryStream())
+        {
+            using (var ds = new DeflateStream(ms, CompressionLevel.Fastest, true))
+                ds.Write(toUnicodeData, 0, toUnicodeData.Length);
+            toUnicodeCompressed = ms.ToArray();
+        }
+
+        // 4. Write font stream (subset TrueType data)
+        offsets[objs.stream] = writer.Position;
+        writer.WriteLine($"{objs.stream} 0 obj");
+        writer.WriteLine($"<< /Length {compressed.Length} /Length1 {fontData.SubsetData.Length} /Filter /FlateDecode >>");
+        writer.WriteLine("stream");
+        writer.WriteBytes(compressed);
+        writer.WriteLine("");
+        writer.WriteLine("endstream");
+        writer.WriteLine("endobj");
+
+        // 5. Write font descriptor
+        int ascent = fontData.UnitsPerEm > 0 ? fontData.Ascent * 1000 / fontData.UnitsPerEm : fontData.Ascent;
+        int descent = fontData.UnitsPerEm > 0 ? fontData.Descent * 1000 / fontData.UnitsPerEm : fontData.Descent;
+        int flags = 32; // Nonsymbolic
+
+        offsets[objs.descriptor] = writer.Position;
+        writer.WriteLine($"{objs.descriptor} 0 obj");
+        writer.WriteLine($"<< /Type /FontDescriptor /FontName /{fontName}");
+        writer.WriteLine($"/Flags {flags} /Ascent {ascent} /Descent {descent}");
+        writer.WriteLine($"/ItalicAngle 0 /CapHeight {ascent} /StemV 80");
+        writer.WriteLine($"/FontBBox [0 {descent} 1000 {ascent}]");
+        writer.WriteLine($"/FontFile2 {objs.stream} 0 R >>");
+        writer.WriteLine("endobj");
+
+        // 6. Write CIDFont dictionary
+        offsets[objs.cidFont] = writer.Position;
+        writer.WriteLine($"{objs.cidFont} 0 obj");
+        writer.WriteLine($"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{fontName}");
+        writer.WriteLine($"/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>");
+        writer.WriteLine($"/FontDescriptor {objs.descriptor} 0 R");
+        writer.WriteLine($"/W {wArray}");
+        writer.WriteLine($"/DW 1000 >>");
+        writer.WriteLine("endobj");
+
+        // 7. Write ToUnicode CMap
+        offsets[objs.toUnicode] = writer.Position;
+        writer.WriteLine($"{objs.toUnicode} 0 obj");
+        writer.WriteLine($"<< /Length {toUnicodeCompressed.Length} /Filter /FlateDecode >>");
+        writer.WriteLine("stream");
+        writer.WriteBytes(toUnicodeCompressed);
+        writer.WriteLine("");
+        writer.WriteLine("endstream");
+        writer.WriteLine("endobj");
+
+        // 8. Write Type0 font (the top-level font reference)
+        offsets[objs.type0] = writer.Position;
+        writer.WriteLine($"{objs.type0} 0 obj");
+        writer.WriteLine($"<< /Type /Font /Subtype /Type0 /BaseFont /{fontName}");
+        writer.WriteLine($"/Encoding /Identity-H");
+        writer.WriteLine($"/DescendantFonts [{objs.cidFont} 0 R]");
+        writer.WriteLine($"/ToUnicode {objs.toUnicode} 0 R >>");
+        writer.WriteLine("endobj");
+    }
+
+    /// <summary>Build a ToUnicode CMap for text extraction from CIDFont.</summary>
+    private static byte[] BuildToUnicodeCMap(Dictionary<int, ushort> codepointToGid)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("/CIDInit /ProcSet findresource begin");
+        sb.AppendLine("12 dict begin");
+        sb.AppendLine("begincmap");
+        sb.AppendLine("/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def");
+        sb.AppendLine("/CMapName /Adobe-Identity-UCS def");
+        sb.AppendLine("/CMapType 2 def");
+        sb.AppendLine("1 begincodespacerange");
+        sb.AppendLine("<0000> <FFFF>");
+        sb.AppendLine("endcodespacerange");
+
+        // Build reverse mapping: glyph ID -> Unicode codepoint
+        var gidToCodepoint = new Dictionary<ushort, int>();
+        foreach (var kv in codepointToGid)
+        {
+            if (!gidToCodepoint.ContainsKey(kv.Value))
+                gidToCodepoint[kv.Value] = kv.Key;
+        }
+
+        // Write in batches of 100 (PDF limit per beginbfchar block)
+        var entries = gidToCodepoint.OrderBy(kv => kv.Key).ToList();
+        int idx = 0;
+        while (idx < entries.Count)
+        {
+            int batchSize = Math.Min(100, entries.Count - idx);
+            sb.AppendLine($"{batchSize} beginbfchar");
+            for (int i = 0; i < batchSize; i++)
+            {
+                var entry = entries[idx + i];
+                if (entry.Value <= 0xFFFF)
+                    sb.AppendLine($"<{entry.Key:X4}> <{entry.Value:X4}>");
+                else
+                {
+                    // Supplementary plane: encode as UTF-16 surrogate pair
+                    int hi = 0xD800 + ((entry.Value - 0x10000) >> 10);
+                    int lo = 0xDC00 + ((entry.Value - 0x10000) & 0x3FF);
+                    sb.AppendLine($"<{entry.Key:X4}> <{hi:X4}{lo:X4}>");
+                }
+            }
+            sb.AppendLine("endbfchar");
+            idx += batchSize;
+        }
+
+        sb.AppendLine("endcmap");
+        sb.AppendLine("CMapName currentdict /CMap defineresource pop");
+        sb.AppendLine("end");
+        sb.AppendLine("end");
+
+        return Encoding.ASCII.GetBytes(sb.ToString());
+    }
+
     private static string F(float value) => value.ToString("F2", CultureInfo.InvariantCulture);
 
     private static string EscapePdfString(string text)
         => text.Replace("\\", "\\\\").Replace("(", "\\(").Replace(")", "\\)");
+}
+
+/// <summary>Data for an embedded TrueType font (CIDFont Type 2).</summary>
+internal class EmbeddedFontData
+{
+    public byte[] SubsetData { get; set; } = Array.Empty<byte>();
+    public Dictionary<int, ushort> CodepointToGlyphId { get; set; } = new();
+    public ushort[] Widths { get; set; } = Array.Empty<ushort>();
+    public int UnitsPerEm { get; set; }
+    public int Ascent { get; set; }
+    public int Descent { get; set; }
 }
 
 /// <summary>Helper for tracking byte positions while writing.</summary>

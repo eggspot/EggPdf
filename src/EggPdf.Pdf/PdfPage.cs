@@ -42,6 +42,28 @@ public class PdfPage
         ContentStream.AppendLine("ET");
     }
 
+    /// <summary>Add text using CIDFont glyph IDs (for embedded TrueType fonts with full Unicode).</summary>
+    public void AddTextCID(ushort[] glyphIds, float x, float y, string fontName, float fontSize,
+        float colorR = 0, float colorG = 0, float colorB = 0,
+        float letterSpacing = 0, float wordSpacing = 0)
+    {
+        UsedFonts.Add(fontName);
+        ContentStream.AppendLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
+        ContentStream.Append("BT ");
+        ContentStream.Append($"/{fontName} {F(fontSize)} Tf ");
+        if (letterSpacing != 0)
+            ContentStream.Append($"{F(letterSpacing)} Tc ");
+        if (wordSpacing != 0)
+            ContentStream.Append($"{F(wordSpacing)} Tw ");
+        ContentStream.Append($"{F(x)} {F(y)} Td ");
+        // Encode glyph IDs as hex string: <001A002B003C>
+        ContentStream.Append('<');
+        foreach (var gid in glyphIds)
+            ContentStream.Append(gid.ToString("X4"));
+        ContentStream.Append("> Tj ");
+        ContentStream.AppendLine("ET");
+    }
+
     /// <summary>Add a filled rectangle.</summary>
     public void AddRectangle(float x, float y, float width, float height, float r, float g, float b)
     {

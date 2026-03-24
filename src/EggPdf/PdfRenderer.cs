@@ -20,6 +20,8 @@ internal static class PdfRenderer
     private static float _marginLeftPx;
     [ThreadStatic]
     private static float _marginTopPx;
+    [ThreadStatic]
+    private static PdfDocument? _currentPdfDoc;
 
     public static void Render(LayoutBox layoutRoot, PdfDocument pdfDoc,
         float pageWidthPt, float pageHeightPt, float pageHeightPx,
@@ -27,6 +29,7 @@ internal static class PdfRenderer
     {
         _marginLeftPx = marginLeftPx;
         _marginTopPx = marginTopPx;
+        _currentPdfDoc = pdfDoc;
 
         try
         {
@@ -36,6 +39,7 @@ internal static class PdfRenderer
         {
             _marginLeftPx = 0;
             _marginTopPx = 0;
+            _currentPdfDoc = null;
         }
     }
 
@@ -420,9 +424,29 @@ internal static class PdfRenderer
             if (!string.IsNullOrEmpty(wsStr) && wsStr != "normal")
                 wordSpacing = BlockLayout.ResolveLength(wsStr, 0, fontSize) * PdfCoordinates.PxToPt;
 
-            page.AddText(paintText, pdfX, pdfY, fontName, pdfFontSize,
-                color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
-                letterSpacing, wordSpacing);
+            // Use CIDFont glyph IDs for embedded fonts, or WinAnsi for built-in fonts
+            if (_currentPdfDoc != null && _currentPdfDoc.IsEmbeddedFont(fontName))
+            {
+                var glyphIds = _currentPdfDoc.GetGlyphIds(fontName, paintText);
+                if (glyphIds != null && glyphIds.Length > 0)
+                {
+                    page.AddTextCID(glyphIds, pdfX, pdfY, fontName, pdfFontSize,
+                        color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
+                        letterSpacing, wordSpacing);
+                }
+                else
+                {
+                    page.AddText(paintText, pdfX, pdfY, fontName, pdfFontSize,
+                        color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
+                        letterSpacing, wordSpacing);
+                }
+            }
+            else
+            {
+                page.AddText(paintText, pdfX, pdfY, fontName, pdfFontSize,
+                    color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
+                    letterSpacing, wordSpacing);
+            }
 
             // Text decoration (underline, line-through)
             var textDecoration = box.Style.Get("text-decoration");

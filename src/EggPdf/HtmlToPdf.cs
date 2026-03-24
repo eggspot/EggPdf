@@ -90,6 +90,9 @@ public static class HtmlToPdf
         var pdfDoc = new PdfDocument();
         ResolveImages(layoutRoot, pdfDoc);
 
+        // 6b. Subset and embed TrueType fonts for non-standard fonts
+        SubsetAndEmbedFonts(layoutRoot, pdfDoc);
+
         // 7. Render to PDF
         float pageWidthPt = pageWidthPx * PdfCoordinates.PxToPt;
         float pageHeightPt = pageHeightPx * PdfCoordinates.PxToPt;
@@ -437,5 +440,94 @@ public static class HtmlToPdf
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Walk the layout tree, find text using TrueType system fonts, subset them,
+    /// and register as CIDFont Type 2 in the PDF document.
+    /// </summary>
+    private static void SubsetAndEmbedFonts(LayoutBox root, PdfDocument pdfDoc)
+    {
+        // Collect all (fontName, codepoints) used in the document
+        var fontCodepoints = new Dictionary<string, HashSet<int>>();
+        CollectTextCodepoints(root, fontCodepoints);
+
+        if (fontCodepoints.Count == 0) return;
+
+        var fontResolver = new Text.FontResolver();
+
+        foreach (var kv in fontCodepoints)
+        {
+            var pdfFontName = kv.Key;
+            var codepoints = kv.Value;
+
+            // Only embed if this is NOT a standard PDF built-in font
+            if (IsStandardPdfFont(pdfFontName)) continue;
+
+            // Try to find a system TrueType font matching this name
+            var fontData = fontResolver.Resolve(pdfFontName);
+            if (fontData == null || fontData.RawData == null || fontData.RawData.Length == 0)
+                continue;
+
+            // Subset the font to only include used glyphs
+            var subset = Text.TrueType.TtfSubsetter.Subset(fontData, codepoints);
+            if (subset == null || subset.FontData.Length == 0)
+                continue;
+
+            // Register with PdfDocument
+            pdfDoc.AddEmbeddedFont(
+                pdfFontName,
+                subset.FontData,
+                subset.CodepointToNewGlyphId,
+                subset.AdvanceWidths,
+                fontData.UnitsPerEm,
+                fontData.Ascent,
+                fontData.Descent);
+        }
+    }
+
+    private static void CollectTextCodepoints(LayoutBox box, Dictionary<string, HashSet<int>> fontCodepoints)
+    {
+        if (!string.IsNullOrEmpty(box.Text))
+        {
+            string fontName = Layout.StandardFontMetrics.ResolvePdfFontName(
+                box.Style?.FontFamily, box.Style?.FontWeight, box.Style?.Get("font-style"));
+
+            if (!fontCodepoints.TryGetValue(fontName, out var codepoints))
+            {
+                codepoints = new HashSet<int>();
+                fontCodepoints[fontName] = codepoints;
+            }
+
+            foreach (char c in box.Text)
+                codepoints.Add(c);
+        }
+
+        foreach (var child in box.Children)
+            CollectTextCodepoints(child, fontCodepoints);
+    }
+
+    private static bool IsStandardPdfFont(string fontName)
+    {
+        switch (fontName)
+        {
+            case "Helvetica":
+            case "Helvetica-Bold":
+            case "Helvetica-Oblique":
+            case "Helvetica-BoldOblique":
+            case "Times-Roman":
+            case "Times-Bold":
+            case "Times-Italic":
+            case "Times-BoldItalic":
+            case "Courier":
+            case "Courier-Bold":
+            case "Courier-Oblique":
+            case "Courier-BoldOblique":
+            case "Symbol":
+            case "ZapfDingbats":
+                return true;
+            default:
+                return false;
+        }
     }
 }
