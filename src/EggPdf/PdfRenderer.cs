@@ -353,6 +353,15 @@ internal static class PdfRenderer
                 else if (textTransform == "capitalize") paintText = CapitalizeText(paintText);
             }
 
+            // Apply BiDi reordering for RTL text
+            if (Text.BidiAlgorithm.ContainsRTL(paintText))
+            {
+                var direction = box.Style.Get("direction");
+                bool baseRTL = direction == "rtl";
+                var (visual, _) = Text.BidiAlgorithm.Reorder(paintText, baseRTL);
+                paintText = visual;
+            }
+
             float fontSize = 12;
             var fsStr = box.Style.FontSize;
             if (!string.IsNullOrEmpty(fsStr))
@@ -497,6 +506,21 @@ internal static class PdfRenderer
 
             string imgName = "Img" + box.ImageSource.GetHashCode().ToString("X8");
             page.AddImage(imgName, pdfX, pdfY, pdfW, pdfH);
+        }
+
+        // Paint inline SVG
+        if (box.Element?.TagName == "svg")
+        {
+            var svgElement = Svg.SvgParser.Parse(box.Element);
+            if (svgElement != null)
+            {
+                float pdfX = effectiveX * PdfCoordinates.PxToPt;
+                float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+                float pdfW = box.Width * PdfCoordinates.PxToPt;
+                float pdfH = box.Height * PdfCoordinates.PxToPt;
+                string svgCommands = Svg.SvgRenderer.Render(svgElement, pdfX, pdfY, pdfW, pdfH);
+                page.AppendRawContent(svgCommands);
+            }
         }
 
         // Paint links

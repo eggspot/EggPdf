@@ -64,6 +64,12 @@ public class PdfPage
         ContentStream.AppendLine("ET");
     }
 
+    /// <summary>Append raw PDF content stream commands (for SVG rendering etc.).</summary>
+    public void AppendRawContent(string commands)
+    {
+        ContentStream.Append(commands);
+    }
+
     /// <summary>Add a filled rectangle.</summary>
     public void AddRectangle(float x, float y, float width, float height, float r, float g, float b)
     {

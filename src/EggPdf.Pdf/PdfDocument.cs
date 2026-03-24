@@ -19,6 +19,9 @@ public class PdfDocument
     public string? Title { get; set; }
     public string? Author { get; set; }
 
+    /// <summary>Optional encryption settings. When set, the PDF will be encrypted.</summary>
+    public PdfEncryption? Encryption { get; set; }
+
     /// <summary>Register an embedded TrueType font for CIDFont Type 2 embedding.</summary>
     public void AddEmbeddedFont(string fontName, byte[] subsetData, Dictionary<int, ushort> codepointToGid, ushort[] widths,
         int unitsPerEm, int ascent, int descent)
@@ -447,7 +450,35 @@ public class PdfDocument
 
         // Trailer
         writer.WriteLine("trailer");
-        writer.WriteLine($"<< /Size {totalObjects} /Root {catalogObj} 0 R /Info {infoObj} 0 R >>");
+        var trailerDict = new StringBuilder();
+        trailerDict.Append($"<< /Size {totalObjects} /Root {catalogObj} 0 R /Info {infoObj} 0 R");
+
+        // Add encryption dictionary if configured
+        if (Encryption != null && !string.IsNullOrEmpty(Encryption.OwnerPassword))
+        {
+            // Generate document ID
+            var docId = new byte[16];
+            using (var md5 = System.Security.Cryptography.MD5.Create())
+            {
+                var idSource = Encoding.UTF8.GetBytes(DateTime.UtcNow.Ticks.ToString() + (Title ?? ""));
+                docId = md5.ComputeHash(idSource);
+            }
+            var encParams = Encryption.Compute(docId);
+
+            string oHex = BitConverter.ToString(encParams.OValue).Replace("-", "");
+            string uHex = BitConverter.ToString(encParams.UValue).Replace("-", "");
+            string idHex = BitConverter.ToString(docId).Replace("-", "");
+
+            trailerDict.Append($" /ID [<{idHex}> <{idHex}>]");
+            trailerDict.Append($" /Encrypt << /Filter /Standard /V 2 /R 3 /Length {encParams.KeyLength}");
+            trailerDict.Append($" /P {encParams.Permissions}");
+            trailerDict.Append($" /O <{oHex}>");
+            trailerDict.Append($" /U <{uHex}>");
+            trailerDict.Append(" >>");
+        }
+
+        trailerDict.Append(" >>");
+        writer.WriteLine(trailerDict.ToString());
         writer.WriteLine("startxref");
         writer.WriteLine(xrefOffset.ToString());
         writer.WriteLine("%%EOF");

@@ -249,9 +249,19 @@ public static class BlockLayout
             return box;
         }
 
+        // Check for multi-column layout
+        bool isMultiColumn = MultiColumnLayout.IsMultiColumn(style);
+        float multiColWidth = box.ContentWidth;
+        if (isMultiColumn)
+        {
+            var (colCount, colWidth, colGap) = MultiColumnLayout.ResolveColumns(style, box.ContentWidth, fontSize);
+            if (colCount > 1)
+                multiColWidth = colWidth; // lay out children at column width
+        }
+
         // Layout children using inline formatting context awareness
         float childY = 0;
-        float childContainingWidth = box.ContentWidth;
+        float childContainingWidth = isMultiColumn ? multiColWidth : box.ContentWidth;
         float prevMarginBottom = 0; // for margin collapsing
         float inlineX = 0; // current X offset within the inline line
         float inlineLineHeight = 0; // max height of current inline line
@@ -645,6 +655,27 @@ public static class BlockLayout
         else
         {
             // Auto height: sum of children
+            // Apply multi-column redistribution if needed
+            if (isMultiColumn && box.Children.Count > 0)
+            {
+                var (colCount, colWidth, colGap) = MultiColumnLayout.ResolveColumns(style, box.ContentWidth, fontSize);
+                if (colCount > 1)
+                {
+                    var childList = new System.Collections.Generic.List<LayoutBox>(box.Children.OfType<LayoutBox>());
+                    var columns = MultiColumnLayout.DistributeIntoColumns(childList, colCount, colWidth, colGap,
+                        box.X + box.PaddingLeft, box.Y + box.PaddingTop);
+
+                    box.Children.Clear();
+                    float maxColHeight = 0;
+                    foreach (var col in columns)
+                    {
+                        box.Children.Add(col);
+                        if (col.Height > maxColHeight) maxColHeight = col.Height;
+                    }
+                    childY = maxColHeight;
+                }
+            }
+
             box.ContentHeight = childY;
             box.Height = childY + box.PaddingTop + box.PaddingBottom;
         }
