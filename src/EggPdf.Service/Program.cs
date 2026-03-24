@@ -227,6 +227,84 @@ runTest();
 </body>
 </html>", "text/html"));
 
+// === Render URL to PDF ===
+app.MapPost("/api/render/url", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var request = JsonSerializer.Deserialize<UrlRenderRequest>(body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+    if (string.IsNullOrEmpty(request?.Url))
+        return Results.BadRequest(new { error = "url field is required" });
+
+    try
+    {
+        using var httpClient = new HttpClient();
+        httpClient.Timeout = TimeSpan.FromSeconds(30);
+        var html = await httpClient.GetStringAsync(request.Url);
+        var pdf = EggPdf.HtmlToPdf.Render(html);
+        return Results.File(pdf, "application/pdf", "output.pdf");
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Failed to fetch URL: {ex.Message}");
+    }
+});
+
+// === Merge PDFs ===
+app.MapPost("/api/merge", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var request = JsonSerializer.Deserialize<MergeRequest>(body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+    if (request?.Documents == null || request.Documents.Length == 0)
+        return Results.BadRequest(new { error = "documents array is required" });
+
+    var merger = new EggPdf.Pdf.PdfMerger();
+    foreach (var doc in request.Documents)
+    {
+        if (!string.IsNullOrEmpty(doc.Pdf))
+        {
+            try { merger.Add(Convert.FromBase64String(doc.Pdf)); }
+            catch { /* skip invalid base64 */ }
+        }
+    }
+
+    var merged = merger.Build();
+    if (merged.Length == 0)
+        return Results.BadRequest(new { error = "no valid documents to merge" });
+
+    return Results.File(merged, "application/pdf", "merged.pdf");
+});
+
+// === Encrypt PDF ===
+app.MapPost("/api/encrypt", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var request = JsonSerializer.Deserialize<EncryptRequest>(body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+    if (string.IsNullOrEmpty(request?.Html))
+        return Results.BadRequest(new { error = "html field is required" });
+
+    var pdfDoc = new EggPdf.Pdf.PdfDocument();
+    pdfDoc.Encryption = new EggPdf.Pdf.PdfEncryption
+    {
+        UserPassword = request.UserPassword ?? "",
+        OwnerPassword = request.OwnerPassword ?? "owner",
+        AllowPrinting = request.AllowPrinting ?? true,
+        AllowCopying = request.AllowCopying ?? true,
+        AllowModifying = request.AllowModifying ?? false,
+    };
+
+    var pdf = EggPdf.HtmlToPdf.Render(request.Html);
+    return Results.File(pdf, "application/pdf", "encrypted.pdf");
+});
+
 app.Run();
 
 // === Request Models ===
@@ -241,4 +319,29 @@ record RenderOptions
     public string? PageSize { get; init; }
     public string? Orientation { get; init; }
     public string? Title { get; init; }
+}
+
+record UrlRenderRequest
+{
+    public string? Url { get; init; }
+}
+
+record MergeRequest
+{
+    public MergeDocument[]? Documents { get; init; }
+}
+
+record MergeDocument
+{
+    public string? Pdf { get; init; }
+}
+
+record EncryptRequest
+{
+    public string? Html { get; init; }
+    public string? UserPassword { get; init; }
+    public string? OwnerPassword { get; init; }
+    public bool? AllowPrinting { get; init; }
+    public bool? AllowCopying { get; init; }
+    public bool? AllowModifying { get; init; }
 }
