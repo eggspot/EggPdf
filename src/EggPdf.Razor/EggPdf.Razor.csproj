@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net6.0;net8.0;net9.0</TargetFrameworks>
+    <RootNamespace>EggPdf.Razor</RootNamespace>
+    <Description>Razor template to PDF rendering for EggPdf</Description>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EggPdf\EggPdf.csproj" />
+  </ItemGroup>
+
+</Project>

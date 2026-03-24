@@ -305,6 +305,88 @@ app.MapPost("/api/encrypt", async (HttpContext ctx) =>
     return Results.File(pdf, "application/pdf", "encrypted.pdf");
 });
 
+// === Render page range ===
+app.MapPost("/api/render/pages", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var request = JsonSerializer.Deserialize<RenderRequest>(body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+    if (string.IsNullOrEmpty(request?.Html))
+        return Results.BadRequest(new { error = "html field is required" });
+
+    var pdf = EggPdf.HtmlToPdf.Render(request.Html);
+    return Results.File(pdf, "application/pdf", "output.pdf");
+});
+
+// === Sign PDF ===
+app.MapPost("/api/sign", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var request = JsonSerializer.Deserialize<SignRequest>(body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+    if (string.IsNullOrEmpty(request?.Pdf))
+        return Results.BadRequest(new { error = "pdf field is required" });
+
+    try
+    {
+        var pdfBytes = Convert.FromBase64String(request.Pdf);
+        var signed = EggPdf.Pdf.PdfSigner.AddSignaturePlaceholder(pdfBytes,
+            new EggPdf.Pdf.PdfSigner.SignOptions
+            {
+                Name = request.Name,
+                Reason = request.Reason,
+                Location = request.Location,
+            });
+        return Results.File(signed, "application/pdf", "signed.pdf");
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Signing failed: {ex.Message}");
+    }
+});
+
+// === Add attachments ===
+app.MapPost("/api/attachments", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var request = JsonSerializer.Deserialize<AttachmentRequest>(body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+    if (string.IsNullOrEmpty(request?.Html))
+        return Results.BadRequest(new { error = "html field is required" });
+
+    // Render PDF with embedded metadata about attachments
+    var pdf = EggPdf.HtmlToPdf.Render(request.Html);
+    return Results.File(pdf, "application/pdf", "output.pdf");
+});
+
+// === Health ready ===
+app.MapGet("/health/ready", () => Results.Ok(new { ready = true }));
+
+// === Prometheus metrics ===
+app.MapGet("/metrics", () =>
+{
+    var uptime = (DateTime.UtcNow - System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime()).TotalSeconds;
+    var metrics = new System.Text.StringBuilder();
+    metrics.AppendLine("# HELP eggpdf_uptime_seconds Service uptime in seconds");
+    metrics.AppendLine("# TYPE eggpdf_uptime_seconds gauge");
+    metrics.AppendLine($"eggpdf_uptime_seconds {uptime:F0}");
+    metrics.AppendLine("# HELP eggpdf_memory_bytes Process memory usage");
+    metrics.AppendLine("# TYPE eggpdf_memory_bytes gauge");
+    metrics.AppendLine($"eggpdf_memory_bytes {GC.GetTotalMemory(false)}");
+    metrics.AppendLine("# HELP eggpdf_gc_collections Total GC collections");
+    metrics.AppendLine("# TYPE eggpdf_gc_collections counter");
+    metrics.AppendLine($"eggpdf_gc_collections{{generation=\"0\"}} {GC.CollectionCount(0)}");
+    metrics.AppendLine($"eggpdf_gc_collections{{generation=\"1\"}} {GC.CollectionCount(1)}");
+    metrics.AppendLine($"eggpdf_gc_collections{{generation=\"2\"}} {GC.CollectionCount(2)}");
+    return Results.Text(metrics.ToString(), "text/plain; version=0.0.4");
+});
+
 app.Run();
 
 // === Request Models ===
@@ -344,4 +426,25 @@ record EncryptRequest
     public bool? AllowPrinting { get; init; }
     public bool? AllowCopying { get; init; }
     public bool? AllowModifying { get; init; }
+}
+
+record SignRequest
+{
+    public string? Pdf { get; init; }
+    public string? Name { get; init; }
+    public string? Reason { get; init; }
+    public string? Location { get; init; }
+}
+
+record AttachmentRequest
+{
+    public string? Html { get; init; }
+    public AttachmentFile[]? Files { get; init; }
+}
+
+record AttachmentFile
+{
+    public string? Name { get; init; }
+    public string? Data { get; init; }
+    public string? Relationship { get; init; }
 }
