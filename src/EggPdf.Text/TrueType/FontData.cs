@@ -29,6 +29,9 @@ public class FontData
     /// <summary>cmap: Unicode codepoint -> glyph ID mapping.</summary>
     internal CmapData? Cmap { get; set; }
 
+    /// <summary>Kerning pairs: (leftGlyphId, rightGlyphId) -> x-advance adjustment in font units.</summary>
+    internal KernData? Kern { get; set; }
+
     /// <summary>Raw font file bytes (for PDF embedding).</summary>
     public byte[] RawData { get; set; } = System.Array.Empty<byte>();
 
@@ -59,11 +62,30 @@ public class FontData
         return width;
     }
 
-    /// <summary>Measure text width in pixels at a given font size.</summary>
+    /// <summary>Measure text width in pixels at a given font size, with kerning.</summary>
     public float MeasureTextWidthPx(string text, float fontSizePx)
     {
         if (UnitsPerEm == 0) return 0;
-        return MeasureTextWidth(text) * fontSizePx / UnitsPerEm;
+        int width = 0;
+        ushort prevGid = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            var gid = GetGlyphId(text[i]);
+            width += GetAdvanceWidth(gid);
+
+            // Apply kerning
+            if (i > 0 && Kern != null)
+                width += Kern.GetKerning(prevGid, gid);
+
+            prevGid = gid;
+        }
+        return width * fontSizePx / UnitsPerEm;
+    }
+
+    /// <summary>Get kerning adjustment between two glyphs (in font units).</summary>
+    public int GetKerning(ushort leftGlyph, ushort rightGlyph)
+    {
+        return Kern?.GetKerning(leftGlyph, rightGlyph) ?? 0;
     }
 }
 
@@ -76,4 +98,25 @@ internal class CmapData
 
     public ushort GetGlyphId(int codepoint)
         => _map.TryGetValue(codepoint, out var id) ? id : (ushort)0;
+}
+
+/// <summary>Kerning pair data from kern or GPOS table.</summary>
+internal class KernData
+{
+    // Pack (left, right) into a single long key for fast lookup
+    private readonly System.Collections.Generic.Dictionary<long, short> _pairs = new();
+
+    public void Add(ushort leftGlyph, ushort rightGlyph, short value)
+    {
+        long key = ((long)leftGlyph << 16) | rightGlyph;
+        _pairs[key] = value;
+    }
+
+    public int GetKerning(ushort leftGlyph, ushort rightGlyph)
+    {
+        long key = ((long)leftGlyph << 16) | rightGlyph;
+        return _pairs.TryGetValue(key, out var val) ? val : 0;
+    }
+
+    public int Count => _pairs.Count;
 }
