@@ -334,7 +334,7 @@ public class PdfDocument
             var (pageDictObj, contentStreamObj, annotArrayObj) = pageObjs[i];
 
             // Content stream
-            var contentBytes = Encoding.ASCII.GetBytes(page.ContentStream.ToString());
+            var contentBytes = Encoding.Latin1.GetBytes(page.ContentStream.ToString());
 
             offsets[contentStreamObj] = writer.Position;
             writer.WriteLine($"{contentStreamObj} 0 obj");

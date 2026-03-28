@@ -208,6 +208,84 @@ public class TableLayoutTests
     }
 
     [Fact]
+    public void BorderCollapse_CellsEdgeToEdge_NoGaps()
+    {
+        var html = @"<table style='width: 400px; border-collapse: collapse;'><tr>
+            <td style='border: 1px solid #ddd; padding: 10px;'>A</td>
+            <td style='border: 1px solid #ddd; padding: 10px;'>B</td>
+            <td style='border: 1px solid #ddd; padding: 10px;'>C</td>
+            <td style='border: 1px solid #ddd; padding: 10px;'>D</td>
+        </tr></table>";
+        var root = LayoutTestHelper.Layout(html, 600, 800);
+
+        var cells = root.FindAllByTag("td");
+        cells.Should().HaveCount(4);
+
+        // Verify cells are edge-to-edge: each cell's X == previous cell's X + Width
+        for (int i = 1; i < cells.Count; i++)
+        {
+            var prevRightEdge = cells[i - 1].X + cells[i - 1].Width;
+            var currentX = cells[i].X;
+            currentX.Should().BeApproximately(prevRightEdge, 0.5f,
+                $"cell {i} X ({currentX}) should equal cell {i - 1} right edge ({prevRightEdge}) - no gaps");
+        }
+
+        // Verify total width of all cells fills the row
+        var row = root.FindByTag("tr");
+        row.Should().NotBeNull();
+        var firstCellX = cells[0].X;
+        var lastCellRightEdge = cells[3].X + cells[3].Width;
+        var totalCellWidth = lastCellRightEdge - firstCellX;
+        totalCellWidth.Should().BeApproximately(row!.ContentWidth, 1f,
+            "cells should fill the entire row width");
+    }
+
+    [Fact]
+    public void BorderCollapse_WithStyleTag_CellsEdgeToEdge()
+    {
+        // Test with CSS from <style> tag (uses CascadeResolver)
+        var css = @"table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #ddd; padding: 10px; }";
+        var html = @"<html><head><style>" + css + @"</style></head><body>
+            <table><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
+            <tbody><tr><td>A</td><td>B</td><td>C</td><td>D</td></tr></tbody></table>
+        </body></html>";
+
+        var document = EggPdf.Html.HtmlParser.Parse(html);
+        var sheet = EggPdf.Css.Parser.CssStyleSheetParser.Parse(css);
+        var cascade = new EggPdf.Css.Cascade.CascadeResolver(new[] { sheet }, "print");
+        var root = BlockLayout.LayoutDocument(document, 595, 842, cascade);
+
+        // Verify border-collapse was actually resolved
+        var table = root.FindByTag("table");
+        table!.Style.Get("border-collapse").Should().Be("collapse");
+
+        var headerCells = root.FindAllByTag("th");
+        headerCells.Should().HaveCount(4);
+
+        // Verify header cells are edge-to-edge
+        for (int i = 1; i < headerCells.Count; i++)
+        {
+            var prevRightEdge = headerCells[i - 1].X + headerCells[i - 1].Width;
+            var currentX = headerCells[i].X;
+            currentX.Should().BeApproximately(prevRightEdge, 0.5f,
+                $"header cell {i} X ({currentX:F2}) should equal cell {i - 1} right edge ({prevRightEdge:F2})");
+        }
+
+        // Verify data cells
+        var dataCells = root.FindAllByTag("td");
+        dataCells.Should().HaveCount(4);
+
+        for (int i = 1; i < dataCells.Count; i++)
+        {
+            var prevRightEdge = dataCells[i - 1].X + dataCells[i - 1].Width;
+            var currentX = dataCells[i].X;
+            currentX.Should().BeApproximately(prevRightEdge, 0.5f,
+                $"data cell {i} X ({currentX:F2}) should equal cell {i - 1} right edge ({prevRightEdge:F2})");
+        }
+    }
+
+    [Fact]
     public void RowCells_EqualHeight()
     {
         // One cell has more content; both should end up same height

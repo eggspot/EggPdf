@@ -173,8 +173,13 @@ internal static class PdfRenderer
     private static void CollectPaintableBoxes(LayoutBox box, List<LayoutBox> result)
     {
         // A box is paintable if it has text, background, image, border, or is a link
-        var borderStyle = box.Style.Get("border-top-style");
-        bool hasBorder = !string.IsNullOrEmpty(borderStyle) && borderStyle != "none";
+        bool hasBorder = false;
+        foreach (var side in new[] { "top", "right", "bottom", "left" })
+        {
+            var sideStyle = box.Style.Get($"border-{side}-style") ?? box.Style.Get("border-style");
+            if (!string.IsNullOrEmpty(sideStyle) && sideStyle != "none" && sideStyle != "hidden")
+            { hasBorder = true; break; }
+        }
 
         var bgImageStyle = box.Style.Get("background-image");
         bool hasBgImage = !string.IsNullOrEmpty(bgImageStyle) && bgImageStyle != "none";
@@ -286,41 +291,48 @@ internal static class PdfRenderer
         float brrPt = brr * PdfCoordinates.PxToPt;
         float blrPt = blr * PdfCoordinates.PxToPt;
 
+        // Anonymous text boxes (no element) inherit parent's style but should not paint
+        // their own backgrounds or borders — those belong to the parent element box only.
+        bool isAnonymousTextBox = box.Element == null && box.Text != null;
+
         // Paint background
-        var bgColor = box.Style.BackgroundColor;
-        if (!string.IsNullOrEmpty(bgColor) && bgColor != "transparent")
+        if (!isAnonymousTextBox)
         {
-            var color = ParseColor(bgColor);
-            if (color.HasValue)
+            var bgColor = box.Style.BackgroundColor;
+            if (!string.IsNullOrEmpty(bgColor) && bgColor != "transparent")
             {
-                float bgAlpha = (color.Value.A / 255f) * cssOpacity;
-                if (bgAlpha < 1f)
-                    page.SetOpacity(bgAlpha);
+                var color = ParseColor(bgColor);
+                if (color.HasValue)
+                {
+                    float bgAlpha = (color.Value.A / 255f) * cssOpacity;
+                    if (bgAlpha < 1f)
+                        page.SetOpacity(bgAlpha);
 
-                float pdfX = effectiveX * PdfCoordinates.PxToPt;
-                float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
-                float pdfW = box.Width * PdfCoordinates.PxToPt;
-                float pdfH = box.Height * PdfCoordinates.PxToPt;
+                    float pdfX = effectiveX * PdfCoordinates.PxToPt;
+                    float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+                    float pdfW = box.Width * PdfCoordinates.PxToPt;
+                    float pdfH = box.Height * PdfCoordinates.PxToPt;
 
-                if (hasRadius)
-                    page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH,
-                        color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f,
-                        tlrPt, trrPt, brrPt, blrPt);
-                else
-                    page.AddRectangle(pdfX, pdfY, pdfW, pdfH,
-                        color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f);
+                    if (hasRadius)
+                        page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH,
+                            color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f,
+                            tlrPt, trrPt, brrPt, blrPt);
+                    else
+                        page.AddRectangle(pdfX, pdfY, pdfW, pdfH,
+                            color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f);
+                }
             }
-        }
 
-        // Paint background-image
-        var bgImage = box.Style.Get("background-image");
-        if (!string.IsNullOrEmpty(bgImage) && bgImage != "none" && _currentPdfDoc != null)
-        {
-            PaintBackgroundImage(page, box, bgImage, effectiveX, pageHeightPx, adjustedY);
-        }
+            // Paint background-image
+            var bgImage = box.Style.Get("background-image");
+            if (!string.IsNullOrEmpty(bgImage) && bgImage != "none" && _currentPdfDoc != null)
+            {
+                PaintBackgroundImage(page, box, bgImage, effectiveX, pageHeightPx, adjustedY);
+            }
 
-        // Paint border (per-side with style support)
-        PaintBorders(page, box, effectiveX, pageHeightPt, pageHeightPx, adjustedY, hasRadius, tlrPt, trrPt, brrPt, blrPt);
+            // Paint border (per-side with style support)
+            PaintBorders(page, box, effectiveX, pageHeightPt, pageHeightPx, adjustedY, hasRadius, tlrPt, trrPt, brrPt, blrPt);
+        }
 
         // Paint outline (outside border, doesn't affect layout)
         var outlineStyle = box.Style.Get("outline-style");
@@ -472,7 +484,10 @@ internal static class PdfRenderer
             if (!string.IsNullOrEmpty(textDecoration) && textDecoration != "none")
             {
                 float lineY;
-                float textWidth = box.ContentWidth * PdfCoordinates.PxToPt;
+                // Use actual measured text width for decoration, not the box's content width
+                float measuredPx = TextMeasurer.MeasureWidth(paintText, fontSize,
+                    box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"));
+                float textWidth = measuredPx * PdfCoordinates.PxToPt;
                 float decoLineWidth = Math.Max(fontSize * 0.05f, 0.5f) * PdfCoordinates.PxToPt;
 
                 float dr = 0, dg = 0, db = 0;
@@ -802,8 +817,11 @@ internal static class PdfRenderer
             var widthStr = box.Style.Get($"border-{side}-width") ?? fallbackWidth;
             sideWidths[s] = 1;
             if (!string.IsNullOrEmpty(widthStr))
+            {
                 sideWidths[s] = Layout.BlockLayout.ResolveLength(widthStr, 0, 16);
-            if (sideWidths[s] <= 0) sideWidths[s] = 1;
+                // Explicit 0 means no border (e.g. border-collapse zeroed edges)
+                if (sideWidths[s] <= 0) { sideWidths[s] = 0; continue; }
+            }
 
             var colorStr = box.Style.Get($"border-{side}-color") ?? fallbackColor;
             if (!string.IsNullOrEmpty(colorStr))

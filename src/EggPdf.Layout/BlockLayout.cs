@@ -265,6 +265,7 @@ public static class BlockLayout
         float prevMarginBottom = 0; // for margin collapsing
         float inlineX = 0; // current X offset within the inline line
         float inlineLineHeight = 0; // max height of current inline line
+        bool lastWasTextNode = false; // track if previous child was a text node (for <br> handling)
 
         // Collect absolutely/fixed positioned children for deferred layout
         var absChildren = new System.Collections.Generic.List<(HtmlElement elem, ComputedStyle style, string pos)>();
@@ -378,6 +379,7 @@ public static class BlockLayout
                         box.Children.Add(childBox);
                         childY += effectiveTopMargin + childBox.Height;
                         prevMarginBottom = childBox.MarginBottom;
+                        lastWasTextNode = false;
                     }
                 }
                 else if (childElem.TagName == "br")
@@ -390,10 +392,13 @@ public static class BlockLayout
                         inlineX = 0;
                         inlineLineHeight = 0;
                     }
-                    else
+                    else if (!lastWasTextNode)
                     {
+                        // Only add line height for empty <br> lines (consecutive <br> or leading <br>)
+                        // After text nodes, childY already advanced past the last line
                         childY += lineHeight;
                     }
+                    lastWasTextNode = false;
                 }
                 else if (childElem.TagName == "img")
                 {
@@ -588,6 +593,7 @@ public static class BlockLayout
                     box.Children.Add(textBox);
                     childY += lineHeight;
                 }
+                lastWasTextNode = true;
             }
         }
 

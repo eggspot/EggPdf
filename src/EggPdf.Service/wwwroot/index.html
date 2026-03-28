@@ -56,8 +56,8 @@
   .preview-column .col-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 600; text-align: center; flex-shrink: 0; }
   .page-frame { background: white; box-shadow: 0 2px 20px rgba(0,0,0,0.4); border-radius: 2px; flex: 1; min-height: 0; }
   .page-frame iframe { width: 100%; height: 100%; border: none; }
-  .page-frame.pdf-view { display: flex; align-items: center; justify-content: center; color: #999; font-size: 14px; padding: 20px; }
-  .page-frame.pdf-view embed { width: 100%; height: 100%; }
+  .page-frame.pdf-view { display: flex; align-items: stretch; justify-content: center; color: #999; font-size: 14px; padding: 0; background: #525659; box-shadow: none; overflow: hidden; }
+  .page-frame.pdf-view embed, .page-frame.pdf-view iframe { width: 100%; height: 100%; border: none; }
 
   /* === SIDEBAR === */
   .sidebar { width: var(--sidebar-w); background: var(--surface); border-left: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; display: none; }
@@ -111,8 +111,8 @@
     EggPdf <span>v0.1.0</span>
   </div>
   <div class="tabs">
-    <button class="tab active">HTML</button>
-    <button class="tab">CSS</button>
+    <button class="tab active" onclick="switchEditorTab('html', this)">HTML</button>
+    <button class="tab" onclick="switchEditorTab('css', this)">CSS</button>
   </div>
   <div class="actions">
     <button class="btn" onclick="document.getElementById('tplModal').classList.add('show')">Templates</button>
@@ -222,6 +222,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.6/ace.js" crossorigin="anonymous" onerror="console.warn('Ace CDN failed')"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.15.1/beautify-html.min.js" crossorigin="anonymous" onerror="console.warn('js-beautify CDN failed')"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.15.1/beautify-css.min.js" crossorigin="anonymous" onerror="console.warn('css-beautify CDN failed')"></script>
 <script>
 // === ACE EDITOR SETUP (with textarea fallback) ===
 let editor;
@@ -281,6 +282,47 @@ const pdfColumn = document.getElementById('pdfColumn');
 const editorPanel = document.getElementById('editorPanel');
 let previewTimer = null;
 let currentPreview = 'pdf';
+let currentEditorTab = 'html';
+let savedCssContent = '';
+
+// === EDITOR TAB SWITCHING (HTML / CSS) ===
+function switchEditorTab(mode, el) {
+  document.querySelectorAll('.tabs .tab').forEach(t => t.classList.remove('active'));
+  if (el) el.classList.add('active');
+  const filenameEl = document.querySelector('.toolbar .filename');
+  if (mode === 'css') {
+    // Extract CSS from <style> in the HTML
+    const html = editor.getValue();
+    _fullHtmlBackup = html;
+    const match = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+    savedCssContent = match ? match[1] : '';
+    editor.setValue(savedCssContent.trim(), -1);
+    if (useAce) editor.session.setMode('ace/mode/css');
+    if (filenameEl) filenameEl.textContent = 'style.css';
+    currentEditorTab = 'css';
+  } else {
+    if (currentEditorTab === 'css') {
+      // Save CSS back into the HTML <style> tag
+      const cssContent = editor.getValue();
+      const fullHtml = getFullHtml();
+      const updated = fullHtml.replace(
+        /(<style[^>]*>)([\s\S]*?)(<\/style>)/i,
+        '$1\n' + cssContent + '\n$3'
+      );
+      editor.setValue(updated, -1);
+    }
+    if (useAce) editor.session.setMode('ace/mode/html');
+    if (filenameEl) filenameEl.textContent = 'document.html';
+    currentEditorTab = 'html';
+  }
+}
+
+// Store full HTML when switching to CSS mode
+let _fullHtmlBackup = '';
+function getFullHtml() {
+  if (currentEditorTab === 'html') return editor.getValue();
+  return _fullHtmlBackup;
+}
 
 // === INITIAL TEMPLATE ===
 const defaultHtml = `<html>
@@ -312,7 +354,17 @@ const defaultHtml = `<html>
 editor.setValue(defaultHtml, -1);
 
 // Helper to get editor value
-function getHtml() { return editor.getValue(); }
+function getHtml() {
+  if (currentEditorTab === 'css') {
+    // Merge CSS edits back into the saved HTML
+    const cssContent = editor.getValue();
+    return _fullHtmlBackup.replace(
+      /(<style[^>]*>)([\s\S]*?)(<\/style>)/i,
+      '$1\n' + cssContent + '\n$3'
+    );
+  }
+  return editor.getValue();
+}
 
 // === TOGGLE EDITOR COLLAPSE ===
 function toggleEditor() {
@@ -325,10 +377,19 @@ function toggleEditor() {
   }
 }
 
-// === FORMAT HTML ===
+// === FORMAT HTML/CSS ===
 function formatHtml() {
+  if (currentEditorTab === 'css') {
+    // Format CSS with css_beautify if available, otherwise just indent
+    if (typeof css_beautify !== 'undefined') {
+      const formatted = css_beautify(editor.getValue(), { indent_size: 2 });
+      editor.setValue(formatted, -1);
+    }
+    statusText.textContent = 'CSS formatted';
+    return;
+  }
   if (typeof html_beautify === 'undefined') { statusText.textContent = 'Formatter not loaded'; return; }
-  const formatted = html_beautify(getHtml(), {
+  const formatted = html_beautify(editor.getValue(), {
     indent_size: 2,
     wrap_line_length: 120,
     indent_inner_html: true,
@@ -392,7 +453,7 @@ let lastPdfHtml = '';
 async function updatePdfPreview() {
   if (currentPreview !== 'pdf' && currentPreview !== 'split') return;
   const html = getHtml();
-  if (!html.trim()) { pdfPreview.innerHTML = '<span>Enter HTML to preview PDF</span>'; return; }
+  if (!html.trim()) { pdfPreview.innerHTML = '<span class="pdf-placeholder">Enter HTML to preview PDF</span>'; return; }
   if (html === lastPdfHtml && pdfPreview.querySelector('embed')) return;
   lastPdfHtml = html;
   try {
@@ -411,7 +472,7 @@ async function updatePdfPreview() {
     statusText.textContent = 'Ready';
     previewInfo.textContent = `${elapsed}ms | ${sizekb} KB`;
     const url = URL.createObjectURL(blob);
-    pdfPreview.innerHTML = `<embed src="${url}" type="application/pdf" width="100%" height="100%">`;
+    pdfPreview.innerHTML = `<embed src="${url}" type="application/pdf">`;
   } catch (e) { pdfPreview.innerHTML = '<span>Error: ' + e.message + '</span>'; }
 }
 
@@ -459,8 +520,9 @@ async function downloadPdf() {
     const a = document.createElement('a');
     a.href = url; a.download = 'output.pdf'; a.click();
 
-    pdfPreview.innerHTML = `<embed src="${url}" type="application/pdf" width="100%" height="100%">`;
     lastPdfHtml = html;
+    // Re-render preview with the downloaded PDF
+    debouncedPdfPreview();
   } catch (e) { statusText.textContent = 'Error: ' + e.message; }
 }
 
