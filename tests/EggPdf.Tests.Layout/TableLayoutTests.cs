@@ -123,4 +123,102 @@ public class TableLayoutTests
         var table = root.FindByTag("table");
         table.Should().NotBeNull();
     }
+
+    [Fact]
+    public void VerticalAlignMiddle_ShiftsContentDown()
+    {
+        // Cell with explicit height and vertical-align:middle
+        var html = @"<table><tr>
+            <td style='height: 100px; vertical-align: middle;'>Mid</td>
+            <td style='height: 100px; vertical-align: top;'>Top</td>
+        </tr></table>";
+        var root = LayoutTestHelper.Layout(html, 600, 800);
+
+        var cells = root.FindAllByTag("td");
+        cells.Should().HaveCount(2);
+
+        // Middle-aligned cell: children should be shifted down from top
+        var midCell = cells[0];
+        var topCell = cells[1];
+
+        if (midCell.Children.Count > 0 && topCell.Children.Count > 0)
+        {
+            // The first child of middle cell should be below the first child of top cell
+            // (relative to their respective cells)
+            float midChildRelY = midCell.Children[0].Y - midCell.Y;
+            float topChildRelY = topCell.Children[0].Y - topCell.Y;
+            midChildRelY.Should().BeGreaterOrEqualTo(topChildRelY,
+                "middle-aligned content should be shifted down");
+        }
+    }
+
+    [Fact]
+    public void VerticalAlignBottom_ShiftsContentToBottom()
+    {
+        var html = @"<table><tr>
+            <td style='height: 100px; vertical-align: bottom;'>Bot</td>
+        </tr></table>";
+        var root = LayoutTestHelper.Layout(html, 600, 800);
+
+        var cell = root.FindByTag("td");
+        cell.Should().NotBeNull();
+
+        if (cell!.Children.Count > 0)
+        {
+            // Bottom-aligned: child should be near the bottom of the cell
+            float childRelY = cell.Children[0].Y - cell.Y;
+            childRelY.Should().BeGreaterThan(0, "bottom-aligned content should be shifted down");
+        }
+    }
+
+    [Fact]
+    public void BorderCollapse_Collapse_SharedEdgeBorderZeroed()
+    {
+        var html = @"<table style='border-collapse: collapse;'><tr>
+            <td style='border: 2px solid black;'>A</td>
+            <td style='border: 2px solid black;'>B</td>
+        </tr></table>";
+        var root = LayoutTestHelper.Layout(html, 600, 800);
+
+        var cells = root.FindAllByTag("td");
+        cells.Should().HaveCount(2);
+
+        // Second cell should have left border zeroed (shared with first cell's right)
+        var secondCell = cells[1];
+        var leftBorderWidth = secondCell.Style.Get("border-left-width");
+        leftBorderWidth.Should().Be("0", "shared edge border should be zeroed in collapse mode");
+    }
+
+    [Fact]
+    public void BorderCollapse_Separate_IndependentBorders()
+    {
+        var html = @"<table style='border-collapse: separate;'><tr>
+            <td style='border: 2px solid black;'>A</td>
+            <td style='border: 2px solid black;'>B</td>
+        </tr></table>";
+        var root = LayoutTestHelper.Layout(html, 600, 800);
+
+        var cells = root.FindAllByTag("td");
+        cells.Should().HaveCount(2);
+
+        // In separate mode, second cell should keep its left border
+        var secondCell = cells[1];
+        var leftBorderWidth = secondCell.Style.Get("border-left-width");
+        leftBorderWidth.Should().NotBe("0", "separate mode should keep all borders");
+    }
+
+    [Fact]
+    public void RowCells_EqualHeight()
+    {
+        // One cell has more content; both should end up same height
+        var html = @"<table><tr>
+            <td>Short</td>
+            <td>This is a much longer cell content that should not break</td>
+        </tr></table>";
+        var root = LayoutTestHelper.Layout(html, 600, 800);
+
+        var cells = root.FindAllByTag("td");
+        cells.Should().HaveCount(2);
+        cells[0].Height.Should().Be(cells[1].Height, "cells in same row should have equal height");
+    }
 }

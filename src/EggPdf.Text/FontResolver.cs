@@ -40,7 +40,7 @@ public class FontResolver
             var path = SystemFontLocator.FindFont(candidate);
             if (path != null)
             {
-                var data = TtfParser.Parse(File.ReadAllBytes(path));
+                var data = LoadFontFile(path);
                 if (data != null) return data;
             }
         }
@@ -49,7 +49,7 @@ public class FontResolver
         var basePath = SystemFontLocator.FindFont(familyName);
         if (basePath != null)
         {
-            var data = TtfParser.Parse(File.ReadAllBytes(basePath));
+            var data = LoadFontFile(basePath);
             if (data != null) return data;
         }
 
@@ -60,12 +60,35 @@ public class FontResolver
             var resolvedPath = SystemFontLocator.FindFont(resolved);
             if (resolvedPath != null)
             {
-                var data = TtfParser.Parse(File.ReadAllBytes(resolvedPath));
+                var data = LoadFontFile(resolvedPath);
                 if (data != null) return data;
             }
         }
 
         return null;
+    }
+
+    /// <summary>Load and parse a font file, handling WOFF decoding if needed.</summary>
+    private static FontData? LoadFontFile(string path)
+    {
+        try
+        {
+            var bytes = File.ReadAllBytes(path);
+            if (bytes == null || bytes.Length < 4) return null;
+
+            // Check for WOFF format and decode
+            if (WoffDecoder.IsWoff(bytes))
+            {
+                bytes = WoffDecoder.Decode(bytes);
+                if (bytes == null) return null;
+            }
+
+            return TtfParser.Parse(bytes);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>Get the PDF standard font name for a family + weight + style combination.</summary>

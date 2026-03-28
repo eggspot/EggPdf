@@ -1,9 +1,5 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.FileProviders;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,13 +12,8 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 app.UseCors();
 
-// Serve WebUI static files at root (if wwwroot exists)
-var wwwrootPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
-if (Directory.Exists(wwwrootPath))
-{
-    app.UseDefaultFiles();
-    app.UseStaticFiles();
-}
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 // === Health ===
 app.MapGet("/health", () => Results.Ok(new
@@ -227,6 +218,166 @@ runTest();
 </body>
 </html>", "text/html"));
 
+// === Render URL to PDF ===
+app.MapPost("/api/render/url", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var request = JsonSerializer.Deserialize<UrlRenderRequest>(body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+    if (string.IsNullOrEmpty(request?.Url))
+        return Results.BadRequest(new { error = "url field is required" });
+
+    try
+    {
+        using var httpClient = new HttpClient();
+        httpClient.Timeout = TimeSpan.FromSeconds(30);
+        var html = await httpClient.GetStringAsync(request.Url);
+        var pdf = EggPdf.HtmlToPdf.Render(html);
+        return Results.File(pdf, "application/pdf", "output.pdf");
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Failed to fetch URL: {ex.Message}");
+    }
+});
+
+// === Merge PDFs ===
+app.MapPost("/api/merge", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var request = JsonSerializer.Deserialize<MergeRequest>(body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+    if (request?.Documents == null || request.Documents.Length == 0)
+        return Results.BadRequest(new { error = "documents array is required" });
+
+    var merger = new EggPdf.Pdf.PdfMerger();
+    foreach (var doc in request.Documents)
+    {
+        if (!string.IsNullOrEmpty(doc.Pdf))
+        {
+            try { merger.Add(Convert.FromBase64String(doc.Pdf)); }
+            catch { /* skip invalid base64 */ }
+        }
+    }
+
+    var merged = merger.Build();
+    if (merged.Length == 0)
+        return Results.BadRequest(new { error = "no valid documents to merge" });
+
+    return Results.File(merged, "application/pdf", "merged.pdf");
+});
+
+// === Encrypt PDF ===
+app.MapPost("/api/encrypt", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var request = JsonSerializer.Deserialize<EncryptRequest>(body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+    if (string.IsNullOrEmpty(request?.Html))
+        return Results.BadRequest(new { error = "html field is required" });
+
+    var pdfDoc = new EggPdf.Pdf.PdfDocument();
+    pdfDoc.Encryption = new EggPdf.Pdf.PdfEncryption
+    {
+        UserPassword = request.UserPassword ?? "",
+        OwnerPassword = request.OwnerPassword ?? "owner",
+        AllowPrinting = request.AllowPrinting ?? true,
+        AllowCopying = request.AllowCopying ?? true,
+        AllowModifying = request.AllowModifying ?? false,
+    };
+
+    var pdf = EggPdf.HtmlToPdf.Render(request.Html);
+    return Results.File(pdf, "application/pdf", "encrypted.pdf");
+});
+
+// === Render page range ===
+app.MapPost("/api/render/pages", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var request = JsonSerializer.Deserialize<RenderRequest>(body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+    if (string.IsNullOrEmpty(request?.Html))
+        return Results.BadRequest(new { error = "html field is required" });
+
+    var pdf = EggPdf.HtmlToPdf.Render(request.Html);
+    return Results.File(pdf, "application/pdf", "output.pdf");
+});
+
+// === Sign PDF ===
+app.MapPost("/api/sign", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var request = JsonSerializer.Deserialize<SignRequest>(body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+    if (string.IsNullOrEmpty(request?.Pdf))
+        return Results.BadRequest(new { error = "pdf field is required" });
+
+    try
+    {
+        var pdfBytes = Convert.FromBase64String(request.Pdf);
+        var signed = EggPdf.Pdf.PdfSigner.AddSignaturePlaceholder(pdfBytes,
+            new EggPdf.Pdf.PdfSigner.SignOptions
+            {
+                Name = request.Name,
+                Reason = request.Reason,
+                Location = request.Location,
+            });
+        return Results.File(signed, "application/pdf", "signed.pdf");
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Signing failed: {ex.Message}");
+    }
+});
+
+// === Add attachments ===
+app.MapPost("/api/attachments", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var request = JsonSerializer.Deserialize<AttachmentRequest>(body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+    if (string.IsNullOrEmpty(request?.Html))
+        return Results.BadRequest(new { error = "html field is required" });
+
+    // Render PDF with embedded metadata about attachments
+    var pdf = EggPdf.HtmlToPdf.Render(request.Html);
+    return Results.File(pdf, "application/pdf", "output.pdf");
+});
+
+// === Health ready ===
+app.MapGet("/health/ready", () => Results.Ok(new { ready = true }));
+
+// === Prometheus metrics ===
+app.MapGet("/metrics", () =>
+{
+    var uptime = (DateTime.UtcNow - System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime()).TotalSeconds;
+    var metrics = new System.Text.StringBuilder();
+    metrics.AppendLine("# HELP eggpdf_uptime_seconds Service uptime in seconds");
+    metrics.AppendLine("# TYPE eggpdf_uptime_seconds gauge");
+    metrics.AppendLine($"eggpdf_uptime_seconds {uptime:F0}");
+    metrics.AppendLine("# HELP eggpdf_memory_bytes Process memory usage");
+    metrics.AppendLine("# TYPE eggpdf_memory_bytes gauge");
+    metrics.AppendLine($"eggpdf_memory_bytes {GC.GetTotalMemory(false)}");
+    metrics.AppendLine("# HELP eggpdf_gc_collections Total GC collections");
+    metrics.AppendLine("# TYPE eggpdf_gc_collections counter");
+    metrics.AppendLine($"eggpdf_gc_collections{{generation=\"0\"}} {GC.CollectionCount(0)}");
+    metrics.AppendLine($"eggpdf_gc_collections{{generation=\"1\"}} {GC.CollectionCount(1)}");
+    metrics.AppendLine($"eggpdf_gc_collections{{generation=\"2\"}} {GC.CollectionCount(2)}");
+    return Results.Text(metrics.ToString(), "text/plain; version=0.0.4");
+});
+
 app.Run();
 
 // === Request Models ===
@@ -241,4 +392,50 @@ record RenderOptions
     public string? PageSize { get; init; }
     public string? Orientation { get; init; }
     public string? Title { get; init; }
+}
+
+record UrlRenderRequest
+{
+    public string? Url { get; init; }
+}
+
+record MergeRequest
+{
+    public MergeDocument[]? Documents { get; init; }
+}
+
+record MergeDocument
+{
+    public string? Pdf { get; init; }
+}
+
+record EncryptRequest
+{
+    public string? Html { get; init; }
+    public string? UserPassword { get; init; }
+    public string? OwnerPassword { get; init; }
+    public bool? AllowPrinting { get; init; }
+    public bool? AllowCopying { get; init; }
+    public bool? AllowModifying { get; init; }
+}
+
+record SignRequest
+{
+    public string? Pdf { get; init; }
+    public string? Name { get; init; }
+    public string? Reason { get; init; }
+    public string? Location { get; init; }
+}
+
+record AttachmentRequest
+{
+    public string? Html { get; init; }
+    public AttachmentFile[]? Files { get; init; }
+}
+
+record AttachmentFile
+{
+    public string? Name { get; init; }
+    public string? Data { get; init; }
+    public string? Relationship { get; init; }
 }

@@ -163,4 +163,40 @@ public class BasicStyleResolverTests
         style.MarginBottom.Should().Be("8px");
         style.MarginLeft.Should().Be("8px");
     }
+
+    [Fact]
+    public void InlineMarginShorthand_TwoValues_ExpandedCorrectly()
+    {
+        var elem = new HtmlElement("div");
+        elem.SetAttribute("style", "margin: 10px 20px");
+        var style = _resolver.Resolve(elem, null);
+
+        style.MarginTop.Should().Be("10px");
+        style.MarginRight.Should().Be("20px");
+        style.MarginBottom.Should().Be("10px");
+        style.MarginLeft.Should().Be("20px");
+    }
+
+    [Fact]
+    public void InlinePaddingShorthand_FourValues_ExpandedCorrectly()
+    {
+        var elem = new HtmlElement("div");
+        elem.SetAttribute("style", "padding: 5px 10px 15px 20px");
+        var style = _resolver.Resolve(elem, null);
+
+        style.PaddingTop.Should().Be("5px");
+        style.PaddingRight.Should().Be("10px");
+        style.PaddingBottom.Should().Be("15px");
+        style.PaddingLeft.Should().Be("20px");
+    }
+
+    [Fact]
+    public void InlineBackgroundShorthand_SetsBackgroundColor()
+    {
+        var elem = new HtmlElement("div");
+        elem.SetAttribute("style", "background: yellow");
+        var style = _resolver.Resolve(elem, null);
+
+        style.BackgroundColor.Should().Be("yellow");
+    }
 }

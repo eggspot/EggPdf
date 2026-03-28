@@ -34,5 +34,18 @@ jobs:
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
-      - name: Test
-        run: dotnet test --configuration Release --no-build --verbosity normal
+      - name: Unit Tests
+        run: dotnet test tests/EggPdf.Tests.Unit --configuration Release --no-build --verbosity normal
+
+      - name: Layout Tests
+        run: dotnet test tests/EggPdf.Tests.Layout --configuration Release --no-build --verbosity normal
+
+      - name: Install Playwright Browsers
+        if: matrix.os == 'ubuntu-latest' && matrix.dotnet-version == '9.0.x'
+        run: pwsh tests/EggPdf.Tests.E2E/bin/Release/net9.0/playwright.ps1 install --with-deps chromium
+
+      - name: E2E Tests (Playwright)
+        if: matrix.os == 'ubuntu-latest' && matrix.dotnet-version == '9.0.x'
+        run: dotnet test tests/EggPdf.Tests.E2E --configuration Release --no-build --verbosity normal
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: 0

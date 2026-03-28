@@ -33,13 +33,16 @@
   .main { flex: 1; display: flex; overflow: hidden; }
 
   /* === EDITOR === */
-  .editor-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--border); }
+  .editor-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--border); transition: flex 0.2s, min-width 0.2s, width 0.2s; }
+  .editor-panel.collapsed { flex: 0 0 var(--toolbar-h); min-width: var(--toolbar-h); overflow: hidden; }
+  .editor-panel.collapsed .editor-wrap { display: none; }
   .toolbar { height: var(--toolbar-h); background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 12px; gap: 8px; font-size: 11px; color: var(--muted); }
   .toolbar .dot { width: 7px; height: 7px; background: var(--success); border-radius: 50%; }
   .toolbar .filename { color: var(--text); font-weight: 500; }
+  .toolbar .btn-icon { background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 3px; font-size: 14px; line-height: 1; }
+  .toolbar .btn-icon:hover { color: var(--text); background: var(--elevated); }
   .editor-wrap { flex: 1; position: relative; overflow: hidden; }
-  .editor-wrap textarea { width: 100%; height: 100%; background: var(--bg); color: var(--text); border: none; padding: 12px 12px 12px 48px; font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace; font-size: 13px; line-height: 1.6; resize: none; outline: none; tab-size: 2; }
-  .line-nums { position: absolute; left: 0; top: 0; width: 40px; padding: 12px 6px 12px 0; text-align: right; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 13px; line-height: 1.6; color: var(--muted); opacity: 0.4; user-select: none; pointer-events: none; overflow: hidden; }
+  #aceEditor { width: 100%; height: 100%; }
 
   /* === PREVIEW === */
   .preview-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -48,11 +51,13 @@
   .preview-tab { padding: 4px 12px; border-radius: 3px; font-size: 11px; cursor: pointer; color: var(--muted); border: none; background: none; }
   .preview-tab.active { background: var(--elevated); color: var(--text); }
   .preview-info { margin-left: auto; font-size: 11px; color: var(--success); }
-  .preview-content { flex: 1; background: #2a2d3a; overflow: auto; display: flex; justify-content: center; align-items: flex-start; padding: 20px; }
-  .page-frame { background: white; box-shadow: 0 2px 20px rgba(0,0,0,0.4); border-radius: 2px; width: 595px; min-height: 842px; }
-  .page-frame iframe { width: 100%; height: 842px; border: none; }
-  .page-frame.pdf-view { display: flex; align-items: center; justify-content: center; color: #999; font-size: 14px; padding: 40px; }
-  .page-frame.pdf-view embed { width: 100%; height: 842px; }
+  .preview-content { flex: 1; background: #2a2d3a; overflow: hidden; display: flex; justify-content: center; align-items: stretch; padding: 12px; gap: 12px; }
+  .preview-column { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: 1; min-width: 0; }
+  .preview-column .col-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 600; text-align: center; flex-shrink: 0; }
+  .page-frame { background: white; box-shadow: 0 2px 20px rgba(0,0,0,0.4); border-radius: 2px; flex: 1; min-height: 0; }
+  .page-frame iframe { width: 100%; height: 100%; border: none; }
+  .page-frame.pdf-view { display: flex; align-items: center; justify-content: center; color: #999; font-size: 14px; padding: 20px; }
+  .page-frame.pdf-view embed { width: 100%; height: 100%; }
 
   /* === SIDEBAR === */
   .sidebar { width: var(--sidebar-w); background: var(--surface); border-left: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; display: none; }
@@ -83,7 +88,7 @@
   /* === LIGHT THEME === */
   body.light { --bg: #f5f6fa; --surface: #fff; --elevated: #eef0f6; --border: #d5d8e3; --text: #1a1d27; --muted: #6b7085; }
   body.light .preview-content { background: #e2e4ec; }
-  body.light .editor-wrap textarea { color: var(--text); }
+  body.light #aceEditor { filter: invert(1) hue-rotate(180deg); }
 
   /* === MOBILE === */
   @media (max-width: 900px) { .sidebar { display: none !important; } }
@@ -121,15 +126,16 @@
 <!-- MAIN -->
 <div class="main">
   <!-- EDITOR -->
-  <div class="editor-panel">
+  <div class="editor-panel" id="editorPanel">
     <div class="toolbar">
+      <button class="btn-icon" onclick="toggleEditor()" id="collapseBtn" title="Toggle editor">&#x25C0;</button>
       <span class="dot"></span>
       <span class="filename">document.html</span>
-      <span style="margin-left:auto">UTF-8</span>
+      <button class="btn btn-sm" onclick="formatHtml()" title="Format HTML (Shift+Alt+F)" style="margin-left:auto">Format</button>
+      <span>UTF-8</span>
     </div>
     <div class="editor-wrap">
-      <div class="line-nums" id="lineNums"></div>
-      <textarea id="htmlInput" spellcheck="false" oninput="updateLineNumbers(); debouncedPreview()"></textarea>
+      <div id="aceEditor"></div>
     </div>
   </div>
 
@@ -137,17 +143,24 @@
   <div class="preview-panel">
     <div class="preview-toolbar">
       <div class="preview-tabs">
-        <button class="preview-tab active" onclick="switchPreview('print')">Print Preview</button>
-        <button class="preview-tab" onclick="switchPreview('pdf')">PDF Preview</button>
+        <button class="preview-tab" onclick="switchPreview('print', this)">Print</button>
+        <button class="preview-tab active" onclick="switchPreview('pdf', this)">PDF</button>
+        <button class="preview-tab" onclick="switchPreview('split', this)">Side by Side</button>
       </div>
       <span class="preview-info" id="previewInfo"></span>
     </div>
-    <div class="preview-content">
-      <div class="page-frame" id="printPreview">
-        <iframe id="previewFrame" sandbox="allow-same-origin"></iframe>
+    <div class="preview-content" id="previewContent">
+      <div class="preview-column" id="printColumn" style="display:none">
+        <span class="col-label">Browser Print</span>
+        <div class="page-frame" id="printPreview">
+          <iframe id="previewFrame" sandbox="allow-same-origin"></iframe>
+        </div>
       </div>
-      <div class="page-frame pdf-view" id="pdfPreview" style="display:none">
-        <span>Click "Download PDF" to generate</span>
+      <div class="preview-column" id="pdfColumn">
+        <span class="col-label">EggPdf Output</span>
+        <div class="page-frame pdf-view" id="pdfPreview">
+          <span>Rendering...</span>
+        </div>
       </div>
     </div>
   </div>
@@ -207,8 +220,54 @@
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.6/ace.js" crossorigin="anonymous" onerror="console.warn('Ace CDN failed')"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.15.1/beautify-html.min.js" crossorigin="anonymous" onerror="console.warn('js-beautify CDN failed')"></script>
 <script>
-const input = document.getElementById('htmlInput');
+// === ACE EDITOR SETUP (with textarea fallback) ===
+let editor;
+let useAce = false;
+const aceContainer = document.getElementById('aceEditor');
+try {
+
+if (typeof ace !== 'undefined') {
+  try {
+    editor = ace.edit('aceEditor');
+    editor.setTheme('ace/theme/one_dark');
+    editor.session.setMode('ace/mode/html');
+    editor.setOptions({
+      fontSize: '13px',
+      fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace",
+      showPrintMargin: false,
+      wrap: true,
+      tabSize: 2,
+      useSoftTabs: true,
+      enableBasicAutocompletion: true
+    });
+    useAce = true;
+  } catch (e) {
+    console.warn('Ace editor failed to initialize:', e);
+  }
+}
+
+if (!useAce) {
+  // Fallback: replace div with a textarea
+  const ta = document.createElement('textarea');
+  ta.id = 'htmlInput';
+  ta.spellcheck = false;
+  ta.style.cssText = 'width:100%;height:100%;background:var(--bg);color:var(--text);border:none;padding:12px;font-family:"JetBrains Mono","Cascadia Code","Fira Code",Consolas,monospace;font-size:13px;line-height:1.6;resize:none;outline:none;tab-size:2;';
+  aceContainer.replaceWith(ta);
+  editor = {
+    getValue() { return ta.value; },
+    setValue(v) { ta.value = v; },
+    getCursorPosition() { return ta.selectionStart; },
+    moveCursorToPosition(p) { ta.selectionStart = ta.selectionEnd = p; },
+    resize() {},
+    session: { on(evt, fn) { ta.addEventListener('input', fn); } },
+    commands: { addCommand() {} }
+  };
+  ta.addEventListener('input', () => { debouncedPreview(); debouncedPdfPreview(); });
+}
+
 const previewFrame = document.getElementById('previewFrame');
 const printPreview = document.getElementById('printPreview');
 const pdfPreview = document.getElementById('pdfPreview');
@@ -216,11 +275,15 @@ const previewInfo = document.getElementById('previewInfo');
 const statusText = document.getElementById('statusText');
 const statusTiming = document.getElementById('statusTiming');
 const statusSize = document.getElementById('statusSize');
+const previewContent = document.getElementById('previewContent');
+const printColumn = document.getElementById('printColumn');
+const pdfColumn = document.getElementById('pdfColumn');
+const editorPanel = document.getElementById('editorPanel');
 let previewTimer = null;
-let currentPreview = 'print';
+let currentPreview = 'pdf';
 
 // === INITIAL TEMPLATE ===
-input.value = `<html>
+const defaultHtml = `<html>
 <head>
   <style>
     body { font-family: Arial, sans-serif; margin: 40px; }
@@ -246,24 +309,47 @@ input.value = `<html>
   <p><a href="https://example.com/pay">Pay Now</a></p>
 </body>
 </html>`;
+editor.setValue(defaultHtml, -1);
 
-// === LINE NUMBERS ===
-function updateLineNumbers() {
-  const lines = input.value.split('\n').length;
-  const nums = [];
-  for (let i = 1; i <= lines; i++) nums.push(i);
-  document.getElementById('lineNums').textContent = nums.join('\n');
+// Helper to get editor value
+function getHtml() { return editor.getValue(); }
+
+// === TOGGLE EDITOR COLLAPSE ===
+function toggleEditor() {
+  const btn = document.getElementById('collapseBtn');
+  editorPanel.classList.toggle('collapsed');
+  btn.innerHTML = editorPanel.classList.contains('collapsed') ? '&#x25B6;' : '&#x25C0;';
+  // Resize ace editor when expanding
+  if (!editorPanel.classList.contains('collapsed')) {
+    setTimeout(() => editor.resize(), 250);
+  }
+}
+
+// === FORMAT HTML ===
+function formatHtml() {
+  if (typeof html_beautify === 'undefined') { statusText.textContent = 'Formatter not loaded'; return; }
+  const formatted = html_beautify(getHtml(), {
+    indent_size: 2,
+    wrap_line_length: 120,
+    indent_inner_html: true,
+    preserve_newlines: true,
+    max_preserve_newlines: 2,
+    unformatted: []
+  });
+  const cursor = editor.getCursorPosition();
+  editor.setValue(formatted, -1);
+  editor.moveCursorToPosition(cursor);
+  statusText.textContent = 'HTML formatted';
 }
 
 // === LIVE PRINT PREVIEW ===
 function updatePrintPreview() {
-  if (currentPreview !== 'print') return;
-  const html = input.value;
+  if (currentPreview !== 'print' && currentPreview !== 'split') return;
+  const html = getHtml();
   const doc = previewFrame.contentDocument;
   doc.open();
   doc.write(html);
   doc.close();
-  // Inject print media simulation
   const style = doc.createElement('style');
   style.textContent = '@media screen { body { margin: 20px; } }';
   doc.head?.appendChild(style);
@@ -276,23 +362,81 @@ function debouncedPreview() {
 }
 
 // === SWITCH PREVIEW TABS ===
-function switchPreview(mode) {
+function switchPreview(mode, el) {
   currentPreview = mode;
   document.querySelectorAll('.preview-tab').forEach(t => t.classList.remove('active'));
-  event.target.classList.add('active');
-  if (mode === 'print') {
-    printPreview.style.display = '';
-    pdfPreview.style.display = 'none';
+  if (el) el.classList.add('active');
+
+  if (mode === 'split') {
+    previewContent.classList.add('split');
+    printColumn.style.display = '';
+    pdfColumn.style.display = '';
+    updatePrintPreview();
+    updatePdfPreview();
+  } else if (mode === 'print') {
+    previewContent.classList.remove('split');
+    printColumn.style.display = '';
+    pdfColumn.style.display = 'none';
     updatePrintPreview();
   } else {
-    printPreview.style.display = 'none';
-    pdfPreview.style.display = '';
+    previewContent.classList.remove('split');
+    printColumn.style.display = 'none';
+    pdfColumn.style.display = '';
+    updatePdfPreview();
   }
 }
 
+// === LIVE PDF PREVIEW ===
+let pdfTimer = null;
+let lastPdfHtml = '';
+async function updatePdfPreview() {
+  if (currentPreview !== 'pdf' && currentPreview !== 'split') return;
+  const html = getHtml();
+  if (!html.trim()) { pdfPreview.innerHTML = '<span>Enter HTML to preview PDF</span>'; return; }
+  if (html === lastPdfHtml && pdfPreview.querySelector('embed')) return;
+  lastPdfHtml = html;
+  try {
+    previewInfo.textContent = 'Rendering PDF...';
+    const start = performance.now();
+    const resp = await fetch('/api/render', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({html})
+    });
+    if (!resp.ok) { pdfPreview.innerHTML = '<span>Render error (' + resp.status + ')</span>'; previewInfo.textContent = 'Error'; return; }
+    const blob = await resp.blob();
+    const elapsed = Math.round(performance.now() - start);
+    const sizekb = (blob.size / 1024).toFixed(1);
+    statusTiming.textContent = `${elapsed}ms`;
+    statusSize.textContent = `${sizekb} KB`;
+    statusText.textContent = 'Ready';
+    previewInfo.textContent = `${elapsed}ms | ${sizekb} KB`;
+    const url = URL.createObjectURL(blob);
+    pdfPreview.innerHTML = `<embed src="${url}" type="application/pdf" width="100%" height="100%">`;
+  } catch (e) { pdfPreview.innerHTML = '<span>Error: ' + e.message + '</span>'; }
+}
+
+function debouncedPdfPreview() {
+  clearTimeout(pdfTimer);
+  lastPdfHtml = '';
+  pdfTimer = setTimeout(updatePdfPreview, 500);
+}
+
+// === EDITOR CHANGE HANDLER ===
+editor.session.on('change', () => {
+  debouncedPreview();
+  debouncedPdfPreview();
+});
+
+// === KEYBOARD SHORTCUT: Shift+Alt+F to format ===
+editor.commands.addCommand({
+  name: 'formatHtml',
+  bindKey: { win: 'Shift-Alt-F', mac: 'Shift-Option-F' },
+  exec: formatHtml
+});
+
 // === DOWNLOAD PDF ===
 async function downloadPdf() {
-  const html = input.value;
+  const html = getHtml();
   if (!html.trim()) { alert('Please enter some HTML'); return; }
   try {
     statusText.textContent = 'Rendering...';
@@ -311,16 +455,12 @@ async function downloadPdf() {
     statusText.textContent = 'PDF ready';
     previewInfo.textContent = `${elapsed}ms | ${sizekb} KB`;
 
-    // Show in PDF preview
     const url = URL.createObjectURL(blob);
-    pdfPreview.innerHTML = `<embed src="${url}" type="application/pdf" width="100%" height="842">`;
-    switchPreview('pdf');
-    document.querySelectorAll('.preview-tab')[1].classList.add('active');
-    document.querySelectorAll('.preview-tab')[0].classList.remove('active');
-
-    // Also download
     const a = document.createElement('a');
     a.href = url; a.download = 'output.pdf'; a.click();
+
+    pdfPreview.innerHTML = `<embed src="${url}" type="application/pdf" width="100%" height="100%">`;
+    lastPdfHtml = html;
   } catch (e) { statusText.textContent = 'Error: ' + e.message; }
 }
 
@@ -329,13 +469,13 @@ function loadFile(event) {
   const file = event.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = (e) => { input.value = e.target.result; updateLineNumbers(); updatePrintPreview(); };
+  reader.onload = (e) => { editor.setValue(e.target.result, -1); updatePrintPreview(); };
   reader.readAsText(file);
 }
 
 // === COPY API CALL ===
 function copyApiCall() {
-  const html = input.value.replace(/'/g, "'\\''");
+  const html = getHtml().replace(/'/g, "'\\''");
   const cmd = `curl -X POST http://localhost:8080/api/render -H "Content-Type: application/json" -d '{"html":"${html.substring(0, 100)}..."}' -o output.pdf`;
   navigator.clipboard.writeText(cmd);
   statusText.textContent = 'API call copied!';
@@ -344,7 +484,7 @@ function copyApiCall() {
 // === TEMPLATES ===
 const templates = {
   blank: '<html>\n<head><style>body { font-family: Arial; margin: 40px; }</style></head>\n<body>\n  <h1>Title</h1>\n  <p>Start writing...</p>\n</body>\n</html>',
-  invoice: input.value,
+  invoice: defaultHtml,
   report: `<html><head><style>body{font-family:Arial;margin:40px}h1{color:#333}h2{color:#666;border-bottom:1px solid #ddd;padding-bottom:5px}p{line-height:1.6;color:#555}.section{margin:20px 0}</style></head><body><h1>Annual Report 2024</h1><div class="section"><h2>Executive Summary</h2><p>This report covers the key achievements and metrics for the fiscal year 2024.</p></div><div class="section"><h2>Financial Overview</h2><p>Revenue grew by 25% year-over-year, reaching $12.5 million.</p></div><div class="section"><h2>Key Metrics</h2><ul><li>Customer satisfaction: 94%</li><li>Employee retention: 92%</li><li>Market share: 15%</li></ul></div></body></html>`,
   letter: `<html><head><style>body{font-family:'Times New Roman';margin:60px;line-height:1.8}p{margin:10px 0}.date{text-align:right}.signature{margin-top:40px}</style></head><body><p class="date">March 21, 2026</p><p>Dear Sir/Madam,</p><p>I am writing to inform you about our new product launch scheduled for next quarter. We believe this will significantly improve our service offering.</p><p>Please find enclosed the detailed proposal for your review.</p><p class="signature">Sincerely,<br><strong>John Smith</strong><br>CEO, Acme Corp</p></body></html>`,
   certificate: `<html><head><style>body{font-family:Georgia;text-align:center;margin:80px;border:3px double #6c5ce7;padding:60px}h1{color:#6c5ce7;font-size:36px;margin-bottom:20px}h2{color:#333;font-weight:normal;font-size:24px}.name{font-size:32px;color:#2d3436;margin:30px 0;font-style:italic}.date{color:#666;margin-top:40px}</style></head><body><h1>Certificate of Achievement</h1><h2>This is proudly presented to</h2><p class="name">Jane Doe</p><p>For outstanding performance in the field of Software Engineering</p><p class="date">Awarded on March 21, 2026</p></body></html>`,
@@ -352,20 +492,26 @@ const templates = {
 };
 
 function loadTpl(name) {
-  input.value = templates[name] || templates.blank;
-  updateLineNumbers();
+  var html = templates[name] || templates.blank;
+  if (typeof html_beautify !== 'undefined') {
+    html = html_beautify(html, {
+      indent_size: 2,
+      wrap_line_length: 120,
+      indent_inner_html: true,
+      preserve_newlines: true,
+      max_preserve_newlines: 2,
+      unformatted: []
+    });
+  }
+  editor.setValue(html, -1);
   updatePrintPreview();
+  debouncedPdfPreview();
   document.getElementById('tplModal').classList.remove('show');
 }
 
 // === INIT ===
-updateLineNumbers();
-setTimeout(updatePrintPreview, 100);
-
-// Sync scroll between textarea and line numbers
-input.addEventListener('scroll', () => {
-  document.getElementById('lineNums').style.transform = `translateY(-${input.scrollTop}px)`;
-});
+setTimeout(updatePdfPreview, 300);
+} catch (e) { console.error('Init error:', e); document.getElementById('statusText').textContent = 'Init error: ' + e.message; }
 </script>
 </body>
 </html>

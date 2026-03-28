@@ -56,9 +56,9 @@ src/
   EggPdf.Core/         -- shared primitives (Color, geometry, warnings, resource resolver)
   EggPdf.Html/         -- HTML5 parser (tokenizer, tree builder, DOM types)
   EggPdf.Css/          -- CSS parser + cascade + selectors + inline parser
-  EggPdf.Layout/       -- layout engine (block, inline, table cells horizontal)
+  EggPdf.Layout/       -- layout engine (block, inline, flex, table cells horizontal)
   EggPdf.Text/         -- TrueType parser, system font discovery, line breaking, font resolver
-  EggPdf.Pdf/          -- PDF 1.7 writer (text, rectangles, links, multi-page)
+  EggPdf.Pdf/          -- PDF 1.7 writer (text, rectangles, rounded rects, links, multi-page, PNG/JPEG images)
   EggPdf.Cli/          -- CLI tool: eggpdf input.html -o output.pdf
   EggPdf.Service/      -- REST API + WebUI (POST /api/render, GET /e2e, GET /)
   EggPdf.Style/        -- (placeholder for future style resolution module)
@@ -67,8 +67,8 @@ src/
   EggPdf.Fragmentation/ -- (placeholder for future fragmentation)
 
 tests/
-  EggPdf.Tests.Unit/   -- 310 unit tests (parsers, CSS, colors, PDF, E2E)
-  EggPdf.Tests.Layout/ -- 66 layout tests (block, inline, table, flex, grid, margins)
+  EggPdf.Tests.Unit/   -- 628 unit tests (parsers, CSS, var/calc, selectors, colors, PDF, PNG, bookmarks, E2E)
+  EggPdf.Tests.Layout/ -- 147 layout tests (block, inline, flex, float, table, grid, margins, lists)
   EggPdf.Tests.E2E/    -- 20 Playwright tests (WebUI, API endpoints)
 
 benchmarks/
@@ -115,13 +115,17 @@ dotnet run --project benchmarks/EggPdf.Benchmarks -c Release -- --filter "*Rende
 ## WebUI & Service
 
 ```bash
-# Start the service with WebUI
-dotnet run --project src/EggPdf.Service -c Release -- --urls http://localhost:8080
+# Visual Studio: F5 launches http://localhost:55727 (configured in launchSettings.json)
 
-# WebUI: http://localhost:8080 (HTML editor + live preview + PDF download)
-# E2E comparison: http://localhost:8080/e2e (browser vs PDF side-by-side)
-# API: POST http://localhost:8080/api/render (HTML -> PDF)
-# Health: GET http://localhost:8080/health
+# CLI: start the service with WebUI
+dotnet run --project src/EggPdf.Service -c Release -- --urls http://localhost:55727
+
+# WebUI: http://localhost:55727 (HTML editor + live preview + PDF download)
+# E2E comparison: http://localhost:55727/e2e (browser vs PDF side-by-side)
+# API: POST http://localhost:55727/api/render (HTML -> PDF)
+# Health: GET http://localhost:55727/health
+
+# Docker uses port 8080 (see docker/Dockerfile.service)
 ```
 
 ## Code Style
@@ -132,6 +136,7 @@ dotnet run --project src/EggPdf.Service -c Release -- --urls http://localhost:80
 - No `Span<T>.Contains` on netstandard2.0
 - Use `ArrayPool<T>` for temporary buffers
 - No LINQ in hot paths -- use `for` loops
+- Remove unused code -- no dead methods, unused usings, or orphaned helpers. Keep the codebase clean.
 - Test naming: `Feature_Condition_ExpectedBehavior`
 
 ## Skills (invoke with /slash commands)

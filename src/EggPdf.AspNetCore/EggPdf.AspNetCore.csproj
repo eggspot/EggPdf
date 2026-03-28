@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net6.0;net8.0;net9.0</TargetFrameworks>
+    <RootNamespace>EggPdf.AspNetCore</RootNamespace>
+    <Description>ASP.NET Core integration for EggPdf (PdfResult, middleware)</Description>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\EggPdf\EggPdf.csproj" />
+    <ProjectReference Include="..\EggPdf.Razor\EggPdf.Razor.csproj" />
+  </ItemGroup>
+
+</Project>

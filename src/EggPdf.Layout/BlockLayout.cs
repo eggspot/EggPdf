@@ -45,8 +45,13 @@ public static class BlockLayout
 
         if (document.Body == null) return root;
 
-        var bodyStyle = resolveStyle(document.Body, null);
-        var bodyBox = CreateBox(document.Body, bodyStyle, root, pageWidth, resolveStyle, null);
+        // Resolve html (root) element style first so custom properties on :root are inherited
+        ComputedStyle? htmlStyle = null;
+        if (document.DocumentElement != null)
+            htmlStyle = resolveStyle(document.DocumentElement, null);
+
+        var bodyStyle = resolveStyle(document.Body, htmlStyle);
+        var bodyBox = CreateBox(document.Body, bodyStyle, root, pageWidth, resolveStyle, htmlStyle);
         root.Children.Add(bodyBox);
 
         // Post-layout pass: convert all Y coordinates to absolute
@@ -55,7 +60,7 @@ public static class BlockLayout
         return root;
     }
 
-    private static LayoutBox CreateBox(HtmlElement element, ComputedStyle style,
+    internal static LayoutBox CreateBox(HtmlElement element, ComputedStyle style,
         LayoutBox parent, float containingWidth, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
     {
         var box = new LayoutBox { Element = element, Style = style };
@@ -136,10 +141,133 @@ public static class BlockLayout
             // Y offset applied after layout (see below)
         }
 
-        // Layout children
+        // Flex layout: delegate to FlexLayout when display is flex
+        if (style.Display == "flex")
+        {
+            FlexLayout.LayoutFlex(box, element, style, containingWidth, resolver, parentStyle);
+
+            // Compute height from flex children
+            float? specifiedHeightFlex = ResolveOptionalLength(style.Height, 0, fontSize);
+            if (specifiedHeightFlex.HasValue)
+            {
+                if (borderBox)
+                {
+                    box.Height = specifiedHeightFlex.Value;
+                    box.ContentHeight = specifiedHeightFlex.Value - box.PaddingTop - box.PaddingBottom;
+                    if (box.ContentHeight < 0) box.ContentHeight = 0;
+                }
+                else
+                {
+                    box.ContentHeight = specifiedHeightFlex.Value;
+                    box.Height = specifiedHeightFlex.Value + box.PaddingTop + box.PaddingBottom;
+                }
+            }
+            else
+            {
+                // Auto height: compute from children
+                float maxChildBottom = 0;
+                for (int ci = 0; ci < box.Children.Count; ci++)
+                {
+                    var child = box.Children[ci];
+                    float childBottom = child.Y + child.Height - box.Y - box.PaddingTop;
+                    if (childBottom > maxChildBottom)
+                        maxChildBottom = childBottom;
+                }
+                box.ContentHeight = maxChildBottom;
+                box.Height = maxChildBottom + box.PaddingTop + box.PaddingBottom;
+            }
+
+            // Min/max height constraints for flex
+            float? minHeightFlex = ResolveOptionalLength(style.Get("min-height"), 0, fontSize);
+            float? maxHeightFlex = ResolveOptionalLength(style.Get("max-height"), 0, fontSize);
+            if (minHeightFlex.HasValue && box.Height < minHeightFlex.Value)
+                box.Height = minHeightFlex.Value;
+            if (maxHeightFlex.HasValue && box.Height > maxHeightFlex.Value)
+                box.Height = maxHeightFlex.Value;
+
+            // Apply relative position Y offset
+            if (position == "relative")
+            {
+                float offsetTopFlex = ResolveLength(style.Get("top"), 0, fontSize);
+                box.Y += offsetTopFlex;
+            }
+
+            return box;
+        }
+
+        // Grid layout: delegate to GridLayout when display is grid
+        if (style.Display == "grid")
+        {
+            GridLayout.LayoutGrid(box, element, style, containingWidth, resolver, parentStyle);
+
+            // Compute height from grid children
+            float? specifiedHeightGrid = ResolveOptionalLength(style.Height, 0, fontSize);
+            if (specifiedHeightGrid.HasValue)
+            {
+                if (borderBox)
+                {
+                    box.Height = specifiedHeightGrid.Value;
+                    box.ContentHeight = specifiedHeightGrid.Value - box.PaddingTop - box.PaddingBottom;
+                    if (box.ContentHeight < 0) box.ContentHeight = 0;
+                }
+                else
+                {
+                    box.ContentHeight = specifiedHeightGrid.Value;
+                    box.Height = specifiedHeightGrid.Value + box.PaddingTop + box.PaddingBottom;
+                }
+            }
+            else
+            {
+                // Auto height: compute from children
+                float maxChildBottom = 0;
+                for (int ci = 0; ci < box.Children.Count; ci++)
+                {
+                    var child = box.Children[ci];
+                    float childBottom = child.Y + child.Height - box.Y - box.PaddingTop;
+                    if (childBottom > maxChildBottom)
+                        maxChildBottom = childBottom;
+                }
+                box.ContentHeight = maxChildBottom;
+                box.Height = maxChildBottom + box.PaddingTop + box.PaddingBottom;
+            }
+
+            // Min/max height constraints for grid
+            float? minHeightGrid = ResolveOptionalLength(style.Get("min-height"), 0, fontSize);
+            float? maxHeightGrid = ResolveOptionalLength(style.Get("max-height"), 0, fontSize);
+            if (minHeightGrid.HasValue && box.Height < minHeightGrid.Value)
+                box.Height = minHeightGrid.Value;
+            if (maxHeightGrid.HasValue && box.Height > maxHeightGrid.Value)
+                box.Height = maxHeightGrid.Value;
+
+            // Apply relative position Y offset
+            if (position == "relative")
+            {
+                float offsetTopGrid = ResolveLength(style.Get("top"), 0, fontSize);
+                box.Y += offsetTopGrid;
+            }
+
+            return box;
+        }
+
+        // Check for multi-column layout
+        bool isMultiColumn = MultiColumnLayout.IsMultiColumn(style);
+        float multiColWidth = box.ContentWidth;
+        if (isMultiColumn)
+        {
+            var (colCount, colWidth, colGap) = MultiColumnLayout.ResolveColumns(style, box.ContentWidth, fontSize);
+            if (colCount > 1)
+                multiColWidth = colWidth; // lay out children at column width
+        }
+
+        // Layout children using inline formatting context awareness
         float childY = 0;
-        float childContainingWidth = box.ContentWidth;
+        float childContainingWidth = isMultiColumn ? multiColWidth : box.ContentWidth;
         float prevMarginBottom = 0; // for margin collapsing
+        float inlineX = 0; // current X offset within the inline line
+        float inlineLineHeight = 0; // max height of current inline line
+
+        // Collect absolutely/fixed positioned children for deferred layout
+        var absChildren = new System.Collections.Generic.List<(HtmlElement elem, ComputedStyle style, string pos)>();
 
         foreach (var childNode in element.ChildNodes)
         {
@@ -150,20 +278,77 @@ public static class BlockLayout
                 if (childStyle.Display == "none")
                     continue;
 
+                // Absolutely/fixed positioned elements are removed from normal flow
+                var childPosition = childStyle.Get("position");
+                if (childPosition == "absolute" || childPosition == "fixed")
+                {
+                    absChildren.Add((childElem, childStyle, childPosition));
+                    continue;
+                }
+
                 if (IsBlockLevel(childStyle.Display))
                 {
+                    // Flush any pending inline content
+                    if (inlineX > 0)
+                    {
+                        childY += inlineLineHeight;
+                        inlineX = 0;
+                        inlineLineHeight = 0;
+                    }
+
                     // Table row layout: cells go side-by-side (horizontal)
                     if (IsTableRow(style.Display) && IsTableCell(childStyle.Display))
                     {
-                        int cellCount = CountTableCells(element);
-                        float cellWidth = cellCount > 0 ? childContainingWidth / cellCount : childContainingWidth;
-                        int cellIndex = CountPreviousCells(element, childElem);
+                        int totalColumns = CountTableColumns(element);
+                        int colOffset = CountPreviousColumns(element, childElem);
+                        int colspan = GetColspan(childElem);
+
+                        // border-collapse inherits from <table> via CSS inheritance
+                        var borderCollapse = style.Get("border-collapse") ?? parentStyle?.Get("border-collapse");
+                        bool isCollapse = borderCollapse == "collapse";
+
+                        // border-spacing: 0 when collapsed, otherwise use inherited value
+                        float borderSpacing = 0;
+                        if (!isCollapse)
+                        {
+                            var spacingVal = style.Get("border-spacing") ?? parentStyle?.Get("border-spacing");
+                            borderSpacing = !string.IsNullOrEmpty(spacingVal) ? ResolveLength(spacingVal, 0, fontSize) : 2;
+                        }
+
+                        // Subtract total border-spacing from available width for cells
+                        float spacingTotal = totalColumns > 1 ? borderSpacing * (totalColumns - 1) : 0;
+                        float availableForCells = childContainingWidth - spacingTotal;
+
+                        // Auto table layout: compute column widths based on content
+                        var columnWidths = ComputeAutoColumnWidths(element, totalColumns, availableForCells, fontSize, resolver, style);
+                        float colWidth = colOffset < columnWidths.Length ? columnWidths[colOffset] : availableForCells / Math.Max(totalColumns, 1);
+
+                        float cellWidth = 0;
+                        for (int ci = colOffset; ci < colOffset + colspan && ci < columnWidths.Length; ci++)
+                            cellWidth += columnWidths[ci];
+                        if (colspan > 1) cellWidth += borderSpacing * (colspan - 1);
+                        if (cellWidth <= 0) cellWidth = availableForCells / Math.Max(totalColumns, 1);
 
                         var childBox = CreateBox(childElem, childStyle, box, cellWidth, resolver, style);
                         childBox.Width = cellWidth;
                         childBox.ContentWidth = cellWidth - childBox.PaddingLeft - childBox.PaddingRight;
+                        if (childBox.ContentWidth < 0) childBox.ContentWidth = 0;
                         childBox.Y = box.Y + box.PaddingTop;
-                        childBox.X = box.X + box.PaddingLeft + (cellIndex * cellWidth);
+
+                        // Calculate X from sum of preceding column widths
+                        float cellX = box.X + box.PaddingLeft;
+                        for (int ci = 0; ci < colOffset && ci < columnWidths.Length; ci++)
+                            cellX += columnWidths[ci] + borderSpacing;
+                        childBox.X = cellX;
+
+                        // border-collapse: remove interior borders on shared edges
+                        if (isCollapse)
+                        {
+                            if (colOffset > 0)
+                                childBox.Style.Set("border-left-width", "0");
+                            if (!IsFirstRowInTable(element))
+                                childBox.Style.Set("border-top-width", "0");
+                        }
 
                         box.Children.Add(childBox);
 
@@ -195,50 +380,274 @@ public static class BlockLayout
                         prevMarginBottom = childBox.MarginBottom;
                     }
                 }
-                else
+                else if (childElem.TagName == "br")
                 {
-                    // Inline elements: create a simple box with text height
+                    // <br> forces a line break
+                    float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
+                    if (inlineX > 0)
+                    {
+                        childY += Math.Max(inlineLineHeight, lineHeight);
+                        inlineX = 0;
+                        inlineLineHeight = 0;
+                    }
+                    else
+                    {
+                        childY += lineHeight;
+                    }
+                }
+                else if (childElem.TagName == "img")
+                {
+                    // Image element: use width/height attributes or CSS
+                    float imgWidth = ResolveImgDimension(childStyle.Width, childElem.GetAttribute("width"), childContainingWidth, fontSize, 150);
+                    float imgHeight = ResolveImgDimension(childStyle.Height, childElem.GetAttribute("height"), 0, fontSize, 150);
+
+                    // Check if image fits on current inline line
+                    if (inlineX > 0 && inlineX + imgWidth > childContainingWidth)
+                    {
+                        childY += inlineLineHeight;
+                        inlineX = 0;
+                        inlineLineHeight = 0;
+                    }
+
                     var childBox = new LayoutBox
                     {
                         Element = childElem,
                         Style = childStyle,
-                        X = box.X + box.PaddingLeft,
+                        X = box.X + box.PaddingLeft + inlineX,
                         Y = box.Y + box.PaddingTop + childY,
-                        Width = childContainingWidth,
-                        Height = fontSize * DefaultLineHeight,
-                        ContentWidth = childContainingWidth,
-                        ContentHeight = fontSize * DefaultLineHeight,
-                        Text = GetTextContent(childElem)
+                        Width = imgWidth,
+                        Height = imgHeight,
+                        ContentWidth = imgWidth,
+                        ContentHeight = imgHeight,
+                        ImageSource = childElem.GetAttribute("src")
+                    };
+                    box.Children.Add(childBox);
+                    inlineX += imgWidth;
+                    if (imgHeight > inlineLineHeight)
+                        inlineLineHeight = imgHeight;
+                }
+                else
+                {
+                    // Inline elements: lay out horizontally on the same line
+                    var inlineText = GetTextContent(childElem);
+                    float inlineFontSize = ResolveFontSize(childStyle.FontSize, fontSize);
+                    float inlineHeight = inlineFontSize * DefaultLineHeight;
+                    float inlineWidth = 0;
+
+                    if (!string.IsNullOrEmpty(inlineText))
+                    {
+                        inlineWidth = TextMeasurer.MeasureWidth(inlineText, inlineFontSize,
+                            childStyle.FontFamily ?? style.FontFamily,
+                            childStyle.FontWeight ?? style.FontWeight,
+                            childStyle.Get("font-style") ?? style.Get("font-style"));
+                    }
+
+                    // Wrap to next line if inline element doesn't fit
+                    if (inlineX > 0 && inlineWidth > 0 && inlineX + inlineWidth > childContainingWidth)
+                    {
+                        childY += inlineLineHeight;
+                        inlineX = 0;
+                        inlineLineHeight = 0;
+                    }
+
+                    var childBox = new LayoutBox
+                    {
+                        Element = childElem,
+                        Style = childStyle,
+                        X = box.X + box.PaddingLeft + inlineX,
+                        Y = box.Y + box.PaddingTop + childY,
+                        Width = inlineWidth > 0 ? inlineWidth : childContainingWidth,
+                        Height = inlineHeight,
+                        ContentWidth = inlineWidth,
+                        ContentHeight = inlineHeight,
+                        Text = inlineText
                     };
                     box.Children.Add(childBox);
 
-                    if (!string.IsNullOrEmpty(childBox.Text))
-                        childY += childBox.Height;
+                    if (inlineWidth > 0)
+                    {
+                        inlineX += inlineWidth;
+                        if (inlineHeight > inlineLineHeight)
+                            inlineLineHeight = inlineHeight;
+                    }
+                    else if (!string.IsNullOrEmpty(inlineText))
+                    {
+                        childY += inlineHeight;
+                    }
                 }
             }
-            else if (childNode is HtmlTextNode textNode && !string.IsNullOrWhiteSpace(textNode.Data))
+            else if (childNode is HtmlTextNode textNode)
             {
+                var whiteSpaceProp = style.Get("white-space") ?? "normal";
+                bool preserveWhitespace = whiteSpaceProp == "pre" || whiteSpaceProp == "pre-wrap" || whiteSpaceProp == "pre-line";
+
+                // Skip empty text nodes unless preserving whitespace
+                if (!preserveWhitespace && string.IsNullOrWhiteSpace(textNode.Data))
+                    continue;
+
+                // Check if parent has mixed inline content (inline elements + text)
+                bool hasInlineSiblings = HasInlineElementSiblings(element);
+
+                // If there are inline siblings, participate in inline flow
+                if (hasInlineSiblings && !preserveWhitespace)
+                {
+                    var ilFontFamily = style.FontFamily;
+                    var ilFontWeight = style.FontWeight;
+                    var ilFontStyle = style.Get("font-style");
+                    float ilLineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
+                    var ilTextData = textNode.Data.Trim();
+                    if (string.IsNullOrEmpty(ilTextData)) continue;
+
+                    // Split into words and lay them out inline
+                    var words = ilTextData.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var word in words)
+                    {
+                        var wordWithSpace = (inlineX > 0 ? " " : "") + word;
+                        float wordWidth = TextMeasurer.MeasureWidth(wordWithSpace, fontSize, ilFontFamily, ilFontWeight, ilFontStyle);
+
+                        // Wrap to next line if word doesn't fit
+                        if (inlineX > 0 && inlineX + wordWidth > childContainingWidth)
+                        {
+                            childY += inlineLineHeight;
+                            inlineX = 0;
+                            inlineLineHeight = 0;
+                            wordWithSpace = word;
+                            wordWidth = TextMeasurer.MeasureWidth(word, fontSize, ilFontFamily, ilFontWeight, ilFontStyle);
+                        }
+
+                        var textBox = new LayoutBox
+                        {
+                            Style = style,
+                            X = box.X + box.PaddingLeft + inlineX,
+                            Y = box.Y + box.PaddingTop + childY,
+                            Width = wordWidth,
+                            Height = ilLineHeight,
+                            ContentWidth = wordWidth,
+                            ContentHeight = ilLineHeight,
+                            Text = wordWithSpace
+                        };
+                        box.Children.Add(textBox);
+                        inlineX += wordWidth;
+                        if (ilLineHeight > inlineLineHeight)
+                            inlineLineHeight = ilLineHeight;
+                    }
+                    continue;
+                }
+
                 // Text content with line wrapping
                 var fontFamily = style.FontFamily;
+                var fontWeight = style.FontWeight;
+                var fontStyle = style.Get("font-style");
                 float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
-                var lines = TextMeasurer.WrapText(textNode.Data.Trim(), fontSize, fontFamily, childContainingWidth);
+                float textIndent = ResolveLength(style.Get("text-indent"), childContainingWidth, fontSize);
+                var textData = preserveWhitespace ? textNode.Data : textNode.Data.Trim();
 
+                // Check overflow-wrap/word-break for character-level breaking
+                var overflowWrap = style.Get("overflow-wrap") ?? style.Get("word-wrap");
+                var wordBreak = style.Get("word-break");
+                bool breakWord = overflowWrap == "break-word" || overflowWrap == "anywhere" ||
+                                 wordBreak == "break-all" || wordBreak == "break-word";
+
+                // For text-indent, reduce first line's available width
+                float firstLineWidth = textIndent > 0 ? childContainingWidth - textIndent : childContainingWidth;
+                var lines = TextMeasurer.WrapText(textData, fontSize, fontFamily, fontWeight, fontStyle,
+                    firstLineWidth > 0 ? firstLineWidth : childContainingWidth, whiteSpaceProp, breakWord);
+
+                // If indent caused wrapping and there are remaining lines, re-wrap with full width
+                if (textIndent > 0 && lines.Count > 1)
+                {
+                    var firstLine = lines[0];
+                    var remaining = textData.Substring(firstLine.Length).TrimStart();
+                    lines = new System.Collections.Generic.List<string> { firstLine };
+                    if (!string.IsNullOrEmpty(remaining))
+                    {
+                        var moreLines = TextMeasurer.WrapText(remaining, fontSize, fontFamily, fontWeight, fontStyle, childContainingWidth, whiteSpaceProp, breakWord);
+                        lines.AddRange(moreLines);
+                    }
+                }
+
+                bool isFirstLine = true;
                 foreach (var line in lines)
                 {
+                    float lineX = box.X + box.PaddingLeft;
+                    if (isFirstLine && textIndent > 0)
+                        lineX += textIndent;
+
                     var textBox = new LayoutBox
                     {
                         Style = style,
-                        X = box.X + box.PaddingLeft,
+                        X = lineX,
                         Y = box.Y + box.PaddingTop + childY,
                         Width = childContainingWidth,
                         Height = lineHeight,
-                        ContentWidth = TextMeasurer.MeasureWidth(line, fontSize, fontFamily),
+                        ContentWidth = TextMeasurer.MeasureWidth(line, fontSize, fontFamily, fontWeight, fontStyle),
                         ContentHeight = lineHeight,
                         Text = line
                     };
+                    isFirstLine = false;
                     box.Children.Add(textBox);
                     childY += lineHeight;
                 }
+            }
+        }
+
+        // Flush any remaining inline content
+        if (inlineX > 0)
+        {
+            childY += inlineLineHeight;
+        }
+
+        // Post-pass: equalize table cell heights and apply vertical-align
+        if (IsTableRow(style.Display) && childY > 0)
+        {
+            float rowHeight = childY;
+            for (int ci = 0; ci < box.Children.Count; ci++)
+            {
+                var cell = box.Children[ci];
+                if (cell.Element == null) continue;
+
+                float contentHeight = cell.ContentHeight;
+                // Equalize cell height to row height
+                cell.Height = rowHeight;
+
+                // Apply vertical-align within the cell
+                var vAlign = cell.Style.Get("vertical-align") ?? "top";
+                float offset = 0;
+                if (vAlign == "middle")
+                    offset = (rowHeight - cell.PaddingTop - cell.PaddingBottom - contentHeight) / 2f;
+                else if (vAlign == "bottom")
+                    offset = rowHeight - cell.PaddingTop - cell.PaddingBottom - contentHeight;
+
+                if (offset > 0)
+                {
+                    // Shift all children of this cell down by offset
+                    for (int gi = 0; gi < cell.Children.Count; gi++)
+                        cell.Children[gi].Y += offset;
+                }
+            }
+        }
+
+        // List marker for display:list-item
+        if (style.Display == "list-item")
+        {
+            var listStyleType = style.Get("list-style-type") ?? (parentStyle?.Get("list-style-type")) ?? "disc";
+            string markerText = GetListMarkerText(listStyleType, element, parent.Element);
+            if (!string.IsNullOrEmpty(markerText))
+            {
+                float markerWidth = TextMeasurer.MeasureWidth(markerText + " ", fontSize, null);
+                var markerBox = new LayoutBox
+                {
+                    Style = style,
+                    IsListMarker = true,
+                    X = box.X - markerWidth,
+                    Y = box.Y + box.PaddingTop,
+                    Width = markerWidth,
+                    Height = fontSize * DefaultLineHeight,
+                    ContentWidth = markerWidth,
+                    ContentHeight = fontSize * DefaultLineHeight,
+                    Text = markerText
+                };
+                box.Children.Add(markerBox);
             }
         }
 
@@ -261,6 +670,27 @@ public static class BlockLayout
         else
         {
             // Auto height: sum of children
+            // Apply multi-column redistribution if needed
+            if (isMultiColumn && box.Children.Count > 0)
+            {
+                var (colCount, colWidth, colGap) = MultiColumnLayout.ResolveColumns(style, box.ContentWidth, fontSize);
+                if (colCount > 1)
+                {
+                    var childList = new System.Collections.Generic.List<LayoutBox>(box.Children.OfType<LayoutBox>());
+                    var columns = MultiColumnLayout.DistributeIntoColumns(childList, colCount, colWidth, colGap,
+                        box.X + box.PaddingLeft, box.Y + box.PaddingTop);
+
+                    box.Children.Clear();
+                    float maxColHeight = 0;
+                    foreach (var col in columns)
+                    {
+                        box.Children.Add(col);
+                        if (col.Height > maxColHeight) maxColHeight = col.Height;
+                    }
+                    childY = maxColHeight;
+                }
+            }
+
             box.ContentHeight = childY;
             box.Height = childY + box.PaddingTop + box.PaddingBottom;
         }
@@ -274,6 +704,101 @@ public static class BlockLayout
         if (maxHeight.HasValue && box.Height > maxHeight.Value)
             box.Height = maxHeight.Value;
 
+        // Layout absolutely/fixed positioned children (deferred from normal flow)
+        for (int ai = 0; ai < absChildren.Count; ai++)
+        {
+            var absEntry = absChildren[ai];
+            var absElem = absEntry.elem;
+            var absStyle = absEntry.style;
+            var absPos = absEntry.pos;
+            var absBox = CreateBox(absElem, absStyle, box, box.ContentWidth, resolver, style);
+            absBox.IsAbsolutelyPositioned = true;
+
+            // Determine containing block:
+            // - position:fixed -> page root (0,0 with page dimensions)
+            // - position:absolute -> nearest positioned ancestor (position != static) or root
+            float cbX, cbY, cbWidth, cbHeight;
+
+            if (absPos == "fixed")
+            {
+                // Fixed: relative to page origin
+                cbX = 0;
+                cbY = 0;
+                cbWidth = containingWidth;
+                cbHeight = FindPageHeight(parent);
+            }
+            else
+            {
+                // Absolute: relative to nearest positioned ancestor or this box if positioned
+                if (position == "relative" || position == "absolute" || position == "fixed" || position == "sticky")
+                {
+                    // This box is the containing block
+                    cbX = box.X;
+                    cbY = box.Y;
+                    cbWidth = box.Width;
+                    cbHeight = box.Height;
+                }
+                else
+                {
+                    // No positioned ancestor at this level -- use page root
+                    cbX = 0;
+                    cbY = 0;
+                    cbWidth = containingWidth;
+                    cbHeight = FindPageHeight(parent);
+                }
+            }
+
+            float absFontSize = ResolveFontSize(absStyle.FontSize, fontSize);
+
+            // Resolve top/right/bottom/left
+            float? topVal = ResolveOptionalLength(absStyle.Get("top"), cbHeight, absFontSize);
+            float? rightVal = ResolveOptionalLength(absStyle.Get("right"), cbWidth, absFontSize);
+            float? bottomVal = ResolveOptionalLength(absStyle.Get("bottom"), cbHeight, absFontSize);
+            float? leftVal = ResolveOptionalLength(absStyle.Get("left"), cbWidth, absFontSize);
+
+            // If both left and right are set, calculate width from them (when no explicit width)
+            if (leftVal.HasValue && rightVal.HasValue && absStyle.Width == null)
+            {
+                float newWidth = cbWidth - leftVal.Value - rightVal.Value
+                    - absBox.MarginLeft - absBox.MarginRight;
+                if (newWidth > 0)
+                {
+                    absBox.Width = newWidth;
+                    absBox.ContentWidth = newWidth - absBox.PaddingLeft - absBox.PaddingRight;
+                }
+            }
+
+            // If both top and bottom are set, calculate height from them (when no explicit height)
+            if (topVal.HasValue && bottomVal.HasValue && absStyle.Height == null)
+            {
+                float newHeight = cbHeight - topVal.Value - bottomVal.Value
+                    - absBox.MarginTop - absBox.MarginBottom;
+                if (newHeight > 0)
+                {
+                    absBox.Height = newHeight;
+                    absBox.ContentHeight = newHeight - absBox.PaddingTop - absBox.PaddingBottom;
+                }
+            }
+
+            // Position X
+            if (leftVal.HasValue)
+                absBox.X = cbX + leftVal.Value + absBox.MarginLeft;
+            else if (rightVal.HasValue)
+                absBox.X = cbX + cbWidth - rightVal.Value - absBox.Width - absBox.MarginRight;
+            else
+                absBox.X = cbX + absBox.MarginLeft; // default: top-left of containing block
+
+            // Position Y
+            if (topVal.HasValue)
+                absBox.Y = cbY + topVal.Value + absBox.MarginTop;
+            else if (bottomVal.HasValue)
+                absBox.Y = cbY + cbHeight - bottomVal.Value - absBox.Height - absBox.MarginBottom;
+            else
+                absBox.Y = cbY + absBox.MarginTop; // default: top-left of containing block
+
+            box.Children.Add(absBox);
+        }
+
         // Apply relative position Y offset
         if (position == "relative")
         {
@@ -284,31 +809,396 @@ public static class BlockLayout
         return box;
     }
 
+    /// <summary>Walk up parent chain to find page height.</summary>
+    private static float FindPageHeight(LayoutBox parent)
+    {
+        // The root box has Height set to page height and no Element
+        if (parent.Element == null && parent.Height > 0)
+            return parent.Height;
+        // Default A4 page height in CSS px
+        return parent.Height > 0 ? parent.Height : 841.89f;
+    }
+
     private static bool IsTableRow(string display)
         => display == "table-row";
 
     private static bool IsTableCell(string display)
         => display == "table-cell";
 
-    private static int CountTableCells(HtmlElement row)
+    /// <summary>Check if a table row (tr) is the first row in its table.</summary>
+    private static bool IsFirstRowInTable(HtmlElement row)
+    {
+        var parent = row.Parent as HtmlElement;
+        if (parent == null) return true;
+
+        // If parent is thead/tbody/tfoot, check if this is the first row in it AND the group is first
+        if (parent.TagName == "thead" || parent.TagName == "tbody" || parent.TagName == "tfoot")
+        {
+            // Not the first row in this group
+            for (int i = 0; i < parent.ChildNodes.Count; i++)
+            {
+                if (parent.ChildNodes[i] is HtmlElement elem && elem.TagName == "tr")
+                    return elem == row;
+            }
+
+            // Check if this group is the first group in the table
+            var table = parent.Parent as HtmlElement;
+            if (table == null) return true;
+            for (int i = 0; i < table.ChildNodes.Count; i++)
+            {
+                if (table.ChildNodes[i] is HtmlElement elem && (elem.TagName == "thead" || elem.TagName == "tbody" || elem.TagName == "tfoot" || elem.TagName == "tr"))
+                {
+                    if (elem == parent) return true;
+                    if (elem.TagName == "tr") return false;
+                    // Non-empty group before this one
+                    for (int j = 0; j < elem.ChildNodes.Count; j++)
+                        if (elem.ChildNodes[j] is HtmlElement) return false;
+                }
+            }
+            return true;
+        }
+
+        // Direct child of table
+        if (parent.TagName == "table")
+        {
+            for (int i = 0; i < parent.ChildNodes.Count; i++)
+            {
+                if (parent.ChildNodes[i] is HtmlElement elem)
+                {
+                    if (elem == row) return true;
+                    if (elem.TagName == "tr") return false;
+                    if (elem.TagName == "thead" || elem.TagName == "tbody" || elem.TagName == "tfoot")
+                    {
+                        for (int j = 0; j < elem.ChildNodes.Count; j++)
+                            if (elem.ChildNodes[j] is HtmlElement) return false;
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Compute auto column widths by measuring content across all rows in the table.
+    /// Walks up from the row to find the table, scans all rows, measures text width
+    /// per column, then distributes available width proportionally.
+    /// Results are cached per table element to avoid re-computation for each row.
+    /// </summary>
+    [ThreadStatic]
+    private static System.Collections.Generic.Dictionary<HtmlElement, float[]>? _tableColumnWidthCache;
+
+    private static float[] ComputeAutoColumnWidths(HtmlElement row, int totalColumns, float availableWidth,
+        float fontSize, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
+    {
+        if (totalColumns <= 0) return new float[] { availableWidth };
+
+        // Find the table element (walk up through thead/tbody/tfoot)
+        HtmlElement? tableElement = row.Parent as HtmlElement;
+        while (tableElement != null && tableElement.TagName != "table")
+            tableElement = tableElement.Parent as HtmlElement;
+
+        if (tableElement == null)
+        {
+            // Fallback: equal distribution
+            float eq = availableWidth / totalColumns;
+            var eqWidths = new float[totalColumns];
+            for (int i = 0; i < totalColumns; i++) eqWidths[i] = eq;
+            return eqWidths;
+        }
+
+        // Check cache
+        if (_tableColumnWidthCache == null)
+            _tableColumnWidthCache = new System.Collections.Generic.Dictionary<HtmlElement, float[]>();
+
+        if (_tableColumnWidthCache.TryGetValue(tableElement, out var cached))
+            return cached;
+
+        // Scan all rows in the table to find max content width per column
+        var maxContentWidths = new float[totalColumns];
+        var hasExplicitWidth = new bool[totalColumns];
+        var explicitWidths = new float[totalColumns];
+
+        ScanTableForColumnWidths(tableElement, totalColumns, maxContentWidths, hasExplicitWidth, explicitWidths,
+            fontSize, availableWidth, resolver, parentStyle);
+
+        // Distribute available width proportionally based on content
+        float totalContentWidth = 0;
+        float totalExplicitWidth = 0;
+        int flexColumns = 0;
+
+        for (int i = 0; i < totalColumns; i++)
+        {
+            if (hasExplicitWidth[i])
+            {
+                totalExplicitWidth += explicitWidths[i];
+            }
+            else
+            {
+                totalContentWidth += Math.Max(maxContentWidths[i], 20); // minimum 20px per column
+                flexColumns++;
+            }
+        }
+
+        float remainingWidth = availableWidth - totalExplicitWidth;
+        if (remainingWidth < 0) remainingWidth = availableWidth;
+
+        var result = new float[totalColumns];
+        for (int i = 0; i < totalColumns; i++)
+        {
+            if (hasExplicitWidth[i])
+            {
+                result[i] = explicitWidths[i];
+            }
+            else if (totalContentWidth > 0)
+            {
+                float contentW = Math.Max(maxContentWidths[i], 20);
+                result[i] = remainingWidth * contentW / totalContentWidth;
+            }
+            else
+            {
+                result[i] = remainingWidth / Math.Max(flexColumns, 1);
+            }
+        }
+
+        _tableColumnWidthCache[tableElement] = result;
+        return result;
+    }
+
+    private static void ScanTableForColumnWidths(HtmlElement tableElement, int totalColumns,
+        float[] maxContentWidths, bool[] hasExplicitWidth, float[] explicitWidths,
+        float fontSize, float availableWidth,
+        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
+    {
+        // Walk: table -> thead/tbody/tfoot -> tr -> td/th
+        foreach (var child in tableElement.ChildNodes)
+        {
+            var group = child as HtmlElement;
+            if (group == null) continue;
+
+            // Direct <tr> children of <table>
+            if (group.TagName == "tr")
+            {
+                ScanRowForColumnWidths(group, totalColumns, maxContentWidths, hasExplicitWidth, explicitWidths,
+                    fontSize, availableWidth, resolver, parentStyle);
+            }
+            // <thead>, <tbody>, <tfoot> contain <tr>
+            else if (group.TagName == "thead" || group.TagName == "tbody" || group.TagName == "tfoot")
+            {
+                foreach (var trNode in group.ChildNodes)
+                {
+                    var tr = trNode as HtmlElement;
+                    if (tr != null && tr.TagName == "tr")
+                    {
+                        ScanRowForColumnWidths(tr, totalColumns, maxContentWidths, hasExplicitWidth, explicitWidths,
+                            fontSize, availableWidth, resolver, parentStyle);
+                    }
+                }
+            }
+        }
+    }
+
+    private static void ScanRowForColumnWidths(HtmlElement row, int totalColumns,
+        float[] maxContentWidths, bool[] hasExplicitWidth, float[] explicitWidths,
+        float fontSize, float availableWidth,
+        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
+    {
+        int colIdx = 0;
+        foreach (var cellNode in row.ChildNodes)
+        {
+            var cell = cellNode as HtmlElement;
+            if (cell == null || (cell.TagName != "td" && cell.TagName != "th"))
+                continue;
+
+            if (colIdx >= totalColumns) break;
+            int colspan = GetColspan(cell);
+
+            // Check for explicit width on cell
+            var cellStyle = resolver(cell, parentStyle);
+            var widthStr = cellStyle?.Width;
+            if (!string.IsNullOrEmpty(widthStr) && widthStr != "auto")
+            {
+                float? w = ResolveOptionalLength(widthStr, availableWidth, fontSize);
+                if (w.HasValue && colspan == 1)
+                {
+                    hasExplicitWidth[colIdx] = true;
+                    explicitWidths[colIdx] = Math.Max(explicitWidths[colIdx], w.Value);
+                }
+            }
+
+            // Measure text content width
+            if (colspan == 1)
+            {
+                float textWidth = MeasureElementTextWidth(cell, fontSize);
+                // Add padding estimate (10px each side default for cells with padding:10px)
+                float padding = 0;
+                if (cellStyle != null)
+                {
+                    padding += ResolveLength(cellStyle.PaddingLeft ?? "0", 0, fontSize);
+                    padding += ResolveLength(cellStyle.PaddingRight ?? "0", 0, fontSize);
+                }
+                textWidth += padding;
+
+                if (textWidth > maxContentWidths[colIdx])
+                    maxContentWidths[colIdx] = textWidth;
+            }
+
+            colIdx += colspan;
+        }
+    }
+
+    /// <summary>Measure the total text width of an element and its children.</summary>
+    private static float MeasureElementTextWidth(HtmlElement element, float fontSize)
+    {
+        float totalWidth = 0;
+        foreach (var node in element.ChildNodes)
+        {
+            if (node is Html.Dom.HtmlTextNode textNode)
+            {
+                var text = textNode.Data?.Trim();
+                if (!string.IsNullOrEmpty(text))
+                    totalWidth += TextMeasurer.MeasureWidth(text, fontSize, "Helvetica");
+            }
+            else if (node is HtmlElement child)
+            {
+                totalWidth += MeasureElementTextWidth(child, fontSize);
+            }
+        }
+        return totalWidth;
+    }
+
+    /// <summary>Count total column slots in a row (respecting colspan).</summary>
+    private static int CountTableColumns(HtmlElement row)
     {
         int count = 0;
         foreach (var child in row.ChildNodes)
             if (child is HtmlElement e && (e.TagName == "td" || e.TagName == "th"))
-                count++;
+                count += GetColspan(e);
         return count;
     }
 
-    private static int CountPreviousCells(HtmlElement row, HtmlElement currentCell)
+    /// <summary>Count column slots before the current cell (respecting colspan).</summary>
+    private static int CountPreviousColumns(HtmlElement row, HtmlElement currentCell)
     {
-        int index = 0;
+        int columns = 0;
         foreach (var child in row.ChildNodes)
         {
-            if (child == currentCell) return index;
+            if (child == currentCell) return columns;
             if (child is HtmlElement e && (e.TagName == "td" || e.TagName == "th"))
-                index++;
+                columns += GetColspan(e);
         }
-        return index;
+        return columns;
+    }
+
+    /// <summary>Get colspan attribute value (default 1).</summary>
+    private static int GetColspan(HtmlElement cell)
+    {
+        var attr = cell.GetAttribute("colspan");
+        if (!string.IsNullOrEmpty(attr) && int.TryParse(attr, out int colspan) && colspan > 0)
+            return colspan;
+        return 1;
+    }
+
+    private static string GetListMarkerText(string listStyleType, HtmlElement element, HtmlElement? parentElement)
+    {
+        switch (listStyleType)
+        {
+            case "disc":
+                return "\u2022"; // • (bullet, WinAnsi 0x95)
+            case "circle":
+                return "o"; // circle marker (WinAnsi-safe)
+            case "square":
+                return "\u2013"; // – as square substitute (WinAnsi 0x96)
+            case "none":
+                return "";
+            case "decimal":
+                int index = GetListItemIndex(element, parentElement);
+                return index + ".";
+            case "decimal-leading-zero":
+                int idx = GetListItemIndex(element, parentElement);
+                return idx.ToString("D2") + ".";
+            case "lower-alpha":
+            case "lower-latin":
+                int ai = GetListItemIndex(element, parentElement);
+                return ai > 0 && ai <= 26 ? ((char)('a' + ai - 1)).ToString() + "." : ai + ".";
+            case "upper-alpha":
+            case "upper-latin":
+                int bi = GetListItemIndex(element, parentElement);
+                return bi > 0 && bi <= 26 ? ((char)('A' + bi - 1)).ToString() + "." : bi + ".";
+            case "lower-roman":
+                int ri = GetListItemIndex(element, parentElement);
+                return ToRoman(ri).ToLowerInvariant() + ".";
+            case "upper-roman":
+                int ui = GetListItemIndex(element, parentElement);
+                return ToRoman(ui) + ".";
+            default:
+                return "\u2022"; // default to disc
+        }
+    }
+
+    private static int GetListItemIndex(HtmlElement li, HtmlElement? parent)
+    {
+        if (parent == null) return 1;
+        int index = 0;
+        foreach (var child in parent.ChildNodes)
+        {
+            if (child is HtmlElement e && e.TagName == "li")
+            {
+                index++;
+                if (e == li) return index;
+            }
+        }
+        return 1;
+    }
+
+    private static string ToRoman(int number)
+    {
+        if (number <= 0 || number > 3999) return number.ToString();
+        string[] thousands = { "", "M", "MM", "MMM" };
+        string[] hundreds = { "", "C", "CC", "CCC", "CD", "D", "DC", "DCC", "DCCC", "CM" };
+        string[] tens = { "", "X", "XX", "XXX", "XL", "L", "LX", "LXX", "LXXX", "XC" };
+        string[] ones = { "", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX" };
+        return thousands[number / 1000] + hundreds[(number % 1000) / 100] +
+               tens[(number % 100) / 10] + ones[number % 10];
+    }
+
+    /// <summary>Check if an element has any inline element children (not just text nodes or br).</summary>
+    private static bool HasInlineElementSiblings(HtmlElement parent)
+    {
+        foreach (var child in parent.ChildNodes)
+        {
+            if (child is HtmlElement e && e.TagName != "br" && e.TagName != "img")
+            {
+                var tag = e.TagName;
+                // Only count true inline elements (not block-level)
+                if (tag != "div" && tag != "p" && tag != "h1" && tag != "h2" && tag != "h3" &&
+                    tag != "h4" && tag != "h5" && tag != "h6" && tag != "ul" && tag != "ol" &&
+                    tag != "li" && tag != "table" && tag != "blockquote" && tag != "pre" &&
+                    tag != "hr" && tag != "section" && tag != "article" && tag != "nav" &&
+                    tag != "header" && tag != "footer" && tag != "main" && tag != "aside" &&
+                    tag != "figure" && tag != "figcaption" && tag != "details" && tag != "summary")
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static float ResolveImgDimension(string? cssValue, string? htmlAttr, float containingSize, float fontSize, float defaultValue)
+    {
+        // CSS takes priority
+        var resolved = ResolveOptionalLength(cssValue, containingSize, fontSize);
+        if (resolved.HasValue) return resolved.Value;
+
+        // HTML attribute
+        if (!string.IsNullOrEmpty(htmlAttr))
+        {
+            var attrResolved = ResolveOptionalLength(htmlAttr.EndsWith("%") ? htmlAttr : htmlAttr + "px", containingSize, fontSize);
+            if (attrResolved.HasValue) return attrResolved.Value;
+        }
+
+        return defaultValue;
     }
 
     private static bool IsBlockLevel(string display)
@@ -348,6 +1238,10 @@ public static class BlockLayout
 
     private static float ResolveLengthValue(string value, float containingSize, float fontSize)
     {
+        // Check for calc(), min(), max(), clamp() expressions
+        if (CalcResolver.IsMathFunction(value))
+            return CalcResolver.Resolve(value, containingSize, fontSize);
+
         if (value.EndsWith("px"))
             return ParseFloat(value.Substring(0, value.Length - 2));
 
@@ -379,7 +1273,7 @@ public static class BlockLayout
         return 0;
     }
 
-    private static float ResolveFontSize(string? value, float parentFontSize)
+    internal static float ResolveFontSize(string? value, float parentFontSize)
     {
         if (string.IsNullOrEmpty(value))
             return parentFontSize;
@@ -406,6 +1300,20 @@ public static class BlockLayout
     {
         foreach (var child in box.Children)
         {
+            // List markers are already absolutely positioned
+            if (child.IsListMarker)
+            {
+                ResolveAbsolutePositions(child, child.X, child.Y);
+                continue;
+            }
+
+            // Absolutely positioned children already have final coordinates
+            if (child.IsAbsolutelyPositioned)
+            {
+                ResolveAbsolutePositions(child, child.X, child.Y);
+                continue;
+            }
+
             // A child's Y is relative if it's less than its parent's Y
             // and the parent has a non-zero Y position
             bool needsYFix = box.Y > 0 && child.Y < box.Y;

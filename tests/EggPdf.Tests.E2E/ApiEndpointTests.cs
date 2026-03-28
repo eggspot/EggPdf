@@ -137,6 +137,33 @@ public class ApiEndpointTests
     }
 
     [Fact]
+    public async Task RenderImage_ValidHtml_ReturnsPdf()
+    {
+        var content = new StringContent(
+            JsonSerializer.Serialize(new { html = "<h1>Image render</h1>" }),
+            Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/render/image", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        var bytes = await resp.Content.ReadAsByteArrayAsync();
+        bytes.Length.Should().BeGreaterThan(100);
+        Encoding.ASCII.GetString(bytes, 0, 5).Should().Be("%PDF-");
+    }
+
+    [Fact]
+    public async Task RenderImage_EmptyHtml_ReturnsBadRequest()
+    {
+        var content = new StringContent(
+            JsonSerializer.Serialize(new { html = "" }),
+            Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/render/image", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task StaticFiles_IndexHtmlServed()
     {
         var resp = await _client.GetAsync($"{_fixture.BaseUrl}/");

@@ -174,4 +174,206 @@ public class ColorTests
 
         names.Length.Should().Be(148);
     }
+
+    [Fact]
+    public void TryParse_Rgb_Function()
+    {
+        var color = Color.TryParse("rgb(255, 0, 128)");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(255);
+        color.Value.G.Should().Be(0);
+        color.Value.B.Should().Be(128);
+        color.Value.A.Should().Be(255);
+    }
+
+    [Fact]
+    public void TryParse_Rgba_Function()
+    {
+        var color = Color.TryParse("rgba(100, 200, 50, 0.5)");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(100);
+        color.Value.G.Should().Be(200);
+        color.Value.B.Should().Be(50);
+        color.Value.A.Should().BeInRange(126, 128); // 0.5 * 255 ≈ 128
+    }
+
+    [Fact]
+    public void TryParse_Rgba_Percent()
+    {
+        var color = Color.TryParse("rgba(100%, 0%, 50%, 0.8)");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(255);
+        color.Value.G.Should().Be(0);
+        color.Value.B.Should().BeInRange(127, 128);
+    }
+
+    [Fact]
+    public void TryParse_Hsl_Function()
+    {
+        // hsl(0, 100%, 50%) = pure red
+        var color = Color.TryParse("hsl(0, 100%, 50%)");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(255);
+        color.Value.G.Should().Be(0);
+        color.Value.B.Should().Be(0);
+    }
+
+    [Fact]
+    public void TryParse_Hsl_Green()
+    {
+        // hsl(120, 100%, 50%) = pure green
+        var color = Color.TryParse("hsl(120, 100%, 50%)");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(0);
+        color.Value.G.Should().Be(255);
+        color.Value.B.Should().Be(0);
+    }
+
+    [Fact]
+    public void TryParse_Hsl_Blue()
+    {
+        // hsl(240, 100%, 50%) = pure blue
+        var color = Color.TryParse("hsl(240, 100%, 50%)");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(0);
+        color.Value.G.Should().Be(0);
+        color.Value.B.Should().Be(255);
+    }
+
+    [Fact]
+    public void TryParse_Hsla_WithAlpha()
+    {
+        var color = Color.TryParse("hsla(0, 100%, 50%, 0.5)");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(255);
+        color.Value.A.Should().BeInRange(126, 128);
+    }
+
+    [Fact]
+    public void TryParse_ModernSyntax_Rgb()
+    {
+        // Modern CSS: rgb(255 0 128 / 0.5)
+        var color = Color.TryParse("rgb(255 0 128 / 0.5)");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(255);
+        color.Value.G.Should().Be(0);
+        color.Value.B.Should().Be(128);
+        color.Value.A.Should().BeInRange(126, 128);
+    }
+
+    [Fact]
+    public void TryParse_Hex_WorksViaTryParse()
+    {
+        var color = Color.TryParse("#ff0000");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(255);
+    }
+
+    [Fact]
+    public void TryParse_Named_WorksViaTryParse()
+    {
+        var color = Color.TryParse("red");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(255);
+    }
+
+    [Fact]
+    public void TryParse_Transparent()
+    {
+        var color = Color.TryParse("transparent");
+        color.Should().NotBeNull();
+        color!.Value.A.Should().Be(0);
+    }
+
+    [Fact]
+    public void TryParse_Invalid_ReturnsNull()
+    {
+        Color.TryParse("notacolor").Should().BeNull();
+        Color.TryParse("").Should().BeNull();
+        Color.TryParse(null).Should().BeNull();
+    }
+
+    [Fact]
+    public void TryParse_Hsl_White()
+    {
+        // hsl(0, 0%, 100%) = white
+        var color = Color.TryParse("hsl(0, 0%, 100%)");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(255);
+        color.Value.G.Should().Be(255);
+        color.Value.B.Should().Be(255);
+    }
+
+    [Fact]
+    public void TryParse_Hsl_Black()
+    {
+        // hsl(0, 0%, 0%) = black
+        var color = Color.TryParse("hsl(0, 0%, 0%)");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(0);
+        color.Value.G.Should().Be(0);
+        color.Value.B.Should().Be(0);
+    }
+
+    [Fact]
+    public void TryParse_Hsl_NegativeHue()
+    {
+        // hsl(-120, 100%, 50%) should normalize to hsl(240, ...)  = blue
+        var color = Color.TryParse("hsl(-120, 100%, 50%)");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(0);
+        color.Value.G.Should().Be(0);
+        color.Value.B.Should().Be(255);
+    }
+
+    [Fact]
+    public void TryParse_Rgb_ZeroAlpha()
+    {
+        var color = Color.TryParse("rgba(255, 0, 0, 0)");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(255);
+        color.Value.A.Should().Be(0);
+        color.Value.IsTransparent.Should().BeTrue();
+    }
+
+    [Fact]
+    public void TryParse_Rgb_Clamping()
+    {
+        // Values beyond 255 should clamp
+        var color = Color.TryParse("rgb(300, -10, 128)");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(255); // clamped to max
+        color.Value.G.Should().Be(0);    // clamped to min
+        color.Value.B.Should().Be(128);
+    }
+
+    [Fact]
+    public void TryParse_ModernSyntax_Hsl()
+    {
+        // Modern CSS: hsl(120 100% 50% / 0.8)
+        var color = Color.TryParse("hsl(120 100% 50% / 0.8)");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(0);
+        color.Value.G.Should().Be(255);
+        color.Value.B.Should().Be(0);
+        color.Value.A.Should().BeInRange(203, 205); // 0.8 * 255 ≈ 204
+    }
+
+    [Fact]
+    public void TryParse_Hex_ShortForm()
+    {
+        var color = Color.TryParse("#f0a");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(255);
+        color.Value.G.Should().Be(0);
+        color.Value.B.Should().Be(170);
+    }
+
+    [Fact]
+    public void TryParse_WhitespaceAroundValue()
+    {
+        var color = Color.TryParse("  rgb(255, 0, 0)  ");
+        color.Should().NotBeNull();
+        color!.Value.R.Should().Be(255);
+    }
 }

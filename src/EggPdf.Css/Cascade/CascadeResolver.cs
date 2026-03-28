@@ -97,9 +97,12 @@ public class CascadeResolver
             }
         }
 
-        // Apply winners to style
+        // Apply winners to style (expand shorthands)
         foreach (var kv in propertyWinners)
-            style.Set(kv.Key, kv.Value.value);
+        {
+            if (!CssShorthandExpander.TryExpand(kv.Key, kv.Value.value, style))
+                style.Set(kv.Key, kv.Value.value);
+        }
 
         // 5. Apply inline styles (highest priority, except for !important in stylesheets)
         var inlineCss = element.GetAttribute("style");
@@ -112,7 +115,8 @@ public class CascadeResolver
                 if (propertyWinners.TryGetValue(decl.Property, out var existing) && existing.important && !decl.Important)
                     continue; // author !important wins over inline non-important
 
-                style.Set(decl.Property, decl.Value);
+                if (!CssShorthandExpander.TryExpand(decl.Property, decl.Value, style))
+                    style.Set(decl.Property, decl.Value);
             }
         }
 
@@ -120,7 +124,140 @@ public class CascadeResolver
         if (element.HasAttribute("hidden"))
             style.Set("display", "none");
 
+        // 7. Inherit custom properties from parent (all custom properties inherit per spec)
+        if (parentStyle != null)
+        {
+            foreach (var kv in parentStyle.All)
+            {
+                if (CssVariableResolver.IsCustomProperty(kv.Key) && !style.Has(kv.Key))
+                    style.Set(kv.Key, kv.Value);
+            }
+        }
+
+        // 8. Resolve var() references in all non-custom property values
+        ResolveCustomProperties(style);
+
         return style;
+    }
+
+    /// <summary>Resolve computed style for a pseudo-element (::before or ::after).</summary>
+    public ComputedStyle? ResolvePseudoElement(HtmlElement element, string pseudo, ComputedStyle? parentStyle)
+    {
+        // Collect matching rules that target this pseudo-element
+        string pseudoSuffix = "::" + pseudo;
+        string pseudoSuffixSingle = ":" + pseudo; // legacy single-colon
+        var matches = new List<(CssDeclaration decl, int specificity, int order)>();
+        int ruleOrder = 0;
+
+        foreach (var rule in _authorRules)
+        {
+            var sel = rule.SelectorText;
+            bool hasPseudo = false;
+            string? baseSelector = null;
+
+            if (sel.EndsWith(pseudoSuffix, StringComparison.OrdinalIgnoreCase))
+            {
+                baseSelector = sel.Substring(0, sel.Length - pseudoSuffix.Length);
+                hasPseudo = true;
+            }
+            else if (sel.EndsWith(pseudoSuffixSingle, StringComparison.OrdinalIgnoreCase))
+            {
+                baseSelector = sel.Substring(0, sel.Length - pseudoSuffixSingle.Length);
+                hasPseudo = true;
+            }
+
+            if (hasPseudo && !string.IsNullOrEmpty(baseSelector) && SelectorMatcher.Matches(baseSelector, element))
+            {
+                var spec = SelectorMatcher.CalculateSpecificity(baseSelector);
+                int specScore = spec.A * 10000 + spec.B * 100 + spec.C + 1; // +1 for pseudo-element
+
+                foreach (var decl in rule.Declarations)
+                    matches.Add((decl, specScore, ruleOrder));
+            }
+            ruleOrder++;
+        }
+
+        if (matches.Count == 0) return null;
+
+        // Build a style inheriting from parent
+        var style = new ComputedStyle();
+        if (parentStyle != null)
+        {
+            // Inherit inheritable properties from parent
+            foreach (var kv in parentStyle.All)
+            {
+                if (IsInherited(kv.Key))
+                    style.Set(kv.Key, kv.Value);
+            }
+        }
+
+        // Apply matched declarations (sorted by specificity then order)
+        foreach (var (decl, _, _) in matches.OrderBy(m => m.specificity).ThenBy(m => m.order))
+        {
+            if (!CssShorthandExpander.TryExpand(decl.Property, decl.Value, style))
+                style.Set(decl.Property, decl.Value);
+        }
+
+        // Only return if there is a content property
+        if (!style.Has("content")) return null;
+
+        ResolveCustomProperties(style);
+        return style;
+    }
+
+    private static bool IsInherited(string property)
+    {
+        // Simplified set of inherited properties
+        switch (property.ToLowerInvariant())
+        {
+            case "color":
+            case "font-family":
+            case "font-size":
+            case "font-weight":
+            case "font-style":
+            case "line-height":
+            case "text-align":
+            case "white-space":
+            case "letter-spacing":
+            case "word-spacing":
+            case "visibility":
+            case "text-transform":
+            case "direction":
+            case "list-style-type":
+            case "list-style-position":
+            case "border-collapse":
+            case "border-spacing":
+            case "caption-side":
+            case "empty-cells":
+                return true;
+            default:
+                return CssVariableResolver.IsCustomProperty(property);
+        }
+    }
+
+    /// <summary>
+    /// Resolve all var() references in non-custom property values.
+    /// Custom properties themselves are not resolved (they store raw values).
+    /// </summary>
+    private static void ResolveCustomProperties(ComputedStyle style)
+    {
+        // Collect properties that need resolution (avoid modifying during iteration)
+        var toResolve = new List<KeyValuePair<string, string>>();
+        foreach (var kv in style.All)
+        {
+            if (!CssVariableResolver.IsCustomProperty(kv.Key) &&
+                kv.Value.IndexOf("var(", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                toResolve.Add(kv);
+            }
+        }
+
+        foreach (var kv in toResolve)
+        {
+            var resolved = CssVariableResolver.ResolveVariables(kv.Value, style);
+            if (resolved != kv.Value)
+                style.Set(kv.Key, resolved);
+        }
     }
 
     private bool MediaMatches(string mediaQuery)

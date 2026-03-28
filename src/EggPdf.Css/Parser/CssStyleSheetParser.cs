@@ -58,6 +58,9 @@ public static class CssStyleSheetParser
 
         switch (keyword)
         {
+            case "import":
+                ParseImportRule(sheet, tokens, ref pos);
+                break;
             case "media":
                 ParseMediaRule(sheet, tokens, ref pos);
                 break;
@@ -71,6 +74,69 @@ public static class CssStyleSheetParser
                 // Skip unknown at-rule: consume until { } or ;
                 SkipAtRule(tokens, ref pos);
                 break;
+        }
+    }
+
+    private static void ParseImportRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos)
+    {
+        // @import url("...") [media];
+        // @import "...";
+        // @import url(...);
+        string? url = null;
+
+        if (pos >= tokens.Count) return;
+
+        var token = tokens[pos];
+
+        // url("...") or url(...)
+        if (token.Type == CssTokenType.Url)
+        {
+            url = token.Value;
+            pos++;
+        }
+        else if (token.Type == CssTokenType.Function &&
+                 string.Equals(token.Value, "url", StringComparison.OrdinalIgnoreCase))
+        {
+            pos++; // skip function token
+            SkipWhitespace(tokens, ref pos);
+            if (pos < tokens.Count && tokens[pos].Type == CssTokenType.String)
+            {
+                url = tokens[pos].Value;
+                pos++;
+            }
+            // skip until closing paren
+            while (pos < tokens.Count && tokens[pos].Type != CssTokenType.RightParen) pos++;
+            if (pos < tokens.Count) pos++; // skip )
+        }
+        else if (token.Type == CssTokenType.String)
+        {
+            url = token.Value;
+            pos++;
+        }
+
+        SkipWhitespace(tokens, ref pos);
+
+        // Optional media query (everything until ;)
+        string? mediaQuery = null;
+        if (pos < tokens.Count && tokens[pos].Type != CssTokenType.Semicolon)
+        {
+            var sb = new StringBuilder();
+            while (pos < tokens.Count && tokens[pos].Type != CssTokenType.Semicolon)
+            {
+                if (tokens[pos].Type != CssTokenType.Whitespace || sb.Length > 0)
+                    sb.Append(tokens[pos].Value ?? "");
+                pos++;
+            }
+            var mq = sb.ToString().Trim();
+            if (mq.Length > 0) mediaQuery = mq;
+        }
+
+        // Skip the semicolon
+        if (pos < tokens.Count && tokens[pos].Type == CssTokenType.Semicolon) pos++;
+
+        if (!string.IsNullOrEmpty(url))
+        {
+            sheet.ImportRules.Add(new CssImportRule { Url = url, MediaQuery = mediaQuery });
         }
     }
 

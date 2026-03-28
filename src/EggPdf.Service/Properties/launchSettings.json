@@ -3,10 +3,11 @@
     "EggPdf.Service": {
       "commandName": "Project",
       "launchBrowser": true,
+      "launchUrl": "",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
-      "applicationUrl": "https://localhost:55726;http://localhost:55727"
+      "applicationUrl": "http://localhost:55727"
     }
   }
 }

@@ -86,6 +86,60 @@ public class TableCellLayoutTests
         }
     }
 
+    [Fact]
+    public void Colspan_CellSpansMultipleColumns()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<table style='width: 600px'><tbody>" +
+            "<tr><td colspan='2'>Wide</td><td>Narrow</td></tr>" +
+            "<tr><td>A</td><td>B</td><td>C</td></tr>" +
+            "</tbody></table>", 600, 800);
+
+        var trs = root.FindAllByTag("tr");
+        trs.Should().HaveCountGreaterOrEqualTo(2);
+
+        // First row: 2 cells (one spanning 2 columns)
+        var row1Cells = GetCellsInRow(trs[0]);
+        row1Cells.Should().HaveCount(2);
+
+        // The spanning cell spans 2 of 3 columns
+        row1Cells[0].Width.Should().BeGreaterThan(50f,
+            "colspan=2 cell should have substantial width");
+        row1Cells[1].Width.Should().BeGreaterThan(50f,
+            "single column cell should have substantial width");
+
+        // Both cells together should approximately equal the table width
+        float totalCellWidth = row1Cells[0].Width + row1Cells[1].Width;
+        totalCellWidth.Should().BeApproximately(600f, 30f,
+            "cell widths should sum to approximately the table width");
+    }
+
+    [Fact]
+    public void Colspan_CellPositionedCorrectly()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<table style='width: 300px'><tbody>" +
+            "<tr><td>A</td><td colspan='2'>BC</td></tr>" +
+            "</tbody></table>", 600, 800);
+
+        var tds = root.FindAllByTag("td");
+        tds.Should().HaveCount(2);
+
+        // First cell at column 0, second cell at column 1 (spanning 2 columns)
+        tds[1].X.Should().BeGreaterThan(tds[0].X);
+    }
+
+    private static System.Collections.Generic.List<LayoutBox> GetCellsInRow(LayoutBox row)
+    {
+        var cells = new System.Collections.Generic.List<LayoutBox>();
+        foreach (var child in row.Children)
+        {
+            if (child.Element?.TagName == "td" || child.Element?.TagName == "th")
+                cells.Add(child);
+        }
+        return cells;
+    }
+
     private static LayoutBox? FindTextInSubtree(LayoutBox box, string text)
     {
         if (box.Text == text) return box;

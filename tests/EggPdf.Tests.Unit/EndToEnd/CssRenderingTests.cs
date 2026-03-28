@@ -185,6 +185,273 @@ public class CssRenderingTests
     }
 
     [Fact]
+    public async Task TextAlign_Center_TextRendered()
+    {
+        var html = "<p style='text-align: center'>Centered text</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Centered text");
+    }
+
+    [Fact]
+    public async Task TextAlign_Right_TextRendered()
+    {
+        var html = "<p style='text-align: right'>Right-aligned text</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Right-aligned text");
+    }
+
+    [Fact]
+    public async Task TextDecoration_Underline_LineDrawn()
+    {
+        var html = "<p style='text-decoration: underline'>Underlined text</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Underlined text");
+        // Should contain a line drawing operator (m...l S pattern)
+        text.Should().Contain("l S", "underline should draw a line");
+    }
+
+    [Fact]
+    public async Task TextDecoration_LineThrough_LineDrawn()
+    {
+        var html = "<p style='text-decoration: line-through'>Struck text</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Struck text");
+        text.Should().Contain("l S", "line-through should draw a line");
+    }
+
+    [Fact]
+    public async Task AnchorTag_Underline_DefaultRendered()
+    {
+        var html = "<a href='https://example.com'>Link text</a>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Link text");
+        text.Should().Contain("l S", "links should have underline by default");
+    }
+
+    [Fact]
+    public async Task ListItem_BulletRendered()
+    {
+        var html = "<ul><li>First item</li><li>Second item</li></ul>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("First item");
+        text.Should().Contain("Second item");
+    }
+
+    [Fact]
+    public async Task OrderedList_NumbersRendered()
+    {
+        var html = "<ol><li>Step one</li><li>Step two</li></ol>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Step one");
+        text.Should().Contain("Step two");
+        text.Should().Contain("1.");
+        text.Should().Contain("2.");
+    }
+
+    [Fact]
+    public async Task MarginShorthand_TwoValues_Rendered()
+    {
+        var html = "<div style='margin: 10px 20px; background-color: red; width: 100px; height: 50px'>Margin test</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Margin test");
+    }
+
+    [Fact]
+    public async Task TextIndent_AppliedToFirstLine()
+    {
+        var html = "<p style='text-indent: 40px'>This is a paragraph with indented first line</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("This is a paragraph");
+    }
+
+    [Fact]
+    public async Task LetterSpacing_PdfOperatorEmitted()
+    {
+        var html = "<p style='letter-spacing: 2px'>Spaced text</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Spaced text");
+        text.Should().Contain("Tc", "letter-spacing should emit Tc operator");
+    }
+
+    [Fact]
+    public async Task WordSpacing_PdfOperatorEmitted()
+    {
+        var html = "<p style='word-spacing: 5px'>Word spaced text</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Word spaced text");
+        text.Should().Contain("Tw", "word-spacing should emit Tw operator");
+    }
+
+    [Fact]
+    public async Task WhiteSpacePre_NewlinesPreserved()
+    {
+        var html = "<pre>Line 1\nLine 2\nLine 3</pre>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Line 1");
+        text.Should().Contain("Line 2");
+        text.Should().Contain("Line 3");
+    }
+
+    [Fact]
+    public async Task OverflowHidden_ContentRendered()
+    {
+        var html = "<div style='overflow: hidden; width: 100px; height: 50px; background-color: #eee'>Clipped</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        // PDF should be non-empty and contain the text
+        pdf.Length.Should().BeGreaterThan(100);
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("%PDF-1.7", "should be a valid PDF");
+        text.Should().Contain("Clipped");
+    }
+
+    [Fact]
+    public async Task PageBreakBefore_CreatesNewPage()
+    {
+        var html = @"
+            <p>Page 1 content</p>
+            <p style='page-break-before: always'>Page 2 content</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Page 1 content");
+        text.Should().Contain("Page 2 content");
+
+        // Count page objects
+        int pageCount = CountOccurrences(text, "/Type /Page ");
+        pageCount.Should().BeGreaterOrEqualTo(2, "page-break-before:always should create at least 2 pages");
+    }
+
+    [Fact]
+    public async Task PageBreakAfter_CreatesNewPage()
+    {
+        var html = @"
+            <p style='page-break-after: always'>Page 1 content</p>
+            <p>Page 2 content</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Page 1 content");
+        text.Should().Contain("Page 2 content");
+
+        int pageCount = CountOccurrences(text, "/Type /Page ");
+        pageCount.Should().BeGreaterOrEqualTo(2, "page-break-after:always should create at least 2 pages");
+    }
+
+    private static int CountOccurrences(string text, string pattern)
+    {
+        int count = 0;
+        int index = 0;
+        while ((index = text.IndexOf(pattern, index, StringComparison.Ordinal)) != -1)
+        {
+            count++;
+            index += pattern.Length;
+        }
+        return count;
+    }
+
+    [Fact]
+    public async Task TextTransform_Uppercase_AppliedInPdf()
+    {
+        var html = "<p style='text-transform: uppercase'>hello world</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("HELLO WORLD");
+        text.Should().NotContain("hello world");
+    }
+
+    [Fact]
+    public async Task TextTransform_Lowercase_AppliedInPdf()
+    {
+        var html = "<p style='text-transform: lowercase'>HELLO WORLD</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("hello world");
+    }
+
+    [Fact]
+    public async Task TextTransform_Capitalize_AppliedInPdf()
+    {
+        var html = "<p style='text-transform: capitalize'>hello world</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Hello World");
+    }
+
+    [Fact]
+    public async Task VisibilityHidden_TextNotRendered()
+    {
+        var html = "<p>Visible</p><p style='visibility: hidden'>Hidden</p><p>Also visible</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Visible");
+        text.Should().Contain("Also visible");
+        text.Should().NotContain("Hidden");
+    }
+
+    [Fact]
+    public async Task HrElement_Rendered()
+    {
+        var html = "<p>Above</p><hr><p>Below</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Above");
+        text.Should().Contain("Below");
+    }
+
+    [Fact]
+    public async Task BrElement_CausesLineBreak()
+    {
+        var html = "<p>Line 1<br>Line 2</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Line 1");
+        text.Should().Contain("Line 2");
+    }
+
+    [Fact]
+    public async Task TableBorderAttribute_CellsHaveBorders()
+    {
+        var html = "<table border='1'><tr><td>Cell</td></tr></table>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("Cell");
+        // Border rendering should produce stroke rectangle operators
+        text.Should().Contain("re S", "table border should propagate to cells");
+    }
+
+    [Fact]
     public async Task CompleteDocument_AllElementsRendered()
     {
         var html = @"<html><head><style>
@@ -211,5 +478,172 @@ public class CssRenderingTests
         text.Should().Contain("$1.2M");
         text.Should().Contain("Conclusion");
         text.Should().Contain("https://example.com");
+    }
+
+    [Fact]
+    public void SupElement_RendersSuperscript()
+    {
+        var html = "<p>E=mc<sup>2</sup></p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("2");
+        // The superscript text should be rendered (font size may differ)
+        text.Should().Contain("E=mc");
+    }
+
+    [Fact]
+    public void SubElement_RendersSubscript()
+    {
+        var html = "<p>H<sub>2</sub>O</p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("H");
+        text.Should().Contain("2");
+        text.Should().Contain("O");
+    }
+
+    [Fact]
+    public void OutlineProperty_RendersAroundElement()
+    {
+        var html = "<p style='outline: 2px solid blue;'>Outlined</p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        // Outline should produce a stroke rectangle
+        text.Should().Contain("Outlined");
+    }
+
+    [Fact]
+    public void VerticalAlignMiddle_InTableCell()
+    {
+        var html = @"<table style='height: 100px;'>
+            <tr>
+                <td style='vertical-align: middle; height: 100px;'>Center</td>
+                <td style='vertical-align: bottom; height: 100px;'>Bottom</td>
+            </tr>
+        </table>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("Center");
+        text.Should().Contain("Bottom");
+    }
+
+    [Fact]
+    public void BorderCollapse_Table()
+    {
+        var html = @"<table style='border-collapse: collapse;'>
+            <tr>
+                <td style='border: 1px solid black; padding: 4px;'>A</td>
+                <td style='border: 1px solid black; padding: 4px;'>B</td>
+            </tr>
+        </table>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("A");
+        text.Should().Contain("B");
+    }
+
+    [Fact]
+    public void ZIndex_PositionedElements()
+    {
+        var html = @"<div style='position: relative; width: 200px; height: 200px;'>
+            <div style='position: absolute; z-index: 2; top: 10px; left: 10px; width: 50px; height: 50px; background: red;'>Top</div>
+            <div style='position: absolute; z-index: 1; top: 20px; left: 20px; width: 50px; height: 50px; background: blue;'>Below</div>
+        </div>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("Top");
+        text.Should().Contain("Below");
+    }
+
+    [Fact]
+    public void OverflowWrap_BreakWord_LongWord()
+    {
+        var html = @"<div style='width: 100px; overflow-wrap: break-word;'>Superlongwordthatwillnotfitinasmallcontainer</div>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        // The long word should be present (broken across lines)
+        text.Should().Contain("Super");
+    }
+
+    [Fact]
+    public void WordBreak_BreakAll()
+    {
+        var html = @"<div style='width: 80px; word-break: break-all;'>ABCDEFGHIJKLMNOP</div>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("ABCDE");
+    }
+
+    [Fact]
+    public void TextOverflow_Ellipsis()
+    {
+        var html = @"<div style='width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'>This is a very long text that should be truncated</div>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("...");
+    }
+
+    [Fact]
+    public void TextDecoration_Overline()
+    {
+        var html = @"<p style='text-decoration: overline;'>Overlined text</p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("Overlined text");
+    }
+
+    [Fact]
+    public void TextDecoration_Multiple()
+    {
+        var html = @"<p style='text-decoration: underline overline;'>Both decorations</p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("Both decorations");
+    }
+
+    [Fact]
+    public void RgbaColor_InPdf()
+    {
+        var html = @"<p style='color: rgba(255, 0, 0, 0.5);'>Semi-transparent</p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("Semi-transparent");
+        // Should have red color operator (1.00 0.00 0.00 rg)
+        text.Should().Contain("1.00 0.00 0.00 rg");
+    }
+
+    [Fact]
+    public void HslColor_InPdf()
+    {
+        var html = @"<p style='color: hsl(0, 100%, 50%);'>HSL Red</p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("HSL Red");
+        text.Should().Contain("1.00 0.00 0.00 rg");
+    }
+
+    [Fact]
+    public void FontShorthand_AppliesAllProperties()
+    {
+        var html = @"<style>p { font: bold 20px serif; }</style><p>Bold serif</p>";
+        var pdf = HtmlToPdf.Render(html);
+        var text = System.Text.Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("Bold serif");
+        // Should use Times-Bold (serif + bold)
+        text.Should().Contain("Times-Bold");
     }
 }

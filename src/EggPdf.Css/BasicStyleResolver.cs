@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using EggPdf.Css.Cascade;
 using EggPdf.Html.Dom;
 
 namespace EggPdf.Css;
@@ -115,6 +116,13 @@ public class BasicStyleResolver
                         style.Set(prop, parentVal);
                 }
             }
+
+            // Inherit custom properties (all custom properties inherit per CSS spec)
+            foreach (var kv in parentStyle.All)
+            {
+                if (CssVariableResolver.IsCustomProperty(kv.Key) && !style.Has(kv.Key))
+                    style.Set(kv.Key, kv.Value);
+            }
         }
 
         // 3. Apply inline styles (highest priority)
@@ -124,12 +132,8 @@ public class BasicStyleResolver
             var declarations = CssInlineParser.Parse(inlineCss);
             foreach (var decl in declarations)
             {
-                // Expand border shorthand: "border: 1px solid red" -> width + style + color
-                if (decl.Property == "border")
-                {
-                    ExpandBorderShorthand(decl.Value, style);
-                }
-                else
+                // Try expanding shorthands (margin, padding, border, background)
+                if (!CssShorthandExpander.TryExpand(decl.Property, decl.Value, style))
                 {
                     style.Set(decl.Property, decl.Value);
                 }
@@ -140,7 +144,33 @@ public class BasicStyleResolver
         if (element.HasAttribute("hidden"))
             style.Set("display", "none");
 
+        // 5. Resolve var() references in all non-custom property values
+        ResolveCustomProperties(style);
+
         return style;
+    }
+
+    /// <summary>
+    /// Resolve all var() references in non-custom property values.
+    /// </summary>
+    private static void ResolveCustomProperties(ComputedStyle style)
+    {
+        var toResolve = new List<KeyValuePair<string, string>>();
+        foreach (var kv in style.All)
+        {
+            if (!CssVariableResolver.IsCustomProperty(kv.Key) &&
+                kv.Value.IndexOf("var(", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                toResolve.Add(kv);
+            }
+        }
+
+        foreach (var kv in toResolve)
+        {
+            var resolved = CssVariableResolver.ResolveVariables(kv.Value, style);
+            if (resolved != kv.Value)
+                style.Set(kv.Key, resolved);
+        }
     }
 
     /// <summary>Expand border shorthand: "1px solid red" -> individual properties.</summary>
@@ -239,6 +269,24 @@ public class BasicStyleResolver
             }
         }
 
+        // Propagate table border attribute to cells (td/th)
+        if ((element.TagName == "td" || element.TagName == "th") && !style.Has("border-top-width"))
+        {
+            var tableBorder = FindAncestorTableBorder(element);
+            if (!string.IsNullOrEmpty(tableBorder) && tableBorder != "0")
+            {
+                var bw = tableBorder + "px";
+                style.Set("border-top-width", bw);
+                style.Set("border-right-width", bw);
+                style.Set("border-bottom-width", bw);
+                style.Set("border-left-width", bw);
+                style.Set("border-top-style", "solid");
+                style.Set("border-right-style", "solid");
+                style.Set("border-bottom-style", "solid");
+                style.Set("border-left-style", "solid");
+            }
+        }
+
         // color (font element)
         var colorAttr = element.GetAttribute("color");
         if (!string.IsNullOrEmpty(colorAttr) && !style.Has("color"))
@@ -248,5 +296,18 @@ public class BasicStyleResolver
         var face = element.GetAttribute("face");
         if (!string.IsNullOrEmpty(face) && !style.Has("font-family"))
             style.Set("font-family", face);
+    }
+
+    /// <summary>Walk up from a td/th to find ancestor table's border attribute.</summary>
+    private static string? FindAncestorTableBorder(HtmlElement element)
+    {
+        var parent = element.Parent as HtmlElement;
+        while (parent != null)
+        {
+            if (parent.TagName == "table")
+                return parent.GetAttribute("border");
+            parent = parent.Parent as HtmlElement;
+        }
+        return null;
     }
 }
