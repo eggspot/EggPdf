@@ -214,17 +214,19 @@ public static class FlexLayout
                 // Auto: use content-based size
                 if (isRow)
                 {
-                    // Use the content width from the laid-out box
+                    // Use the measured content width from child boxes
+                    // Text boxes have ContentWidth = measured text width (not full container width)
                     float contentBasedWidth = 0;
                     for (int ci = 0; ci < childBox.Children.Count; ci++)
                     {
-                        float cw = childBox.Children[ci].Width;
+                        float cw = childBox.Children[ci].ContentWidth;
                         if (cw > contentBasedWidth) contentBasedWidth = cw;
                     }
+                    // If no children, measure the element's own text content
+                    if (contentBasedWidth <= 0 && childBox.ContentWidth < childBox.Width)
+                        contentBasedWidth = childBox.ContentWidth;
                     // Include padding
                     baseSize = contentBasedWidth + childBox.PaddingLeft + childBox.PaddingRight;
-                    if (baseSize <= childBox.PaddingLeft + childBox.PaddingRight)
-                        baseSize = 0; // No content, zero base size
                 }
                 else
                 {
