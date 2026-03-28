@@ -346,6 +346,8 @@ public static class BlockLayout
                         {
                             if (colOffset > 0)
                                 childBox.Style.Set("border-left-width", "0");
+                            if (!IsFirstRowInTable(element))
+                                childBox.Style.Set("border-top-width", "0");
                         }
 
                         box.Children.Add(childBox);
@@ -823,6 +825,59 @@ public static class BlockLayout
     private static bool IsTableCell(string display)
         => display == "table-cell";
 
+    /// <summary>Check if a table row (tr) is the first row in its table.</summary>
+    private static bool IsFirstRowInTable(HtmlElement row)
+    {
+        var parent = row.Parent as HtmlElement;
+        if (parent == null) return true;
+
+        // If parent is thead/tbody/tfoot, check if this is the first row in it AND the group is first
+        if (parent.TagName == "thead" || parent.TagName == "tbody" || parent.TagName == "tfoot")
+        {
+            // Not the first row in this group
+            for (int i = 0; i < parent.ChildNodes.Count; i++)
+            {
+                if (parent.ChildNodes[i] is HtmlElement elem && elem.TagName == "tr")
+                    return elem == row;
+            }
+
+            // Check if this group is the first group in the table
+            var table = parent.Parent as HtmlElement;
+            if (table == null) return true;
+            for (int i = 0; i < table.ChildNodes.Count; i++)
+            {
+                if (table.ChildNodes[i] is HtmlElement elem && (elem.TagName == "thead" || elem.TagName == "tbody" || elem.TagName == "tfoot" || elem.TagName == "tr"))
+                {
+                    if (elem == parent) return true;
+                    if (elem.TagName == "tr") return false;
+                    // Non-empty group before this one
+                    for (int j = 0; j < elem.ChildNodes.Count; j++)
+                        if (elem.ChildNodes[j] is HtmlElement) return false;
+                }
+            }
+            return true;
+        }
+
+        // Direct child of table
+        if (parent.TagName == "table")
+        {
+            for (int i = 0; i < parent.ChildNodes.Count; i++)
+            {
+                if (parent.ChildNodes[i] is HtmlElement elem)
+                {
+                    if (elem == row) return true;
+                    if (elem.TagName == "tr") return false;
+                    if (elem.TagName == "thead" || elem.TagName == "tbody" || elem.TagName == "tfoot")
+                    {
+                        for (int j = 0; j < elem.ChildNodes.Count; j++)
+                            if (elem.ChildNodes[j] is HtmlElement) return false;
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// Compute auto column widths by measuring content across all rows in the table.

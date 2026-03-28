@@ -1,9 +1,5 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.FileProviders;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,13 +12,8 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 app.UseCors();
 
-// Serve WebUI static files at root (if wwwroot exists)
-var wwwrootPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
-if (Directory.Exists(wwwrootPath))
-{
-    app.UseDefaultFiles();
-    app.UseStaticFiles();
-}
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 // === Health ===
 app.MapGet("/health", () => Results.Ok(new
