@@ -30,9 +30,7 @@ public class PdfPage
         float letterSpacing = 0, float wordSpacing = 0)
     {
         UsedFonts.Add(fontName);
-        ContentStream.Append("BT ");
-        ContentStream.Append($"{F(colorR)} {F(colorG)} {F(colorB)} rg ");
-        ContentStream.Append($"/{fontName} {F(fontSize)} Tf ");
+        ContentStream.AppendLine($"BT {F(colorR)} {F(colorG)} {F(colorB)} rg /{fontName} {F(fontSize)} Tf");
         if (letterSpacing != 0)
             ContentStream.Append($"{F(letterSpacing)} Tc ");
         if (wordSpacing != 0)
@@ -48,8 +46,7 @@ public class PdfPage
         float letterSpacing = 0, float wordSpacing = 0)
     {
         UsedFonts.Add(fontName);
-        ContentStream.Append("BT ");
-        ContentStream.Append($"{F(colorR)} {F(colorG)} {F(colorB)} rg ");
+        ContentStream.AppendLine($"BT {F(colorR)} {F(colorG)} {F(colorB)} rg /{fontName} {F(fontSize)} Tf");
         ContentStream.Append($"/{fontName} {F(fontSize)} Tf ");
         if (letterSpacing != 0)
             ContentStream.Append($"{F(letterSpacing)} Tc ");
@@ -73,16 +70,20 @@ public class PdfPage
     /// <summary>Add a filled rectangle.</summary>
     public void AddRectangle(float x, float y, float width, float height, float r, float g, float b)
     {
+        ContentStream.AppendLine("q");
         ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} rg");
         ContentStream.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re f");
+        ContentStream.AppendLine("Q");
     }
 
     /// <summary>Add a stroked rectangle (border).</summary>
     public void AddStrokeRectangle(float x, float y, float width, float height, float r, float g, float b, float lineWidth)
     {
+        ContentStream.AppendLine("q");
         ContentStream.AppendLine($"{F(lineWidth)} w");
         ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
         ContentStream.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re S");
+        ContentStream.AppendLine("Q");
     }
 
     /// <summary>Set dash pattern for subsequent strokes. Empty array = solid.</summary>
@@ -217,9 +218,11 @@ public class PdfPage
         brr = Math.Min(brr, Math.Min(maxRadiusW, maxRadiusH));
         blr = Math.Min(blr, Math.Min(maxRadiusW, maxRadiusH));
 
+        ContentStream.AppendLine("q");
         ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} rg");
         AppendRoundedRectPath(x, y, w, h, tlr, trr, brr, blr);
         ContentStream.AppendLine("h f");
+        ContentStream.AppendLine("Q");
     }
 
     /// <summary>Add a stroked rounded rectangle using Bézier curves for corners.</summary>
