@@ -216,7 +216,7 @@ public class PdfDocument
                 // Write built-in Type1 font
                 offsets[kv.Value] = writer.Position;
                 writer.WriteLine($"{kv.Value} 0 obj");
-                writer.WriteLine($"<< /Type /Font /Subtype /Type1 /BaseFont /{kv.Key} >>");
+                writer.WriteLine($"<< /Type /Font /Subtype /Type1 /BaseFont /{kv.Key} /Encoding /WinAnsiEncoding >>");
                 writer.WriteLine("endobj");
             }
         }

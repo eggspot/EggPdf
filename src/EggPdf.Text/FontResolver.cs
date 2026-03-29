@@ -105,7 +105,7 @@ public class FontResolver
             return "Courier";
         }
 
-        if (family.Contains("times") || family.Contains("serif") && !family.Contains("sans"))
+        if (family.Contains("times") || family.Contains("georgia") || family.Contains("serif") && !family.Contains("sans"))
         {
             if (bold && italic) return "Times-BoldItalic";
             if (bold) return "Times-Bold";

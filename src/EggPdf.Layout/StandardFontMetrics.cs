@@ -132,6 +132,7 @@ public static class StandardFontMetrics
         }
 
         if (family.IndexOf("times", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            family.IndexOf("georgia", StringComparison.OrdinalIgnoreCase) >= 0 ||
             (family.IndexOf("serif", StringComparison.OrdinalIgnoreCase) >= 0 &&
              family.IndexOf("sans", StringComparison.OrdinalIgnoreCase) < 0))
         {
