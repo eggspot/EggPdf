@@ -594,13 +594,22 @@ public static class FlexLayout
             if (isRow)
             {
                 pos += item.Box.MarginLeft;
-                item.Box.X = container.X + container.PaddingLeft + pos;
+                float newX = container.X + container.PaddingLeft + pos;
+                float deltaX = newX - item.Box.X;
+                item.Box.X = newX;
+                // Update children positions to follow the parent
+                if (Math.Abs(deltaX) > 0.01f)
+                    OffsetChildren(item.Box, deltaX, 0);
                 pos += item.MainSize + item.Box.MarginRight;
             }
             else
             {
                 pos += item.Box.MarginTop;
-                item.Box.Y = container.Y + container.PaddingTop + pos;
+                float newY = container.Y + container.PaddingTop + pos;
+                float deltaY = newY - item.Box.Y;
+                item.Box.Y = newY;
+                if (Math.Abs(deltaY) > 0.01f)
+                    OffsetChildren(item.Box, 0, deltaY);
                 pos += item.MainSize + item.Box.MarginBottom;
             }
 
@@ -752,12 +761,32 @@ public static class FlexLayout
 
             if (isRow)
             {
-                item.Box.Y = container.Y + container.PaddingTop + crossPos;
+                float newY = container.Y + container.PaddingTop + crossPos;
+                float deltaY = newY - item.Box.Y;
+                item.Box.Y = newY;
+                if (Math.Abs(deltaY) > 0.01f)
+                    OffsetChildren(item.Box, 0, deltaY);
             }
             else
             {
-                item.Box.X = container.X + container.PaddingLeft + crossPos;
+                float newX = container.X + container.PaddingLeft + crossPos;
+                float deltaX = newX - item.Box.X;
+                item.Box.X = newX;
+                if (Math.Abs(deltaX) > 0.01f)
+                    OffsetChildren(item.Box, deltaX, 0);
             }
+        }
+    }
+
+    /// <summary>Recursively offset all children by delta X/Y when parent is repositioned.</summary>
+    private static void OffsetChildren(LayoutBox box, float dx, float dy)
+    {
+        for (int i = 0; i < box.Children.Count; i++)
+        {
+            var child = box.Children[i];
+            child.X += dx;
+            child.Y += dy;
+            OffsetChildren(child, dx, dy);
         }
     }
 
