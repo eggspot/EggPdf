@@ -374,7 +374,7 @@ internal static class PdfRenderer
                 paintText = visual;
             }
 
-            float fontSize = 12;
+            float fontSize = 16;
             var fsStr = box.Style.FontSize;
             if (!string.IsNullOrEmpty(fsStr))
             {

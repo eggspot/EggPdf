@@ -1306,9 +1306,12 @@ public static class BlockLayout
     {
         foreach (var child in box.Children)
         {
-            // List markers are already absolutely positioned
+            // List markers: X is absolutely positioned, but Y needs fixup like siblings
             if (child.IsListMarker)
             {
+                bool markerNeedsYFix = box.Y > 0 && child.Y < box.Y;
+                if (markerNeedsYFix)
+                    child.Y += box.Y;
                 ResolveAbsolutePositions(child, child.X, child.Y);
                 continue;
             }
