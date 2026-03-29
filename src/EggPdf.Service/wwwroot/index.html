@@ -486,18 +486,15 @@ async function updatePdfPreview() {
       const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
       pdfPreview.innerHTML = '';
       const dpr = window.devicePixelRatio || 1;
-      const containerWidth = pdfPreview.clientWidth - 16;
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const unscaledViewport = page.getViewport({scale: 1});
-        const cssScale = containerWidth / unscaledViewport.width;
-        const renderScale = cssScale * dpr;
+        // Render at 2x for crisp display, CSS width:100% handles scaling
+        const renderScale = 2;
         const viewport = page.getViewport({scale: renderScale});
         const canvas = document.createElement('canvas');
         canvas.width = viewport.width;
         canvas.height = viewport.height;
-        canvas.style.width = Math.floor(cssScale * unscaledViewport.width) + 'px';
-        canvas.style.height = Math.floor(cssScale * unscaledViewport.height) + 'px';
         const ctx = canvas.getContext('2d');
         await page.render({canvasContext: ctx, viewport}).promise;
         pdfPreview.appendChild(canvas);
