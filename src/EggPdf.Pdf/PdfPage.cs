@@ -30,8 +30,8 @@ public class PdfPage
         float letterSpacing = 0, float wordSpacing = 0)
     {
         UsedFonts.Add(fontName);
-        ContentStream.AppendLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
         ContentStream.Append("BT ");
+        ContentStream.Append($"{F(colorR)} {F(colorG)} {F(colorB)} rg ");
         ContentStream.Append($"/{fontName} {F(fontSize)} Tf ");
         if (letterSpacing != 0)
             ContentStream.Append($"{F(letterSpacing)} Tc ");
@@ -48,8 +48,8 @@ public class PdfPage
         float letterSpacing = 0, float wordSpacing = 0)
     {
         UsedFonts.Add(fontName);
-        ContentStream.AppendLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
         ContentStream.Append("BT ");
+        ContentStream.Append($"{F(colorR)} {F(colorG)} {F(colorB)} rg ");
         ContentStream.Append($"/{fontName} {F(fontSize)} Tf ");
         if (letterSpacing != 0)
             ContentStream.Append($"{F(letterSpacing)} Tc ");
