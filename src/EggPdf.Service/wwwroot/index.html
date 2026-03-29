@@ -56,8 +56,8 @@
   .preview-column .col-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 600; text-align: center; flex-shrink: 0; }
   .page-frame { background: white; box-shadow: 0 2px 20px rgba(0,0,0,0.4); border-radius: 2px; flex: 1; min-height: 0; }
   .page-frame iframe { width: 100%; height: 100%; border: none; }
-  .page-frame.pdf-view { display: flex; align-items: stretch; justify-content: center; color: #999; font-size: 14px; padding: 0; background: #525659; box-shadow: none; overflow: hidden; }
-  .page-frame.pdf-view embed, .page-frame.pdf-view iframe { width: 100%; height: 100%; border: none; }
+  .page-frame.pdf-view { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; color: #999; font-size: 14px; padding: 8px; background: #525659; box-shadow: none; overflow-y: auto; gap: 8px; }
+  .page-frame.pdf-view canvas { display: block; width: 100%; box-shadow: 0 1px 6px rgba(0,0,0,0.3); background: white; }
 
   /* === SIDEBAR === */
   .sidebar { width: var(--sidebar-w); background: var(--surface); border-left: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; display: none; }
@@ -223,10 +223,16 @@
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous" onerror="console.warn('PDF.js CDN failed')"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.6/ace.js" crossorigin="anonymous" onerror="console.warn('Ace CDN failed')"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.15.1/beautify-html.min.js" crossorigin="anonymous" onerror="console.warn('js-beautify CDN failed')"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.15.1/beautify-css.min.js" crossorigin="anonymous" onerror="console.warn('css-beautify CDN failed')"></script>
 <script>
+// === PDF.JS SETUP ===
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
 // === ACE EDITOR SETUP (with textarea fallback) ===
 let editor;
 let useAce = false;
@@ -457,7 +463,7 @@ async function updatePdfPreview() {
   if (currentPreview !== 'pdf' && currentPreview !== 'split') return;
   const html = getHtml();
   if (!html.trim()) { pdfPreview.innerHTML = '<span class="pdf-placeholder">Enter HTML to preview PDF</span>'; return; }
-  if (html === lastPdfHtml && pdfPreview.querySelector('embed')) return;
+  if (html === lastPdfHtml && pdfPreview.querySelector('canvas')) return;
   lastPdfHtml = html;
   try {
     previewInfo.textContent = 'Rendering PDF...';
@@ -474,8 +480,32 @@ async function updatePdfPreview() {
     statusSize.textContent = `${sizekb} KB`;
     statusText.textContent = 'Ready';
     previewInfo.textContent = `${elapsed}ms | ${sizekb} KB`;
-    const url = URL.createObjectURL(blob);
-    pdfPreview.innerHTML = `<embed src="${url}" type="application/pdf">`;
+    // Render PDF pages to canvas via PDF.js (avoids Chrome embed viewer bugs)
+    if (typeof pdfjsLib !== 'undefined') {
+      const arrayBuffer = await blob.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+      pdfPreview.innerHTML = '';
+      const dpr = window.devicePixelRatio || 1;
+      const containerWidth = pdfPreview.clientWidth - 16;
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const unscaledViewport = page.getViewport({scale: 1});
+        const cssScale = containerWidth / unscaledViewport.width;
+        const renderScale = cssScale * dpr;
+        const viewport = page.getViewport({scale: renderScale});
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.width = Math.floor(cssScale * unscaledViewport.width) + 'px';
+        canvas.style.height = Math.floor(cssScale * unscaledViewport.height) + 'px';
+        const ctx = canvas.getContext('2d');
+        await page.render({canvasContext: ctx, viewport}).promise;
+        pdfPreview.appendChild(canvas);
+      }
+    } else {
+      const url = URL.createObjectURL(blob);
+      pdfPreview.innerHTML = `<embed src="${url}" type="application/pdf">`;
+    }
   } catch (e) { pdfPreview.innerHTML = '<span>Error: ' + e.message + '</span>'; }
 }
 
