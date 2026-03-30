@@ -24,7 +24,7 @@ public class BorderRadiusE2ETests
         // Bézier curve operator should be present for rounded corners
         text.Should().MatchRegex(@"\d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ c",
             "border-radius should produce Bézier curve operators");
-        text.Should().Contain("h f", "rounded rect path should be closed and filled");
+        text.Should().Contain("re f", "rounded rect path should be closed and filled");
     }
 
     [Fact]
@@ -36,7 +36,7 @@ public class BorderRadiusE2ETests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Both");
-        text.Should().Contain("h f", "background should be filled with rounded path");
+        text.Should().Contain("re f", "background should be filled with rounded path");
         text.Should().Contain("h S", "border should be stroked with rounded path");
     }
 

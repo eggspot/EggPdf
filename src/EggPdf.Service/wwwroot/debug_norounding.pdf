@@ -1,0 +1,49 @@
+%PDF-1.7
+%????
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Length 252 >>
+stream
+q
+0.94 0.94 0.94 rg
+30.00 613.72 27.46 17.70 re f
+Q
+0.20 0.20 0.20 rg
+BT /Helvetica 9.75 Tf 37.50 618.67 Td (C#) Tj ET
+q
+0.94 0.94 0.94 rg
+63.46 613.72 37.21 17.70 re f
+Q
+0.20 0.20 0.20 rg
+BT /Helvetica 9.75 Tf 70.96 618.67 Td (.NET) Tj ET
+
+endstream
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 446.46 631.42] /Contents 4 0 R /Resources << /Font << /Helvetica 5 0 R >> >> >>
+endobj
+6 0 obj
+<< /Producer (EggPdf) /CreationDate (D:20260329095644Z) >>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000521 00000 n 
+0000000218 00000 n 
+0000000121 00000 n 
+0000000660 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R /Info 6 0 R >>
+startxref
+734
+%%EOF

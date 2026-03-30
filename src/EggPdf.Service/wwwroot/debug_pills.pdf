@@ -1,0 +1,67 @@
+%PDF-1.7
+%????
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Length 700 >>
+stream
+q
+0.94 0.94 0.94 rg
+38.85 631.42 m
+48.61 631.42 l
+53.50 631.42 57.46 627.46 57.46 622.57 c
+57.46 622.57 l
+57.46 617.68 53.50 613.72 48.61 613.72 c
+38.85 613.72 l
+33.96 613.72 30.00 617.68 30.00 622.57 c
+30.00 622.57 l
+30.00 627.46 33.96 631.42 38.85 631.42 c
+h f
+Q
+0.20 0.20 0.20 rg
+BT /Helvetica 9.75 Tf 37.50 618.67 Td (C#) Tj ET
+q
+0.94 0.94 0.94 rg
+72.31 631.42 m
+91.82 631.42 l
+96.71 631.42 100.67 627.46 100.67 622.57 c
+100.67 622.57 l
+100.67 617.68 96.71 613.72 91.82 613.72 c
+72.31 613.72 l
+67.42 613.72 63.46 617.68 63.46 622.57 c
+63.46 622.57 l
+63.46 627.46 67.42 631.42 72.31 631.42 c
+h f
+Q
+0.20 0.20 0.20 rg
+BT /Helvetica 9.75 Tf 70.96 618.67 Td (.NET) Tj ET
+
+endstream
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 446.46 631.42] /Contents 4 0 R /Resources << /Font << /Helvetica 5 0 R >> >> >>
+endobj
+6 0 obj
+<< /Producer (EggPdf) /CreationDate (D:20260329095610Z) >>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000969 00000 n 
+0000000218 00000 n 
+0000000121 00000 n 
+0000001108 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R /Info 6 0 R >>
+startxref
+1182
+%%EOF

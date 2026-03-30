@@ -30,7 +30,8 @@ public class PdfPage
         float letterSpacing = 0, float wordSpacing = 0)
     {
         UsedFonts.Add(fontName);
-        ContentStream.AppendLine($"BT {F(colorR)} {F(colorG)} {F(colorB)} rg /{fontName} {F(fontSize)} Tf");
+        ContentStream.AppendLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
+        ContentStream.Append($"BT /{fontName} {F(fontSize)} Tf ");
         if (letterSpacing != 0)
             ContentStream.Append($"{F(letterSpacing)} Tc ");
         if (wordSpacing != 0)
@@ -46,7 +47,8 @@ public class PdfPage
         float letterSpacing = 0, float wordSpacing = 0)
     {
         UsedFonts.Add(fontName);
-        ContentStream.AppendLine($"BT {F(colorR)} {F(colorG)} {F(colorB)} rg /{fontName} {F(fontSize)} Tf");
+        ContentStream.AppendLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
+        ContentStream.Append($"BT /{fontName} {F(fontSize)} Tf ");
         ContentStream.Append($"/{fontName} {F(fontSize)} Tf ");
         if (letterSpacing != 0)
             ContentStream.Append($"{F(letterSpacing)} Tc ");
@@ -218,10 +220,13 @@ public class PdfPage
         brr = Math.Min(brr, Math.Min(maxRadiusW, maxRadiusH));
         blr = Math.Min(blr, Math.Min(maxRadiusW, maxRadiusH));
 
+        // Use clip path approach: set rounded path as clip, then fill rectangle.
+        // This avoids PDF.js rendering bugs with text after Bézier path fills.
         ContentStream.AppendLine("q");
-        ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} rg");
         AppendRoundedRectPath(x, y, w, h, tlr, trr, brr, blr);
-        ContentStream.AppendLine("h f");
+        ContentStream.AppendLine("h W n");
+        ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} rg");
+        ContentStream.AppendLine($"{F(x)} {F(y)} {F(w)} {F(h)} re f");
         ContentStream.AppendLine("Q");
     }
 
