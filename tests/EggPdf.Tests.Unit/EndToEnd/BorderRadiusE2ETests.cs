@@ -22,7 +22,7 @@ public class BorderRadiusE2ETests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Rounded");
-        text.Should().Contain("re f", "background should use rectangle fill");
+        text.Should().Contain("h f", "background should use rectangle fill");
         // Border stroke should use curves
         text.Should().MatchRegex(@"\d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ c",
             "border stroke should produce Bézier curve operators");
@@ -37,7 +37,7 @@ public class BorderRadiusE2ETests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Both");
-        text.Should().Contain("re f", "background should be filled with rounded path");
+        text.Should().Contain("h f", "background should be filled with rounded path");
         text.Should().Contain("h S", "border should be stroked with rounded path");
     }
 
@@ -69,7 +69,7 @@ public class BorderRadiusE2ETests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("No radius");
-        // With zero radius, should use regular rectangle (re operator) not curves
+        // With zero radius, should use regular rectangle (re f) not curves (h f)
         text.Should().Contain("re f", "zero radius should use regular rectangle");
     }
 

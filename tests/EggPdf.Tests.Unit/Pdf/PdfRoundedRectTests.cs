@@ -20,7 +20,7 @@ public class PdfRoundedRectTests
         // Pattern: six float values followed by ' c'
         text.Should().MatchRegex(@"\d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ c",
             "rounded corners use Bézier curve operators");
-        text.Should().Contain("re f", "path should be closed and filled");
+        text.Should().Contain("h f", "path should be closed and filled");
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public class PdfRoundedRectTests
         // All four corners should have curve operators
         text.Should().MatchRegex(@"\d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ c",
             "all corners should use Bézier curves");
-        text.Should().Contain("re f");
+        text.Should().Contain("h f");
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public class PdfRoundedRectTests
         // With zero radii, corners use lineto instead of curves
         text.Should().NotMatchRegex(@"\d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ c",
             "zero radius should not produce curves");
-        text.Should().Contain("re f", "path should still be closed and filled");
+        text.Should().Contain("h f", "path should still be closed and filled");
     }
 
     [Fact]
@@ -63,7 +63,7 @@ public class PdfRoundedRectTests
         // Should still produce valid curves (with clamped radii)
         text.Should().MatchRegex(@"\d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ c",
             "clamped radii should still produce curves");
-        text.Should().Contain("re f");
+        text.Should().Contain("h f");
     }
 
     [Fact]
@@ -78,7 +78,7 @@ public class PdfRoundedRectTests
         page.AddStrokeRoundedRectangle(72, 700, 200, 100, 0f, 0f, 0f, 1f, 10, 10, 10, 10);
 
         var text = Encoding.ASCII.GetString(doc.ToByteArray());
-        text.Should().Contain("re f", "background should be filled");
+        text.Should().Contain("h f", "background should be filled");
         text.Should().Contain("h S", "border should be stroked");
     }
 

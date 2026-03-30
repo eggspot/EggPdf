@@ -313,11 +313,13 @@ internal static class PdfRenderer
                     float pdfW = box.Width * PdfCoordinates.PxToPt;
                     float pdfH = box.Height * PdfCoordinates.PxToPt;
 
-                    // Always use simple rectangle for background fills.
-                    // Rounded rect Bezier paths cause text rendering bugs in PDF.js and Chrome embed.
-                    // Border strokes still use rounded paths for visual rounding.
-                    page.AddRectangle(pdfX, pdfY, pdfW, pdfH,
-                        color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f);
+                    if (hasRadius)
+                        page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH,
+                            color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f,
+                            tlrPt, trrPt, brrPt, blrPt);
+                    else
+                        page.AddRectangle(pdfX, pdfY, pdfW, pdfH,
+                            color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f);
                 }
             }
 
@@ -1184,13 +1186,12 @@ internal static class PdfRenderer
     /// </summary>
     private static void SortByZIndex(List<LayoutBox> boxes)
     {
-        // Stable sort: preserve document order within same z-index
-        boxes.Sort((a, b) =>
-        {
-            int zA = GetZIndex(a);
-            int zB = GetZIndex(b);
-            return zA.CompareTo(zB);
-        });
+        // Must use stable sort to preserve document order within same z-index.
+        // List.Sort() is unstable and scrambles equal elements, causing backgrounds
+        // to paint after text (hiding it). Use OrderBy which is stable.
+        var sorted = boxes.OrderBy(b => GetZIndex(b)).ToList();
+        boxes.Clear();
+        boxes.AddRange(sorted);
     }
 
     private static int GetZIndex(LayoutBox box)
