@@ -72,20 +72,16 @@ public class PdfPage
     /// <summary>Add a filled rectangle.</summary>
     public void AddRectangle(float x, float y, float width, float height, float r, float g, float b)
     {
-        ContentStream.AppendLine("q");
         ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} rg");
         ContentStream.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re f");
-        ContentStream.AppendLine("Q");
     }
 
     /// <summary>Add a stroked rectangle (border).</summary>
     public void AddStrokeRectangle(float x, float y, float width, float height, float r, float g, float b, float lineWidth)
     {
-        ContentStream.AppendLine("q");
         ContentStream.AppendLine($"{F(lineWidth)} w");
         ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
         ContentStream.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re S");
-        ContentStream.AppendLine("Q");
     }
 
     /// <summary>Set dash pattern for subsequent strokes. Empty array = solid.</summary>
@@ -220,14 +216,9 @@ public class PdfPage
         brr = Math.Min(brr, Math.Min(maxRadiusW, maxRadiusH));
         blr = Math.Min(blr, Math.Min(maxRadiusW, maxRadiusH));
 
-        // Use clip path approach: set rounded path as clip, then fill rectangle.
-        // This avoids PDF.js rendering bugs with text after Bézier path fills.
-        ContentStream.AppendLine("q");
-        AppendRoundedRectPath(x, y, w, h, tlr, trr, brr, blr);
-        ContentStream.AppendLine("h W n");
         ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} rg");
-        ContentStream.AppendLine($"{F(x)} {F(y)} {F(w)} {F(h)} re f");
-        ContentStream.AppendLine("Q");
+        AppendRoundedRectPath(x, y, w, h, tlr, trr, brr, blr);
+        ContentStream.AppendLine("h f");
     }
 
     /// <summary>Add a stroked rounded rectangle using Bézier curves for corners.</summary>
