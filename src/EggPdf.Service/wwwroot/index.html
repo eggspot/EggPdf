@@ -474,8 +474,12 @@ async function updatePdfPreview() {
     statusSize.textContent = `${sizekb} KB`;
     statusText.textContent = 'Ready';
     previewInfo.textContent = `${elapsed}ms | ${sizekb} KB`;
-    const url = URL.createObjectURL(blob);
-    pdfPreview.innerHTML = `<embed src="${url}" type="application/pdf">`;
+    // Use data URL instead of blob URL — blob URLs have text rendering bugs in embedded viewers
+    const reader = new FileReader();
+    reader.onload = function() {
+      pdfPreview.innerHTML = `<embed src="${reader.result}" type="application/pdf">`;
+    };
+    reader.readAsDataURL(blob);
   } catch (e) { pdfPreview.innerHTML = '<span>Error: ' + e.message + '</span>'; }
 }
 
