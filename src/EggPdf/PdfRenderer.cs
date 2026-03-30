@@ -313,13 +313,11 @@ internal static class PdfRenderer
                     float pdfW = box.Width * PdfCoordinates.PxToPt;
                     float pdfH = box.Height * PdfCoordinates.PxToPt;
 
-                    if (hasRadius)
-                        page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH,
-                            color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f,
-                            tlrPt, trrPt, brrPt, blrPt);
-                    else
-                        page.AddRectangle(pdfX, pdfY, pdfW, pdfH,
-                            color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f);
+                    // Always use simple rectangle for background fills.
+                    // Rounded rect Bezier paths cause text rendering bugs in PDF.js and Chrome embed.
+                    // Border strokes still use rounded paths for visual rounding.
+                    page.AddRectangle(pdfX, pdfY, pdfW, pdfH,
+                        color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f);
                 }
             }
 

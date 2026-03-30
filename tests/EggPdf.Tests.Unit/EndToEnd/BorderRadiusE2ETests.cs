@@ -13,18 +13,19 @@ namespace EggPdf.Tests.Unit.EndToEnd;
 public class BorderRadiusE2ETests
 {
     [Fact]
-    public async Task UniformBorderRadius_ProducesCurves()
+    public async Task UniformBorderRadius_ProducesFill()
     {
-        var html = "<div style='background-color: #eee; border-radius: 10px; width: 200px; height: 100px'>Rounded</div>";
+        // Background uses simple rect fill for PDF.js compatibility; border strokes use curves
+        var html = "<div style='background-color: #eee; border: 1px solid #ccc; border-radius: 10px; width: 200px; height: 100px'>Rounded</div>";
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Rounded");
-        // Bézier curve operator should be present for rounded corners
+        text.Should().Contain("re f", "background should use rectangle fill");
+        // Border stroke should use curves
         text.Should().MatchRegex(@"\d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ c",
-            "border-radius should produce Bézier curve operators");
-        text.Should().Contain("re f", "rounded rect path should be closed and filled");
+            "border stroke should produce Bézier curve operators");
     }
 
     [Fact]
@@ -43,7 +44,8 @@ public class BorderRadiusE2ETests
     [Fact]
     public async Task PerCornerRadius_ProducesValidPdf()
     {
-        var html = @"<div style='background-color: #ddd;
+        // Add border so curves are produced in stroke path
+        var html = @"<div style='background-color: #ddd; border: 1px solid #999;
             border-top-left-radius: 20px;
             border-top-right-radius: 10px;
             border-bottom-right-radius: 5px;
@@ -54,7 +56,7 @@ public class BorderRadiusE2ETests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Mixed corners");
-        // Should have curves for corners with non-zero radii
+        // Border stroke should have curves for corners with non-zero radii
         text.Should().MatchRegex(@"\d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ c");
     }
 
@@ -91,8 +93,8 @@ public class BorderRadiusE2ETests
     [Fact]
     public async Task PillShape_LargeRadius()
     {
-        // Pill shape: radius is half the height
-        var html = "<div style='background-color: #007bff; border-radius: 25px; width: 200px; height: 50px; color: white'>Button</div>";
+        // Pill shape with border so curves appear in stroke
+        var html = "<div style='background-color: #007bff; border: 1px solid #0056b3; border-radius: 25px; width: 200px; height: 50px; color: white'>Button</div>";
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
@@ -104,13 +106,13 @@ public class BorderRadiusE2ETests
     [Fact]
     public async Task CircleShape_Equal50Percent()
     {
-        // Circle: equal width/height with 50% radius
-        var html = "<div style='background-color: red; border-radius: 50px; width: 100px; height: 100px'>O</div>";
+        // Circle with border so curves appear in stroke
+        var html = "<div style='background-color: red; border: 1px solid darkred; border-radius: 50px; width: 100px; height: 100px'>O</div>";
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
-        // Should produce curves (radius clamped to 50 = half of 100)
+        // Border stroke should produce curves (radius clamped to 50 = half of 100)
         int curveCount = Regex.Matches(text, @"\d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\.\d+ c").Count;
         curveCount.Should().BeGreaterOrEqualTo(4, "circle needs at least 4 corner curves");
     }
