@@ -523,13 +523,17 @@ async function downloadPdf() {
     statusText.textContent = 'PDF ready';
     previewInfo.textContent = `${elapsed}ms | ${sizekb} KB`;
 
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'output.pdf';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    // Convert to data URL for reliable download across browsers
+    const reader = new FileReader();
+    reader.onload = function() {
+      const a = document.createElement('a');
+      a.href = reader.result;
+      a.download = 'output.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+    reader.readAsDataURL(blob);
 
     lastPdfHtml = html;
     // Re-render preview with the downloaded PDF

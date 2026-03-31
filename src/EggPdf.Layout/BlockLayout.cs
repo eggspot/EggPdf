@@ -52,6 +52,10 @@ public static class BlockLayout
 
         var bodyStyle = resolveStyle(document.Body, htmlStyle);
         var bodyBox = CreateBox(document.Body, bodyStyle, root, pageWidth, resolveStyle, htmlStyle);
+        // Apply body's top margin to Y position (not done by CreateBox since body has no parent layout)
+        // Only for non-default margins (UA default is 8px which was always handled by child positioning)
+        if (bodyBox.MarginTop > 8)
+            bodyBox.Y = bodyBox.MarginTop;
         root.Children.Add(bodyBox);
 
         // Post-layout pass: convert all Y coordinates to absolute
