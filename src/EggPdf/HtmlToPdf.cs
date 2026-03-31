@@ -97,8 +97,17 @@ public static class HtmlToPdf
         float pageWidthPt = pageWidthPx * PdfCoordinates.PxToPt;
         float pageHeightPt = pageHeightPx * PdfCoordinates.PxToPt;
 
+        // Use body's top margin as page margin when no @page margin is specified
+        float renderMarginLeft = pageSettings.MarginLeft;
+        float renderMarginTop = pageSettings.MarginTop;
+        if (!pageSettings.HasMargins && layoutRoot.Children.Count > 0)
+        {
+            var body = layoutRoot.Children[0];
+            if (body.MarginTop > 0) renderMarginTop = body.MarginTop;
+        }
+
         PdfRenderer.Render(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx,
-            pageSettings.MarginLeft, pageSettings.MarginTop);
+            renderMarginLeft, renderMarginTop);
 
         return pdfDoc.ToByteArray();
     }
