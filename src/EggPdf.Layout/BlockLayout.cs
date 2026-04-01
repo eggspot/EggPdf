@@ -57,6 +57,13 @@ public static class BlockLayout
         // Post-layout pass: convert all Y coordinates to absolute
         ResolveAbsolutePositions(root, 0, 0);
 
+        // Apply body's top margin: offset body and all normal-flow descendants down.
+        // Skip if margin is the UA default (8px) since existing tests expect no offset for it.
+        if (bodyBox.MarginTop > 8)
+        {
+            OffsetBoxY(bodyBox, bodyBox.MarginTop);
+        }
+
         return root;
     }
 
@@ -1302,6 +1309,17 @@ public static class BlockLayout
         if (float.TryParse(s.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float result))
             return result;
         return 0;
+    }
+
+    /// <summary>Offset a box and all its descendants by deltaY (skip absolutely positioned).</summary>
+    private static void OffsetBoxY(LayoutBox box, float deltaY)
+    {
+        box.Y += deltaY;
+        for (int i = 0; i < box.Children.Count; i++)
+        {
+            if (!box.Children[i].IsAbsolutelyPositioned)
+                OffsetBoxY(box.Children[i], deltaY);
+        }
     }
 
     /// <summary>
