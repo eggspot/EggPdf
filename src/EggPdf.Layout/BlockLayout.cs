@@ -1319,14 +1319,9 @@ public static class BlockLayout
                 continue;
             }
 
-            // Children are created with Y relative to parent's content area (parent.Y was 0 during CreateBox).
-            // Block children (line 376): Y = parent.Y(=0) + parent.PaddingTop + childY → effectively PaddingTop + childY
-            // Table cells (line 337): Y = row.Y(=0) + row.PaddingTop → effectively PaddingTop
-            // Both need parent's resolved Y added. Only skip if child already includes it.
-            bool needsYFix = box.Y > 0 && (child.Y < box.Y || box.Style?.Display == "table-row-group" ||
-                                            box.Style?.Display == "table-header-group" ||
-                                            box.Style?.Display == "table-footer-group");
-            if (needsYFix)
+            // Children are created with Y = parent.PaddingTop + childY (relative, since parent.Y was 0
+            // during CreateBox). Always add parent's resolved Y to convert to absolute coordinates.
+            if (box.Y > 0)
                 child.Y += box.Y;
 
             // X positions are set absolutely during CreateBox (parent.X + padding + margin),
