@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   eggpdf:
-    image: eggspot/eggpdf-service:latest
+    image: eggspot/eggpdf:latest
     ports:
       - "8080:8080"
     environment:

@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-and-push:
-    name: Build & Push Docker Images
+    name: Build & Push Docker Image
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -38,32 +38,17 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Build and push Service image
+      - name: Build and push unified image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: docker/Dockerfile.service
+          file: docker/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            eggspot/eggpdf-service:latest
-            eggspot/eggpdf-service:${{ steps.version.outputs.version }}
-            ghcr.io/eggspot/eggpdf-service:latest
-            ghcr.io/eggspot/eggpdf-service:${{ steps.version.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and push CLI image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: docker/Dockerfile.cli
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            eggspot/eggpdf-cli:latest
-            eggspot/eggpdf-cli:${{ steps.version.outputs.version }}
-            ghcr.io/eggspot/eggpdf-cli:latest
-            ghcr.io/eggspot/eggpdf-cli:${{ steps.version.outputs.version }}
+            eggspot/eggpdf:latest
+            eggspot/eggpdf:${{ steps.version.outputs.version }}
+            ghcr.io/eggspot/eggpdf:latest
+            ghcr.io/eggspot/eggpdf:${{ steps.version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
