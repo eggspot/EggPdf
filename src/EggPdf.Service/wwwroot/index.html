@@ -119,7 +119,7 @@
     <label class="btn" style="margin:0"><input type="file" accept=".html,.htm" style="display:none" onchange="loadFile(event)">Upload</label>
     <button class="btn btn-sm" onclick="document.body.classList.toggle('light')" title="Toggle theme">Theme</button>
     <button class="btn btn-sm" onclick="document.querySelector('.sidebar').classList.toggle('show')" title="Options">Options</button>
-    <button class="btn btn-primary" onclick="downloadPdf()">Download PDF</button>
+    <button class="btn btn-primary" onclick="downloadPdfFile()">Download PDF</button>
   </div>
 </header>
 
@@ -186,7 +186,7 @@
     <div class="sidebar-section">
       <h3>Output</h3>
       <div class="opt-row"><label>Format</label><select id="optFormat"><option selected>PDF</option><option>PNG</option></select></div>
-      <button class="btn btn-primary" style="width:100%; justify-content:center; margin-top:8px;" onclick="downloadPdf()">Download PDF</button>
+      <button class="btn btn-primary" style="width:100%; justify-content:center; margin-top:8px;" onclick="downloadPdfFile()">Download PDF</button>
       <button class="btn" style="width:100%; justify-content:center; margin-top:6px;" onclick="copyApiCall()">Copy API Call</button>
     </div>
   </aside>
@@ -544,13 +544,9 @@ async function downloadPdf() {
     statusText.textContent = 'PDF ready';
     previewInfo.textContent = `${elapsed}ms | ${sizekb} KB`;
 
-    // Download using Blob + Object URL
+    // Download: open PDF in new tab (user can save from there)
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'output.pdf';
-    link.click();
-    URL.revokeObjectURL(url);
+    window.open(url, '_blank');
 
     lastPdfHtml = html;
     // Re-render preview with the downloaded PDF
@@ -630,6 +626,22 @@ function loadTpl(name) {
 // === INIT ===
 setTimeout(updatePdfPreview, 300);
 } catch (e) { console.error('Init error:', e); document.getElementById('statusText').textContent = 'Init error: ' + e.message; }
+
+// Download function outside try/catch so it's always available
+async function downloadPdfFile() {
+  const html = typeof getHtml === 'function' ? getHtml() : (editor ? editor.getValue() : '');
+  if (!html || !html.trim()) { alert('Please enter some HTML'); return; }
+  try {
+    const resp = await fetch('/api/render', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({html})
+    });
+    if (!resp.ok) { alert('Render error: ' + resp.status); return; }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  } catch (e) { alert('Download error: ' + e.message); }
+}
 </script>
 </body>
 </html>
