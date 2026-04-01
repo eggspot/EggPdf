@@ -1313,7 +1313,7 @@ public static class BlockLayout
     {
         foreach (var child in box.Children)
         {
-            if (child.IsAbsolutelyPositioned || child.IsListMarker)
+            if (child.IsAbsolutelyPositioned)
             {
                 ResolveAbsolutePositions(child, child.X, child.Y);
                 continue;
@@ -1321,6 +1321,7 @@ public static class BlockLayout
 
             // Children are created with Y = parent.PaddingTop + childY (relative, since parent.Y was 0
             // during CreateBox). Always add parent's resolved Y to convert to absolute coordinates.
+            // List markers also need this adjustment since they're created with relative Y.
             if (box.Y > 0)
                 child.Y += box.Y;
 
