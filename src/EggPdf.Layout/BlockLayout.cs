@@ -1306,35 +1306,27 @@ public static class BlockLayout
     {
         foreach (var child in box.Children)
         {
-            // List markers: X is absolutely positioned, but Y needs fixup like siblings
-            if (child.IsListMarker)
-            {
-                bool markerNeedsYFix = box.Y > 0 && child.Y < box.Y;
-                if (markerNeedsYFix)
-                    child.Y += box.Y;
-                ResolveAbsolutePositions(child, child.X, child.Y);
-                continue;
-            }
-
-            // Absolutely positioned children already have final coordinates
-            if (child.IsAbsolutelyPositioned)
+            if (child.IsAbsolutelyPositioned || child.IsListMarker)
             {
                 ResolveAbsolutePositions(child, child.X, child.Y);
                 continue;
             }
 
-            // A child's Y is relative if it's less than its parent's Y
-            // and the parent has a non-zero Y position
-            bool needsYFix = box.Y > 0 && child.Y < box.Y;
+            // Children are created with Y relative to parent's content area (parent.Y was 0 during CreateBox).
+            // Block children (line 376): Y = parent.Y(=0) + parent.PaddingTop + childY → effectively PaddingTop + childY
+            // Table cells (line 337): Y = row.Y(=0) + row.PaddingTop → effectively PaddingTop
+            // Both need parent's resolved Y added. Only skip if child already includes it.
+            bool needsYFix = box.Y > 0 && (child.Y < box.Y || box.Style?.Display == "table-row-group" ||
+                                            box.Style?.Display == "table-header-group" ||
+                                            box.Style?.Display == "table-footer-group");
             bool needsXFix = box.X > 0 && child.X < box.X;
 
             if (needsYFix)
                 child.Y += box.Y;
 
             if (needsXFix)
-                child.X = Math.Max(child.X + box.X - 8, child.X); // adjust but don't double-count body margin
+                child.X = Math.Max(child.X + box.X - 8, child.X);
 
-            // Recurse into children
             ResolveAbsolutePositions(child, child.X, child.Y);
         }
     }

@@ -12,6 +12,9 @@ namespace EggPdf.Pdf;
 /// </summary>
 public class PdfDocument
 {
+    // Cache Latin1 encoding instance (ISO 8859-1, code page 28591) for content stream bytes
+    private static readonly Encoding Latin1Encoding = Encoding.GetEncoding(28591);
+
     private readonly List<PdfPage> _pages = new();
     private readonly Dictionary<string, PdfImage> _images = new();
     private readonly Dictionary<string, EmbeddedFontData> _embeddedFonts = new();
@@ -334,7 +337,7 @@ public class PdfDocument
             var (pageDictObj, contentStreamObj, annotArrayObj) = pageObjs[i];
 
             // Content stream
-            var contentBytes = Encoding.GetEncoding(28591).GetBytes(page.ContentStream.ToString());
+            var contentBytes = Latin1Encoding.GetBytes(page.ContentStream.ToString());
 
             offsets[contentStreamObj] = writer.Position;
             writer.WriteLine($"{contentStreamObj} 0 obj");

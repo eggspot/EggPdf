@@ -286,6 +286,27 @@ public class TableLayoutTests
     }
 
     [Fact]
+    public void TbodyRows_SequentialYPositions()
+    {
+        var html = @"<table style='border-collapse:collapse'>
+            <thead><tr><th style='padding:6px'>H</th></tr></thead>
+            <tbody><tr><td style='padding:6px'>R1</td></tr>
+            <tr><td style='padding:6px'>R2</td></tr>
+            <tr><td style='padding:6px'>R3</td></tr></tbody></table>";
+        var root = LayoutTestHelper.Layout(html, 595, 842);
+
+        var rows = root.FindAllByTag("tr");
+        rows.Should().HaveCountGreaterOrEqualTo(4, "header + 3 body rows");
+
+        // Each row should have a unique, increasing Y position
+        for (int i = 1; i < rows.Count; i++)
+        {
+            rows[i].Y.Should().BeGreaterThan(rows[i - 1].Y,
+                $"row {i} (Y={rows[i].Y:F1}) should be below row {i - 1} (Y={rows[i - 1].Y:F1})");
+        }
+    }
+
+    [Fact]
     public void RowCells_EqualHeight()
     {
         // One cell has more content; both should end up same height
