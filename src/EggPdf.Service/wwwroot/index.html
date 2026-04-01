@@ -544,22 +544,13 @@ async function downloadPdf() {
     statusText.textContent = 'PDF ready';
     previewInfo.textContent = `${elapsed}ms | ${sizekb} KB`;
 
-    // Use window.navigator.msSaveOrOpenBlob for IE/old Edge, or anchor download for modern browsers
-    if (window.navigator && window.navigator.msSaveOrOpenBlob) {
-      window.navigator.msSaveOrOpenBlob(blob, 'output.pdf');
-    } else {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'output.pdf';
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      // Use setTimeout to avoid async click blocking
-      setTimeout(() => {
-        a.click();
-        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
-      }, 0);
-    }
+    // Download using Blob + Object URL
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'output.pdf';
+    link.click();
+    URL.revokeObjectURL(url);
 
     lastPdfHtml = html;
     // Re-render preview with the downloaded PDF
