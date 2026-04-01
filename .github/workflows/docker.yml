@@ -46,8 +46,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            eggpdf/service:latest
-            eggpdf/service:${{ steps.version.outputs.version }}
+            eggspot/eggpdf-service:latest
+            eggspot/eggpdf-service:${{ steps.version.outputs.version }}
             ghcr.io/eggspot/eggpdf-service:latest
             ghcr.io/eggspot/eggpdf-service:${{ steps.version.outputs.version }}
           cache-from: type=gha
@@ -61,8 +61,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            eggpdf/cli:latest
-            eggpdf/cli:${{ steps.version.outputs.version }}
+            eggspot/eggpdf-cli:latest
+            eggspot/eggpdf-cli:${{ steps.version.outputs.version }}
             ghcr.io/eggspot/eggpdf-cli:latest
             ghcr.io/eggspot/eggpdf-cli:${{ steps.version.outputs.version }}
           cache-from: type=gha
