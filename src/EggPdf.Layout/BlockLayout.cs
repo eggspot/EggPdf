@@ -340,7 +340,14 @@ public static class BlockLayout
                         float cellX = box.X + box.PaddingLeft;
                         for (int ci = 0; ci < colOffset && ci < columnWidths.Length; ci++)
                             cellX += columnWidths[ci] + borderSpacing;
+                        // Update cell X and offset all children that were laid out with the old X
+                        float deltaX = cellX - childBox.X;
                         childBox.X = cellX;
+                        if (Math.Abs(deltaX) > 0.01f)
+                        {
+                            for (int gi = 0; gi < childBox.Children.Count; gi++)
+                                childBox.Children[gi].X += deltaX;
+                        }
 
                         // border-collapse: remove interior borders on shared edges
                         if (isCollapse)
@@ -1319,13 +1326,11 @@ public static class BlockLayout
             bool needsYFix = box.Y > 0 && (child.Y < box.Y || box.Style?.Display == "table-row-group" ||
                                             box.Style?.Display == "table-header-group" ||
                                             box.Style?.Display == "table-footer-group");
-            bool needsXFix = box.X > 0 && child.X < box.X;
-
             if (needsYFix)
                 child.Y += box.Y;
 
-            if (needsXFix)
-                child.X = Math.Max(child.X + box.X - 8, child.X);
+            // X positions are set absolutely during CreateBox (parent.X + padding + margin),
+            // so no post-fixup is needed for X coordinates.
 
             ResolveAbsolutePositions(child, child.X, child.Y);
         }

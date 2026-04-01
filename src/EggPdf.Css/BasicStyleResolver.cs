@@ -67,7 +67,7 @@ public class BasicStyleResolver
         ["tfoot"] = new() { ["display"] = "table-footer-group" },
         ["tr"] = new() { ["display"] = "table-row" },
         ["td"] = new() { ["display"] = "table-cell", ["padding-top"] = "1px", ["padding-right"] = "1px", ["padding-bottom"] = "1px", ["padding-left"] = "1px" },
-        ["th"] = new() { ["display"] = "table-cell", ["font-weight"] = "bold", ["text-align"] = "center", ["padding-top"] = "1px", ["padding-right"] = "1px", ["padding-bottom"] = "1px", ["padding-left"] = "1px" },
+        ["th"] = new() { ["display"] = "table-cell", ["font-weight"] = "bold", ["padding-top"] = "1px", ["padding-right"] = "1px", ["padding-bottom"] = "1px", ["padding-left"] = "1px" },
         ["caption"] = new() { ["display"] = "table-caption", ["text-align"] = "center" },
         ["img"] = new() { ["display"] = "inline" },
         ["br"] = new() { ["display"] = "inline" },
