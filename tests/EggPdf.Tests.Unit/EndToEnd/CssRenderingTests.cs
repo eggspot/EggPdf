@@ -234,7 +234,8 @@ public class CssRenderingTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
         var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Link text");
+        text.Should().Contain("Link");
+        text.Should().Contain("text");
         text.Should().Contain("l S", "links should have underline by default");
     }
 

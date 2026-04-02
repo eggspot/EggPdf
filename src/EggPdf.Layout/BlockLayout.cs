@@ -13,6 +13,16 @@ public static class BlockLayout
     private const float DefaultFontSize = 16f;
     private const float DefaultLineHeight = 1.2f;
 
+    /// <summary>A segment of text with associated style for inline formatting.</summary>
+    private struct InlineRun
+    {
+        public string Text;
+        public ComputedStyle Style;
+        public HtmlElement? Element;
+        public float FontSize;
+        public bool HasLeadingSpace;
+    }
+
     /// <summary>
     /// Lay out an entire document into a layout tree using BasicStyleResolver.
     /// </summary>
@@ -445,53 +455,45 @@ public static class BlockLayout
                     if (imgHeight > inlineLineHeight)
                         inlineLineHeight = imgHeight;
                 }
-                else
+                else if (childStyle.Display == "inline-block")
                 {
-                    // Inline elements: lay out horizontally on the same line
-                    var inlineText = GetTextContent(childElem);
-                    float inlineFontSize = ResolveFontSize(childStyle.FontSize, fontSize);
-                    float inlineHeight = inlineFontSize * DefaultLineHeight;
-                    float inlineWidth = 0;
-
-                    if (!string.IsNullOrEmpty(inlineText))
-                    {
-                        inlineWidth = TextMeasurer.MeasureWidth(inlineText, inlineFontSize,
-                            childStyle.FontFamily ?? style.FontFamily,
-                            childStyle.FontWeight ?? style.FontWeight,
-                            childStyle.Get("font-style") ?? style.Get("font-style"));
-                    }
-
-                    // Wrap to next line if inline element doesn't fit
-                    if (inlineX > 0 && inlineWidth > 0 && inlineX + inlineWidth > childContainingWidth)
+                    // Inline-block: create a box that flows inline but has block internals
+                    var childBox = CreateBox(childElem, childStyle, box, childContainingWidth, resolver, style);
+                    float ibWidth = childBox.Width;
+                    if (inlineX > 0 && inlineX + ibWidth > childContainingWidth)
                     {
                         childY += inlineLineHeight;
                         inlineX = 0;
                         inlineLineHeight = 0;
                     }
-
-                    var childBox = new LayoutBox
-                    {
-                        Element = childElem,
-                        Style = childStyle,
-                        X = box.X + box.PaddingLeft + inlineX,
-                        Y = box.Y + box.PaddingTop + childY,
-                        Width = inlineWidth > 0 ? inlineWidth : childContainingWidth,
-                        Height = inlineHeight,
-                        ContentWidth = inlineWidth,
-                        ContentHeight = inlineHeight,
-                        Text = inlineText
-                    };
+                    childBox.X = box.X + box.PaddingLeft + inlineX;
+                    childBox.Y = box.Y + box.PaddingTop + childY;
                     box.Children.Add(childBox);
-
-                    if (inlineWidth > 0)
+                    inlineX += ibWidth;
+                    if (childBox.Height > inlineLineHeight) inlineLineHeight = childBox.Height;
+                }
+                else
+                {
+                    // Inline elements: collect text runs with style info and lay out word-by-word
+                    var runs = new System.Collections.Generic.List<InlineRun>();
+                    CollectInlineRuns(childElem, childStyle, ResolveFontSize(childStyle.FontSize, fontSize), resolver, runs);
+                    if (runs.Count > 0)
                     {
-                        inlineX += inlineWidth;
-                        if (inlineHeight > inlineLineHeight)
-                            inlineLineHeight = inlineHeight;
+                        LayoutInlineRuns(runs, box, childElem, ref inlineX, ref childY, ref inlineLineHeight,
+                            childContainingWidth, style, fontSize);
                     }
-                    else if (!string.IsNullOrEmpty(inlineText))
+                    else
                     {
-                        childY += inlineHeight;
+                        // Empty inline element: still create a box for FindByTag
+                        var childBox = new LayoutBox
+                        {
+                            Element = childElem,
+                            Style = childStyle,
+                            X = box.X + box.PaddingLeft + inlineX,
+                            Y = box.Y + box.PaddingTop + childY,
+                            Width = 0, Height = 0
+                        };
+                        box.Children.Add(childBox);
                     }
                 }
             }
@@ -1232,12 +1234,145 @@ public static class BlockLayout
 
     private static string? GetTextContent(HtmlElement element)
     {
-        foreach (var child in element.ChildNodes)
+        var sb = new System.Text.StringBuilder();
+        CollectTextRecursive(element, sb);
+        var result = sb.ToString().Trim();
+        return string.IsNullOrEmpty(result) ? null : result;
+    }
+
+    private static void CollectTextRecursive(HtmlNode node, System.Text.StringBuilder sb)
+    {
+        if (node is HtmlTextNode text)
         {
-            if (child is HtmlTextNode text)
-                return text.Data.Trim();
+            sb.Append(text.Data);
+            return;
         }
-        return null;
+        if (node is HtmlElement elem)
+        {
+            foreach (var child in elem.ChildNodes)
+                CollectTextRecursive(child, sb);
+        }
+    }
+
+    /// <summary>Collect text runs from an inline element tree, preserving style per segment.</summary>
+    private static void CollectInlineRuns(HtmlNode node, ComputedStyle parentStyle, float parentFontSize,
+        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, List<InlineRun> runs)
+    {
+        if (node is HtmlTextNode textNode)
+        {
+            var data = textNode.Data;
+            if (!string.IsNullOrEmpty(data))
+            {
+                runs.Add(new InlineRun
+                {
+                    Text = data,
+                    Style = parentStyle,
+                    Element = null,
+                    FontSize = parentFontSize,
+                    HasLeadingSpace = data.Length > 0 && char.IsWhiteSpace(data[0])
+                });
+            }
+            return;
+        }
+
+        if (node is HtmlElement elem)
+        {
+            if (elem.TagName == "br")
+            {
+                runs.Add(new InlineRun { Text = "\n", Style = parentStyle, Element = elem, FontSize = parentFontSize });
+                return;
+            }
+
+            var style = resolver(elem, parentStyle);
+            if (style.Display == "none") return;
+            float fontSize = ResolveFontSize(style.FontSize, parentFontSize);
+
+            foreach (var child in elem.ChildNodes)
+                CollectInlineRuns(child, style, fontSize, resolver, runs);
+        }
+    }
+
+    /// <summary>Layout inline runs as word-level boxes with style-aware wrapping.</summary>
+    private static void LayoutInlineRuns(List<InlineRun> runs, LayoutBox box, HtmlElement? wrapperElement,
+        ref float inlineX, ref float childY, ref float inlineLineHeight, float containerWidth,
+        ComputedStyle parentStyle, float parentFontSize)
+    {
+        bool elementAssigned = false;
+
+        for (int ri = 0; ri < runs.Count; ri++)
+        {
+            var run = runs[ri];
+
+            if (run.Text == "\n")
+            {
+                float lh = TextMeasurer.GetLineHeight(run.FontSize, run.Style.Get("line-height"));
+                if (inlineX > 0)
+                {
+                    childY += Math.Max(inlineLineHeight, lh);
+                    inlineX = 0;
+                    inlineLineHeight = 0;
+                }
+                else
+                {
+                    childY += lh;
+                }
+                continue;
+            }
+
+            // Normalize whitespace
+            var text = run.Text.Replace('\n', ' ').Replace('\r', ' ').Replace('\t', ' ');
+            // Collapse multiple spaces
+            while (text.IndexOf("  ", StringComparison.Ordinal) >= 0)
+                text = text.Replace("  ", " ");
+            text = text.Trim();
+
+            if (string.IsNullOrEmpty(text)) continue;
+
+            var fontFamily = run.Style.FontFamily;
+            var fontWeight = run.Style.FontWeight;
+            var fontStyle = run.Style.Get("font-style");
+            float lhRun = TextMeasurer.GetLineHeight(run.FontSize, run.Style.Get("line-height"));
+
+            var words = text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+            for (int wi = 0; wi < words.Length; wi++)
+            {
+                bool needSpace = inlineX > 0 && (wi > 0 || run.HasLeadingSpace);
+                var wordText = (needSpace ? " " : "") + words[wi];
+                float wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle);
+
+                // Wrap to next line if doesn't fit
+                if (inlineX > 0 && inlineX + wordWidth > containerWidth)
+                {
+                    childY += inlineLineHeight;
+                    inlineX = 0;
+                    inlineLineHeight = 0;
+                    wordText = words[wi]; // no space prefix after wrap
+                    wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle);
+                }
+
+                var textBox = new LayoutBox
+                {
+                    Element = (!elementAssigned && wrapperElement != null) ? wrapperElement : null,
+                    Style = run.Style,
+                    X = box.X + box.PaddingLeft + inlineX,
+                    Y = box.Y + box.PaddingTop + childY,
+                    Width = wordWidth,
+                    Height = lhRun,
+                    ContentWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle),
+                    ContentHeight = lhRun,
+                    Text = wordText
+                };
+
+                if (!elementAssigned && wrapperElement != null)
+                    elementAssigned = true;
+
+                box.Children.Add(textBox);
+                inlineX += wordWidth;
+                if (lhRun > inlineLineHeight)
+                    inlineLineHeight = lhRun;
+            }
+        }
     }
 
     public static float ResolveLength(string? value, float containingSize, float fontSize)

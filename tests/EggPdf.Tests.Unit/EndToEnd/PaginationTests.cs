@@ -71,7 +71,8 @@ public class PaginationTests
         pdf.Should().NotBeEmpty();
         // The link text should be in the PDF
         var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Go to Section 2");
+        text.Should().Contain("Go");
+        text.Should().Contain("Section");
     }
 
     [Fact]

@@ -127,7 +127,8 @@ public class PdfRenderingRegressionTests
         text.Should().Contain("Web Development");
         text.Should().Contain("$6,000");
         text.Should().Contain("Total: $9,400.00");
-        text.Should().Contain("Pay Now");
+        text.Should().Contain("Pay");
+        text.Should().Contain("Now");
 
         // Header cells should have exactly 4 background fills (th backgrounds)
         // Data cells have no background, so shouldn't add fills
@@ -182,7 +183,8 @@ public class PdfRenderingRegressionTests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Sincerely,");
-        text.Should().Contain("John Smith");
+        text.Should().Contain("John");
+        text.Should().Contain("Smith");
         // Text after <br> renders (may be split across text boxes)
         text.Should().Contain("CEO,");
     }

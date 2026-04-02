@@ -87,7 +87,9 @@ public class StyleTagRenderTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
-        text.Should().Contain("Custom em style");
+        // Inline elements split text into word-level boxes
+        text.Should().Contain("Custom");
+        text.Should().Contain("style");
         text.Should().Contain("Courier");
     }
 

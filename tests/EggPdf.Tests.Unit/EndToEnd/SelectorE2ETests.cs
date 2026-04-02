@@ -163,8 +163,9 @@ public class SelectorE2ETests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
-        text.Should().Contain("Secure link");
-        text.Should().Contain("PDF link");
+        text.Should().Contain("Secure");
+        text.Should().Contain("link");
+        text.Should().Contain("PDF");
     }
 
     [Fact]
