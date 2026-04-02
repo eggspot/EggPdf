@@ -295,6 +295,10 @@ internal static class PdfRenderer
         // their own backgrounds or borders — those belong to the parent element box only.
         bool isAnonymousTextBox = box.Element == null && box.Text != null;
 
+        // Paint box-shadow (before background)
+        if (!isAnonymousTextBox)
+            PaintBoxShadow(page, box, effectiveX, pageHeightPx, adjustedY);
+
         // Paint background
         if (!isAnonymousTextBox)
         {
@@ -455,6 +459,21 @@ internal static class PdfRenderer
             if (!string.IsNullOrEmpty(wsStr) && wsStr != "normal")
                 wordSpacing = BlockLayout.ResolveLength(wsStr, 0, fontSize) * PdfCoordinates.PxToPt;
 
+            // Text shadow: render shadow text before the main text
+            var textShadow = box.Style.Get("text-shadow");
+            if (!string.IsNullOrEmpty(textShadow) && textShadow != "none")
+            {
+                ParseTextShadow(textShadow, fontSize, out float shX, out float shY, out float shR, out float shG, out float shB, out float shA);
+                if (shA > 0)
+                {
+                    float shadowPdfX = pdfX + shX * PdfCoordinates.PxToPt;
+                    float shadowPdfY = pdfY - shY * PdfCoordinates.PxToPt; // PDF Y is inverted
+                    if (shA < 1f) page.SetOpacity(shA);
+                    page.AddText(paintText, shadowPdfX, shadowPdfY, fontName, pdfFontSize, shR, shG, shB, letterSpacing, wordSpacing);
+                    if (shA < 1f) page.SetOpacity(1f);
+                }
+            }
+
             // Use CIDFont glyph IDs for embedded fonts, or WinAnsi for built-in fonts
             if (_currentPdfDoc != null && _currentPdfDoc.IsEmbeddedFont(fontName))
             {
@@ -511,13 +530,34 @@ internal static class PdfRenderer
             }
         }
 
-        // Paint image
+        // Paint image (with object-fit support)
         if (!string.IsNullOrEmpty(box.ImageSource) && box.ImageData != null)
         {
             float pdfX = effectiveX * PdfCoordinates.PxToPt;
             float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
             float pdfW = box.Width * PdfCoordinates.PxToPt;
             float pdfH = box.Height * PdfCoordinates.PxToPt;
+
+            // Apply object-fit
+            var objectFit = box.Style.Get("object-fit");
+            if (objectFit == "contain" || objectFit == "cover")
+            {
+                // Get natural image dimensions
+                float natW = box.ImageData.Length > 0 ? pdfW : pdfW; // approximation
+                float natH = pdfH;
+                float scaleX = pdfW / Math.Max(natW, 1);
+                float scaleY = pdfH / Math.Max(natH, 1);
+                float scale = objectFit == "contain" ? Math.Min(scaleX, scaleY) : Math.Max(scaleX, scaleY);
+                float fitW = natW * scale;
+                float fitH = natH * scale;
+                // Center the image
+                pdfX += (pdfW - fitW) / 2;
+                pdfY += (pdfH - fitH) / 2;
+                pdfW = fitW;
+                pdfH = fitH;
+            }
+            // object-fit: none would use natural size (not scaled)
+            // object-fit: fill (default) uses the box dimensions as-is
 
             string imgName = "Img" + box.ImageSource.GetHashCode().ToString("X8");
             page.AddImage(imgName, pdfX, pdfY, pdfW, pdfH);
@@ -1206,5 +1246,116 @@ internal static class PdfRenderer
     private static Color? ParseColor(string value)
     {
         return Color.TryParse(value);
+    }
+
+    /// <summary>Parse text-shadow: offsetX offsetY [blur] [color]</summary>
+    private static void ParseTextShadow(string shadow, float fontSize,
+        out float x, out float y, out float r, out float g, out float b, out float a)
+    {
+        x = y = 0; r = g = b = 0; a = 0.5f;
+        if (string.IsNullOrEmpty(shadow) || shadow == "none") return;
+
+        var parts = shadow.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        int numIdx = 0;
+        string? colorStr = null;
+
+        for (int i = 0; i < parts.Length; i++)
+        {
+            var p = parts[i];
+            // Try as a length value
+            if (p.EndsWith("px") || p.EndsWith("em") || p.EndsWith("rem") ||
+                (p.Length > 0 && (char.IsDigit(p[0]) || p[0] == '-' || p[0] == '.')))
+            {
+                float val = Layout.BlockLayout.ResolveLength(p, 0, fontSize);
+                if (numIdx == 0) x = val;
+                else if (numIdx == 1) y = val;
+                // numIdx == 2 would be blur radius (ignored for now)
+                numIdx++;
+            }
+            else
+            {
+                // Accumulate color tokens (might be "rgba(0, 0, 0, 0.3)" split across parts)
+                colorStr = colorStr == null ? p : colorStr + " " + p;
+            }
+        }
+
+        if (!string.IsNullOrEmpty(colorStr))
+        {
+            var c = ParseColor(colorStr);
+            if (c.HasValue)
+            {
+                r = c.Value.R / 255f;
+                g = c.Value.G / 255f;
+                b = c.Value.B / 255f;
+                a = c.Value.A / 255f;
+            }
+        }
+
+        if (a <= 0 && x == 0 && y == 0) a = 0; // no shadow
+        else if (a <= 0) a = 0.5f; // default opacity
+    }
+
+    /// <summary>Paint box-shadow behind an element.</summary>
+    private static void PaintBoxShadow(PdfPage page, LayoutBox box, float effectiveX,
+        float pageHeightPx, float adjustedY)
+    {
+        var shadow = box.Style.Get("box-shadow");
+        if (string.IsNullOrEmpty(shadow) || shadow == "none") return;
+
+        float fontSize = 16;
+        var fsStr = box.Style.FontSize;
+        if (!string.IsNullOrEmpty(fsStr))
+        {
+            float resolved = Layout.BlockLayout.ResolveLength(fsStr, 0, 16);
+            if (resolved > 0) fontSize = resolved;
+        }
+
+        // Parse: offsetX offsetY [blur] [spread] [color]
+        var parts = shadow.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        float sx = 0, sy = 0, blur = 0, spread = 0;
+        string? colorStr = null;
+        int numIdx = 0;
+
+        for (int i = 0; i < parts.Length; i++)
+        {
+            var p = parts[i];
+            if (p.EndsWith("px") || p.EndsWith("em") ||
+                (p.Length > 0 && (char.IsDigit(p[0]) || p[0] == '-' || p[0] == '.')))
+            {
+                float val = Layout.BlockLayout.ResolveLength(p, 0, fontSize);
+                if (numIdx == 0) sx = val;
+                else if (numIdx == 1) sy = val;
+                else if (numIdx == 2) blur = val;
+                else if (numIdx == 3) spread = val;
+                numIdx++;
+            }
+            else
+            {
+                colorStr = colorStr == null ? p : colorStr + " " + p;
+            }
+        }
+
+        float sr = 0, sg = 0, sb = 0;
+        float sa = 0.3f;
+        if (!string.IsNullOrEmpty(colorStr))
+        {
+            var c = ParseColor(colorStr);
+            if (c.HasValue)
+            {
+                sr = c.Value.R / 255f;
+                sg = c.Value.G / 255f;
+                sb = c.Value.B / 255f;
+                sa = c.Value.A / 255f;
+            }
+        }
+
+        float pdfX = (effectiveX + sx - spread) * PdfCoordinates.PxToPt;
+        float pdfY = (pageHeightPx - adjustedY - box.Height - sy - spread) * PdfCoordinates.PxToPt;
+        float pdfW = (box.Width + spread * 2) * PdfCoordinates.PxToPt;
+        float pdfH = (box.Height + spread * 2) * PdfCoordinates.PxToPt;
+
+        if (sa < 1f) page.SetOpacity(sa);
+        page.AddRectangle(pdfX, pdfY, pdfW, pdfH, sr, sg, sb);
+        if (sa < 1f) page.SetOpacity(1f);
     }
 }
