@@ -133,8 +133,12 @@ jobs:
       - name: Push to NuGet
         if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
         run: |
-          dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
-          dotnet nuget push ./artifacts/*.snupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate || true
+          for pkg in ./artifacts/*.nupkg; do
+            dotnet nuget push "$pkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate || echo "Warning: failed to push $pkg (may lack API key permission)"
+          done
+          for pkg in ./artifacts/*.snupkg; do
+            dotnet nuget push "$pkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate || true
+          done
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
 
