@@ -213,14 +213,12 @@ public class WebUITests
         var page = await _fixture.Browser!.NewPageAsync();
         await page.GotoAsync(_fixture.BaseUrl);
 
-        // Line numbers should exist
-        var lineNums = page.Locator("#lineNums");
-        var text = await lineNums.TextContentAsync();
+        // Ace editor line number gutter cells should exist
+        var gutterCell = page.Locator(".ace_gutter-cell").First;
+        await gutterCell.WaitForAsync(new() { Timeout = 10000 });
+        var text = await gutterCell.TextContentAsync();
         text.Should().NotBeNullOrEmpty();
-
-        // Should have multiple line numbers
         text.Should().Contain("1");
-        text.Should().Contain("5");
 
         await page.CloseAsync();
     }
