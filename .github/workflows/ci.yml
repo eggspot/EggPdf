@@ -43,6 +43,8 @@ jobs:
       - name: Install Playwright Browsers
         if: matrix.os == 'ubuntu-latest' && matrix.dotnet-version == '10.0.x'
         run: pwsh tests/EggPdf.Tests.E2E/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: 0
 
       - name: E2E Tests (Playwright)
         if: matrix.os == 'ubuntu-latest' && matrix.dotnet-version == '10.0.x'
