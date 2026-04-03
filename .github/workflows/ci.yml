@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        dotnet-version: ['8.0.x', '9.0.x']
+        dotnet-version: ['9.0.x', '10.0.x']
       fail-fast: false
 
     steps:
@@ -24,9 +24,9 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
-            6.0.x
             8.0.x
             9.0.x
+            10.0.x
 
       - name: Restore
         run: dotnet restore
@@ -41,11 +41,11 @@ jobs:
         run: dotnet test tests/EggPdf.Tests.Layout --configuration Release --no-build --verbosity normal
 
       - name: Install Playwright Browsers
-        if: matrix.os == 'ubuntu-latest' && matrix.dotnet-version == '9.0.x'
-        run: pwsh tests/EggPdf.Tests.E2E/bin/Release/net9.0/playwright.ps1 install --with-deps chromium
+        if: matrix.os == 'ubuntu-latest' && matrix.dotnet-version == '10.0.x'
+        run: pwsh tests/EggPdf.Tests.E2E/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
 
       - name: E2E Tests (Playwright)
-        if: matrix.os == 'ubuntu-latest' && matrix.dotnet-version == '9.0.x'
+        if: matrix.os == 'ubuntu-latest' && matrix.dotnet-version == '10.0.x'
         run: dotnet test tests/EggPdf.Tests.E2E --configuration Release --no-build --verbosity normal
         env:
           PLAYWRIGHT_BROWSERS_PATH: 0
