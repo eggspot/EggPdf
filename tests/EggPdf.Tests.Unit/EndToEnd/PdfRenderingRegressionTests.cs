@@ -28,9 +28,9 @@ public class PdfRenderingRegressionTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
-        // 2 header cells with backgrounds = exactly 2 filled rectangles
+        // 2 header cells with backgrounds = exactly 3 fills (white page canvas + 2 th backgrounds)
         int fillCount = Regex.Matches(text, @"re f").Count;
-        fillCount.Should().Be(2, "only element boxes should paint backgrounds, not anonymous text boxes");
+        fillCount.Should().Be(3, "only element boxes should paint backgrounds, not anonymous text boxes");
     }
 
     [Fact]
@@ -130,11 +130,11 @@ public class PdfRenderingRegressionTests
         text.Should().Contain("Pay");
         text.Should().Contain("Now");
 
-        // Header cells should have exactly 4 background fills (th backgrounds)
+        // Header cells should have exactly 5 fills (white page canvas + 4 th backgrounds)
         // Data cells have no background, so shouldn't add fills
         var ascii = Encoding.ASCII.GetString(pdf);
         int fillCount = Regex.Matches(ascii, @"re f").Count;
-        fillCount.Should().Be(4, "4 header cells should have exactly 4 background fills");
+        fillCount.Should().Be(5, "4 header cells should have exactly 4 background fills, plus 1 white page canvas");
 
         // h1 border-bottom should be rendered
         bool hasBorderLine = ascii.Contains(" m") && ascii.Contains(" l");

@@ -120,10 +120,10 @@ public class TableGapDiagnosticTest
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
-        // Count filled rectangles: should be exactly 1 (the div's background)
-        // Before fix: was 2 (div bg + anonymous text box bg)
+        // Count filled rectangles: should be exactly 2 (white page canvas + the div's background)
+        // Before fix: was 3 (page canvas + div bg + anonymous text box bg)
         int fillCount = System.Text.RegularExpressions.Regex.Matches(text, @"re f").Count;
-        fillCount.Should().Be(1, "only the element box should paint its background, not anonymous text boxes");
+        fillCount.Should().Be(2, "only the element box should paint its background, not anonymous text boxes");
 
         // Count stroke rectangles: should be exactly 1 (the div's border)
         int strokeCount = System.Text.RegularExpressions.Regex.Matches(text, @"re S").Count;
@@ -145,9 +145,9 @@ public class TableGapDiagnosticTest
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
-        // With 2 header cells and border-collapse, we should have exactly 2 background fills
+        // With 2 header cells and border-collapse, we should have exactly 3 fills (white page canvas + 2 th backgrounds)
         int fillCount = System.Text.RegularExpressions.Regex.Matches(text, @"re f").Count;
-        fillCount.Should().Be(2, "each th should paint exactly one background (no phantom text box backgrounds)");
+        fillCount.Should().Be(3, "each th should paint exactly one background (no phantom text box backgrounds)");
     }
 
     private void DumpBox(LayoutBox box, int depth)

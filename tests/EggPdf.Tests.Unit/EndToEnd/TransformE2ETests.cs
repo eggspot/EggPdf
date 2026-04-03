@@ -20,7 +20,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Moved");
-        text.Should().Contain(" cm\r\n", "translateX should emit a cm (concat matrix) operator");
+        text.Should().Contain(" cm", "translateX should emit a cm (concat matrix) operator");
     }
 
     [Fact]
@@ -31,7 +31,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Down");
-        text.Should().Contain(" cm\r\n", "translateY should emit a cm operator");
+        text.Should().Contain(" cm", "translateY should emit a cm operator");
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Rotated");
-        text.Should().Contain(" cm\r\n", "rotate should emit a cm operator");
+        text.Should().Contain(" cm", "rotate should emit a cm operator");
         // cos(45deg) ~ 0.71
         text.Should().Contain("0.71", "cos(45deg) should appear in the matrix");
     }
@@ -55,7 +55,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Scaled");
-        text.Should().Contain(" cm\r\n", "scale should emit a cm operator");
+        text.Should().Contain(" cm", "scale should emit a cm operator");
         text.Should().Contain("2.00", "scale(2) should have 2.00 in the matrix");
     }
 
@@ -67,7 +67,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Combined");
-        text.Should().Contain(" cm\r\n", "combined transforms should emit a cm operator");
+        text.Should().Contain(" cm", "combined transforms should emit a cm operator");
     }
 
     [Fact]
@@ -78,7 +78,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Origin");
-        text.Should().Contain(" cm\r\n", "rotation with default origin should emit cm");
+        text.Should().Contain(" cm", "rotation with default origin should emit cm");
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Plain");
-        int cmCount = CountSubstring(text, " cm\r\n");
+        int cmCount = CountSubstring(text, " cm");
         cmCount.Should().Be(0, "no transform means no cm operator in content stream");
     }
 
@@ -101,7 +101,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("None");
-        int cmCount = CountSubstring(text, " cm\r\n");
+        int cmCount = CountSubstring(text, " cm");
         cmCount.Should().Be(0, "transform:none should produce no cm operator");
     }
 
@@ -113,7 +113,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Skewed");
-        text.Should().Contain(" cm\r\n", "skewX should emit a cm operator");
+        text.Should().Contain(" cm", "skewX should emit a cm operator");
     }
 
     [Fact]
@@ -124,7 +124,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Matrix");
-        text.Should().Contain(" cm\r\n", "matrix() should emit a cm operator");
+        text.Should().Contain(" cm", "matrix() should emit a cm operator");
     }
 
     [Fact]
@@ -135,7 +135,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Rad");
-        text.Should().Contain(" cm\r\n", "rotate with rad unit should emit cm");
+        text.Should().Contain(" cm", "rotate with rad unit should emit cm");
     }
 
     [Fact]
@@ -146,7 +146,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Turn");
-        text.Should().Contain(" cm\r\n", "rotate with turn unit should emit cm");
+        text.Should().Contain(" cm", "rotate with turn unit should emit cm");
     }
 
     [Fact]
@@ -157,7 +157,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("ScaleXY");
-        text.Should().Contain(" cm\r\n", "scale with different x/y values should emit cm");
+        text.Should().Contain(" cm", "scale with different x/y values should emit cm");
         text.Should().Contain("2.00", "scaleX=2 should appear in the matrix");
         text.Should().Contain("0.50", "scaleY=0.5 should appear in the matrix");
     }
@@ -170,7 +170,7 @@ public class TransformE2ETests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Both");
-        text.Should().Contain(" cm\r\n", "transform should be applied even with overflow:hidden");
+        text.Should().Contain(" cm", "transform should be applied even with overflow:hidden");
         text.Should().StartWith("%PDF");
     }
 

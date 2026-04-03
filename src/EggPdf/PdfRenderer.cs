@@ -98,10 +98,51 @@ internal static class PdfRenderer
         float paginationHeight = pageHeightPx - _marginTopPx * 2;
         if (paginationHeight <= 0) paginationHeight = pageHeightPx;
 
-        // Fill remaining pages using content area height
+        // Find body's margin-bottom so we can use it as a bottom snap zone:
+        // content should not start within this margin of the page bottom edge.
+        float bodyMarginBottomPx = 0;
+        foreach (var child in layoutRoot.Children)
+        {
+            if (child is LayoutBox lb && lb.Element?.TagName == "body")
+            {
+                bodyMarginBottomPx = lb.MarginBottom;
+                break;
+            }
+        }
+        // Clamp so the snap zone can't exceed half the page (degenerate case)
+        if (bodyMarginBottomPx > paginationHeight / 2)
+            bodyMarginBottomPx = 0;
+
+        // Fill remaining pages using content area height, with smart page breaking
+        // that avoids cutting through content boxes OR placing content within the
+        // body's bottom margin zone (which would leave no visual padding at the page bottom).
         while (currentTop < maxY)
         {
-            float bottom = Math.Min(currentTop + paginationHeight, maxY);
+            float naiveBottom = currentTop + paginationHeight;
+            // Effective soft boundary: boxes must not START in the bottom margin zone
+            float effectiveBottom = naiveBottom - bodyMarginBottomPx;
+            float smartBottom = naiveBottom;
+
+            foreach (var box in allBoxes)
+            {
+                float bTop = box.Y;
+                float bBottom = box.Y + box.Height;
+                if (bTop > currentTop && bTop < naiveBottom && box.Height <= paginationHeight)
+                {
+                    // Case 1: box straddles the hard page boundary
+                    bool straddles = bBottom > naiveBottom;
+                    // Case 2: box starts inside the bottom margin zone (too close to page edge)
+                    bool inMarginZone = bTop >= effectiveBottom;
+                    if ((straddles || inMarginZone) && bTop < smartBottom)
+                        smartBottom = bTop;
+                }
+            }
+
+            // Guard against degenerate case where smartBottom snapped to currentTop
+            if (smartBottom <= currentTop)
+                smartBottom = naiveBottom;
+
+            float bottom = Math.Min(smartBottom, maxY);
             pageBounds.Add((currentTop, bottom));
             currentTop = bottom;
         }
@@ -114,15 +155,27 @@ internal static class PdfRenderer
         {
             var page = pdfDoc.AddPage(pageWidthPt, pageHeightPt);
 
+            // Paint white page canvas background (matches browser default canvas color).
+            // Without this, PDF viewers render the transparent page as off-white, causing
+            // visible differences against explicitly white-background elements in browsers.
+            page.AddRectangle(0, 0, pageWidthPt, pageHeightPt, 1f, 1f, 1f);
+
             // Paint boxes that fall on this page
             foreach (var box in allBoxes)
             {
                 float boxTop = box.Y;
                 float boxBottom = box.Y + box.Height;
 
-                // Skip boxes entirely outside this page
-                if (boxBottom <= pageTopPx || boxTop >= pageBottomPx)
-                    continue;
+                // Text boxes are assigned to exactly one page: the page where their top falls.
+                // This prevents text from appearing duplicated when a text line straddles a page boundary.
+                // Non-text boxes (backgrounds, borders) use overlap check so they cover their full area.
+                bool skip;
+                if (!string.IsNullOrEmpty(box.Text))
+                    skip = boxTop < pageTopPx || boxTop >= pageBottomPx;
+                else
+                    skip = boxBottom <= pageTopPx || boxTop >= pageBottomPx;
+
+                if (skip) continue;
 
                 // Adjust Y coordinate relative to this page, offset by top margin
                 float adjustedY = box.Y - pageTopPx + _marginTopPx;
