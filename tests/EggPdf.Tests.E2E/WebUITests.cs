@@ -28,8 +28,8 @@ public class WebUITests
         var title = await page.TitleAsync();
         title.Should().Contain("EggPdf");
 
-        // Editor textarea should exist
-        var editor = page.Locator("#htmlInput");
+        // Editor (Ace) should exist
+        var editor = page.Locator("#aceEditor");
         await editor.WaitForAsync(new() { Timeout = 5000 });
         (await editor.IsVisibleAsync()).Should().BeTrue();
 
@@ -46,8 +46,7 @@ public class WebUITests
         var page = await _fixture.Browser!.NewPageAsync();
         await page.GotoAsync(_fixture.BaseUrl);
 
-        var editor = page.Locator("#htmlInput");
-        var value = await editor.InputValueAsync();
+        var value = await page.EvaluateAsync<string>("() => window.editor ? window.editor.getValue() : document.getElementById('htmlInput').value");
 
         value.Should().Contain("Invoice");
         value.Should().Contain("<table>");
@@ -61,17 +60,17 @@ public class WebUITests
         var page = await _fixture.Browser!.NewPageAsync();
         await page.GotoAsync(_fixture.BaseUrl);
 
-        // Wait for the preview iframe to load
+        // Wait for the preview to initialize
         await page.WaitForTimeoutAsync(500);
 
-        // Print Preview tab should be active by default
-        var printTab = page.Locator(".preview-tab.active");
-        var tabText = await printTab.TextContentAsync();
-        tabText.Should().Contain("Print Preview");
+        // PDF tab should be active by default
+        var activeTab = page.Locator(".preview-tab.active");
+        var tabText = await activeTab.TextContentAsync();
+        tabText.Should().Contain("PDF");
 
-        // The iframe should exist
-        var iframe = page.Locator("#previewFrame");
-        (await iframe.IsVisibleAsync()).Should().BeTrue();
+        // The PDF preview div should be visible
+        var pdfView = page.Locator("#pdfPreview");
+        (await pdfView.IsVisibleAsync()).Should().BeTrue();
 
         await page.CloseAsync();
     }
@@ -103,12 +102,12 @@ public class WebUITests
         var page = await _fixture.Browser!.NewPageAsync();
         await page.GotoAsync(_fixture.BaseUrl);
 
-        // Open templates and click "Report"
+        // Open templates and click "Report" (use onclick attribute to avoid ambiguity with other cards containing "report")
         await page.Locator(".header .btn", new() { HasText = "Templates" }).ClickAsync();
-        await page.Locator(".tpl-card", new() { HasText = "Report" }).ClickAsync();
+        await page.Locator(".tpl-card[onclick*=\"loadTpl('report')\"]").ClickAsync();
 
         // Editor should now contain report content
-        var value = await page.Locator("#htmlInput").InputValueAsync();
+        var value = await page.EvaluateAsync<string>("() => window.editor ? window.editor.getValue() : document.getElementById('htmlInput').value");
         value.Should().Contain("Report");
 
         // Modal should be closed
@@ -146,8 +145,8 @@ public class WebUITests
         var page = await _fixture.Browser!.NewPageAsync();
         await page.GotoAsync(_fixture.BaseUrl);
 
-        // Get the HTML from the editor
-        var html = await page.Locator("#htmlInput").InputValueAsync();
+        // Get the HTML from the editor (works with both Ace and fallback textarea)
+        var html = await page.EvaluateAsync<string>("() => window.editor ? window.editor.getValue() : document.getElementById('htmlInput').value");
         html.Should().NotBeNullOrEmpty();
 
         // Call the API directly (same as what the Download button does)
@@ -170,8 +169,9 @@ public class WebUITests
         var page = await _fixture.Browser!.NewPageAsync();
         await page.GotoAsync(_fixture.BaseUrl);
 
-        // Click PDF Preview tab
-        await page.Locator(".preview-tab", new() { HasText = "PDF Preview" }).ClickAsync();
+        // Switch to Print tab first, then back to PDF tab
+        await page.Locator(".preview-tab", new() { HasText = "Print" }).ClickAsync();
+        await page.Locator(".preview-tab", new() { HasText = "PDF" }).ClickAsync();
 
         // PDF preview div should be visible
         var pdfView = page.Locator("#pdfPreview");
