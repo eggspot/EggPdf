@@ -12,16 +12,16 @@ namespace EggPdf;
 /// </summary>
 internal static class PageRuleResolver
 {
-    /// <summary>Standard page sizes in CSS pixels (96dpi).</summary>
+    /// <summary>Standard page sizes in CSS pixels at 96dpi. Converted to PDF points via PxToPt (×0.75).</summary>
     private static readonly Dictionary<string, (float Width, float Height)> PageSizes =
         new Dictionary<string, (float, float)>(StringComparer.OrdinalIgnoreCase)
         {
-            { "a3", (1122.52f, 1587.40f) },
-            { "a4", (595.28f, 841.89f) },
-            { "a5", (419.53f, 595.28f) },
-            { "letter", (612f, 792f) },
-            { "legal", (612f, 1008f) },
-            { "tabloid", (792f, 1224f) },
+            { "a3", (1122.52f, 1587.40f) },  // 297mm × 420mm at 96dpi → ×0.75 = 841.89pt × 1190.55pt
+            { "a4", (793.70f, 1122.52f) },   // 210mm × 297mm at 96dpi → ×0.75 = 595.28pt × 841.89pt
+            { "a5", (559.37f, 793.70f) },    // 148mm × 210mm at 96dpi → ×0.75 = 419.53pt × 595.28pt
+            { "letter", (816f, 1056f) },     // 8.5in × 11in  at 96dpi → ×0.75 = 612pt × 792pt
+            { "legal", (816f, 1344f) },      // 8.5in × 14in  at 96dpi → ×0.75 = 612pt × 1008pt
+            { "tabloid", (1056f, 1632f) },   // 11in × 17in   at 96dpi → ×0.75 = 792pt × 1224pt
         };
 
     /// <summary>
@@ -219,11 +219,11 @@ internal static class PageRuleResolver
 /// </summary>
 internal class PageSettings
 {
-    /// <summary>Page width in CSS pixels. Default: A4 width.</summary>
-    public float PageWidthPx { get; set; } = 595.28f;
+    /// <summary>Page width in CSS pixels at 96dpi. Default: A4 width (793.70px → 595.28pt).</summary>
+    public float PageWidthPx { get; set; } = 793.70f;
 
-    /// <summary>Page height in CSS pixels. Default: A4 height.</summary>
-    public float PageHeightPx { get; set; } = 841.89f;
+    /// <summary>Page height in CSS pixels at 96dpi. Default: A4 height (1122.52px → 841.89pt).</summary>
+    public float PageHeightPx { get; set; } = 1122.52f;
 
     /// <summary>Top margin in CSS pixels.</summary>
     public float MarginTop { get; set; }
@@ -238,7 +238,7 @@ internal class PageSettings
     public float MarginLeft { get; set; }
 
     /// <summary>Whether any @page rule was found.</summary>
-    public bool HasPageSize => PageWidthPx != 595.28f || PageHeightPx != 841.89f;
+    public bool HasPageSize => PageWidthPx != 793.70f || PageHeightPx != 1122.52f;
 
     /// <summary>Whether any margin was specified.</summary>
     public bool HasMargins => MarginTop > 0 || MarginRight > 0 || MarginBottom > 0 || MarginLeft > 0;

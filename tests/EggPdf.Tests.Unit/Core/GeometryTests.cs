@@ -88,7 +88,7 @@ public class GeometryTests
     {
         var a4 = PageSizes.A4;
 
-        // A4 = 210 x 297 mm = 595.28 x 841.89 px at 96 DPI
+        // A4 = 210 x 297 mm = 595.28 x 841.89 pt (at 72dpi / PDF points)
         a4.Width.Should().BeApproximately(595.28f, 0.01f);
         a4.Height.Should().BeApproximately(841.89f, 0.01f);
     }
@@ -98,7 +98,7 @@ public class GeometryTests
     {
         var letter = PageSizes.Letter;
 
-        // Letter = 8.5 x 11 in = 612 x 792 px at 96 DPI
+        // Letter = 8.5 x 11 in = 612 x 792 pt (at 72dpi / PDF points)
         letter.Width.Should().Be(612f);
         letter.Height.Should().Be(792f);
     }

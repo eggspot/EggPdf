@@ -20,8 +20,8 @@ public class PageRulesE2ETests
 
         pdf.Should().NotBeEmpty();
         var text = Encoding.ASCII.GetString(pdf);
-        // Letter = 612 x 792 px -> in pt: 612*0.75=459.00, 792*0.75=594.00
-        text.Should().Contain("/MediaBox [0 0 459.00 594.00]");
+        // Letter = 816px × 1056px at 96dpi → ×0.75 = 612pt × 792pt
+        text.Should().Contain("/MediaBox [0 0 612.00 792.00]");
     }
 
     [Fact]
@@ -37,9 +37,9 @@ public class PageRulesE2ETests
 
         pdf.Should().NotBeEmpty();
         var text = Encoding.ASCII.GetString(pdf);
-        // A4 landscape: swap -> 841.89 x 595.28 px
-        // In PDF pt: 841.89 * 0.75 = 631.42, 595.28 * 0.75 = 446.46
-        text.Should().Contain("/MediaBox [0 0 631.42 446.46]");
+        // A4 landscape: swap width/height → 1122.52px × 793.70px at 96dpi
+        // In PDF pt: 1122.52 × 0.75 = 841.89pt, 793.70 × 0.75 = 595.28pt
+        text.Should().Contain("/MediaBox [0 0 841.89 595.28]");
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class PageRulesE2ETests
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Content with page margins");
         // MediaBox should remain full A4 size (margins don't change MediaBox)
-        text.Should().Contain("/MediaBox [0 0 446.46 631.42]");
+        text.Should().Contain("/MediaBox [0 0 595.28 841.89]");
     }
 
     [Fact]
@@ -88,8 +88,8 @@ public class PageRulesE2ETests
 
         pdf.Should().NotBeEmpty();
         var text = Encoding.ASCII.GetString(pdf);
-        // A4: 595.28px * 0.75 = 446.46pt, 841.89px * 0.75 = 631.42pt
-        text.Should().Contain("/MediaBox [0 0 446.46 631.42]");
+        // A4 default: 793.70px × 1122.52px at 96dpi → ×0.75 = 595.28pt × 841.89pt
+        text.Should().Contain("/MediaBox [0 0 595.28 841.89]");
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public class PageRulesE2ETests
 
         pdf.Should().NotBeEmpty();
         var text = Encoding.ASCII.GetString(pdf);
-        // A5: 419.53px x 595.28px -> in pt: 314.65 x 446.46
-        text.Should().Contain("/MediaBox [0 0 314.65 446.46]");
+        // A5: 559.37px × 793.70px at 96dpi → ×0.75 = 419.53pt × 595.28pt
+        text.Should().Contain("/MediaBox [0 0 419.53 595.28]");
     }
 }

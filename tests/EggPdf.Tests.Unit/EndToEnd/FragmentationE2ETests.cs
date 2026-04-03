@@ -13,7 +13,7 @@ public class FragmentationE2ETests
     {
         // Create a document where a card would normally be split across pages
         var html = @"
-            <div style='height: 780px'>Spacer to push card near page bottom</div>
+            <div style='height: 1000px'>Spacer to push card near page bottom</div>
             <div style='break-inside: avoid; height: 200px; background: #eee; border: 1px solid black'>
                 <h2>Card Title</h2>
                 <p>This card should not be split across pages</p>
