@@ -17,7 +17,7 @@ See `design/architecture/` for detailed component specs (8 docs, ~3,000 lines).
 ## Core Principles
 
 1. **Zero external dependencies** -- pure managed C#, BCL only. No NuGet packages in the core library.
-2. **Multi-target** -- must compile on netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0.
+2. **Multi-target** -- must compile on netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0.
 3. **Performance matters** -- benchmark every hot-path change. No regressions allowed.
 4. **Test first, always** -- write failing test -> implement -> verify -> fix -> repeat.
 5. **Infallible parsers** -- HTML/CSS parsers never throw. Produce error nodes / silently ignore.
@@ -67,8 +67,8 @@ src/
   EggPdf.Fragmentation/ -- (placeholder for future fragmentation)
 
 tests/
-  EggPdf.Tests.Unit/   -- 628 unit tests (parsers, CSS, var/calc, selectors, colors, PDF, PNG, bookmarks, E2E)
-  EggPdf.Tests.Layout/ -- 147 layout tests (block, inline, flex, float, table, grid, margins, lists)
+  EggPdf.Tests.Unit/   -- 639 unit tests (parsers, CSS, var/calc, selectors, colors, PDF, PNG, bookmarks, E2E)
+  EggPdf.Tests.Layout/ -- 150 layout tests (block, inline, flex, float, table, grid, margins, lists)
   EggPdf.Tests.E2E/    -- 20 Playwright tests (WebUI, API endpoints)
 
 benchmarks/
@@ -96,6 +96,7 @@ dotnet test tests/EggPdf.Tests.Layout -c Release
 
 # Playwright E2E tests (starts service automatically)
 PLAYWRIGHT_BROWSERS_PATH=0 dotnet test tests/EggPdf.Tests.E2E -c Release
+# Note: Playwright script path uses net10.0 (see ci.yml)
 
 # Filtered
 dotnet test -c Release --filter "FullyQualifiedName~TableCell"

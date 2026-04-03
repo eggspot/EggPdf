@@ -52,7 +52,7 @@ Implement a feature for EggPdf following the strict loop: write test -> write co
 
 6. **Implement the feature** following these constraints:
    - **Zero external dependencies** -- pure C#, BCL only
-   - **Multi-target aware** -- code must compile on netstandard2.0 through net9.0
+   - **Multi-target aware** -- code must compile on netstandard2.0 through net10.0
    - **Performance-conscious** -- no unnecessary allocations, use `Span<T>` on netstandard2.1+, `ArrayPool` where appropriate
    - **Infallible parsers** -- HTML/CSS parsers never throw, produce error nodes instead
    - **Graceful degradation** -- unknown CSS properties silently ignored, missing resources produce warnings not exceptions
