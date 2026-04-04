@@ -157,6 +157,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Trigger CLI binary builds
+        if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
+        run: |
+          gh api repos/${{ github.repository }}/actions/workflows/release-binaries.yml/dispatches \
+            --field ref="v${{ steps.version.outputs.version }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Commit version bump
         if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
         run: |
