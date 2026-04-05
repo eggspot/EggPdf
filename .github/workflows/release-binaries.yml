@@ -44,6 +44,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Publish single-file
+        shell: bash
         run: |
           dotnet publish src/EggPdf.Cli/EggPdf.Cli.csproj \
             -c Release \
