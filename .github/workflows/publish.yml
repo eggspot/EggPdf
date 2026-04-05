@@ -166,6 +166,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Trigger Docker image build
+        if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
+        run: |
+          gh api repos/${{ github.repository }}/actions/workflows/docker.yml/dispatches \
+            --field ref="v${{ steps.version.outputs.version }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Commit version bump
         if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
         run: |
