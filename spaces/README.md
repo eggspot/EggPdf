@@ -22,7 +22,7 @@ Live demo of [EggPdf](https://github.com/eggspot/EggPdf) — a pure C#, zero-dep
 ## Quick API test
 
 ```bash
-curl -X POST https://eggspot-eggpdf-demo.hf.space/api/render \
+curl -X POST https://vp2dr7qe8-eggspot.hf.space/api/render \
   -H "Content-Type: application/json" \
   -d '{"html": "<h1>Hello from EggPdf!</h1>"}' \
   -o output.pdf
