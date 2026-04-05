@@ -121,7 +121,7 @@ jobs:
 
       - name: Pack
         if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
-        run: dotnet pack --configuration Release --no-build --output ./artifacts
+        run: dotnet pack src/EggPdf/EggPdf.csproj --configuration Release --no-build --output ./artifacts
 
       - name: Upload artifacts
         if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
@@ -154,6 +154,14 @@ jobs:
             --title "EggPdf v${{ steps.version.outputs.version }}" \
             --generate-notes \
             ./artifacts/*.nupkg
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger CLI binary builds
+        if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
+        run: |
+          gh api repos/${{ github.repository }}/actions/workflows/release-binaries.yml/dispatches \
+            --field ref="v${{ steps.version.outputs.version }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

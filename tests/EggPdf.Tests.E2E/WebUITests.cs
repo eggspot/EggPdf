@@ -18,6 +18,11 @@ public class WebUITests
 
     public WebUITests(ServiceFixture fixture) { _fixture = fixture; }
 
+    /// <summary>Wait until window.editor is initialized on the page.</summary>
+    private static Task WaitForEditorAsync(IPage page) =>
+        page.WaitForFunctionAsync("() => window.editor && typeof window.editor.getValue === 'function'",
+            null, new() { Timeout = 10000 });
+
     [Fact]
     public async Task HomePage_LoadsSuccessfully()
     {
@@ -46,6 +51,7 @@ public class WebUITests
         var page = await _fixture.Browser!.NewPageAsync();
         await page.GotoAsync(_fixture.BaseUrl);
 
+        await WaitForEditorAsync(page);
         var value = await page.EvaluateAsync<string>("() => window.editor ? window.editor.getValue() : document.getElementById('htmlInput').value");
 
         value.Should().Contain("Invoice");
@@ -107,6 +113,7 @@ public class WebUITests
         await page.Locator(".tpl-card[onclick*=\"loadTpl('report')\"]").ClickAsync();
 
         // Editor should now contain report content
+        await WaitForEditorAsync(page);
         var value = await page.EvaluateAsync<string>("() => window.editor ? window.editor.getValue() : document.getElementById('htmlInput').value");
         value.Should().Contain("Report");
 
@@ -146,6 +153,7 @@ public class WebUITests
         await page.GotoAsync(_fixture.BaseUrl);
 
         // Get the HTML from the editor (works with both Ace and fallback textarea)
+        await WaitForEditorAsync(page);
         var html = await page.EvaluateAsync<string>("() => window.editor ? window.editor.getValue() : document.getElementById('htmlInput').value");
         html.Should().NotBeNullOrEmpty();
 
