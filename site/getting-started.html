@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Getting Started — EggPdf | Eggspot</title>
+  <meta name="description" content="Get started with EggPdf: install via NuGet, render your first PDF in C#, and integrate with ASP.NET Core in minutes.">
+  <link rel="canonical" href="https://eggspot.github.io/EggPdf/getting-started.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://eggspot.github.io/EggPdf/getting-started.html">
+  <meta property="og:title" content="Getting Started — EggPdf">
+  <meta property="og:description" content="Install EggPdf via NuGet and render your first PDF in minutes.">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- Nav -->
+<header class="nav">
+  <div class="container">
+    <a class="nav-logo" href="index.html">Egg<span>Pdf</span></a>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="getting-started.html">Docs</a>
+      <a href="getting-started.html">Getting Started</a>
+      <a href="docker.html">Docker</a>
+      <a href="cli.html">CLI</a>
+      <a href="rest-api.html">REST API</a>
+      <a href="https://github.com/eggspot/EggPdf" class="nav-github" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<!-- Page header -->
+<div class="page-header">
+  <div class="container">
+    <h1>Getting Started</h1>
+    <p>Install EggPdf and render your first PDF in under five minutes.</p>
+  </div>
+</div>
+
+<!-- Docs layout -->
+<div class="container">
+  <div class="docs-layout">
+
+    <!-- Sidebar -->
+    <aside class="docs-sidebar">
+      <nav aria-label="Page sections">
+        <div class="sidebar-section">On this page</div>
+        <a href="#requirements">Requirements</a>
+        <a href="#installation">Installation</a>
+        <a href="#first-pdf">Your First PDF</a>
+        <a href="#render-options">Render Options</a>
+        <a href="#aspnet-core">ASP.NET Core</a>
+        <a href="#minimal-api">Minimal API</a>
+        <a href="#next-steps">Next Steps</a>
+      </nav>
+    </aside>
+
+    <!-- Content -->
+    <main class="docs-content">
+
+      <h2 id="requirements">Requirements</h2>
+      <p>EggPdf targets <strong>netstandard2.0</strong> through <strong>net10.0</strong>, so it works with any modern .NET project:</p>
+      <ul>
+        <li>.NET 6, 7, 8, 9, or 10</li>
+        <li>.NET Framework 4.6.1+ (via netstandard2.0)</li>
+        <li>No additional system libraries, fonts, or browser runtimes required</li>
+      </ul>
+      <div class="callout callout-info">
+        <span class="callout-icon">ℹ️</span>
+        <div>EggPdf ships with built-in font metrics and does not require system fonts to be installed. Custom fonts can be loaded from bytes or file paths.</div>
+      </div>
+
+      <h2 id="installation">Installation</h2>
+      <p>Add EggPdf to your project using the .NET CLI:</p>
+      <div class="code-block"><pre><code>dotnet add package EggPdf</code></pre></div>
+      <p>Or via the NuGet Package Manager in Visual Studio — search for <code>EggPdf</code>. You can also add it directly to your <code>.csproj</code>:</p>
+      <div class="code-header">YourProject.csproj</div>
+      <div class="code-block"><pre><code><span class="pun">&lt;</span><span class="typ">PackageReference</span> <span class="var">Include</span><span class="pun">=</span><span class="str">"EggPdf"</span> <span class="var">Version</span><span class="pun">=</span><span class="str">"0.3.0"</span> <span class="pun">/&gt;</span></code></pre></div>
+
+      <h2 id="first-pdf">Your First PDF</h2>
+      <p>The entire public API is one static method: <code>HtmlToPdf.RenderAsync</code>. It accepts an HTML string and returns a <code>byte[]</code> containing the PDF document.</p>
+      <div class="code-header">Program.cs</div>
+      <div class="code-block"><pre><code><span class="kw">using</span> <span class="typ">EggPdf</span><span class="pun">;</span>
+
+<span class="kw">var</span> <span class="var">html</span> <span class="pun">=</span> <span class="str">"""
+    &lt;!DOCTYPE html&gt;
+    &lt;html&gt;
+    &lt;head&gt;
+      &lt;style&gt;
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        h1   { color: #2563eb; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 8px 12px; border: 1px solid #e2e8f0; }
+        th { background: #f8fafc; font-weight: 600; }
+      &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+      &lt;h1&gt;Invoice #1001&lt;/h1&gt;
+      &lt;table&gt;
+        &lt;thead&gt;&lt;tr&gt;&lt;th&gt;Item&lt;/th&gt;&lt;th&gt;Qty&lt;/th&gt;&lt;th&gt;Price&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+        &lt;tbody&gt;
+          &lt;tr&gt;&lt;td&gt;Widget A&lt;/td&gt;&lt;td&gt;3&lt;/td&gt;&lt;td&gt;$9.99&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;td&gt;Widget B&lt;/td&gt;&lt;td&gt;1&lt;/td&gt;&lt;td&gt;$24.99&lt;/td&gt;&lt;/tr&gt;
+        &lt;/tbody&gt;
+      &lt;/table&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;
+    """</span><span class="pun">;</span>
+
+<span class="kw">var</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="fn">RenderAsync</span><span class="pun">(</span><span class="var">html</span><span class="pun">);</span>
+<span class="kw">await</span> <span class="typ">File</span><span class="pun">.</span><span class="fn">WriteAllBytesAsync</span><span class="pun">(</span><span class="str">"invoice.pdf"</span><span class="pun">,</span> <span class="var">pdf</span><span class="pun">);</span>
+
+<span class="typ">Console</span><span class="pun">.</span><span class="fn">WriteLine</span><span class="pun">(</span><span class="str">$"PDF written: {pdf.Length:N0} bytes"</span><span class="pun">);</span></code></pre></div>
+
+      <h2 id="render-options">Render Options</h2>
+      <p>Pass a <code>PdfRenderOptions</code> object to customise page size, margins, title, and headers/footers:</p>
+      <div class="code-header">Program.cs</div>
+      <div class="code-block"><pre><code><span class="kw">using</span> <span class="typ">EggPdf</span><span class="pun">;</span>
+
+<span class="kw">var</span> <span class="var">options</span> <span class="pun">=</span> <span class="kw">new</span> <span class="typ">PdfRenderOptions</span>
+<span class="pun">{</span>
+    <span class="var">PageSize</span>  <span class="pun">=</span> <span class="typ">PageSize</span><span class="pun">.</span><span class="var">A4</span><span class="pun">,</span>
+    <span class="var">Margins</span>   <span class="pun">=</span> <span class="kw">new</span> <span class="typ">PageMargins</span><span class="pun">(</span><span class="num">40</span><span class="pun">,</span> <span class="num">50</span><span class="pun">,</span> <span class="num">40</span><span class="pun">,</span> <span class="num">50</span><span class="pun">),</span>  <span class="cmt">// top, right, bottom, left (px)</span>
+    <span class="var">Title</span>     <span class="pun">=</span> <span class="str">"My Document"</span><span class="pun">,</span>
+    <span class="var">Footer</span>    <span class="pun">=</span> <span class="str">"Page {page} of {pages}"</span><span class="pun">,</span>
+<span class="pun">};</span>
+
+<span class="kw">var</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="fn">RenderAsync</span><span class="pun">(</span><span class="var">html</span><span class="pun">,</span> <span class="var">options</span><span class="pun">);</span></code></pre></div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>PageSize</code></td><td><code>PageSize</code></td><td><code>A4</code></td><td>Page size (A4, Letter, Legal, A3, A5…)</td></tr>
+            <tr><td><code>Margins</code></td><td><code>PageMargins</code></td><td>40px all sides</td><td>Top, right, bottom, left margins in CSS pixels</td></tr>
+            <tr><td><code>Title</code></td><td><code>string?</code></td><td><code>null</code></td><td>PDF document title metadata</td></tr>
+            <tr><td><code>Footer</code></td><td><code>string?</code></td><td><code>null</code></td><td>Footer template. Supports <code>{page}</code> and <code>{pages}</code></td></tr>
+            <tr><td><code>Header</code></td><td><code>string?</code></td><td><code>null</code></td><td>Header template. Supports <code>{page}</code> and <code>{pages}</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="aspnet-core">ASP.NET Core Integration</h2>
+      <p>Inject EggPdf into your ASP.NET Core application to serve PDFs from controller actions or Razor pages.</p>
+      <div class="code-header">InvoiceController.cs</div>
+      <div class="code-block"><pre><code><span class="kw">using</span> <span class="typ">EggPdf</span><span class="pun">;</span>
+<span class="kw">using</span> <span class="typ">Microsoft.AspNetCore.Mvc</span><span class="pun">;</span>
+
+<span class="pun">[</span><span class="typ">ApiController</span><span class="pun">]</span>
+<span class="pun">[</span><span class="typ">Route</span><span class="pun">(</span><span class="str">"api/[controller]"</span><span class="pun">)]</span>
+<span class="kw">public class</span> <span class="typ">InvoiceController</span> <span class="pun">:</span> <span class="typ">ControllerBase</span>
+<span class="pun">{</span>
+    <span class="pun">[</span><span class="typ">HttpGet</span><span class="pun">(</span><span class="str">"{id}"</span><span class="pun">)]</span>
+    <span class="kw">public async</span> <span class="typ">Task</span><span class="pun">&lt;</span><span class="typ">IActionResult</span><span class="pun">&gt;</span> <span class="fn">GetPdf</span><span class="pun">(</span><span class="kw">int</span> <span class="var">id</span><span class="pun">)</span>
+    <span class="pun">{</span>
+        <span class="kw">var</span> <span class="var">html</span> <span class="pun">=</span> <span class="kw">await</span> <span class="fn">BuildInvoiceHtmlAsync</span><span class="pun">(</span><span class="var">id</span><span class="pun">);</span>
+        <span class="kw">var</span> <span class="var">options</span> <span class="pun">=</span> <span class="kw">new</span> <span class="typ">PdfRenderOptions</span> <span class="pun">{</span> <span class="var">Title</span> <span class="pun">=</span> <span class="str">$"Invoice #{id}"</span> <span class="pun">};</span>
+        <span class="kw">var</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="fn">RenderAsync</span><span class="pun">(</span><span class="var">html</span><span class="pun">,</span> <span class="var">options</span><span class="pun">);</span>
+
+        <span class="kw">return</span> <span class="fn">File</span><span class="pun">(</span><span class="var">pdf</span><span class="pun">,</span> <span class="str">"application/pdf"</span><span class="pun">,</span> <span class="str">$"invoice-{id}.pdf"</span><span class="pun">);</span>
+    <span class="pun">}</span>
+<span class="pun">}</span></code></pre></div>
+
+      <h2 id="minimal-api">Minimal API (ASP.NET Core 6+)</h2>
+      <div class="code-header">Program.cs</div>
+      <div class="code-block"><pre><code><span class="kw">using</span> <span class="typ">EggPdf</span><span class="pun">;</span>
+
+<span class="kw">var</span> <span class="var">builder</span> <span class="pun">=</span> <span class="typ">WebApplication</span><span class="pun">.</span><span class="fn">CreateBuilder</span><span class="pun">(</span><span class="var">args</span><span class="pun">);</span>
+<span class="kw">var</span> <span class="var">app</span> <span class="pun">=</span> <span class="var">builder</span><span class="pun">.</span><span class="fn">Build</span><span class="pun">();</span>
+
+<span class="var">app</span><span class="pun">.</span><span class="fn">MapPost</span><span class="pun">(</span><span class="str">"/pdf"</span><span class="pun">,</span> <span class="kw">async</span> <span class="pun">(</span><span class="typ">RenderRequest</span> <span class="var">req</span><span class="pun">)</span> <span class="pun">=&gt;</span>
+<span class="pun">{</span>
+    <span class="kw">var</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="fn">RenderAsync</span><span class="pun">(</span><span class="var">req</span><span class="pun">.</span><span class="var">Html</span><span class="pun">);</span>
+    <span class="kw">return</span> <span class="typ">Results</span><span class="pun">.</span><span class="fn">File</span><span class="pun">(</span><span class="var">pdf</span><span class="pun">,</span> <span class="str">"application/pdf"</span><span class="pun">);</span>
+<span class="pun">});</span>
+
+<span class="var">app</span><span class="pun">.</span><span class="fn">Run</span><span class="pun">();</span>
+
+<span class="kw">record</span> <span class="typ">RenderRequest</span><span class="pun">(</span><span class="kw">string</span> <span class="var">Html</span><span class="pun">);</span></code></pre></div>
+
+      <h2 id="next-steps">Next Steps</h2>
+      <ul>
+        <li><a href="docker.html">Deploy with Docker</a> — run EggPdf as a REST API service</li>
+        <li><a href="cli.html">Use the CLI tool</a> — convert HTML files from the terminal or CI</li>
+        <li><a href="rest-api.html">REST API reference</a> — full endpoint and options documentation</li>
+        <li><a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub repository</a> — source code, issues, and releases</li>
+      </ul>
+
+    </main>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-brand">Egg<span>Pdf</span></div>
+      <nav class="footer-links">
+        <a href="getting-started.html">Getting Started</a>
+        <a href="docker.html">Docker</a>
+        <a href="cli.html">CLI</a>
+        <a href="rest-api.html">REST API</a>
+        <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://eggspot.app" target="_blank" rel="noopener">Eggspot</a>
+      </nav>
+    </div>
+    <div class="footer-legal">Built by <a href="https://eggspot.app" target="_blank" rel="noopener" style="color:#94a3b8">Eggspot</a> · MIT License · <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener" style="color:#94a3b8">GitHub</a></div>
+  </div>
+</footer>
+
+</body>
+</html>

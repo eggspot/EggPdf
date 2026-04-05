@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>REST API Reference — EggPdf | Eggspot</title>
+  <meta name="description" content="EggPdf REST API reference. POST /api/render converts HTML to PDF. Full curl, Python, and Node.js examples.">
+  <link rel="canonical" href="https://eggspot.github.io/EggPdf/rest-api.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://eggspot.github.io/EggPdf/rest-api.html">
+  <meta property="og:title" content="REST API Reference — EggPdf">
+  <meta property="og:description" content="Full REST API reference for EggPdf: endpoints, options, and code examples.">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- Nav -->
+<header class="nav">
+  <div class="container">
+    <a class="nav-logo" href="index.html">Egg<span>Pdf</span></a>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="getting-started.html">Docs</a>
+      <a href="getting-started.html">Getting Started</a>
+      <a href="docker.html">Docker</a>
+      <a href="cli.html">CLI</a>
+      <a href="rest-api.html">REST API</a>
+      <a href="https://github.com/eggspot/EggPdf" class="nav-github" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<!-- Page header -->
+<div class="page-header">
+  <div class="container">
+    <h1>REST API Reference</h1>
+    <p>HTTP endpoints exposed by the EggPdf Docker service.</p>
+  </div>
+</div>
+
+<!-- Docs layout -->
+<div class="container">
+  <div class="docs-layout">
+
+    <!-- Sidebar -->
+    <aside class="docs-sidebar">
+      <nav aria-label="Page sections">
+        <div class="sidebar-section">On this page</div>
+        <a href="#base-url">Base URL</a>
+        <a href="#post-render">POST /api/render</a>
+        <a href="#options-reference">Options Reference</a>
+        <a href="#get-health">GET /health</a>
+        <a href="#curl-examples">curl Examples</a>
+        <a href="#python-example">Python Example</a>
+        <a href="#nodejs-example">Node.js Example</a>
+        <a href="#error-responses">Error Responses</a>
+      </nav>
+    </aside>
+
+    <!-- Content -->
+    <main class="docs-content">
+
+      <h2 id="base-url">Base URL</h2>
+      <p>When running locally via Docker, the base URL is:</p>
+      <div class="code-block"><pre><code>http://localhost:8080</code></pre></div>
+      <p>In production, replace with your deployment URL. All endpoints are relative to this base URL.</p>
+      <div class="callout callout-info">
+        <span class="callout-icon">ℹ️</span>
+        <div>See the <a href="docker.html">Docker Guide</a> for instructions on running the service and enabling authentication.</div>
+      </div>
+
+      <h2 id="post-render">POST /api/render</h2>
+      <p>Converts an HTML string to a PDF document. Returns the PDF as a binary response.</p>
+
+      <h3>Request</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Property</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>html</code></td><td><code>string</code></td><td>✅ Yes</td><td>The HTML document to render</td></tr>
+            <tr><td><code>options</code></td><td><code>object</code></td><td>No</td><td>Render options (see below)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Response</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Header</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td><code>Content-Type</code></td><td><code>application/pdf</code></td></tr>
+            <tr><td><code>Content-Disposition</code></td><td><code>inline; filename="document.pdf"</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Minimal example</h3>
+      <div class="code-header">JSON Request Body</div>
+      <div class="code-block"><pre><code><span class="pun">{</span>
+  <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;h1&gt;Hello, EggPdf!&lt;/h1&gt;&lt;p&gt;Pure C# PDF rendering.&lt;/p&gt;"</span>
+<span class="pun">}</span></code></pre></div>
+
+      <h3>Full example with options</h3>
+      <div class="code-header">JSON Request Body</div>
+      <div class="code-block"><pre><code><span class="pun">{</span>
+  <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;!DOCTYPE html&gt;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"</span><span class="pun">,</span>
+  <span class="str">"options"</span><span class="pun">:</span> <span class="pun">{</span>
+    <span class="str">"pageSize"</span><span class="pun">:</span>  <span class="str">"A4"</span><span class="pun">,</span>
+    <span class="str">"margins"</span><span class="pun">:</span>   <span class="pun">{</span> <span class="str">"top"</span><span class="pun">:</span> <span class="num">60</span><span class="pun">,</span> <span class="str">"right"</span><span class="pun">:</span> <span class="num">50</span><span class="pun">,</span> <span class="str">"bottom"</span><span class="pun">:</span> <span class="num">60</span><span class="pun">,</span> <span class="str">"left"</span><span class="pun">:</span> <span class="num">50</span> <span class="pun">},</span>
+    <span class="str">"title"</span><span class="pun">:</span>     <span class="str">"Q4 Report"</span><span class="pun">,</span>
+    <span class="str">"footer"</span><span class="pun">:</span>    <span class="str">"Page {page} of {pages}"</span><span class="pun">,</span>
+    <span class="str">"header"</span><span class="pun">:</span>    <span class="str">"Acme Corp — Confidential"</span>
+  <span class="pun">}</span>
+<span class="pun">}</span></code></pre></div>
+
+      <h2 id="options-reference">Options Reference</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>pageSize</code></td><td><code>string</code></td><td><code>"A4"</code></td><td>Page size: <code>A3</code>, <code>A4</code>, <code>A5</code>, <code>Letter</code>, <code>Legal</code></td></tr>
+            <tr><td><code>margins.top</code></td><td><code>number</code></td><td><code>40</code></td><td>Top margin in CSS pixels</td></tr>
+            <tr><td><code>margins.right</code></td><td><code>number</code></td><td><code>40</code></td><td>Right margin in CSS pixels</td></tr>
+            <tr><td><code>margins.bottom</code></td><td><code>number</code></td><td><code>40</code></td><td>Bottom margin in CSS pixels</td></tr>
+            <tr><td><code>margins.left</code></td><td><code>number</code></td><td><code>40</code></td><td>Left margin in CSS pixels</td></tr>
+            <tr><td><code>title</code></td><td><code>string</code></td><td><code>null</code></td><td>PDF document title metadata</td></tr>
+            <tr><td><code>footer</code></td><td><code>string</code></td><td><code>null</code></td><td>Footer template. Supports <code>{page}</code> and <code>{pages}</code></td></tr>
+            <tr><td><code>header</code></td><td><code>string</code></td><td><code>null</code></td><td>Header template. Supports <code>{page}</code> and <code>{pages}</code></td></tr>
+            <tr><td><code>landscape</code></td><td><code>boolean</code></td><td><code>false</code></td><td>Render in landscape orientation</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="get-health">GET /health</h2>
+      <p>Returns the health status of the service. Use this for liveness probes in Kubernetes, ECS, or other orchestrators.</p>
+      <h3>Response</h3>
+      <div class="code-block"><pre><code><span class="typ">HTTP/1.1 200 OK</span>
+<span class="var">Content-Type: application/json</span>
+
+<span class="pun">{</span>
+  <span class="str">"status"</span><span class="pun">:</span>  <span class="str">"Healthy"</span><span class="pun">,</span>
+  <span class="str">"version"</span><span class="pun">:</span> <span class="str">"0.3.0"</span>
+<span class="pun">}</span></code></pre></div>
+
+      <h2 id="curl-examples">curl Examples</h2>
+
+      <h3>Minimal — save to file</h3>
+      <div class="code-block"><pre><code>curl -X POST http://localhost:8080/api/render \
+  -H "Content-Type: application/json" \
+  -d '{"html":"&lt;h1&gt;Hello&lt;/h1&gt;"}' \
+  --output hello.pdf</code></pre></div>
+
+      <h3>With options</h3>
+      <div class="code-block"><pre><code>curl -X POST http://localhost:8080/api/render \
+  -H "Content-Type: application/json" \
+  -d '{
+    "html": "&lt;!DOCTYPE html&gt;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #42&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
+    "options": {
+      "pageSize": "Letter",
+      "title": "Invoice #42",
+      "footer": "Page {page} of {pages}",
+      "margins": { "top": 60, "right": 50, "bottom": 60, "left": 50 }
+    }
+  }' \
+  --output invoice-42.pdf</code></pre></div>
+
+      <h3>From an HTML file</h3>
+      <div class="code-block"><pre><code><span class="cmt"># Read HTML from file and send as JSON</span>
+HTML=$(cat report.html | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
+curl -X POST http://localhost:8080/api/render \
+  -H "Content-Type: application/json" \
+  -d "{\"html\": $HTML}" \
+  --output report.pdf</code></pre></div>
+
+      <h3>Health check</h3>
+      <div class="code-block"><pre><code>curl http://localhost:8080/health</code></pre></div>
+
+      <h2 id="python-example">Python Example</h2>
+      <div class="code-header">render_pdf.py</div>
+      <div class="code-block"><pre><code><span class="kw">import</span> <span class="typ">requests</span>
+
+<span class="var">EGGPDF_URL</span> <span class="pun">=</span> <span class="str">"http://localhost:8080"</span>
+
+<span class="kw">def</span> <span class="fn">render_pdf</span><span class="pun">(</span><span class="var">html</span><span class="pun">:</span> <span class="typ">str</span><span class="pun">,</span> <span class="var">options</span><span class="pun">:</span> <span class="typ">dict</span> <span class="pun">=</span> <span class="kw">None</span><span class="pun">)</span> <span class="pun">-&gt;</span> <span class="typ">bytes</span><span class="pun">:</span>
+    <span class="var">payload</span> <span class="pun">=</span> <span class="pun">{</span><span class="str">"html"</span><span class="pun">:</span> <span class="var">html</span><span class="pun">}</span>
+    <span class="kw">if</span> <span class="var">options</span><span class="pun">:</span>
+        <span class="var">payload</span><span class="pun">[</span><span class="str">"options"</span><span class="pun">]</span> <span class="pun">=</span> <span class="var">options</span>
+
+    <span class="var">response</span> <span class="pun">=</span> <span class="var">requests</span><span class="pun">.</span><span class="fn">post</span><span class="pun">(</span>
+        <span class="str">f"{EGGPDF_URL}/api/render"</span><span class="pun">,</span>
+        <span class="var">json</span><span class="pun">=</span><span class="var">payload</span><span class="pun">,</span>
+        <span class="var">timeout</span><span class="pun">=</span><span class="num">30</span><span class="pun">,</span>
+    <span class="pun">)</span>
+    <span class="var">response</span><span class="pun">.</span><span class="fn">raise_for_status</span><span class="pun">()</span>
+    <span class="kw">return</span> <span class="var">response</span><span class="pun">.</span><span class="var">content</span>
+
+
+<span class="cmt"># Basic usage</span>
+<span class="var">pdf_bytes</span> <span class="pun">=</span> <span class="fn">render_pdf</span><span class="pun">(</span><span class="str">"&lt;h1&gt;Hello from Python&lt;/h1&gt;"</span><span class="pun">)</span>
+<span class="kw">with</span> <span class="fn">open</span><span class="pun">(</span><span class="str">"output.pdf"</span><span class="pun">,</span> <span class="str">"wb"</span><span class="pun">)</span> <span class="kw">as</span> <span class="var">f</span><span class="pun">:</span>
+    <span class="var">f</span><span class="pun">.</span><span class="fn">write</span><span class="pun">(</span><span class="var">pdf_bytes</span><span class="pun">)</span>
+<span class="fn">print</span><span class="pun">(</span><span class="str">f"PDF saved: {len(pdf_bytes):,} bytes"</span><span class="pun">)</span>
+
+<span class="cmt"># With options</span>
+<span class="var">pdf_bytes</span> <span class="pun">=</span> <span class="fn">render_pdf</span><span class="pun">(</span>
+    <span class="str">"&lt;h1&gt;Invoice&lt;/h1&gt;"</span><span class="pun">,</span>
+    <span class="var">options</span><span class="pun">={</span>
+        <span class="str">"pageSize"</span><span class="pun">:</span> <span class="str">"Letter"</span><span class="pun">,</span>
+        <span class="str">"title"</span><span class="pun">:</span> <span class="str">"Invoice #42"</span><span class="pun">,</span>
+        <span class="str">"footer"</span><span class="pun">:</span> <span class="str">"Page {page} of {pages}"</span><span class="pun">,</span>
+    <span class="pun">},</span>
+<span class="pun">)</span></code></pre></div>
+
+      <h2 id="nodejs-example">Node.js Example</h2>
+      <div class="code-header">renderPdf.mjs</div>
+      <div class="code-block"><pre><code><span class="kw">const</span> <span class="var">EGGPDF_URL</span> <span class="pun">=</span> <span class="str">'http://localhost:8080'</span><span class="pun">;</span>
+
+<span class="kw">async function</span> <span class="fn">renderPdf</span><span class="pun">(</span><span class="var">html</span><span class="pun">,</span> <span class="var">options</span> <span class="pun">=</span> <span class="pun">{})</span> <span class="pun">{</span>
+  <span class="kw">const</span> <span class="var">response</span> <span class="pun">=</span> <span class="kw">await</span> <span class="fn">fetch</span><span class="pun">(</span><span class="str">`${EGGPDF_URL}/api/render`</span><span class="pun">, {</span>
+    <span class="var">method</span><span class="pun">:</span> <span class="str">'POST'</span><span class="pun">,</span>
+    <span class="var">headers</span><span class="pun">: {</span> <span class="str">'Content-Type'</span><span class="pun">:</span> <span class="str">'application/json'</span> <span class="pun">},</span>
+    <span class="var">body</span><span class="pun">:</span> <span class="typ">JSON</span><span class="pun">.</span><span class="fn">stringify</span><span class="pun">({</span> <span class="var">html</span><span class="pun">,</span> <span class="var">options</span> <span class="pun">}),</span>
+  <span class="pun">});</span>
+
+  <span class="kw">if</span> <span class="pun">(!</span><span class="var">response</span><span class="pun">.</span><span class="var">ok</span><span class="pun">)</span> <span class="pun">{</span>
+    <span class="kw">const</span> <span class="var">text</span> <span class="pun">=</span> <span class="kw">await</span> <span class="var">response</span><span class="pun">.</span><span class="fn">text</span><span class="pun">();</span>
+    <span class="kw">throw new</span> <span class="typ">Error</span><span class="pun">(</span><span class="str">`EggPdf error ${response.status}: ${text}`</span><span class="pun">);</span>
+  <span class="pun">}</span>
+
+  <span class="kw">return</span> <span class="typ">Buffer</span><span class="pun">.</span><span class="fn">from</span><span class="pun">(</span><span class="kw">await</span> <span class="var">response</span><span class="pun">.</span><span class="fn">arrayBuffer</span><span class="pun">());</span>
+<span class="pun">}</span>
+
+<span class="cmt">// Basic usage</span>
+<span class="kw">const</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="fn">renderPdf</span><span class="pun">(</span><span class="str">'&lt;h1&gt;Hello from Node.js&lt;/h1&gt;'</span><span class="pun">);</span>
+<span class="kw">await</span> <span class="var">fs</span><span class="pun">.</span><span class="fn">writeFile</span><span class="pun">(</span><span class="str">'output.pdf'</span><span class="pun">,</span> <span class="var">pdf</span><span class="pun">);</span>
+<span class="typ">console</span><span class="pun">.</span><span class="fn">log</span><span class="pun">(</span><span class="str">`PDF saved: ${pdf.length.toLocaleString()} bytes`</span><span class="pun">);</span>
+
+<span class="cmt">// With options — return as HTTP response (Express example)</span>
+<span class="var">app</span><span class="pun">.</span><span class="fn">get</span><span class="pun">(</span><span class="str">'/invoice/:id'</span><span class="pun">,</span> <span class="kw">async</span> <span class="pun">(</span><span class="var">req</span><span class="pun">,</span> <span class="var">res</span><span class="pun">)</span> <span class="pun">=&gt; {</span>
+  <span class="kw">const</span> <span class="var">html</span> <span class="pun">=</span> <span class="kw">await</span> <span class="fn">buildInvoiceHtml</span><span class="pun">(</span><span class="var">req</span><span class="pun">.</span><span class="var">params</span><span class="pun">.</span><span class="var">id</span><span class="pun">);</span>
+  <span class="kw">const</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="fn">renderPdf</span><span class="pun">(</span><span class="var">html</span><span class="pun">, {</span>
+    <span class="var">pageSize</span><span class="pun">:</span> <span class="str">'A4'</span><span class="pun">,</span>
+    <span class="var">title</span><span class="pun">:</span> <span class="str">`Invoice #${req.params.id}`</span><span class="pun">,</span>
+    <span class="var">footer</span><span class="pun">:</span> <span class="str">'Page {page} of {pages}'</span><span class="pun">,</span>
+  <span class="pun">});</span>
+  <span class="var">res</span><span class="pun">.</span><span class="fn">setHeader</span><span class="pun">(</span><span class="str">'Content-Type'</span><span class="pun">,</span> <span class="str">'application/pdf'</span><span class="pun">);</span>
+  <span class="var">res</span><span class="pun">.</span><span class="fn">send</span><span class="pun">(</span><span class="var">pdf</span><span class="pun">);</span>
+<span class="pun">});</span></code></pre></div>
+
+      <h2 id="error-responses">Error Responses</h2>
+      <p>On failure, the API returns a JSON error body with an <code>error</code> field:</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>400 Bad Request</code></td><td>Missing or malformed request body (e.g. no <code>html</code> field)</td></tr>
+            <tr><td><code>401 Unauthorized</code></td><td>Missing or invalid <code>X-Api-Key</code> header when auth is enabled</td></tr>
+            <tr><td><code>500 Internal Server Error</code></td><td>Unexpected rendering failure (includes <code>error</code> message in body)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="code-block"><pre><code><span class="cmt">// 400 example</span>
+<span class="pun">{</span> <span class="str">"error"</span><span class="pun">:</span> <span class="str">"The 'html' field is required."</span> <span class="pun">}</span></code></pre></div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-brand">Egg<span>Pdf</span></div>
+      <nav class="footer-links">
+        <a href="getting-started.html">Getting Started</a>
+        <a href="docker.html">Docker</a>
+        <a href="cli.html">CLI</a>
+        <a href="rest-api.html">REST API</a>
+        <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://eggspot.app" target="_blank" rel="noopener">Eggspot</a>
+      </nav>
+    </div>
+    <div class="footer-legal">Built by <a href="https://eggspot.app" target="_blank" rel="noopener" style="color:#94a3b8">Eggspot</a> · MIT License · <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener" style="color:#94a3b8">GitHub</a></div>
+  </div>
+</footer>
+
+</body>
+</html>
