@@ -1,0 +1,16 @@
+<svg width="200" height="48" viewBox="0 0 200 48" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EggPdf logo">
+  <!-- Eggspot geometric mark, scaled to 44x48 -->
+  <g transform="scale(3.43 3.43)">
+    <path fill-rule="evenodd" clip-rule="evenodd"
+      d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873Z
+         M8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357Z
+         M6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0Z
+         M10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z"
+      fill="#FAB400"/>
+  </g>
+  <!-- EggPdf wordmark -->
+  <text x="56" y="32" font-family="'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+        font-size="26" font-weight="800" letter-spacing="-0.5">
+    <tspan fill="#292930">Egg</tspan><tspan fill="#FAB400">Pdf</tspan>
+  </text>
+</svg>

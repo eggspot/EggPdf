@@ -1,0 +1,65 @@
+name: Deploy to Hugging Face Spaces
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Docker image tag to deploy (e.g. 1.0.0). Defaults to latest.'
+        required: false
+        default: 'latest'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Hugging Face Spaces
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        id: image
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "latest" ]; then
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          else
+            echo "tag=$VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Push to Hugging Face Space
+        run: |
+          TAG="${{ steps.image.outputs.tag }}"
+          echo "Deploying eggspot/eggpdf:$TAG to Hugging Face Spaces..."
+
+          # Clone the HF Space repo
+          git clone https://vp2dr7qe8:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/vp2dr7qe8/eggpdf hf-space
+
+          # Update the Dockerfile to pin the version
+          cat > hf-space/Dockerfile << EOF
+          # Auto-updated by GitHub Actions — do not edit manually
+          # Version: $TAG
+          FROM eggspot/eggpdf:$TAG
+
+          # Hugging Face Spaces runs as user 1000
+          USER 1000
+
+          EXPOSE 8080
+          EOF
+
+          # Copy the README (Space metadata + description)
+          cp spaces/README.md hf-space/README.md
+
+          # Commit and push to trigger HF rebuild
+          cd hf-space
+          git config user.email "github-actions@github.com"
+          git config user.name "GitHub Actions"
+          git add Dockerfile README.md
+          git diff --staged --quiet || git commit -m "deploy: eggspot/eggpdf:$TAG"
+          git push
+
+          echo "Deployed! Space will rebuild in ~1-2 minutes."
+          echo "Demo URL: https://vp2dr7qe8-eggpdf.hf.space"
