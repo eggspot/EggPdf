@@ -293,6 +293,9 @@ if (!useAce) {
   ta.addEventListener('input', () => { debouncedPreview(); debouncedPdfPreview(); });
 }
 
+// Expose editor globally for Playwright E2E tests and external scripts
+window.editor = editor;
+
 const previewFrame = document.getElementById('previewFrame');
 const printPreview = document.getElementById('printPreview');
 const pdfPreview = document.getElementById('pdfPreview');
