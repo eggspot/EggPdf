@@ -1,0 +1,39 @@
+name: Deploy to Fly.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Docker image tag to deploy (e.g. 1.0.0)'
+        required: false
+        default: 'latest'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Fly.io
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Update fly.toml image tag
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -n "$VERSION" ] && [ "$VERSION" != "latest" ]; then
+            sed -i "s|image = \"eggspot/eggpdf:latest\"|image = \"eggspot/eggpdf:$VERSION\"|" fly.toml
+            echo "Deploying image: eggspot/eggpdf:$VERSION"
+          else
+            echo "Deploying image: eggspot/eggpdf:latest"
+          fi
+
+      - name: Deploy to Fly.io
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
