@@ -5,6 +5,7 @@
     <RootNamespace>EggPdf</RootNamespace>
     <Description>Pure C# HTML/CSS to PDF rendering engine. Zero dependencies. Chrome-quality output.</Description>
     <Version>0.1.2</Version>
+    <IsPackable>true</IsPackable>
 
     <!-- NuGet package metadata -->
     <PackageId>EggPdf</PackageId>

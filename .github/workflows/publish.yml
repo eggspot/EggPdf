@@ -121,7 +121,7 @@ jobs:
 
       - name: Pack
         if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
-        run: dotnet pack --configuration Release --no-build --output ./artifacts
+        run: dotnet pack src/EggPdf/EggPdf.csproj --configuration Release --no-build --output ./artifacts
 
       - name: Upload artifacts
         if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'

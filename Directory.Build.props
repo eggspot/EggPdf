@@ -3,5 +3,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+    <!-- Only EggPdf.csproj opts in with <IsPackable>true</IsPackable> -->
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 </Project>
