@@ -6,7 +6,7 @@
     <RootNamespace>EggPdf.Cli</RootNamespace>
     <AssemblyName>EggPdf.Cli</AssemblyName>
     <Description>Command-line tool for HTML to PDF conversion</Description>
-    <Version>0.1.5</Version>
+    <Version>0.1.6</Version>
 
     <!-- dotnet tool packaging -->
     <PackAsTool>true</PackAsTool>
