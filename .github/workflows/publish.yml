@@ -174,10 +174,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Trigger Koyeb deploy
+      - name: Trigger Hugging Face Space deploy
         if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
         run: |
-          gh api repos/${{ github.repository }}/actions/workflows/koyeb.yml/dispatches \
+          gh api repos/${{ github.repository }}/actions/workflows/huggingface.yml/dispatches \
             --field ref="main" \
             --field "inputs[version]=${{ steps.version.outputs.version }}"
         env:
