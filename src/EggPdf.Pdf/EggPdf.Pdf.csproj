@@ -4,7 +4,7 @@
     <TargetFrameworks>netstandard2.0;netstandard2.1;net6.0;net8.0;net9.0;net10.0</TargetFrameworks>
     <RootNamespace>EggPdf.Pdf</RootNamespace>
     <Description>PDF 1.7 writer and backend</Description>
-    <Version>0.1.2</Version>
+    <Version>0.1.4</Version>
   </PropertyGroup>
 
   <ItemGroup>
