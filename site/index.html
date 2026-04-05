@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EggPdf — Zero-dependency HTML to PDF for .NET | Eggspot</title>
+  <meta name="description" content="EggPdf is a pure C#, zero-dependency HTML/CSS-to-PDF rendering engine for .NET. MIT license, Chrome-quality output, works on netstandard2.0 through net10.0.">
+  <link rel="canonical" href="https://eggspot.github.io/EggPdf/">
+  <!-- OpenGraph -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://eggspot.github.io/EggPdf/">
+  <meta property="og:title" content="EggPdf — Zero-dependency HTML to PDF for .NET">
+  <meta property="og:description" content="Pure C#, MIT license, Chrome-quality output. No external NuGet dependencies. 13µs per simple page.">
+  <meta property="og:site_name" content="EggPdf by Eggspot">
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="EggPdf — Zero-dependency HTML to PDF for .NET">
+  <meta name="twitter:description" content="Pure C#, MIT license, Chrome-quality output. No external NuGet dependencies. 13µs per simple page.">
+  <!-- JSON-LD -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "EggPdf",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Windows, Linux, macOS",
+    "description": "Pure C#, zero-dependency HTML/CSS-to-PDF rendering engine for .NET. MIT license, Chrome-quality output.",
+    "softwareVersion": "0.3.0",
+    "license": "https://opensource.org/licenses/MIT",
+    "url": "https://eggspot.github.io/EggPdf/",
+    "downloadUrl": "https://www.nuget.org/packages/EggPdf",
+    "author": {
+      "@type": "Organization",
+      "name": "Eggspot",
+      "url": "https://eggspot.app"
+    },
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    }
+  }
+  </script>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- Nav -->
+<header class="nav">
+  <div class="container">
+    <a class="nav-logo" href="index.html">Egg<span>Pdf</span></a>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="getting-started.html">Docs</a>
+      <a href="getting-started.html">Getting Started</a>
+      <a href="docker.html">Docker</a>
+      <a href="cli.html">CLI</a>
+      <a href="rest-api.html">REST API</a>
+      <a href="https://github.com/eggspot/EggPdf" class="nav-github" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-badge">v0.3.0 — MIT License</div>
+    <h1>Zero-dependency HTML to<br><span class="accent">PDF for .NET</span></h1>
+    <p class="hero-subtitle">Pure C# &nbsp;•&nbsp; MIT License &nbsp;•&nbsp; Chrome-quality output</p>
+    <div class="hero-cta">
+      <a href="getting-started.html" class="btn btn-primary">Get Started →</a>
+      <a href="https://github.com/eggspot/EggPdf" class="btn btn-outline" target="_blank" rel="noopener">View on GitHub</a>
+      <a href="docker.html" class="btn btn-accent">Try Docker</a>
+    </div>
+  </div>
+</section>
+
+<!-- Benchmark strip -->
+<section class="benchmarks" aria-label="Performance benchmarks">
+  <div class="container">
+    <div class="benchmark-cards">
+      <div class="benchmark-card">
+        <div class="benchmark-value">13µs</div>
+        <div class="benchmark-label">Simple page</div>
+      </div>
+      <div class="benchmark-card">
+        <div class="benchmark-value">86µs</div>
+        <div class="benchmark-label">Invoice</div>
+      </div>
+      <div class="benchmark-card">
+        <div class="benchmark-value">1.2ms</div>
+        <div class="benchmark-label">100-row table</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Quick install -->
+<section class="install-section section-alt">
+  <div class="container">
+    <h2>Install in seconds</h2>
+    <p class="section-sub">Choose your preferred delivery method.</p>
+    <div class="tabs" id="install-tabs">
+      <div class="tab-list" role="tablist">
+        <button class="tab-btn active" role="tab" aria-selected="true" onclick="switchTab(event,'install-nuget')">NuGet</button>
+        <button class="tab-btn" role="tab" aria-selected="false" onclick="switchTab(event,'install-docker')">Docker</button>
+        <button class="tab-btn" role="tab" aria-selected="false" onclick="switchTab(event,'install-cli')">CLI</button>
+      </div>
+      <div class="tab-content">
+        <div id="install-nuget" class="tab-panel active">
+          <div class="code-block"><pre><code><span class="cmt"># Add the package to your project</span>
+<span class="var">dotnet add package EggPdf</span></code></pre></div>
+        </div>
+        <div id="install-docker" class="tab-panel">
+          <div class="code-block"><pre><code><span class="cmt"># Pull and run the REST API + WebUI</span>
+<span class="var">docker run -p 8080:8080 eggspot/eggpdf:latest</span></code></pre></div>
+        </div>
+        <div id="install-cli" class="tab-panel">
+          <div class="code-block"><pre><code><span class="cmt"># Install the global dotnet tool</span>
+<span class="var">dotnet tool install -g dotnet-eggpdf</span>
+
+<span class="cmt"># Or download a self-contained binary from GitHub Releases</span>
+<span class="cmt"># https://github.com/eggspot/EggPdf/releases/latest</span></code></pre></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="section">
+  <div class="container">
+    <div class="section-heading">
+      <h2>Everything you need</h2>
+      <p>A complete HTML-to-PDF solution with zero setup friction.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <span class="feature-icon">📦</span>
+        <h3>Zero Dependencies</h3>
+        <p>No third-party NuGet packages in the core library. Just pure, portable C# code you can trust.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">🌍</span>
+        <h3>Multi-platform</h3>
+        <p>Runs on Windows, Linux, and macOS. Native binaries available for x64 and ARM64 architectures.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">🖨️</span>
+        <h3>Chrome-quality Output</h3>
+        <p>Full CSS cascade, Flexbox, tables, custom fonts, images, and bookmarks — rendered faithfully.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">🔌</span>
+        <h3>REST API Included</h3>
+        <p>Ship the Docker image and get a production-ready <code>POST /api/render</code> endpoint instantly.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">⌨️</span>
+        <h3>CLI Tool</h3>
+        <p>Convert HTML files from your terminal or CI pipeline with a single command. Supports stdin piping.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">🎯</span>
+        <h3>Multi-target .NET</h3>
+        <p>Supports netstandard2.0 through net10.0. Works with any modern .NET project.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Code example -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="code-example">
+      <div class="code-example-text">
+        <h2>Two lines of C# to your first PDF</h2>
+        <p>Call <code>HtmlToPdf.RenderAsync</code> with any HTML string and receive a byte array ready to save, stream, or return from an API.</p>
+        <p>No configuration required. No fonts to install. No browser runtime to manage.</p>
+        <a href="getting-started.html" class="btn btn-primary">Full Getting Started Guide →</a>
+      </div>
+      <div>
+        <div class="code-header">Program.cs</div>
+        <div class="code-block"><pre><code><span class="kw">using</span> <span class="typ">EggPdf</span><span class="pun">;</span>
+
+<span class="kw">var</span> <span class="var">html</span> <span class="pun">=</span> <span class="str">"""
+    &lt;!DOCTYPE html&gt;
+    &lt;html&gt;
+    &lt;head&gt;
+      &lt;style&gt;
+        body { font-family: Arial, sans-serif; }
+        h1   { color: #2563eb; }
+      &lt;/style&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+      &lt;h1&gt;Hello, EggPdf!&lt;/h1&gt;
+      &lt;p&gt;Rendered in pure C#.&lt;/p&gt;
+    &lt;/body&gt;
+    &lt;/html&gt;
+    """</span><span class="pun">;</span>
+
+<span class="kw">var</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="fn">RenderAsync</span><span class="pun">(</span><span class="var">html</span><span class="pun">);</span>
+<span class="kw">await</span> <span class="typ">File</span><span class="pun">.</span><span class="fn">WriteAllBytesAsync</span><span class="pun">(</span><span class="str">"output.pdf"</span><span class="pun">,</span> <span class="var">pdf</span><span class="pun">);</span></code></pre></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-brand">Egg<span>Pdf</span></div>
+      <nav class="footer-links">
+        <a href="getting-started.html">Getting Started</a>
+        <a href="docker.html">Docker</a>
+        <a href="cli.html">CLI</a>
+        <a href="rest-api.html">REST API</a>
+        <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://eggspot.app" target="_blank" rel="noopener">Eggspot</a>
+      </nav>
+    </div>
+    <div class="footer-legal">Built by <a href="https://eggspot.app" target="_blank" rel="noopener" style="color:#94a3b8">Eggspot</a> · MIT License · <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener" style="color:#94a3b8">GitHub</a></div>
+  </div>
+</footer>
+
+<script>
+function switchTab(e, panelId) {
+  const tabs = e.target.closest('.tabs');
+  tabs.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected','false'); });
+  tabs.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  e.target.classList.add('active');
+  e.target.setAttribute('aria-selected','true');
+  document.getElementById(panelId).classList.add('active');
+}
+</script>
+</body>
+</html>

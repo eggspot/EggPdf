@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CLI Tool — EggPdf | Eggspot</title>
+  <meta name="description" content="Use the EggPdf CLI tool to convert HTML to PDF from the terminal or CI pipeline. Download self-contained binaries for Windows, Linux, and macOS.">
+  <link rel="canonical" href="https://eggspot.github.io/EggPdf/cli.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://eggspot.github.io/EggPdf/cli.html">
+  <meta property="og:title" content="CLI Tool — EggPdf">
+  <meta property="og:description" content="Convert HTML to PDF from the terminal. Download for Windows, Linux, or macOS.">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- Nav -->
+<header class="nav">
+  <div class="container">
+    <a class="nav-logo" href="index.html">Egg<span>Pdf</span></a>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="getting-started.html">Docs</a>
+      <a href="getting-started.html">Getting Started</a>
+      <a href="docker.html">Docker</a>
+      <a href="cli.html">CLI</a>
+      <a href="rest-api.html">REST API</a>
+      <a href="https://github.com/eggspot/EggPdf" class="nav-github" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<!-- Page header -->
+<div class="page-header">
+  <div class="container">
+    <h1>CLI Tool</h1>
+    <p>Convert HTML files to PDF from the terminal, scripts, or CI pipelines.</p>
+  </div>
+</div>
+
+<!-- Docs layout -->
+<div class="container">
+  <div class="docs-layout">
+
+    <!-- Sidebar -->
+    <aside class="docs-sidebar">
+      <nav aria-label="Page sections">
+        <div class="sidebar-section">On this page</div>
+        <a href="#download">Download Binaries</a>
+        <a href="#dotnet-tool">dotnet tool</a>
+        <a href="#basic-usage">Basic Usage</a>
+        <a href="#options">All Options</a>
+        <a href="#piping">Piping / stdin</a>
+        <a href="#ci-examples">CI Examples</a>
+      </nav>
+    </aside>
+
+    <!-- Content -->
+    <main class="docs-content">
+
+      <h2 id="download">Download Binaries</h2>
+      <p>Self-contained executables require no .NET runtime installed on the machine. Download the binary for your platform from <a href="https://github.com/eggspot/EggPdf/releases/latest" target="_blank" rel="noopener">GitHub Releases</a>:</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Platform</th><th>Architecture</th><th>File</th><th>Download</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Windows</td><td>x64</td>
+              <td><code>eggpdf-cli-win-x64.exe</code></td>
+              <td><a class="dl-link" href="https://github.com/eggspot/EggPdf/releases/latest/download/eggpdf-cli-win-x64.exe" target="_blank" rel="noopener">↓ Download</a></td>
+            </tr>
+            <tr>
+              <td>Windows</td><td>ARM64</td>
+              <td><code>eggpdf-cli-win-arm64.exe</code></td>
+              <td><a class="dl-link" href="https://github.com/eggspot/EggPdf/releases/latest/download/eggpdf-cli-win-arm64.exe" target="_blank" rel="noopener">↓ Download</a></td>
+            </tr>
+            <tr>
+              <td>Linux</td><td>x64</td>
+              <td><code>eggpdf-cli-linux-x64</code></td>
+              <td><a class="dl-link" href="https://github.com/eggspot/EggPdf/releases/latest/download/eggpdf-cli-linux-x64" target="_blank" rel="noopener">↓ Download</a></td>
+            </tr>
+            <tr>
+              <td>Linux</td><td>ARM64</td>
+              <td><code>eggpdf-cli-linux-arm64</code></td>
+              <td><a class="dl-link" href="https://github.com/eggspot/EggPdf/releases/latest/download/eggpdf-cli-linux-arm64" target="_blank" rel="noopener">↓ Download</a></td>
+            </tr>
+            <tr>
+              <td>macOS</td><td>Intel (x64)</td>
+              <td><code>eggpdf-cli-osx-x64</code></td>
+              <td><a class="dl-link" href="https://github.com/eggspot/EggPdf/releases/latest/download/eggpdf-cli-osx-x64" target="_blank" rel="noopener">↓ Download</a></td>
+            </tr>
+            <tr>
+              <td>macOS</td><td>Apple Silicon (ARM64)</td>
+              <td><code>eggpdf-cli-osx-arm64</code></td>
+              <td><a class="dl-link" href="https://github.com/eggspot/EggPdf/releases/latest/download/eggpdf-cli-osx-arm64" target="_blank" rel="noopener">↓ Download</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Make executable (Linux / macOS)</h3>
+      <div class="code-block"><pre><code>chmod +x eggpdf-cli-linux-x64
+# or
+chmod +x eggpdf-cli-osx-arm64</code></pre></div>
+
+      <div class="callout callout-warning">
+        <span class="callout-icon">⚠️</span>
+        <div>On macOS, you may need to allow the binary in <strong>System Settings → Privacy &amp; Security</strong> after the first run, or run <code>xattr -dr com.apple.quarantine ./eggpdf-cli-osx-arm64</code>.</div>
+      </div>
+
+      <h2 id="dotnet-tool">Install as a dotnet Tool</h2>
+      <p>If you have the .NET SDK installed, install EggPdf as a global dotnet tool — no binary download needed:</p>
+      <div class="code-block"><pre><code>dotnet tool install -g dotnet-eggpdf</code></pre></div>
+      <p>After installation, the <code>eggpdf</code> command is available globally:</p>
+      <div class="code-block"><pre><code>eggpdf --version</code></pre></div>
+      <p>Update to the latest version:</p>
+      <div class="code-block"><pre><code>dotnet tool update -g dotnet-eggpdf</code></pre></div>
+
+      <h2 id="basic-usage">Basic Usage</h2>
+      <div class="code-block"><pre><code><span class="cmt"># Convert an HTML file to PDF</span>
+eggpdf input.html -o output.pdf
+
+<span class="cmt"># Specify page size</span>
+eggpdf input.html -o output.pdf --page-size Letter
+
+<span class="cmt"># Add a footer with page numbers</span>
+eggpdf input.html -o output.pdf --footer "Page {page} of {pages}"
+
+<span class="cmt"># Add a header</span>
+eggpdf input.html -o output.pdf --header "My Company — Confidential"
+
+<span class="cmt"># Custom margins (top right bottom left, in CSS pixels)</span>
+eggpdf input.html -o output.pdf --margin 60 50 60 50
+
+<span class="cmt"># Set document title</span>
+eggpdf input.html -o output.pdf --title "Annual Report 2025"</code></pre></div>
+
+      <h2 id="options">All Options</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Option</th><th>Short</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>--output</code></td><td><code>-o</code></td><td>required</td><td>Output PDF file path</td></tr>
+            <tr><td><code>--page-size</code></td><td>—</td><td><code>A4</code></td><td>Page size: A3, A4, A5, Letter, Legal</td></tr>
+            <tr><td><code>--margin</code></td><td>—</td><td><code>40 40 40 40</code></td><td>Margins in px: top right bottom left</td></tr>
+            <tr><td><code>--title</code></td><td>—</td><td>—</td><td>PDF document title metadata</td></tr>
+            <tr><td><code>--header</code></td><td>—</td><td>—</td><td>Header template. Supports <code>{page}</code>, <code>{pages}</code></td></tr>
+            <tr><td><code>--footer</code></td><td>—</td><td>—</td><td>Footer template. Supports <code>{page}</code>, <code>{pages}</code></td></tr>
+            <tr><td><code>--landscape</code></td><td>—</td><td>false</td><td>Render in landscape orientation</td></tr>
+            <tr><td><code>--verbose</code></td><td><code>-v</code></td><td>false</td><td>Print render statistics to stderr</td></tr>
+            <tr><td><code>--version</code></td><td>—</td><td>—</td><td>Print version and exit</td></tr>
+            <tr><td><code>--help</code></td><td><code>-h</code></td><td>—</td><td>Show help message and exit</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="piping">Piping / stdin</h2>
+      <p>Use <code>-</code> as the input argument to read HTML from standard input. This is ideal for shell pipelines and template engines:</p>
+      <div class="code-block"><pre><code><span class="cmt"># Pipe HTML directly</span>
+echo "&lt;h1&gt;Hi&lt;/h1&gt;" | eggpdf - -o out.pdf
+
+<span class="cmt"># From a template engine</span>
+mustache data.json template.html | eggpdf - -o report.pdf
+
+<span class="cmt"># From curl (remote HTML)</span>
+curl -s https://example.com | eggpdf - -o example.pdf
+
+<span class="cmt"># Heredoc</span>
+eggpdf - -o greeting.pdf &lt;&lt;'EOF'
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello, World!&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;
+EOF</code></pre></div>
+
+      <h2 id="ci-examples">CI Examples</h2>
+      <h3>GitHub Actions</h3>
+      <div class="code-header">.github/workflows/generate-pdf.yml</div>
+      <div class="code-block"><pre><code><span class="var">name</span><span class="pun">:</span> <span class="str">Generate PDF Report</span>
+<span class="var">on</span><span class="pun">:</span> <span class="pun">[</span><span class="str">push</span><span class="pun">]</span>
+
+<span class="var">jobs</span><span class="pun">:</span>
+  <span class="var">pdf</span><span class="pun">:</span>
+    <span class="var">runs-on</span><span class="pun">:</span> <span class="str">ubuntu-latest</span>
+    <span class="var">steps</span><span class="pun">:</span>
+      <span class="pun">-</span> <span class="var">uses</span><span class="pun">:</span> <span class="str">actions/checkout@v4</span>
+
+      <span class="pun">-</span> <span class="var">name</span><span class="pun">:</span> <span class="str">Install EggPdf CLI</span>
+        <span class="var">run</span><span class="pun">:</span> <span class="pun">|</span>
+          <span class="var">curl -L https://github.com/eggspot/EggPdf/releases/latest/download/eggpdf-cli-linux-x64 -o eggpdf</span>
+          <span class="var">chmod +x eggpdf</span>
+
+      <span class="pun">-</span> <span class="var">name</span><span class="pun">:</span> <span class="str">Render Report PDF</span>
+        <span class="var">run</span><span class="pun">:</span> <span class="str">./eggpdf report.html -o report.pdf --footer "Page {page} of {pages}"</span>
+
+      <span class="pun">-</span> <span class="var">name</span><span class="pun">:</span> <span class="str">Upload PDF artifact</span>
+        <span class="var">uses</span><span class="pun">:</span> <span class="str">actions/upload-artifact@v4</span>
+        <span class="var">with</span><span class="pun">:</span>
+          <span class="var">name</span><span class="pun">:</span> <span class="str">report</span>
+          <span class="var">path</span><span class="pun">:</span> <span class="str">report.pdf</span></code></pre></div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-brand">Egg<span>Pdf</span></div>
+      <nav class="footer-links">
+        <a href="getting-started.html">Getting Started</a>
+        <a href="docker.html">Docker</a>
+        <a href="cli.html">CLI</a>
+        <a href="rest-api.html">REST API</a>
+        <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://eggspot.app" target="_blank" rel="noopener">Eggspot</a>
+      </nav>
+    </div>
+    <div class="footer-legal">Built by <a href="https://eggspot.app" target="_blank" rel="noopener" style="color:#94a3b8">Eggspot</a> · MIT License · <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener" style="color:#94a3b8">GitHub</a></div>
+  </div>
+</footer>
+
+</body>
+</html>

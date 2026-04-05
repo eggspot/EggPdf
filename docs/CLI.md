@@ -8,12 +8,12 @@ Pre-built binaries for every platform are attached to each [GitHub Release](http
 
 | Platform | Binary |
 |----------|--------|
-| Windows x64 | `eggpdf-win-x64.exe` |
-| Windows ARM64 | `eggpdf-win-arm64.exe` |
-| Linux x64 | `eggpdf-linux-x64` |
-| Linux ARM64 | `eggpdf-linux-arm64` |
-| macOS x64 (Intel) | `eggpdf-osx-x64` |
-| macOS ARM64 (Apple Silicon) | `eggpdf-osx-arm64` |
+| Windows x64 | `eggpdf-cli-win-x64.exe` |
+| Windows ARM64 | `eggpdf-cli-win-arm64.exe` |
+| Linux x64 | `eggpdf-cli-linux-x64` |
+| Linux ARM64 | `eggpdf-cli-linux-arm64` |
+| macOS x64 (Intel) | `eggpdf-cli-osx-x64` |
+| macOS ARM64 (Apple Silicon) | `eggpdf-cli-osx-arm64` |
 
 ## Or install as dotnet tool
 

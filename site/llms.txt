@@ -1,0 +1,22 @@
+# EggPdf
+
+> Zero-dependency HTML/CSS to PDF rendering engine for .NET. Pure C#, MIT license, Chrome-quality output.
+
+Built by Eggspot (https://eggspot.app). Open source on GitHub: https://github.com/eggspot/EggPdf
+
+## Docs
+- [Getting Started](https://eggspot.github.io/EggPdf/getting-started.html)
+- [Docker Guide](https://eggspot.github.io/EggPdf/docker.html)
+- [CLI Guide](https://eggspot.github.io/EggPdf/cli.html)
+- [REST API](https://eggspot.github.io/EggPdf/rest-api.html)
+
+## Install
+```
+dotnet add package EggPdf
+```
+
+## Quick example
+```csharp
+var pdf = await HtmlToPdf.RenderAsync("<h1>Hello</h1>");
+await File.WriteAllBytesAsync("output.pdf", pdf);
+```

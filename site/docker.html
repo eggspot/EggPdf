@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Docker Guide — EggPdf | Eggspot</title>
+  <meta name="description" content="Run EggPdf as a Docker container. Get a production-ready REST API and WebUI with a single docker run command.">
+  <link rel="canonical" href="https://eggspot.github.io/EggPdf/docker.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://eggspot.github.io/EggPdf/docker.html">
+  <meta property="og:title" content="Docker Guide — EggPdf">
+  <meta property="og:description" content="Run EggPdf as a Docker container: REST API, WebUI, multi-arch, production tips.">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- Nav -->
+<header class="nav">
+  <div class="container">
+    <a class="nav-logo" href="index.html">Egg<span>Pdf</span></a>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="getting-started.html">Docs</a>
+      <a href="getting-started.html">Getting Started</a>
+      <a href="docker.html">Docker</a>
+      <a href="cli.html">CLI</a>
+      <a href="rest-api.html">REST API</a>
+      <a href="https://github.com/eggspot/EggPdf" class="nav-github" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<!-- Page header -->
+<div class="page-header">
+  <div class="container">
+    <h1>Docker Guide</h1>
+    <p>Run EggPdf as a self-contained REST API service with a single command.</p>
+  </div>
+</div>
+
+<!-- Docs layout -->
+<div class="container">
+  <div class="docs-layout">
+
+    <!-- Sidebar -->
+    <aside class="docs-sidebar">
+      <nav aria-label="Page sections">
+        <div class="sidebar-section">On this page</div>
+        <a href="#quick-start">Quick Start</a>
+        <a href="#test-api">Test the API</a>
+        <a href="#webui">Built-in WebUI</a>
+        <a href="#compose">Docker Compose</a>
+        <a href="#env-vars">Environment Variables</a>
+        <a href="#volumes">Volume Mounts</a>
+        <a href="#health">Health Check</a>
+        <a href="#cli-in-container">CLI in Container</a>
+        <a href="#multi-arch">Multi-arch</a>
+        <a href="#production">Production Tips</a>
+      </nav>
+    </aside>
+
+    <!-- Content -->
+    <main class="docs-content">
+
+      <h2 id="quick-start">Quick Start</h2>
+      <p>Pull and run the latest EggPdf image. The REST API and WebUI start immediately on port 8080.</p>
+      <div class="code-block"><pre><code>docker run -p 8080:8080 eggspot/eggpdf:latest</code></pre></div>
+      <p>The image is also available from the GitHub Container Registry:</p>
+      <div class="code-block"><pre><code>docker run -p 8080:8080 ghcr.io/eggspot/eggpdf:latest</code></pre></div>
+      <div class="callout callout-success">
+        <span class="callout-icon">✅</span>
+        <div>Once the container starts, open <a href="http://localhost:8080" target="_blank">http://localhost:8080</a> in your browser to access the WebUI.</div>
+      </div>
+
+      <h2 id="test-api">Test the API</h2>
+      <p>Send an HTML string to <code>POST /api/render</code> and receive a PDF in the response body:</p>
+      <div class="code-header">bash</div>
+      <div class="code-block"><pre><code>curl -X POST http://localhost:8080/api/render \
+  -H "Content-Type: application/json" \
+  -d '{"html":"&lt;h1&gt;Hello from EggPdf&lt;/h1&gt;&lt;p&gt;Rendered in Docker.&lt;/p&gt;"}' \
+  --output hello.pdf</code></pre></div>
+      <p>You can also pass render options:</p>
+      <div class="code-block"><pre><code>curl -X POST http://localhost:8080/api/render \
+  -H "Content-Type: application/json" \
+  -d '{
+    "html": "&lt;h1&gt;My Report&lt;/h1&gt;",
+    "options": {
+      "pageSize": "A4",
+      "title": "My Report",
+      "footer": "Page {page} of {pages}"
+    }
+  }' \
+  --output report.pdf</code></pre></div>
+
+      <h2 id="webui">Built-in WebUI</h2>
+      <p>The Docker image ships with a full-featured WebUI at <code>http://localhost:8080</code>:</p>
+      <ul>
+        <li><strong>HTML Editor</strong> — write or paste HTML with live preview</li>
+        <li><strong>PDF Preview</strong> — see the rendered PDF in real time</li>
+        <li><strong>E2E Comparison</strong> — side-by-side browser vs PDF view at <code>/e2e</code></li>
+        <li><strong>Download</strong> — export the PDF directly from the browser</li>
+      </ul>
+      <div class="callout callout-info">
+        <span class="callout-icon">ℹ️</span>
+        <div>Disable the WebUI in production by setting <code>WEBUI_ENABLED=false</code>.</div>
+      </div>
+
+      <h2 id="compose">Docker Compose</h2>
+      <div class="code-header">docker-compose.yml</div>
+      <div class="code-block"><pre><code><span class="var">version</span><span class="pun">:</span> <span class="str">"3.9"</span>
+
+<span class="var">services</span><span class="pun">:</span>
+  <span class="var">eggpdf</span><span class="pun">:</span>
+    <span class="var">image</span><span class="pun">:</span> <span class="str">eggspot/eggpdf:latest</span>
+    <span class="var">ports</span><span class="pun">:</span>
+      <span class="pun">-</span> <span class="str">"8080:8080"</span>
+    <span class="var">environment</span><span class="pun">:</span>
+      <span class="pun">-</span> <span class="var">ASPNETCORE_ENVIRONMENT</span><span class="pun">=</span><span class="str">Production</span>
+      <span class="pun">-</span> <span class="var">AUTH_ENABLED</span><span class="pun">=</span><span class="str">false</span>
+      <span class="pun">-</span> <span class="var">WEBUI_ENABLED</span><span class="pun">=</span><span class="str">true</span>
+    <span class="var">volumes</span><span class="pun">:</span>
+      <span class="pun">-</span> <span class="str">./fonts:/app/fonts:ro</span>
+    <span class="var">restart</span><span class="pun">:</span> <span class="str">unless-stopped</span>
+    <span class="var">healthcheck</span><span class="pun">:</span>
+      <span class="var">test</span><span class="pun">:</span> <span class="pun">[</span><span class="str">"CMD"</span><span class="pun">,</span> <span class="str">"curl"</span><span class="pun">,</span> <span class="str">"-f"</span><span class="pun">,</span> <span class="str">"http://localhost:8080/health"</span><span class="pun">]</span>
+      <span class="var">interval</span><span class="pun">:</span> <span class="str">30s</span>
+      <span class="var">timeout</span><span class="pun">:</span> <span class="str">10s</span>
+      <span class="var">retries</span><span class="pun">:</span> <span class="num">3</span>
+    <span class="var">deploy</span><span class="pun">:</span>
+      <span class="var">resources</span><span class="pun">:</span>
+        <span class="var">limits</span><span class="pun">:</span>
+          <span class="var">cpus</span><span class="pun">:</span> <span class="str">"1.0"</span>
+          <span class="var">memory</span><span class="pun">:</span> <span class="str">256M</span></code></pre></div>
+
+      <h2 id="env-vars">Environment Variables</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Variable</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>ASPNETCORE_ENVIRONMENT</code></td><td><code>Production</code></td><td>ASP.NET Core environment name. Use <code>Development</code> for detailed error pages.</td></tr>
+            <tr><td><code>ASPNETCORE_URLS</code></td><td><code>http://+:8080</code></td><td>Listening address. Override to change the port.</td></tr>
+            <tr><td><code>AUTH_ENABLED</code></td><td><code>false</code></td><td>Set to <code>true</code> to require an API key header (<code>X-Api-Key</code>).</td></tr>
+            <tr><td><code>AUTH_API_KEY</code></td><td>—</td><td>The API key value when <code>AUTH_ENABLED=true</code>.</td></tr>
+            <tr><td><code>WEBUI_ENABLED</code></td><td><code>true</code></td><td>Set to <code>false</code> to disable the WebUI and serve API only.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="volumes">Volume Mounts</h2>
+      <p>Mount a directory containing custom <code>.ttf</code> or <code>.otf</code> font files into <code>/app/fonts</code>. EggPdf will discover and use them automatically:</p>
+      <div class="code-block"><pre><code>docker run -p 8080:8080 \
+  -v /path/to/your/fonts:/app/fonts:ro \
+  eggspot/eggpdf:latest</code></pre></div>
+
+      <h2 id="health">Health Check</h2>
+      <p>The service exposes a health endpoint that returns <code>200 OK</code> with a JSON payload:</p>
+      <div class="code-block"><pre><code>curl http://localhost:8080/health
+<span class="cmt"># {"status":"Healthy","version":"0.3.0"}</span></code></pre></div>
+      <p>Use this with container orchestrators (Kubernetes, ECS, Docker Swarm) for liveness and readiness probes.</p>
+
+      <h2 id="cli-in-container">Using CLI Inside the Container</h2>
+      <p>The CLI is bundled inside the Docker image. You can use it without installing anything locally:</p>
+      <div class="code-block"><pre><code><span class="cmt"># Convert a local HTML file to PDF (mount current directory)</span>
+docker run --rm \
+  -v "$(pwd):/work" \
+  eggspot/eggpdf:latest \
+  dotnet /app/cli/EggPdf.Cli.dll /work/input.html -o /work/output.pdf</code></pre></div>
+
+      <h2 id="multi-arch">Multi-arch Support</h2>
+      <p>The <code>eggspot/eggpdf:latest</code> image is a multi-arch manifest that supports:</p>
+      <ul>
+        <li><code>linux/amd64</code> — standard x86-64 servers and desktops</li>
+        <li><code>linux/arm64</code> — AWS Graviton, Apple Silicon in Docker, Raspberry Pi 4+</li>
+      </ul>
+      <p>Docker automatically selects the correct image for your host architecture. No flags required.</p>
+
+      <h2 id="production">Production Tips</h2>
+      <h3>Resource limits</h3>
+      <p>EggPdf is CPU-bound. For most workloads, limit to 1 CPU and 256 MB RAM. For high-throughput invoice generation, consider horizontal scaling behind a load balancer rather than increasing single-container resources.</p>
+      <div class="code-block"><pre><code>docker run -p 8080:8080 \
+  --cpus="1.0" \
+  --memory="256m" \
+  eggspot/eggpdf:latest</code></pre></div>
+
+      <h3>Non-root user</h3>
+      <p>The image runs as a non-root user (<code>appuser</code>, UID 1001) by default. No additional configuration required for least-privilege deployments.</p>
+
+      <h3>Disable the WebUI</h3>
+      <div class="code-block"><pre><code>docker run -p 8080:8080 \
+  -e WEBUI_ENABLED=false \
+  eggspot/eggpdf:latest</code></pre></div>
+
+      <h3>Enable authentication</h3>
+      <div class="code-block"><pre><code>docker run -p 8080:8080 \
+  -e AUTH_ENABLED=true \
+  -e AUTH_API_KEY=my-secret-key \
+  eggspot/eggpdf:latest
+
+<span class="cmt"># Then include the key in requests:</span>
+curl -X POST http://localhost:8080/api/render \
+  -H "X-Api-Key: my-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{"html":"&lt;h1&gt;Secure PDF&lt;/h1&gt;"}' \
+  --output secure.pdf</code></pre></div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-brand">Egg<span>Pdf</span></div>
+      <nav class="footer-links">
+        <a href="getting-started.html">Getting Started</a>
+        <a href="docker.html">Docker</a>
+        <a href="cli.html">CLI</a>
+        <a href="rest-api.html">REST API</a>
+        <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://eggspot.app" target="_blank" rel="noopener">Eggspot</a>
+      </nav>
+    </div>
+    <div class="footer-legal">Built by <a href="https://eggspot.app" target="_blank" rel="noopener" style="color:#94a3b8">Eggspot</a> · MIT License · <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener" style="color:#94a3b8">GitHub</a></div>
+  </div>
+</footer>
+
+</body>
+</html>
