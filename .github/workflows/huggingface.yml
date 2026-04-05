@@ -36,7 +36,7 @@ jobs:
           echo "Deploying eggspot/eggpdf:$TAG to Hugging Face Spaces..."
 
           # Clone the HF Space repo
-          git clone https://vp2dr7qe8:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/vp2dr7qe8/eggspot hf-space
+          git clone https://vp2dr7qe8:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/vp2dr7qe8/eggpdf hf-space
 
           # Update the Dockerfile to pin the version
           cat > hf-space/Dockerfile << EOF
@@ -62,4 +62,4 @@ jobs:
           git push
 
           echo "Deployed! Space will rebuild in ~1-2 minutes."
-          echo "Demo URL: https://vp2dr7qe8-eggspot.hf.space"
+          echo "Demo URL: https://vp2dr7qe8-eggpdf.hf.space"
