@@ -6,7 +6,7 @@ EggPdf.Service is a standalone HTTP microservice that exposes **100% of the libr
 
 ```bash
 # Docker
-docker run -p 8080:8080 eggpdf/service:latest
+docker run -p 8080:8080 eggspot/eggpdf:latest
 
 # Or from source
 cd src/EggPdf.Service && dotnet run

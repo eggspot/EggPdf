@@ -26,7 +26,7 @@ app.MapGet("/health", () => Results.Ok(new
 // === Info ===
 app.MapGet("/api/info", () => Results.Ok(new
 {
-    version = "0.1.0",
+    version = typeof(EggPdf.HtmlToPdf).Assembly.GetName().Version?.ToString(3) ?? "unknown",
     engine = "EggPdf",
     features = new[] { "html-to-pdf", "multi-page", "css-cascade", "links" },
     limits = new { maxBodySizeMb = 10, timeoutSeconds = 30 }
