@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configuration — EggPdf | Eggspot</title>
+  <meta name="description" content="Configure page size, margins, orientation, and resource loading with @page CSS rules and the basePath parameter.">
+  <link rel="canonical" href="https://eggspot.github.io/EggPdf/configuration.html">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="apple-touch-icon" href="assets/favicon.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://eggspot.github.io/EggPdf/configuration.html">
+  <meta property="og:title" content="Configuration — EggPdf">
+  <meta property="og:description" content="Configure page size, margins, orientation, and resource loading with @page CSS rules and the basePath parameter.">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- Nav -->
+<header class="nav">
+  <div class="container">
+    <a class="nav-logo" href="index.html">
+      <svg width="22" height="16" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+      <span class="logo-text">Egg<span class="logo-accent">Pdf</span></span>
+    </a>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="getting-started.html">Docs</a>
+      <a href="docker.html">Docker</a>
+      <a href="cli.html">CLI</a>
+      <a href="rest-api.html">REST API</a>
+      <a href="architecture.html">Internals</a>
+      <a href="https://github.com/eggspot/EggPdf" class="nav-github" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<!-- Page header -->
+<div class="page-header">
+  <div class="container">
+    <h1>Configuration</h1>
+    <p>Control page size, margins, and external resources using CSS @page rules.</p>
+  </div>
+</div>
+
+<!-- Docs layout -->
+<div class="container">
+  <div class="docs-layout">
+
+    <!-- Sidebar -->
+    <aside class="docs-sidebar">
+      <nav aria-label="Documentation navigation">
+        <div class="sidebar-section">Guides</div>
+        <a href="getting-started.html">Getting Started</a>
+        <a href="configuration.html" class="active">Configuration</a>
+        <a href="page-layout.html">Page Layout</a>
+        <a href="tables.html">Tables</a>
+        <a href="fonts.html">Fonts</a>
+        <a href="headers-footers.html">Headers &amp; Footers</a>
+        <a href="performance.html">Performance</a>
+        <div class="sidebar-section">Deploy</div>
+        <a href="docker.html">Docker</a>
+        <a href="cli.html">CLI</a>
+        <a href="rest-api.html">REST API</a>
+        <div class="sidebar-section">Internals</div>
+        <a href="architecture.html">Architecture</a>
+      </nav>
+    </aside>
+
+    <!-- Content -->
+    <main class="docs-content">
+
+      <h2 id="page-rules">@page rules</h2>
+      <p>
+        EggPdf reads CSS <code>@page</code> rules embedded in your HTML to configure the output page.
+        Place the rule inside a <code>&lt;style&gt;</code> block in the document <code>&lt;head&gt;</code>:
+      </p>
+      <div class="code-block"><pre><code><span class="kw">@page</span> <span class="pun">{</span>
+    <span class="var">size</span><span class="pun">:</span> <span class="str">A4</span><span class="pun">;</span>          <span class="cmt">/* page size */</span>
+    <span class="var">margin</span><span class="pun">:</span> <span class="str">2cm</span><span class="pun">;</span>       <span class="cmt">/* all margins */</span>
+<span class="pun">}</span></code></pre></div>
+      <p>
+        Any CSS you put inside <code>@page { }</code> applies to every page of the document.
+        EggPdf uses this as the single source of truth for page geometry — there are no separate
+        API options for size or margins.
+      </p>
+
+      <h2 id="page-sizes">Page sizes</h2>
+      <p>
+        The following named sizes are supported. The default when no <code>@page</code> rule is present is <strong>A4</strong>.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Dimensions</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>A3</code></td><td>297 × 420 mm</td></tr>
+            <tr><td><code>A4</code></td><td>210 × 297 mm</td></tr>
+            <tr><td><code>A5</code></td><td>148 × 210 mm</td></tr>
+            <tr><td><code>Letter</code></td><td>8.5 × 11 in</td></tr>
+            <tr><td><code>Legal</code></td><td>8.5 × 14 in</td></tr>
+            <tr><td><code>Tabloid</code></td><td>11 × 17 in</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="landscape">Landscape orientation</h2>
+      <p>
+        Add the <code>landscape</code> keyword after the size name to rotate the page:
+      </p>
+      <div class="code-block"><pre><code><span class="kw">@page</span> <span class="pun">{</span>
+    <span class="var">size</span><span class="pun">:</span> <span class="str">A4 landscape</span><span class="pun">;</span>
+    <span class="var">margin</span><span class="pun">:</span> <span class="str">1.5cm</span><span class="pun">;</span>
+<span class="pun">}</span></code></pre></div>
+      <p>
+        Use <code>portrait</code> to make the orientation explicit, though it is the default when no keyword is given.
+      </p>
+
+      <h2 id="custom-dimensions">Custom dimensions</h2>
+      <p>
+        Any CSS length unit works for <code>size</code>. Provide width then height:
+      </p>
+      <div class="code-block"><pre><code><span class="kw">@page</span> <span class="pun">{</span>
+    <span class="var">size</span><span class="pun">:</span> <span class="str">200mm 120mm</span><span class="pun">;</span>   <span class="cmt">/* width height */</span>
+    <span class="var">margin</span><span class="pun">:</span> <span class="str">10mm</span><span class="pun">;</span>
+<span class="pun">}</span></code></pre></div>
+      <p>Supported units: <code>px</code>, <code>mm</code>, <code>cm</code>, <code>in</code>, <code>pt</code>.</p>
+
+      <h2 id="margins">Margins</h2>
+      <p>
+        All standard CSS margin shorthands are accepted inside <code>@page</code>:
+      </p>
+      <div class="code-block"><pre><code><span class="cmt">/* Uniform — 2cm on every side */</span>
+<span class="kw">@page</span> <span class="pun">{</span> <span class="var">margin</span><span class="pun">:</span> <span class="str">2cm</span><span class="pun">; }</span>
+
+<span class="cmt">/* Vertical | Horizontal */</span>
+<span class="kw">@page</span> <span class="pun">{</span> <span class="var">margin</span><span class="pun">:</span> <span class="str">2cm 1.5cm</span><span class="pun">; }</span>
+
+<span class="cmt">/* Individual sides */</span>
+<span class="kw">@page</span> <span class="pun">{</span>
+    <span class="var">margin-top</span><span class="pun">:</span>    <span class="str">25mm</span><span class="pun">;</span>
+    <span class="var">margin-bottom</span><span class="pun">:</span> <span class="str">25mm</span><span class="pun">;</span>
+    <span class="var">margin-left</span><span class="pun">:</span>   <span class="str">20mm</span><span class="pun">;</span>
+    <span class="var">margin-right</span><span class="pun">:</span>  <span class="str">20mm</span><span class="pun">;</span>
+<span class="pun">}</span></code></pre></div>
+
+      <h2 id="base-path">Loading external resources</h2>
+      <p>
+        When rendering from an HTML file that references external stylesheets or images via relative
+        paths, pass the directory containing the file as <code>basePath</code>. EggPdf will resolve
+        <code>&lt;link rel="stylesheet"&gt;</code> and <code>&lt;img src="..."&gt;</code> relative to that
+        directory:
+      </p>
+      <div class="code-header">Program.cs</div>
+      <div class="code-block"><pre><code><span class="kw">using</span> <span class="typ">EggPdf</span><span class="pun">;</span>
+
+<span class="kw">string</span> <span class="var">html</span>    <span class="pun">=</span> <span class="typ">File</span><span class="pun">.</span><span class="fn">ReadAllText</span><span class="pun">(</span><span class="str">"invoice.html"</span><span class="pun">);</span>
+<span class="kw">string</span> <span class="var">baseDir</span> <span class="pun">=</span> <span class="typ">Path</span><span class="pun">.</span><span class="fn">GetDirectoryName</span><span class="pun">(</span><span class="typ">Path</span><span class="pun">.</span><span class="fn">GetFullPath</span><span class="pun">(</span><span class="str">"invoice.html"</span><span class="pun">))</span><span class="pun">!;</span>
+
+<span class="kw">byte</span><span class="pun">[]</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="fn">Render</span><span class="pun">(</span><span class="var">html</span><span class="pun">,</span> <span class="var">basePath</span><span class="pun">:</span> <span class="var">baseDir</span><span class="pun">);</span>
+<span class="typ">File</span><span class="pun">.</span><span class="fn">WriteAllBytes</span><span class="pun">(</span><span class="str">"invoice.pdf"</span><span class="pun">,</span> <span class="var">pdf</span><span class="pun">);</span></code></pre></div>
+      <div class="callout callout-info">
+        <span class="callout-icon">ℹ️</span>
+        <div>
+          Without <code>basePath</code>, only inline <code>&lt;style&gt;</code> blocks and
+          <a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/Data_URLs" target="_blank" rel="noopener">data URIs</a>
+          are available. External <code>href</code> and <code>src</code> paths will be skipped silently.
+        </div>
+      </div>
+      <p>Supported image formats when loading from disk: <strong>PNG</strong>, <strong>JPEG</strong>, <strong>GIF</strong>, and <strong>BMP</strong>. Images can also be embedded directly as data URIs without needing a <code>basePath</code>.</p>
+
+    </main>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-logo" aria-hidden="true">
+      <svg width="28" height="20" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+    </div>
+    <p>An open-source project by <a href="https://eggspot.app" target="_blank" rel="noopener">Eggspot</a> &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
