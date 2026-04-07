@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\EggPdf\EggPdf.csproj" />
+    <ProjectReference Include="..\EggPdf.Pdf\EggPdf.Pdf.csproj" />
   </ItemGroup>
 
 </Project>
