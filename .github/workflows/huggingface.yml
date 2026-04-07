@@ -42,7 +42,7 @@ jobs:
           cat > hf-space/Dockerfile << EOF
           # Auto-updated by GitHub Actions — do not edit manually
           # Version: $TAG
-          FROM eggspot/eggpdf:$TAG
+          FROM ghcr.io/eggspot/eggpdf:$TAG
 
           # Hugging Face Spaces runs as user 1000
           USER 1000
