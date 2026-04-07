@@ -150,7 +150,7 @@ internal class HtmlTreeBuilder
         // Handle <p> implicit close
         if (ImplicitlyClosesParagraph.Contains(tagName))
         {
-            if (_openElements.Any(e => e.TagName == "p"))
+            if (HasOpenElement("p"))
                 CloseUpTo("p");
         }
 
@@ -236,6 +236,13 @@ internal class HtmlTreeBuilder
     /// Consume tokens from the tokenizer until the matching end tag, collecting all text into the element.
     /// Used for style, script, title, textarea.
     /// </summary>
+    private bool HasOpenElement(string tagName)
+    {
+        foreach (var e in _openElements)
+            if (e.TagName == tagName) return true;
+        return false;
+    }
+
     private void CollectRawText(HtmlElement element, string tagName)
     {
         if (_tokenizer == null) return;

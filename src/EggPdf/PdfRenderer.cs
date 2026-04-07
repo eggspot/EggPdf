@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using EggPdf.Css;
 using EggPdf.Core;
 using EggPdf.Html.Dom;
@@ -79,7 +78,12 @@ internal static class PdfRenderer
         pageBreakYs.Sort();
 
         // Determine total content height
-        float maxY = allBoxes.Max(b => b.Y + b.Height);
+        float maxY = 0;
+        for (int i = 0; i < allBoxes.Count; i++)
+        {
+            float bottom = allBoxes[i].Y + allBoxes[i].Height;
+            if (bottom > maxY) maxY = bottom;
+        }
 
         // Build page boundaries (combining natural page breaks with forced ones)
         var pageBounds = new List<(float top, float bottom)>();
