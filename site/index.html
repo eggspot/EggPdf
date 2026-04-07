@@ -14,10 +14,12 @@
   <meta property="og:title" content="EggPdf — Zero-dependency HTML to PDF for .NET">
   <meta property="og:description" content="Pure C#, MIT license, Chrome-quality output. No external NuGet dependencies. 13µs per simple page.">
   <meta property="og:site_name" content="EggPdf by Eggspot">
+  <meta property="og:image" content="https://eggspot.github.io/EggPdf/assets/logo.svg">
   <!-- Twitter Card -->
-  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="EggPdf — Zero-dependency HTML to PDF for .NET">
   <meta name="twitter:description" content="Pure C#, MIT license, Chrome-quality output. No external NuGet dependencies. 13µs per simple page.">
+  <meta name="twitter:image" content="https://eggspot.github.io/EggPdf/assets/logo.svg">
   <!-- JSON-LD -->
   <script type="application/ld+json">
   {
@@ -27,7 +29,7 @@
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Windows, Linux, macOS",
     "description": "Pure C#, zero-dependency HTML/CSS-to-PDF rendering engine for .NET. MIT license, Chrome-quality output.",
-    "softwareVersion": "0.5.0",
+    "softwareVersion": "1.0.2",
     "license": "https://opensource.org/licenses/MIT",
     "url": "https://eggspot.github.io/EggPdf/",
     "downloadUrl": "https://www.nuget.org/packages/EggPdf",
@@ -56,6 +58,9 @@
       </svg>
       <span class="logo-text">Egg<span class="logo-accent">Pdf</span></span>
     </a>
+    <button class="nav-hamburger" aria-label="Toggle navigation" aria-expanded="false">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="5" x2="19" y2="5"/><line x1="3" y1="11" x2="19" y2="11"/><line x1="3" y1="17" x2="19" y2="17"/></svg>
+    </button>
     <nav class="nav-links" aria-label="Main navigation">
       <a href="getting-started.html">Docs</a>
       <a href="docker.html">Docker</a>
@@ -70,7 +75,7 @@
 <!-- Hero -->
 <section class="hero">
   <div class="container">
-    <div class="hero-badge">v0.5.0 — MIT License</div>
+    <div class="hero-badge">v1.0.2 — MIT License</div>
     <h1>Zero-dependency HTML to<br><span class="accent">PDF for .NET</span></h1>
     <p class="hero-subtitle">Pure C# &nbsp;•&nbsp; MIT License &nbsp;•&nbsp; Chrome-quality output</p>
     <div class="hero-cta">
@@ -122,11 +127,47 @@
 <span class="var">docker run -p 8080:8080 eggspot/eggpdf:latest</span></code></pre></div>
         </div>
         <div id="install-cli" class="tab-panel">
-          <div class="code-block"><pre><code><span class="cmt"># Install the global dotnet tool</span>
-<span class="var">dotnet tool install -g dotnet-eggpdf</span>
+          <div class="tabs" id="cli-os-tabs">
+            <div class="tab-list" role="tablist">
+              <button class="tab-btn active" role="tab" aria-selected="true" onclick="switchTab(event,'cli-windows')">Windows</button>
+              <button class="tab-btn" role="tab" aria-selected="false" onclick="switchTab(event,'cli-linux')">Linux</button>
+              <button class="tab-btn" role="tab" aria-selected="false" onclick="switchTab(event,'cli-macos')">macOS</button>
+              <button class="tab-btn" role="tab" aria-selected="false" onclick="switchTab(event,'cli-dotnet')">dotnet tool</button>
+            </div>
+            <div class="tab-content">
+              <div id="cli-windows" class="tab-panel active">
+                <div class="code-block"><pre><code><span class="cmt"># x64 (most Windows PCs)</span>
+<span class="var">curl -L https://github.com/eggspot/EggPdf/releases/latest/download/eggpdf-cli-win-x64.exe -o eggpdf.exe</span>
+<span class="var">.\eggpdf.exe input.html -o output.pdf</span>
 
-<span class="cmt"># Or download a self-contained binary from GitHub Releases</span>
-<span class="cmt"># https://github.com/eggspot/EggPdf/releases/latest</span></code></pre></div>
+<span class="cmt"># ARM64 (Surface Pro X, Copilot+ PCs)</span>
+<span class="var">curl -L https://github.com/eggspot/EggPdf/releases/latest/download/eggpdf-cli-win-arm64.exe -o eggpdf.exe</span></code></pre></div>
+              </div>
+              <div id="cli-linux" class="tab-panel">
+                <div class="code-block"><pre><code><span class="cmt"># x64</span>
+<span class="var">curl -L https://github.com/eggspot/EggPdf/releases/latest/download/eggpdf-cli-linux-x64 -o eggpdf</span>
+<span class="var">chmod +x eggpdf &amp;&amp; ./eggpdf input.html -o output.pdf</span>
+
+<span class="cmt"># ARM64 (Raspberry Pi, AWS Graviton)</span>
+<span class="var">curl -L https://github.com/eggspot/EggPdf/releases/latest/download/eggpdf-cli-linux-arm64 -o eggpdf</span>
+<span class="var">chmod +x eggpdf</span></code></pre></div>
+              </div>
+              <div id="cli-macos" class="tab-panel">
+                <div class="code-block"><pre><code><span class="cmt"># Apple Silicon (M1/M2/M3/M4)</span>
+<span class="var">curl -L https://github.com/eggspot/EggPdf/releases/latest/download/eggpdf-cli-osx-arm64 -o eggpdf</span>
+<span class="var">chmod +x eggpdf &amp;&amp; ./eggpdf input.html -o output.pdf</span>
+
+<span class="cmt"># Intel Mac</span>
+<span class="var">curl -L https://github.com/eggspot/EggPdf/releases/latest/download/eggpdf-cli-osx-x64 -o eggpdf</span>
+<span class="var">chmod +x eggpdf</span></code></pre></div>
+              </div>
+              <div id="cli-dotnet" class="tab-panel">
+                <div class="code-block"><pre><code><span class="cmt"># Install as global .NET tool (requires .NET SDK, all platforms)</span>
+<span class="var">dotnet tool install -g dotnet-eggpdf</span>
+<span class="var">eggpdf input.html -o output.pdf</span></code></pre></div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -233,6 +274,20 @@ function switchTab(e, panelId) {
   e.target.setAttribute('aria-selected','true');
   document.getElementById(panelId).classList.add('active');
 }
+(function() {
+  var btn = document.querySelector('.nav-hamburger');
+  var nav = document.querySelector('.nav-links');
+  btn.addEventListener('click', function() {
+    var open = nav.classList.toggle('open');
+    btn.setAttribute('aria-expanded', open);
+  });
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.nav')) {
+      nav.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+    }
+  });
+})();
 </script>
 </body>
 </html>
