@@ -53,11 +53,14 @@ jobs:
           # Copy the README (Space metadata + description)
           cp spaces/README.md hf-space/README.md
 
+          # Copy logo for thumbnail (referenced in README.md frontmatter)
+          cp assets/logo.png hf-space/logo.png
+
           # Commit and push to trigger HF rebuild
           cd hf-space
           git config user.email "github-actions@github.com"
           git config user.name "GitHub Actions"
-          git add Dockerfile README.md
+          git add Dockerfile README.md logo.png
           git diff --staged --quiet || git commit -m "deploy: eggspot/eggpdf:$TAG"
           git push
 

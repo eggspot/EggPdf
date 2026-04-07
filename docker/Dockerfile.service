@@ -5,10 +5,14 @@ COPY . .
 RUN dotnet restore
 RUN dotnet publish src/EggPdf.Service/EggPdf.Service.csproj \
     -c Release \
+    -r linux-x64 \
+    --self-contained true \
+    -p:PublishTrimmed=true \
+    -p:PublishSingleFile=true \
     -o /app \
     --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-alpine AS runtime
 WORKDIR /app
 
 # Install common fonts
@@ -34,4 +38,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD wget -q --spider http://localhost:8080/health || exit 1
 
-ENTRYPOINT ["dotnet", "EggPdf.Service.dll"]
+ENTRYPOINT ["./EggPdf.Service"]

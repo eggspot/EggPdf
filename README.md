@@ -149,7 +149,13 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Streaming table layout for 10,000+ row tables
 
 <!-- BENCHMARK_START -->
-*Benchmarks will be added when Phase 1 is complete.*
+| Scenario | Mean | Memory |
+|----------|------|--------|
+| Simple page (h1 + p) | **13 µs** | 20 KB |
+| Invoice (table + styles) | **86 µs** | 85 KB |
+| Large table (100 rows) | **1.2 ms** | 939 KB |
+
+*Benchmarks run on every PR (results posted as comment) and on every merge to `main` (artifacts uploaded). Targets: simple < 50ms, invoice < 100ms, large table < 5s.*
 <!-- BENCHMARK_END -->
 
 ## Target Frameworks
@@ -161,7 +167,7 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 | `net6.0` | .NET 6+ |
 | `net8.0` | .NET 8+ |
 | `net9.0` | .NET 9+ |
-| `net10.0` | .NET 10+ (when available) |
+| `net10.0` | .NET 10+ |
 
 ## Use EggPdf Your Way
 
@@ -177,11 +183,11 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 
 ```bash
 # REST API service (with Web UI)
-docker run -p 8080:8080 eggpdf/service:latest
+docker run -p 8080:8080 eggspot/eggpdf:latest
 # Open http://localhost:8080 for Web UI, or call REST API from any language
 
 # CLI (convert files)
-docker run -v $(pwd):/work eggpdf/cli /work/input.html -o /work/output.pdf
+docker run -v $(pwd):/work eggspot/eggpdf:latest eggpdf /work/input.html -o /work/output.pdf
 ```
 
 ### CLI Binary (standalone, no .NET needed)
@@ -225,16 +231,17 @@ See the [Wiki](https://github.com/eggspot/EggPdf/wiki) for full documentation:
 
 ## Contributing
 
-Contributions are welcome! Please follow our development workflow:
+Contributions are welcome! We follow strict TDD — **write the test before the code**:
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feat/my-feature`
-3. **Write tests first** (test must fail before implementation)
-4. Implement the feature
-5. **Verify all tests pass**: `dotnet test --configuration Release`
-6. **Check performance** if touching hot paths
-7. Commit with conventional prefixes: `feat:`, `fix:`, `perf:`, `test:`
-8. Push and create a PR
+3. **Write the failing test first** — run it, confirm it fails
+4. Write minimal code to make the test pass
+5. **Run the test** — if it fails, fix code and run again; repeat until it passes
+6. **Run ALL tests** — fix any regressions and repeat until the full suite passes
+7. **Check performance** if touching hot paths
+8. Commit with conventional prefixes: `feat:`, `fix:`, `perf:`, `test:`
+9. Push and create a PR
 
 See [CLAUDE.md](CLAUDE.md) for detailed development guidelines.
 
