@@ -536,6 +536,10 @@ td a.dl-link:hover { background: #FDE68A; text-decoration: none; }
   border: none;
   cursor: pointer;
   padding: 6px;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
   color: var(--text);
   border-radius: 6px;
   transition: background .15s;
@@ -545,14 +549,15 @@ td a.dl-link:hover { background: #FDE68A; text-decoration: none; }
 
 /* ── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .nav-hamburger { display: flex; align-items: center; }
+  .nav { position: relative; }
+  .nav-hamburger { display: flex; }
   .nav-links {
     display: none;
     position: absolute;
-    top: 100%;
+    top: var(--nav-height);
     left: 0;
     right: 0;
-    z-index: 50;
+    z-index: 200;
     background: #fff;
     border-top: 1px solid var(--border);
     box-shadow: 0 4px 12px rgba(0,0,0,.1);
@@ -562,19 +567,24 @@ td a.dl-link:hover { background: #FDE68A; text-decoration: none; }
   }
   .nav-links.open { display: flex; }
   .nav-links a {
-    padding: 0.65rem 0;
+    padding: 0.75rem 0;
     font-size: 1rem;
     border-bottom: 1px solid #f3f4f6;
     border-radius: 0;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
   }
   .nav-links a:last-child { border-bottom: none; }
-  .nav-links a.nav-github { margin-top: 0.25rem; text-align: center; }
+  .nav-links a.nav-github { margin-top: 0.25rem; justify-content: center; }
 
-  .hero { padding: 80px 0 56px; }
+  .hero { padding: 60px 0 44px; }
   .benchmark-cards { grid-template-columns: 1fr; gap: 1rem; }
   .features-grid { grid-template-columns: 1fr; }
   .code-example { grid-template-columns: 1fr; gap: 2rem; }
-  .section { padding: 56px 0; }
+  .section { padding: 48px 0; }
+  .install-section { padding: 48px 0; }
+  .page-header { padding: 40px 0 28px; }
 
   .docs-layout { grid-template-columns: 1fr; }
   .docs-sidebar {
@@ -593,6 +603,19 @@ td a.dl-link:hover { background: #FDE68A; text-decoration: none; }
   }
   .docs-sidebar a { padding: 2px 0; }
 }
+
+/* ── Extra-small screens (iPhone SE: 375px) ──────────────────── */
+@media (max-width: 480px) {
+  .container { padding: 0 1rem; }
+  .tab-btn { padding: 8px 10px; font-size: 0.82rem; }
+  .btn { padding: 12px 20px; font-size: 0.9rem; }
+  .hero h1 { font-size: 2rem; }
+  .hero-subtitle { font-size: 1rem; }
+  .benchmark-value { font-size: 1.75rem; }
+  .section-heading h2 { font-size: 1.5rem; }
+  .install-section h2 { font-size: 1.5rem; }
+}
+
 @media (min-width: 769px) and (max-width: 1024px) {
   .features-grid { grid-template-columns: repeat(2, 1fr); }
   .benchmark-cards { grid-template-columns: repeat(3, 1fr); }

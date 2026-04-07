@@ -25,6 +25,7 @@
       </svg>
       <span class="logo-text">Egg<span class="logo-accent">Pdf</span></span>
     </a>
+    <button class="nav-hamburger" aria-label="Toggle navigation" aria-expanded="false"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="5" x2="19" y2="5"/><line x1="3" y1="11" x2="19" y2="11"/><line x1="3" y1="17" x2="19" y2="17"/></svg></button>
     <nav class="nav-links" aria-label="Main navigation">
       <a href="getting-started.html">Docs</a>
       <a href="docker.html">Docker</a>
@@ -174,5 +175,21 @@
   </div>
 </footer>
 
+<script>
+(function() {
+  var btn = document.querySelector(".nav-hamburger");
+  var nav = document.querySelector(".nav-links");
+  btn.addEventListener("click", function() {
+    var open = nav.classList.toggle("open");
+    btn.setAttribute("aria-expanded", open);
+  });
+  document.addEventListener("click", function(e) {
+    if (!e.target.closest(".nav")) {
+      nav.classList.remove("open");
+      btn.setAttribute("aria-expanded", "false");
+    }
+  });
+})();
+</script>
 </body>
 </html>
