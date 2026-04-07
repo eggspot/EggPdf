@@ -6,7 +6,8 @@ colorTo: purple
 sdk: docker
 pinned: true
 app_port: 8080
-short_description: Pure C# HTML to PDF — zero-dependency by Eggspot
+short_description: Pure C# HTML-to-PDF — zero-dependency engine
+thumbnail: logo.png
 ---
 
 # EggPdf Demo

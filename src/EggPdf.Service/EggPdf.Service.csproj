@@ -4,11 +4,12 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>EggPdf.Service</RootNamespace>
     <Description>EggPdf REST API microservice for HTML to PDF conversion</Description>
-    <Version>0.4.0</Version>
+    <Version>1.0.2</Version>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\EggPdf\EggPdf.csproj" />
+    <ProjectReference Include="..\EggPdf.Pdf\EggPdf.Pdf.csproj" />
   </ItemGroup>
 
 </Project>

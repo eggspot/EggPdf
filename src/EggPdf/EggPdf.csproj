@@ -3,25 +3,14 @@
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0;netstandard2.1;net6.0;net8.0;net9.0;net10.0</TargetFrameworks>
     <RootNamespace>EggPdf</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>1.0.2</Version>
     <IsPackable>true</IsPackable>
 
-    <!-- NuGet package metadata -->
+    <!-- NuGet package metadata (shared metadata is in Directory.Build.props) -->
     <PackageId>EggPdf</PackageId>
-    <Authors>Eggspot</Authors>
-    <Company>Eggspot</Company>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/eggspot/EggPdf</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/eggspot/EggPdf</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
     <PackageTags>pdf;html-to-pdf;html;css;rendering-engine;pdf-generation;zero-dependency;csharp;dotnet</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>logo.png</PackageIcon>
-    <DebugType>embedded</DebugType>
-    <EmbedAllSources>true</EmbedAllSources>
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <EmbedUntrackedSources>true</EmbedUntrackedSources>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,18 +22,44 @@
     <InternalsVisibleTo Include="EggPdf.Tests.Unit" />
   </ItemGroup>
 
+  <!-- PrivateAssets="all" hides sub-packages from .nuspec dependencies.
+       BuildOutputInPackage bundles their DLLs into the EggPdf package lib folder,
+       so consumers only need: dotnet add package EggPdf -->
   <ItemGroup>
-    <ProjectReference Include="..\EggPdf.Core\EggPdf.Core.csproj" />
-    <ProjectReference Include="..\EggPdf.Html\EggPdf.Html.csproj" />
-    <ProjectReference Include="..\EggPdf.Css\EggPdf.Css.csproj" />
-    <ProjectReference Include="..\EggPdf.Style\EggPdf.Style.csproj" />
-    <ProjectReference Include="..\EggPdf.Layout\EggPdf.Layout.csproj" />
-    <ProjectReference Include="..\EggPdf.Text\EggPdf.Text.csproj" />
-    <ProjectReference Include="..\EggPdf.Svg\EggPdf.Svg.csproj" />
-    <ProjectReference Include="..\EggPdf.Fragmentation\EggPdf.Fragmentation.csproj" />
-    <ProjectReference Include="..\EggPdf.Paint\EggPdf.Paint.csproj" />
-    <ProjectReference Include="..\EggPdf.Pdf\EggPdf.Pdf.csproj" />
+    <ProjectReference Include="..\EggPdf.Core\EggPdf.Core.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\EggPdf.Html\EggPdf.Html.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\EggPdf.Css\EggPdf.Css.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\EggPdf.Style\EggPdf.Style.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\EggPdf.Layout\EggPdf.Layout.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\EggPdf.Text\EggPdf.Text.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\EggPdf.Svg\EggPdf.Svg.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\EggPdf.Fragmentation\EggPdf.Fragmentation.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\EggPdf.Paint\EggPdf.Paint.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\EggPdf.Pdf\EggPdf.Pdf.csproj" PrivateAssets="all" />
   </ItemGroup>
+
+  <!-- Bundle all sub-assembly DLLs into the package lib/{tfm}/ folder.
+       TargetsForTfmSpecificBuildOutput hooks into _WalkEachTargetPerFramework,
+       which calls this target in the inner per-TFM MSBuild build where
+       $(TargetFramework) and $(OutputPath) are correctly set per TFM. -->
+  <PropertyGroup>
+    <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);_BundleSubAssemblies</TargetsForTfmSpecificBuildOutput>
+  </PropertyGroup>
+
+  <Target Name="_BundleSubAssemblies" Returns="@(BuildOutputInPackage)">
+    <ItemGroup>
+      <BuildOutputInPackage Include="$(OutputPath)EggPdf.Core.dll" />
+      <BuildOutputInPackage Include="$(OutputPath)EggPdf.Html.dll" />
+      <BuildOutputInPackage Include="$(OutputPath)EggPdf.Css.dll" />
+      <BuildOutputInPackage Include="$(OutputPath)EggPdf.Style.dll" />
+      <BuildOutputInPackage Include="$(OutputPath)EggPdf.Layout.dll" />
+      <BuildOutputInPackage Include="$(OutputPath)EggPdf.Text.dll" />
+      <BuildOutputInPackage Include="$(OutputPath)EggPdf.Svg.dll" />
+      <BuildOutputInPackage Include="$(OutputPath)EggPdf.Fragmentation.dll" />
+      <BuildOutputInPackage Include="$(OutputPath)EggPdf.Paint.dll" />
+      <BuildOutputInPackage Include="$(OutputPath)EggPdf.Pdf.dll" />
+    </ItemGroup>
+  </Target>
 
 </Project>
 

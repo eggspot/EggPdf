@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Headers &amp; Footers — EggPdf | Eggspot</title>
+  <meta name="description" content="Add headers and footers to EggPdf PDFs using CSS fixed positioning or the planned @page margin box API.">
+  <link rel="canonical" href="https://eggspot.github.io/EggPdf/headers-footers.html">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="apple-touch-icon" href="assets/favicon.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://eggspot.github.io/EggPdf/headers-footers.html">
+  <meta property="og:title" content="Headers &amp; Footers — EggPdf">
+  <meta property="og:description" content="Add headers and footers to EggPdf PDFs using CSS fixed positioning or the planned @page margin box API.">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container">
+    <a class="nav-logo" href="index.html">
+      <svg width="22" height="16" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+      <span class="logo-text">Egg<span class="logo-accent">Pdf</span></span>
+    </a>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="getting-started.html">Docs</a>
+      <a href="docker.html">Docker</a>
+      <a href="cli.html">CLI</a>
+      <a href="rest-api.html">REST API</a>
+      <a href="architecture.html">Internals</a>
+      <a href="https://github.com/eggspot/EggPdf" class="nav-github" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page-header">
+  <div class="container">
+    <h1>Headers &amp; Footers</h1>
+    <p>Add running headers and footers using CSS positioning or @page margin boxes (planned).</p>
+  </div>
+</div>
+
+<div class="container">
+  <div class="docs-layout">
+
+    <aside class="docs-sidebar">
+      <nav aria-label="Documentation navigation">
+        <div class="sidebar-section">Guides</div>
+        <a href="getting-started.html">Getting Started</a>
+        <a href="configuration.html">Configuration</a>
+        <a href="page-layout.html">Page Layout</a>
+        <a href="tables.html">Tables</a>
+        <a href="fonts.html">Fonts</a>
+        <a href="headers-footers.html" class="active">Headers &amp; Footers</a>
+        <a href="performance.html">Performance</a>
+        <div class="sidebar-section">Deploy</div>
+        <a href="docker.html">Docker</a>
+        <a href="cli.html">CLI</a>
+        <a href="rest-api.html">REST API</a>
+        <div class="sidebar-section">Internals</div>
+        <a href="architecture.html">Architecture</a>
+      </nav>
+    </aside>
+
+    <main class="docs-content">
+
+      <h2 id="status">Current status</h2>
+      <div class="callout callout-info">
+        <p>
+          Native header/footer support via <code>@page</code> margin boxes is on the roadmap.
+          Today there are two practical approaches: <strong>(a)</strong> CSS fixed positioning for
+          simple headers and footers that repeat on every page, and <strong>(b)</strong> HTML structure
+          with repeating table headers for column-heavy documents.
+        </p>
+      </div>
+
+      <h2 id="css-fixed">CSS fixed positioning (works today)</h2>
+      <p>
+        Use <code>position: fixed</code> to place content at a fixed position on every rendered page.
+        Add matching body margins so the main content does not overlap the header or footer areas:
+      </p>
+      <div class="code-block"><pre><code><span class="pun">&lt;</span><span class="typ">style</span><span class="pun">&gt;</span>
+<span class="typ">.page-header</span> <span class="pun">{</span>
+    <span class="kw">position</span><span class="pun">:</span> <span class="str">fixed</span><span class="pun">;</span>
+    <span class="kw">top</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span> <span class="kw">left</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span> <span class="kw">right</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span>
+    <span class="kw">height</span><span class="pun">:</span> <span class="str">40px</span><span class="pun">;</span>
+    <span class="kw">font-size</span><span class="pun">:</span> <span class="str">10px</span><span class="pun">;</span>
+    <span class="kw">color</span><span class="pun">:</span> <span class="str">#666</span><span class="pun">;</span>
+    <span class="kw">border-bottom</span><span class="pun">:</span> <span class="str">1px solid #e5e7eb</span><span class="pun">;</span>
+    <span class="kw">display</span><span class="pun">:</span> <span class="str">flex</span><span class="pun">;</span>
+    <span class="kw">align-items</span><span class="pun">:</span> <span class="str">center</span><span class="pun">;</span>
+    <span class="kw">padding</span><span class="pun">:</span> <span class="str">0 20px</span><span class="pun">;</span>
+<span class="pun">}</span>
+<span class="typ">.page-footer</span> <span class="pun">{</span>
+    <span class="kw">position</span><span class="pun">:</span> <span class="str">fixed</span><span class="pun">;</span>
+    <span class="kw">bottom</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span> <span class="kw">left</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span> <span class="kw">right</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span>
+    <span class="kw">height</span><span class="pun">:</span> <span class="str">30px</span><span class="pun">;</span>
+    <span class="kw">font-size</span><span class="pun">:</span> <span class="str">9px</span><span class="pun">;</span>
+    <span class="kw">color</span><span class="pun">:</span> <span class="str">#999</span><span class="pun">;</span>
+    <span class="kw">border-top</span><span class="pun">:</span> <span class="str">1px solid #e5e7eb</span><span class="pun">;</span>
+    <span class="kw">text-align</span><span class="pun">:</span> <span class="str">center</span><span class="pun">;</span>
+    <span class="kw">line-height</span><span class="pun">:</span> <span class="str">30px</span><span class="pun">;</span>
+<span class="pun">}</span>
+<span class="typ">body</span> <span class="pun">{</span>
+    <span class="kw">margin-top</span><span class="pun">:</span> <span class="str">50px</span><span class="pun">;</span>    <span class="cmt">/* leave room for header */</span>
+    <span class="kw">margin-bottom</span><span class="pun">:</span> <span class="str">40px</span><span class="pun">;</span> <span class="cmt">/* leave room for footer */</span>
+<span class="pun">}</span>
+<span class="pun">&lt;/</span><span class="typ">style</span><span class="pun">&gt;</span>
+
+<span class="pun">&lt;</span><span class="typ">div</span> <span class="kw">class</span><span class="pun">=</span><span class="str">"page-header"</span><span class="pun">&gt;</span>My Company — Confidential<span class="pun">&lt;/</span><span class="typ">div</span><span class="pun">&gt;</span>
+<span class="pun">&lt;</span><span class="typ">div</span> <span class="kw">class</span><span class="pun">=</span><span class="str">"page-footer"</span><span class="pun">&gt;</span>Document Title · Page 1<span class="pun">&lt;/</span><span class="typ">div</span><span class="pun">&gt;</span></code></pre></div>
+      <p>
+        Note: Page number variables such as <code>counter(page)</code> are not yet supported with fixed
+        positioning. Static text works well; dynamic page numbers require the planned
+        <code>@page</code> margin box support.
+      </p>
+
+      <h2 id="table-header">Repeating table headers (works today)</h2>
+      <p>
+        For table-heavy documents, <code>&lt;thead&gt;</code> automatically repeats at the top of each page.
+        This doubles as a column header on every page and requires no extra CSS:
+      </p>
+      <div class="code-block"><pre><code><span class="pun">&lt;</span><span class="typ">table</span><span class="pun">&gt;</span>
+  <span class="pun">&lt;</span><span class="typ">thead</span><span class="pun">&gt;</span>
+    <span class="pun">&lt;</span><span class="typ">tr</span><span class="pun">&gt;</span>
+      <span class="pun">&lt;</span><span class="typ">th</span><span class="pun">&gt;</span>Invoice #<span class="pun">&lt;/</span><span class="typ">th</span><span class="pun">&gt;</span>
+      <span class="pun">&lt;</span><span class="typ">th</span><span class="pun">&gt;</span>Date<span class="pun">&lt;/</span><span class="typ">th</span><span class="pun">&gt;</span>
+      <span class="pun">&lt;</span><span class="typ">th</span><span class="pun">&gt;</span>Amount<span class="pun">&lt;/</span><span class="typ">th</span><span class="pun">&gt;</span>
+    <span class="pun">&lt;/</span><span class="typ">tr</span><span class="pun">&gt;</span>
+  <span class="pun">&lt;/</span><span class="typ">thead</span><span class="pun">&gt;</span>
+  <span class="pun">&lt;</span><span class="typ">tbody</span><span class="pun">&gt;</span>
+    <span class="cmt">&lt;!-- rows repeat across pages, thead repeats too --&gt;</span>
+  <span class="pun">&lt;/</span><span class="typ">tbody</span><span class="pun">&gt;</span>
+<span class="pun">&lt;/</span><span class="typ">table</span><span class="pun">&gt;</span></code></pre></div>
+
+      <h2 id="page-margin-boxes">@page margin boxes (planned)</h2>
+      <p>
+        When margin box support ships, headers and footers will use standard CSS <code>@page</code>
+        margin box syntax — the same as Chrome's print stylesheet support:
+      </p>
+      <div class="code-block"><pre><code><span class="kw">@page</span> <span class="pun">{</span>
+    <span class="kw">margin</span><span class="pun">:</span> <span class="str">2cm 2cm 3cm 2cm</span><span class="pun">;</span> <span class="cmt">/* extra bottom space for footer */</span>
+
+    <span class="kw">@top-center</span> <span class="pun">{</span>
+        <span class="kw">content</span><span class="pun">:</span> <span class="str">"My Document"</span><span class="pun">;</span>
+        <span class="kw">font-size</span><span class="pun">:</span> <span class="str">9pt</span><span class="pun">;</span>
+        <span class="kw">color</span><span class="pun">:</span> <span class="str">#666</span><span class="pun">;</span>
+    <span class="pun">}</span>
+    <span class="kw">@bottom-center</span> <span class="pun">{</span>
+        <span class="kw">content</span><span class="pun">:</span> <span class="str">"Page " counter(page) " of " counter(pages)</span><span class="pun">;</span>
+        <span class="kw">font-size</span><span class="pun">:</span> <span class="str">8pt</span><span class="pun">;</span>
+    <span class="pun">}</span>
+<span class="pun">}</span>
+<span class="kw">@page</span> <span class="pun">:</span><span class="typ">first</span> <span class="pun">{</span>
+    <span class="kw">@top-center</span> <span class="pun">{</span> <span class="kw">content</span><span class="pun">:</span> <span class="str">none</span><span class="pun">;</span> <span class="pun">}</span> <span class="cmt">/* no header on first page */</span>
+<span class="pun">}</span></code></pre></div>
+      <p>
+        This is not yet implemented. Track progress on
+        <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a>.
+      </p>
+
+    </main>
+  </div>
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-logo" aria-hidden="true">
+      <svg width="28" height="20" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+    </div>
+    <p>An open-source project by <a href="https://eggspot.app" target="_blank" rel="noopener">Eggspot</a> &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

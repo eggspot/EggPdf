@@ -21,11 +21,11 @@ RUN apk add --no-cache \
     ttf-dejavu \
     && fc-cache -f
 
-# Create non-root user
-RUN adduser -D -h /app eggpdf
+# Create non-root user (UID 1000 for HuggingFace Spaces compatibility)
+RUN adduser -D -u 1000 -h /app eggpdf
 USER eggpdf
 
-COPY --from=build /app .
+COPY --chown=eggpdf:eggpdf --from=build /app .
 
 ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production

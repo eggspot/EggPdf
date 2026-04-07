@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tables — EggPdf | Eggspot</title>
+  <meta name="description" content="Render HTML tables in PDF with EggPdf — multi-page tables, repeating headers, and CSS styling.">
+  <link rel="canonical" href="https://eggspot.github.io/EggPdf/tables.html">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="apple-touch-icon" href="assets/favicon.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://eggspot.github.io/EggPdf/tables.html">
+  <meta property="og:title" content="Tables — EggPdf">
+  <meta property="og:description" content="Render HTML tables in PDF with EggPdf — multi-page tables, repeating headers, and CSS styling.">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- Nav -->
+<header class="nav">
+  <div class="container">
+    <a class="nav-logo" href="index.html">
+      <svg width="22" height="16" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+      <span class="logo-text">Egg<span class="logo-accent">Pdf</span></span>
+    </a>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="getting-started.html">Docs</a>
+      <a href="docker.html">Docker</a>
+      <a href="cli.html">CLI</a>
+      <a href="rest-api.html">REST API</a>
+      <a href="architecture.html">Internals</a>
+      <a href="https://github.com/eggspot/EggPdf" class="nav-github" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<!-- Page header -->
+<div class="page-header">
+  <div class="container">
+    <h1>Tables</h1>
+    <p>HTML tables render natively with repeating headers, zebra stripes, and automatic pagination.</p>
+  </div>
+</div>
+
+<!-- Docs layout -->
+<div class="container">
+  <div class="docs-layout">
+
+    <!-- Sidebar -->
+    <aside class="docs-sidebar">
+      <nav aria-label="Documentation navigation">
+        <div class="sidebar-section">Guides</div>
+        <a href="getting-started.html">Getting Started</a>
+        <a href="configuration.html">Configuration</a>
+        <a href="page-layout.html">Page Layout</a>
+        <a href="tables.html" class="active">Tables</a>
+        <a href="fonts.html">Fonts</a>
+        <a href="headers-footers.html">Headers &amp; Footers</a>
+        <a href="performance.html">Performance</a>
+        <div class="sidebar-section">Deploy</div>
+        <a href="docker.html">Docker</a>
+        <a href="cli.html">CLI</a>
+        <a href="rest-api.html">REST API</a>
+        <div class="sidebar-section">Internals</div>
+        <a href="architecture.html">Architecture</a>
+      </nav>
+    </aside>
+
+    <!-- Content -->
+    <main class="docs-content">
+
+      <h2 id="basic-table">Basic table</h2>
+      <p>
+        Standard HTML table markup is fully supported, including <code>&lt;thead&gt;</code>,
+        <code>&lt;tbody&gt;</code>, and <code>&lt;tfoot&gt;</code>:
+      </p>
+      <div class="code-block"><pre><code><span class="pun">&lt;</span><span class="typ">table</span><span class="pun">&gt;</span>
+  <span class="pun">&lt;</span><span class="typ">thead</span><span class="pun">&gt;</span>
+    <span class="pun">&lt;</span><span class="typ">tr</span><span class="pun">&gt;&lt;</span><span class="typ">th</span><span class="pun">&gt;</span>Item<span class="pun">&lt;/</span><span class="typ">th</span><span class="pun">&gt;&lt;</span><span class="typ">th</span><span class="pun">&gt;</span>Qty<span class="pun">&lt;/</span><span class="typ">th</span><span class="pun">&gt;&lt;</span><span class="typ">th</span><span class="pun">&gt;</span>Price<span class="pun">&lt;/</span><span class="typ">th</span><span class="pun">&gt;&lt;/</span><span class="typ">tr</span><span class="pun">&gt;</span>
+  <span class="pun">&lt;/</span><span class="typ">thead</span><span class="pun">&gt;</span>
+  <span class="pun">&lt;</span><span class="typ">tbody</span><span class="pun">&gt;</span>
+    <span class="pun">&lt;</span><span class="typ">tr</span><span class="pun">&gt;&lt;</span><span class="typ">td</span><span class="pun">&gt;</span>Widget A<span class="pun">&lt;/</span><span class="typ">td</span><span class="pun">&gt;&lt;</span><span class="typ">td</span><span class="pun">&gt;</span>3<span class="pun">&lt;/</span><span class="typ">td</span><span class="pun">&gt;&lt;</span><span class="typ">td</span><span class="pun">&gt;</span>$9.99<span class="pun">&lt;/</span><span class="typ">td</span><span class="pun">&gt;&lt;/</span><span class="typ">tr</span><span class="pun">&gt;</span>
+    <span class="pun">&lt;</span><span class="typ">tr</span><span class="pun">&gt;&lt;</span><span class="typ">td</span><span class="pun">&gt;</span>Widget B<span class="pun">&lt;/</span><span class="typ">td</span><span class="pun">&gt;&lt;</span><span class="typ">td</span><span class="pun">&gt;</span>1<span class="pun">&lt;/</span><span class="typ">td</span><span class="pun">&gt;&lt;</span><span class="typ">td</span><span class="pun">&gt;</span>$24.99<span class="pun">&lt;/</span><span class="typ">td</span><span class="pun">&gt;&lt;/</span><span class="typ">tr</span><span class="pun">&gt;</span>
+  <span class="pun">&lt;/</span><span class="typ">tbody</span><span class="pun">&gt;</span>
+  <span class="pun">&lt;</span><span class="typ">tfoot</span><span class="pun">&gt;</span>
+    <span class="pun">&lt;</span><span class="typ">tr</span><span class="pun">&gt;&lt;</span><span class="typ">td</span> <span class="var">colspan</span><span class="pun">=</span><span class="str">"2"</span><span class="pun">&gt;</span>Total<span class="pun">&lt;/</span><span class="typ">td</span><span class="pun">&gt;&lt;</span><span class="typ">td</span><span class="pun">&gt;</span>$34.96<span class="pun">&lt;/</span><span class="typ">td</span><span class="pun">&gt;&lt;/</span><span class="typ">tr</span><span class="pun">&gt;</span>
+  <span class="pun">&lt;/</span><span class="typ">tfoot</span><span class="pun">&gt;</span>
+<span class="pun">&lt;/</span><span class="typ">table</span><span class="pun">&gt;</span></code></pre></div>
+
+      <h2 id="multi-page">Multi-page tables</h2>
+      <p>
+        When a table is taller than a single page, EggPdf paginates it automatically.
+        The <code>&lt;thead&gt;</code> row group repeats at the top of each new page so readers
+        always see the column headings. The <code>&lt;tfoot&gt;</code> row group repeats at the
+        bottom of each page.
+      </p>
+      <div class="callout callout-info">
+        <span class="callout-icon">ℹ️</span>
+        <div>
+          To prevent individual rows from being split across a page boundary, add
+          <code>tr { break-inside: avoid; }</code> to your stylesheet.
+        </div>
+      </div>
+
+      <h2 id="css-styling">CSS styling</h2>
+      <p>
+        All standard table CSS properties are supported. Here is a complete example that produces
+        a clean, professional-looking table with a dark header and alternating row shading:
+      </p>
+      <div class="code-block"><pre><code><span class="var">table</span> <span class="pun">{</span>
+    <span class="var">width</span><span class="pun">:</span> <span class="str">100%</span><span class="pun">;</span>
+    <span class="var">border-collapse</span><span class="pun">:</span> <span class="var">collapse</span><span class="pun">;</span>
+    <span class="var">font-size</span><span class="pun">:</span> <span class="str">14px</span><span class="pun">;</span>
+<span class="pun">}</span>
+<span class="var">th</span> <span class="pun">{</span>
+    <span class="var">background</span><span class="pun">:</span> <span class="str">#1e293b</span><span class="pun">;</span>
+    <span class="var">color</span><span class="pun">:</span> <span class="str">#fff</span><span class="pun">;</span>
+    <span class="var">text-align</span><span class="pun">:</span> <span class="var">left</span><span class="pun">;</span>
+    <span class="var">padding</span><span class="pun">:</span> <span class="str">10px 14px</span><span class="pun">;</span>
+    <span class="var">font-weight</span><span class="pun">:</span> <span class="str">600</span><span class="pun">;</span>
+<span class="pun">}</span>
+<span class="var">td</span> <span class="pun">{</span>
+    <span class="var">padding</span><span class="pun">:</span> <span class="str">9px 14px</span><span class="pun">;</span>
+    <span class="var">border-bottom</span><span class="pun">:</span> <span class="str">1px solid #e2e8f0</span><span class="pun">;</span>
+<span class="pun">}</span>
+<span class="cmt">/* Zebra rows */</span>
+<span class="var">tr</span><span class="pun">:</span><span class="fn">nth-child</span><span class="pun">(</span><span class="var">even</span><span class="pun">)</span> <span class="var">td</span> <span class="pun">{</span> <span class="var">background</span><span class="pun">:</span> <span class="str">#f8fafc</span><span class="pun">; }</span>
+<span class="cmt">/* Keep each row on one page */</span>
+<span class="var">tr</span> <span class="pun">{</span> <span class="var">break-inside</span><span class="pun">:</span> <span class="var">avoid</span><span class="pun">; }</span></code></pre></div>
+
+      <h2 id="column-widths">Column widths</h2>
+      <p>
+        By default the browser's automatic table layout algorithm distributes column widths based
+        on content. Use <code>table-layout: fixed</code> for fully predictable widths driven by
+        <code>&lt;col&gt;</code> elements or explicit <code>width</code> values on cells:
+      </p>
+      <div class="code-block"><pre><code><span class="var">table</span> <span class="pun">{</span> <span class="var">table-layout</span><span class="pun">:</span> <span class="var">fixed</span><span class="pun">;</span> <span class="var">width</span><span class="pun">:</span> <span class="str">100%</span><span class="pun">; }</span>
+<span class="var">col</span><span class="pun">.</span><span class="var">narrow</span> <span class="pun">{</span> <span class="var">width</span><span class="pun">:</span> <span class="str">80px</span><span class="pun">; }</span>
+<span class="var">col</span><span class="pun">.</span><span class="var">wide</span>   <span class="pun">{</span> <span class="var">width</span><span class="pun">:</span> <span class="str">200px</span><span class="pun">; }</span></code></pre></div>
+      <p>Paired HTML:</p>
+      <div class="code-block"><pre><code><span class="pun">&lt;</span><span class="typ">table</span><span class="pun">&gt;</span>
+  <span class="pun">&lt;</span><span class="typ">colgroup</span><span class="pun">&gt;</span>
+    <span class="pun">&lt;</span><span class="typ">col</span> <span class="var">class</span><span class="pun">=</span><span class="str">"narrow"</span><span class="pun">&gt;</span>
+    <span class="pun">&lt;</span><span class="typ">col</span> <span class="var">class</span><span class="pun">=</span><span class="str">"wide"</span><span class="pun">&gt;</span>
+  <span class="pun">&lt;/</span><span class="typ">colgroup</span><span class="pun">&gt;</span>
+  <span class="cmt">&lt;!-- thead / tbody … --&gt;</span>
+<span class="pun">&lt;/</span><span class="typ">table</span><span class="pun">&gt;</span></code></pre></div>
+
+      <h2 id="colspan-rowspan">colspan and rowspan</h2>
+      <p>
+        Both <code>colspan</code> and <code>rowspan</code> attributes are fully supported.
+        Cells spanning multiple columns or rows render exactly as they do in a browser, including
+        in combination with <code>border-collapse: collapse</code> and
+        <code>table-layout: fixed</code>.
+      </p>
+      <div class="code-block"><pre><code><span class="pun">&lt;</span><span class="typ">tr</span><span class="pun">&gt;</span>
+  <span class="pun">&lt;</span><span class="typ">td</span> <span class="var">colspan</span><span class="pun">=</span><span class="str">"2"</span><span class="pun">&gt;</span>Spans two columns<span class="pun">&lt;/</span><span class="typ">td</span><span class="pun">&gt;</span>
+  <span class="pun">&lt;</span><span class="typ">td</span> <span class="var">rowspan</span><span class="pun">=</span><span class="str">"3"</span><span class="pun">&gt;</span>Spans three rows<span class="pun">&lt;/</span><span class="typ">td</span><span class="pun">&gt;</span>
+<span class="pun">&lt;/</span><span class="typ">tr</span><span class="pun">&gt;</span></code></pre></div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-logo" aria-hidden="true">
+      <svg width="28" height="20" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+    </div>
+    <p>An open-source project by <a href="https://eggspot.app" target="_blank" rel="noopener">Eggspot</a> &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

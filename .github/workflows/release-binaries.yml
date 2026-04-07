@@ -26,7 +26,7 @@ jobs:
             os: ubuntu-latest
             artifact: eggpdf-cli-linux-x64
           - rid: linux-arm64
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
             artifact: eggpdf-cli-linux-arm64
           - rid: osx-x64
             os: macos-latest
@@ -43,15 +43,22 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Publish single-file
+      - name: Install native AOT toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang zlib1g-dev
+          if [[ "${{ matrix.rid }}" == "linux-arm64" ]]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+          fi
+
+      - name: Publish NativeAOT
         shell: bash
         run: |
           dotnet publish src/EggPdf.Cli/EggPdf.Cli.csproj \
             -c Release \
             -r ${{ matrix.rid }} \
-            --self-contained true \
-            -p:PublishSingleFile=true \
-            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:PublishAot=true \
             -o ./publish
 
       - name: Rename binary

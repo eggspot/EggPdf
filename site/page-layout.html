@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Page Layout — EggPdf | Eggspot</title>
+  <meta name="description" content="Control page size, orientation, and page breaks in EggPdf using CSS @page rules and break properties.">
+  <link rel="canonical" href="https://eggspot.github.io/EggPdf/page-layout.html">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="apple-touch-icon" href="assets/favicon.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://eggspot.github.io/EggPdf/page-layout.html">
+  <meta property="og:title" content="Page Layout — EggPdf">
+  <meta property="og:description" content="Control page size, orientation, and page breaks in EggPdf using CSS @page rules and break properties.">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- Nav -->
+<header class="nav">
+  <div class="container">
+    <a class="nav-logo" href="index.html">
+      <svg width="22" height="16" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+      <span class="logo-text">Egg<span class="logo-accent">Pdf</span></span>
+    </a>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="getting-started.html">Docs</a>
+      <a href="docker.html">Docker</a>
+      <a href="cli.html">CLI</a>
+      <a href="rest-api.html">REST API</a>
+      <a href="architecture.html">Internals</a>
+      <a href="https://github.com/eggspot/EggPdf" class="nav-github" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<!-- Page header -->
+<div class="page-header">
+  <div class="container">
+    <h1>Page Layout</h1>
+    <p>Set page dimensions, orientation, and control where content breaks across pages.</p>
+  </div>
+</div>
+
+<!-- Docs layout -->
+<div class="container">
+  <div class="docs-layout">
+
+    <!-- Sidebar -->
+    <aside class="docs-sidebar">
+      <nav aria-label="Documentation navigation">
+        <div class="sidebar-section">Guides</div>
+        <a href="getting-started.html">Getting Started</a>
+        <a href="configuration.html">Configuration</a>
+        <a href="page-layout.html" class="active">Page Layout</a>
+        <a href="tables.html">Tables</a>
+        <a href="fonts.html">Fonts</a>
+        <a href="headers-footers.html">Headers &amp; Footers</a>
+        <a href="performance.html">Performance</a>
+        <div class="sidebar-section">Deploy</div>
+        <a href="docker.html">Docker</a>
+        <a href="cli.html">CLI</a>
+        <a href="rest-api.html">REST API</a>
+        <div class="sidebar-section">Internals</div>
+        <a href="architecture.html">Architecture</a>
+      </nav>
+    </aside>
+
+    <!-- Content -->
+    <main class="docs-content">
+
+      <h2 id="defaults">Default page</h2>
+      <p>
+        Without any <code>@page</code> rule, EggPdf renders on <strong>A4 portrait</strong> with
+        no margins. Content starts at the top-left corner of the page. Use <code>@page</code> to
+        set the size and add whitespace:
+      </p>
+      <div class="code-block"><pre><code><span class="kw">@page</span> <span class="pun">{</span>
+    <span class="var">size</span><span class="pun">:</span> <span class="str">A4 portrait</span><span class="pun">;</span>
+    <span class="var">margin</span><span class="pun">:</span> <span class="str">2cm</span><span class="pun">;</span>
+<span class="pun">}</span></code></pre></div>
+      <p>
+        See the <a href="configuration.html">Configuration</a> page for the full list of named
+        sizes, orientation keywords, and custom dimensions.
+      </p>
+
+      <h2 id="mixed-orientations">Mixed orientations</h2>
+      <p>
+        Named pages let individual elements use a different page size or orientation. Define a
+        named <code>@page</code> rule and assign it via the CSS <code>page</code> property:
+      </p>
+      <div class="code-block"><pre><code><span class="cmt">/* Default: portrait */</span>
+<span class="kw">@page</span> <span class="pun">{</span> <span class="var">size</span><span class="pun">:</span> <span class="str">A4 portrait</span><span class="pun">;</span>  <span class="var">margin</span><span class="pun">:</span> <span class="str">2cm</span><span class="pun">; }</span>
+
+<span class="cmt">/* Named page: landscape */</span>
+<span class="kw">@page</span> <span class="var">wide</span> <span class="pun">{</span> <span class="var">size</span><span class="pun">:</span> <span class="str">A4 landscape</span><span class="pun">;</span> <span class="var">margin</span><span class="pun">:</span> <span class="str">1.5cm</span><span class="pun">; }</span>
+
+<span class="cmt">/* Assign to elements */</span>
+<span class="pun">.</span><span class="var">chart</span> <span class="pun">{</span> <span class="var">page</span><span class="pun">:</span> <span class="var">wide</span><span class="pun">; }</span></code></pre></div>
+      <p>
+        Elements with <code>page: wide</code> will render on their own landscape pages; all
+        other content uses the default portrait layout.
+      </p>
+
+      <h2 id="page-breaks">Page breaks</h2>
+      <p>
+        Use CSS break properties to control where EggPdf starts new pages. Both the modern
+        <code>break-*</code> properties and the legacy <code>page-break-*</code> aliases are
+        supported:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Property &amp; value</th><th>Effect</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>break-before: page</code></td><td>Force a page break before the element</td></tr>
+            <tr><td><code>break-after: page</code></td><td>Force a page break after the element</td></tr>
+            <tr><td><code>break-inside: avoid</code></td><td>Keep the element on a single page</td></tr>
+            <tr><td><code>page-break-before: always</code></td><td>Legacy alias for <code>break-before: page</code></td></tr>
+            <tr><td><code>page-break-after: always</code></td><td>Legacy alias for <code>break-after: page</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="code-block"><pre><code><span class="cmt">/* Start each chapter on a new page */</span>
+<span class="pun">.</span><span class="var">chapter</span> <span class="pun">{</span> <span class="var">break-before</span><span class="pun">:</span> <span class="var">page</span><span class="pun">; }</span>
+
+<span class="cmt">/* Keep a figure together with its caption */</span>
+<span class="pun">.</span><span class="var">figure</span> <span class="pun">{</span> <span class="var">break-inside</span><span class="pun">:</span> <span class="var">avoid</span><span class="pun">; }</span>
+
+<span class="cmt">/* Don't split table rows */</span>
+<span class="var">tr</span> <span class="pun">{</span> <span class="var">break-inside</span><span class="pun">:</span> <span class="var">avoid</span><span class="pun">; }</span></code></pre></div>
+
+      <h2 id="flexbox-grid">Flexbox and Grid</h2>
+      <p>
+        Both <code>display: flex</code> and <code>display: grid</code> work exactly as in a
+        browser. EggPdf uses the same CSS box model, so multi-column layouts flow naturally
+        within the page's content area.
+      </p>
+      <div class="code-block"><pre><code><span class="cmt">/* Two equal columns with a gap */</span>
+<span class="pun">.</span><span class="var">two-col</span> <span class="pun">{</span>
+    <span class="var">display</span><span class="pun">:</span> <span class="var">flex</span><span class="pun">;</span>
+    <span class="var">gap</span><span class="pun">:</span> <span class="str">24px</span><span class="pun">;</span>
+<span class="pun">}</span>
+
+<span class="cmt">/* Three equal columns */</span>
+<span class="pun">.</span><span class="var">three-col</span> <span class="pun">{</span>
+    <span class="var">display</span><span class="pun">:</span> <span class="var">grid</span><span class="pun">;</span>
+    <span class="var">grid-template-columns</span><span class="pun">:</span> <span class="fn">repeat</span><span class="pun">(</span><span class="str">3</span><span class="pun">,</span> <span class="str">1fr</span><span class="pun">);</span>
+    <span class="var">gap</span><span class="pun">:</span> <span class="str">16px</span><span class="pun">;</span>
+<span class="pun">}</span></code></pre></div>
+      <p>
+        Flex and grid items flow within the page's content area. If the combined height exceeds
+        the available space, the layout continues on the next page. Apply
+        <code>break-inside: avoid</code> to individual items to prevent them from being split
+        across pages.
+      </p>
+
+    </main>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-logo" aria-hidden="true">
+      <svg width="28" height="20" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+    </div>
+    <p>An open-source project by <a href="https://eggspot.app" target="_blank" rel="noopener">Eggspot</a> &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

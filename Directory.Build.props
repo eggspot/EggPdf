@@ -1,9 +1,37 @@
-<Project>
+<!-- TreatAsLocalProperty lets per-TFM conditions override global -p: properties.
+     Required so netstandard2.x TFMs can opt out of PublishTrimmed (NETSDK1124). -->
+<Project TreatAsLocalProperty="PublishTrimmed;PublishAot">
   <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <!-- Only EggPdf.csproj opts in with <IsPackable>true</IsPackable> -->
+    <!-- Library projects opt in with <IsPackable>true</IsPackable> -->
     <IsPackable>false</IsPackable>
+
+    <!-- Shared NuGet metadata (applies when IsPackable=true) -->
+    <Authors>Eggspot</Authors>
+    <Company>Eggspot</Company>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/eggspot/EggPdf</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/eggspot/EggPdf</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>pdf;html-to-pdf;html;css;rendering-engine;zero-dependency;csharp;dotnet</PackageTags>
+    <DebugType>embedded</DebugType>
+    <EmbedAllSources>true</EmbedAllSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!-- Suppress trimming/AOT for TFMs that don't support them.
+       PublishTrimmed requires .NET Core 3.0+ (NETSDK1124).
+       PublishAot requires .NET 7+ (NETSDK1207).
+       These global -p: properties are forced off for older TFMs via TreatAsLocalProperty. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'netstandard2.0' OR '$(TargetFramework)' == 'netstandard2.1'">
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishAot>false</PublishAot>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net6.0'">
+    <PublishAot>false</PublishAot>
   </PropertyGroup>
 </Project>

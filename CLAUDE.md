@@ -23,20 +23,28 @@ See `design/architecture/` for detailed component specs (8 docs, ~3,000 lines).
 5. **Infallible parsers** -- HTML/CSS parsers never throw. Produce error nodes / silently ignore.
 6. **Graceful degradation** -- unknown CSS ignored, missing resources produce warnings not crashes.
 
-## Development Workflow (STRICT)
+## Development Workflow (STRICT — TDD)
 
-Every code change follows this loop:
+Every code change follows this TDD loop. **Do not skip steps.**
 
 ```
-1. Write test (must FAIL)
-2. Write code (minimal implementation)
-3. Run test (must PASS)
-4. Run ALL tests (no regressions)
-5. Benchmark if hot path (no regressions)
+1. Write test  →  must FAIL (proves the test is testing something real)
+2. Write minimal code to make it pass
+3. Run the test
+   - FAIL → fix code, go back to step 3
+   - PASS → continue
+4. Run ALL tests
+   - FAIL (regression) → fix code, go back to step 4
+   - PASS → continue
+5. Benchmark if hot path (no regressions allowed)
 6. Commit with conventional prefix
 ```
 
-**Never commit with failing tests. Never skip tests. Never skip benchmarks for hot-path changes.**
+**Rules:**
+- Never write code before writing the test.
+- Never commit with failing tests.
+- Never skip benchmarks for hot-path changes.
+- Keep iterating fix → run → fix until all tests pass — do not give up early.
 
 ## Conventional Commits
 
