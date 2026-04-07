@@ -5,14 +5,10 @@ COPY . .
 RUN dotnet restore
 RUN dotnet publish src/EggPdf.Service/EggPdf.Service.csproj \
     -c Release \
-    -r linux-x64 \
-    --self-contained true \
-    -p:PublishTrimmed=true \
-    -p:PublishSingleFile=true \
     -o /app \
     --no-restore
 
-FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-alpine AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
 WORKDIR /app
 
 # Install common fonts
@@ -25,11 +21,11 @@ RUN apk add --no-cache \
     ttf-dejavu \
     && fc-cache -f
 
-# Create non-root user
-RUN adduser -D -h /app eggpdf
+# Create non-root user (UID 1000 for HuggingFace Spaces compatibility)
+RUN adduser -D -u 1000 -h /app eggpdf
 USER eggpdf
 
-COPY --from=build /app .
+COPY --chown=eggpdf:eggpdf --from=build /app .
 
 ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
@@ -38,4 +34,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD wget -q --spider http://localhost:8080/health || exit 1
 
-ENTRYPOINT ["./EggPdf.Service"]
+ENTRYPOINT ["dotnet", "EggPdf.Service.dll"]
