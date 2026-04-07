@@ -283,6 +283,7 @@ public static class BlockLayout
         float inlineX = 0; // current X offset within the inline line
         float inlineLineHeight = 0; // max height of current inline line
         bool lastWasTextNode = false; // track if previous child was a text node (for <br> handling)
+        bool hasBlockChild = false;   // for O(1) margin-collapse first-child check
 
         // Collect absolutely/fixed positioned children for deferred layout
         var absChildren = new System.Collections.Generic.List<(HtmlElement elem, ComputedStyle style, string pos)>();
@@ -387,15 +388,9 @@ public static class BlockLayout
                         var childBox = CreateBox(childElem, childStyle, box, childContainingWidth, resolver, style);
 
                         // Margin collapsing between adjacent block siblings
-                        float effectiveTopMargin;
-                        if (box.Children.OfType<LayoutBox>().Any(c => c.Element != null))
-                        {
-                            effectiveTopMargin = Math.Max(prevMarginBottom, childBox.MarginTop);
-                        }
-                        else
-                        {
-                            effectiveTopMargin = childBox.MarginTop;
-                        }
+                        float effectiveTopMargin = hasBlockChild
+                            ? Math.Max(prevMarginBottom, childBox.MarginTop)
+                            : childBox.MarginTop;
 
                         childBox.Y = box.Y + box.PaddingTop + childY + effectiveTopMargin;
                         childBox.X = box.X + box.PaddingLeft + childBox.MarginLeft;
@@ -404,6 +399,7 @@ public static class BlockLayout
                         childY += effectiveTopMargin + childBox.Height;
                         prevMarginBottom = childBox.MarginBottom;
                         lastWasTextNode = false;
+                        hasBlockChild = true;
                     }
                 }
                 else if (childElem.TagName == "br")
@@ -698,7 +694,9 @@ public static class BlockLayout
                 var (colCount, colWidth, colGap) = MultiColumnLayout.ResolveColumns(style, box.ContentWidth, fontSize);
                 if (colCount > 1)
                 {
-                    var childList = new System.Collections.Generic.List<LayoutBox>(box.Children.OfType<LayoutBox>());
+                    var childList = new List<LayoutBox>(box.Children.Count);
+                    foreach (var c in box.Children)
+                        if (c is LayoutBox lb) childList.Add(lb);
                     var columns = MultiColumnLayout.DistributeIntoColumns(childList, colCount, colWidth, colGap,
                         box.X + box.PaddingLeft, box.Y + box.PaddingTop);
 
