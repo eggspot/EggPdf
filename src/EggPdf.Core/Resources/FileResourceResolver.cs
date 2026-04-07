@@ -36,8 +36,12 @@ public class FileResourceResolver : IResourceResolver
         else
             fullPath = Path.GetFullPath(Path.Combine(_baseDirectory, url));
 
-        // Security: ensure resolved path is within base directory
-        if (!fullPath.StartsWith(_baseDirectory, StringComparison.OrdinalIgnoreCase))
+        // Security: ensure resolved path is within base directory.
+        // Append separator to prevent "C:\docs" matching "C:\docs-evil\file".
+        string baseWithSep = _baseDirectory.EndsWith(Path.DirectorySeparatorChar.ToString())
+            ? _baseDirectory
+            : _baseDirectory + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(baseWithSep, StringComparison.OrdinalIgnoreCase))
             return null;
 
         if (!File.Exists(fullPath))

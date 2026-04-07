@@ -499,8 +499,19 @@ public static class HtmlToPdf
                 fontCodepoints[fontName] = codepoints;
             }
 
-            foreach (char c in box.Text)
-                codepoints.Add(c);
+            for (int i = 0; i < box.Text.Length; i++)
+            {
+                char c = box.Text[i];
+                if (char.IsHighSurrogate(c) && i + 1 < box.Text.Length && char.IsLowSurrogate(box.Text[i + 1]))
+                {
+                    codepoints.Add(char.ConvertToUtf32(c, box.Text[i + 1]));
+                    i++;
+                }
+                else
+                {
+                    codepoints.Add(c);
+                }
+            }
         }
 
         foreach (var child in box.Children)

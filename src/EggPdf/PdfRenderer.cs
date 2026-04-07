@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using EggPdf.Css;
 using EggPdf.Core;
 using EggPdf.Html.Dom;
@@ -15,6 +14,11 @@ namespace EggPdf;
 /// </summary>
 internal static class PdfRenderer
 {
+    // Static arrays to avoid per-call heap allocations in hot paths
+    private static readonly string[] BorderSides = { "top", "right", "bottom", "left" };
+    private static readonly char[] SpaceSep = { ' ' };
+    private static readonly char[] CommaSpaceSep = { ',', ' ' };
+
     /// <summary>Page margin offsets in CSS pixels, applied when painting boxes.</summary>
     [ThreadStatic]
     private static float _marginLeftPx;
@@ -79,7 +83,12 @@ internal static class PdfRenderer
         pageBreakYs.Sort();
 
         // Determine total content height
-        float maxY = allBoxes.Max(b => b.Y + b.Height);
+        float maxY = 0;
+        for (int i = 0; i < allBoxes.Count; i++)
+        {
+            float bottom = allBoxes[i].Y + allBoxes[i].Height;
+            if (bottom > maxY) maxY = bottom;
+        }
 
         // Build page boundaries (combining natural page breaks with forced ones)
         var pageBounds = new List<(float top, float bottom)>();
@@ -227,7 +236,7 @@ internal static class PdfRenderer
     {
         // A box is paintable if it has text, background, image, border, or is a link
         bool hasBorder = false;
-        foreach (var side in new[] { "top", "right", "bottom", "left" })
+        foreach (var side in BorderSides)
         {
             var sideStyle = box.Style.Get($"border-{side}-style") ?? box.Style.Get("border-style");
             if (!string.IsNullOrEmpty(sideStyle) && sideStyle != "none" && sideStyle != "hidden")
@@ -774,7 +783,7 @@ internal static class PdfRenderer
             else
             {
                 // Try px values
-                var parts = bgSize.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                var parts = bgSize.Split(SpaceSep, StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 1)
                 {
                     float? w = ResolveOptionalLength(parts[0], box.Width);
@@ -793,7 +802,7 @@ internal static class PdfRenderer
         var bgPos = box.Style.Get("background-position");
         if (!string.IsNullOrEmpty(bgPos))
         {
-            var parts = bgPos.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var parts = bgPos.Split(SpaceSep, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length >= 1)
             {
                 if (parts[0] == "center") bgX = (box.Width - imgW) / 2;
@@ -887,7 +896,7 @@ internal static class PdfRenderer
         var fallbackColor = box.Style.Get("border-color");
 
         // Per-side values
-        string[] sides = { "top", "right", "bottom", "left" };
+        var sides = BorderSides;
         string[] sideStyles = new string[4];
         float[] sideWidths = new float[4];
         float[] sideR = new float[4], sideG = new float[4], sideB = new float[4];
@@ -1067,7 +1076,7 @@ internal static class PdfRenderer
     private static float[] ParseTransformArgs(string argsStr)
     {
         var result = new List<float>();
-        var parts = argsStr.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        var parts = argsStr.Split(CommaSpaceSep, StringSplitOptions.RemoveEmptyEntries);
         for (int i = 0; i < parts.Length; i++)
         {
             string part = parts[i].Trim();
@@ -1200,7 +1209,7 @@ internal static class PdfRenderer
         }
         else
         {
-            var parts = originStr.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var parts = originStr.Split(SpaceSep, StringSplitOptions.RemoveEmptyEntries);
             float oxLocal = ResolveOriginComponent(parts.Length > 0 ? parts[0] : "50%", box.Width);
             float oyLocal = ResolveOriginComponent(parts.Length > 1 ? parts[1] : "50%", box.Height);
             oxPx = effectiveX + oxLocal;
@@ -1308,7 +1317,7 @@ internal static class PdfRenderer
         x = y = 0; r = g = b = 0; a = 0.5f;
         if (string.IsNullOrEmpty(shadow) || shadow == "none") return;
 
-        var parts = shadow.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        var parts = shadow.Trim().Split(SpaceSep, StringSplitOptions.RemoveEmptyEntries);
         int numIdx = 0;
         string? colorStr = null;
 
@@ -1364,7 +1373,7 @@ internal static class PdfRenderer
         }
 
         // Parse: offsetX offsetY [blur] [spread] [color]
-        var parts = shadow.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        var parts = shadow.Trim().Split(SpaceSep, StringSplitOptions.RemoveEmptyEntries);
         float sx = 0, sy = 0, blur = 0, spread = 0;
         string? colorStr = null;
         int numIdx = 0;

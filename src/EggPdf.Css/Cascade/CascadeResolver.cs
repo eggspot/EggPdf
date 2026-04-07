@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using EggPdf.Css.Parser;
 using EggPdf.Css.Selectors;
 using EggPdf.Html.Dom;
@@ -62,17 +61,20 @@ public class CascadeResolver
         }
 
         // 3. Sort: !important first, then by specificity, then by source order
-        var sorted = matches
-            .OrderBy(m => m.decl.Important ? 0 : 1)  // !important first
-            .ThenBy(m => m.specificity)
-            .ThenBy(m => m.order)
-            .ToList();
+        matches.Sort((a, b) =>
+        {
+            int imp = (a.decl.Important ? 0 : 1).CompareTo(b.decl.Important ? 0 : 1);
+            if (imp != 0) return imp;
+            int spec = a.specificity.CompareTo(b.specificity);
+            if (spec != 0) return spec;
+            return a.order.CompareTo(b.order);
+        });
 
         // 4. Apply in order (later wins for same property at same importance level)
         // Group by property, last one wins (unless !important overrides)
         var propertyWinners = new Dictionary<string, (string value, bool important, int specificity, int order)>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var (decl, spec, order) in sorted)
+        foreach (var (decl, spec, order) in matches)
         {
             if (propertyWinners.TryGetValue(decl.Property, out var existing))
             {
@@ -192,7 +194,12 @@ public class CascadeResolver
         }
 
         // Apply matched declarations (sorted by specificity then order)
-        foreach (var (decl, _, _) in matches.OrderBy(m => m.specificity).ThenBy(m => m.order))
+        matches.Sort((a, b) =>
+        {
+            int spec = a.specificity.CompareTo(b.specificity);
+            return spec != 0 ? spec : a.order.CompareTo(b.order);
+        });
+        foreach (var (decl, _, _) in matches)
         {
             if (!CssShorthandExpander.TryExpand(decl.Property, decl.Value, style))
                 style.Set(decl.Property, decl.Value);

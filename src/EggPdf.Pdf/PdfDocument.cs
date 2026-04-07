@@ -49,22 +49,30 @@ public class PdfDocument
         if (!_embeddedFonts.TryGetValue(fontName, out var fontData))
             return null;
 
+        // Allocate worst-case size; writeCount tracks actual codepoint count
         var glyphIds = new ushort[text.Length];
+        int writeCount = 0;
         for (int i = 0; i < text.Length; i++)
         {
             int codepoint = text[i];
-            // Handle surrogate pairs
+            // Handle surrogate pairs (emoji, etc.): combine into a single codepoint
             if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
             {
                 codepoint = char.ConvertToUtf32(text[i], text[i + 1]);
-                i++; // skip low surrogate
+                i++; // skip low surrogate — it is not a separate glyph
             }
 
             if (fontData.CodepointToGlyphId.TryGetValue(codepoint, out var gid))
-                glyphIds[i] = gid;
+                glyphIds[writeCount] = gid;
             // else stays 0 (.notdef)
+            writeCount++;
         }
-        return glyphIds;
+
+        // Trim to actual codepoint count (may be shorter than text.Length for surrogate pairs)
+        if (writeCount == text.Length) return glyphIds;
+        var result = new ushort[writeCount];
+        Array.Copy(glyphIds, result, writeCount);
+        return result;
     }
 
     /// <summary>Set bookmarks (document outline) to include in the PDF.</summary>
@@ -406,7 +414,7 @@ public class PdfDocument
                     float y2 = link.Y + link.Height;
                     pageDict.Append($" << /Type /Annot /Subtype /Link /Rect [{F(x1)} {F(y1)} {F(x2)} {F(y2)}]");
                     pageDict.Append($" /Border [0 0 0]");
-                    pageDict.Append($" /A << /Type /Action /S /URI /URI ({link.Url}) >> >>");
+                    pageDict.Append($" /A << /Type /Action /S /URI /URI ({EscapePdfString(link.Url)}) >> >>");
                 }
                 pageDict.Append(" ]");
             }
