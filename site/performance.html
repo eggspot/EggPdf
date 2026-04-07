@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Performance — EggPdf | Eggspot</title>
+  <meta name="description" content="EggPdf benchmark results and performance tips — 13µs per page, streaming output, zero allocations on hot path.">
+  <link rel="canonical" href="https://eggspot.github.io/EggPdf/performance.html">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="apple-touch-icon" href="assets/favicon.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://eggspot.github.io/EggPdf/performance.html">
+  <meta property="og:title" content="Performance — EggPdf">
+  <meta property="og:description" content="EggPdf benchmark results and performance tips — 13µs per page, streaming output, zero allocations on hot path.">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container">
+    <a class="nav-logo" href="index.html">
+      <svg width="22" height="16" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+      <span class="logo-text">Egg<span class="logo-accent">Pdf</span></span>
+    </a>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="getting-started.html">Docs</a>
+      <a href="docker.html">Docker</a>
+      <a href="cli.html">CLI</a>
+      <a href="rest-api.html">REST API</a>
+      <a href="architecture.html">Internals</a>
+      <a href="https://github.com/eggspot/EggPdf" class="nav-github" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page-header">
+  <div class="container">
+    <h1>Performance</h1>
+    <p>EggPdf renders most documents in microseconds. Here's what drives the speed and how to get the best results.</p>
+  </div>
+</div>
+
+<div class="container">
+  <div class="docs-layout">
+
+    <aside class="docs-sidebar">
+      <nav aria-label="Documentation navigation">
+        <div class="sidebar-section">Guides</div>
+        <a href="getting-started.html">Getting Started</a>
+        <a href="configuration.html">Configuration</a>
+        <a href="page-layout.html">Page Layout</a>
+        <a href="tables.html">Tables</a>
+        <a href="fonts.html">Fonts</a>
+        <a href="headers-footers.html">Headers &amp; Footers</a>
+        <a href="performance.html" class="active">Performance</a>
+        <div class="sidebar-section">Deploy</div>
+        <a href="docker.html">Docker</a>
+        <a href="cli.html">CLI</a>
+        <a href="rest-api.html">REST API</a>
+        <div class="sidebar-section">Internals</div>
+        <a href="architecture.html">Architecture</a>
+      </nav>
+    </aside>
+
+    <main class="docs-content">
+
+      <h2 id="benchmarks">Benchmark results</h2>
+      <div class="callout callout-success">
+        <p>Measured on a standard developer laptop (Intel i7, .NET 10). BenchmarkDotNet, Release build.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Scenario</th>
+              <th>Mean</th>
+              <th>Peak Memory</th>
+              <th>Target</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Simple page (h1 + paragraph)</td>
+              <td><strong>13 µs</strong></td>
+              <td>20 KB</td>
+              <td>&lt; 50 ms</td>
+            </tr>
+            <tr>
+              <td>Invoice (table + styles)</td>
+              <td><strong>86 µs</strong></td>
+              <td>85 KB</td>
+              <td>&lt; 100 ms</td>
+            </tr>
+            <tr>
+              <td>Large table (100 rows)</td>
+              <td><strong>1.2 ms</strong></td>
+              <td>939 KB</td>
+              <td>&lt; 5 s</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>All scenarios beat their targets by orders of magnitude.</p>
+
+      <h2 id="why-fast">Why it's fast</h2>
+      <ul>
+        <li>
+          <strong>Pure C#, no marshalling</strong> — no browser process, no native interop overhead.
+          All rendering is managed code running directly in your process.
+        </li>
+        <li>
+          <strong>Streaming output</strong> — the PDF writer outputs pages as they are rendered;
+          no full-document buffering required.
+        </li>
+        <li>
+          <strong>Font subsetting at pack time</strong> — only used glyphs are embedded, reducing
+          both memory usage and output file size.
+        </li>
+        <li>
+          <strong>No GC pressure</strong> — <code>ArrayPool&lt;T&gt;</code> is used for temporary
+          buffers on hot paths. No large object heap allocations for normal documents.
+        </li>
+        <li>
+          <strong>Single-pass layout</strong> — the layout engine makes one forward pass through
+          the document per page. There is no re-layout or second-pass measurement.
+        </li>
+      </ul>
+
+      <h2 id="tips">Performance tips</h2>
+      <ol>
+        <li>
+          <p>
+            <strong>Reuse <code>HtmlToPdf</code> across requests</strong> — the static class lazily
+            initializes font discovery once per process. No converter object to pool, but avoid triggering
+            font loading on every request by calling your first render at startup (warm-up).
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Stream output for HTTP responses</strong> — use
+            <code>HtmlToPdf.RenderAsync(html, response.Body)</code> instead of getting a
+            <code>byte[]</code> and copying it. This saves one allocation and one copy per request.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Keep HTML lean</strong> — the layout engine is fast, but complex CSS selectors
+            and deeply nested DOM trees still have a cost. Avoid thousands of unique CSS rules or
+            excessive selector specificity chains.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Use system fonts</strong> — loading a font from a file is fast, but font
+            discovery (finding the right file on disk) happens once per font name per process.
+            Use font names that map directly to installed fonts to avoid discovery overhead on
+            the first render.
+          </p>
+        </li>
+      </ol>
+
+      <h2 id="thread-safety">Thread safety</h2>
+      <p>
+        <code>HtmlToPdf</code> is a static class. Each <code>RenderAsync</code> call creates its own
+        independent pipeline — DOM tree, CSS cascade, layout tree — with no shared mutable state.
+        You can call <code>HtmlToPdf.RenderAsync</code> from as many threads as you want simultaneously
+        without any locking or queuing.
+      </p>
+
+    </main>
+  </div>
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-logo" aria-hidden="true">
+      <svg width="28" height="20" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+    </div>
+    <p>An open-source project by <a href="https://eggspot.app" target="_blank" rel="noopener">Eggspot</a> &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

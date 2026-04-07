@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Architecture — EggPdf Internals | Eggspot</title>
+  <meta name="description" content="EggPdf architecture — 8-stage HTML-to-PDF pipeline: parse, CSS, style resolve, box generate, layout, fragment, paint, PDF write.">
+  <link rel="canonical" href="https://eggspot.github.io/EggPdf/architecture.html">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="apple-touch-icon" href="assets/favicon.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://eggspot.github.io/EggPdf/architecture.html">
+  <meta property="og:title" content="Architecture — EggPdf Internals">
+  <meta property="og:description" content="EggPdf architecture — 8-stage HTML-to-PDF pipeline: parse, CSS, style resolve, box generate, layout, fragment, paint, PDF write.">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container">
+    <a class="nav-logo" href="index.html">
+      <svg width="22" height="16" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+      <span class="logo-text">Egg<span class="logo-accent">Pdf</span></span>
+    </a>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="getting-started.html">Docs</a>
+      <a href="docker.html">Docker</a>
+      <a href="cli.html">CLI</a>
+      <a href="rest-api.html">REST API</a>
+      <a href="architecture.html">Internals</a>
+      <a href="https://github.com/eggspot/EggPdf" class="nav-github" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page-header">
+  <div class="container">
+    <h1>How EggPdf Works</h1>
+    <p>EggPdf transforms HTML + CSS into PDF through an 8-stage pipeline. Every stage is pure, isolated, and independently testable.</p>
+  </div>
+</div>
+
+<div class="container">
+  <div class="docs-layout">
+
+    <aside class="docs-sidebar">
+      <nav aria-label="Documentation navigation">
+        <div class="sidebar-section">Guides</div>
+        <a href="getting-started.html">Getting Started</a>
+        <a href="configuration.html">Configuration</a>
+        <a href="page-layout.html">Page Layout</a>
+        <a href="tables.html">Tables</a>
+        <a href="fonts.html">Fonts</a>
+        <a href="headers-footers.html">Headers &amp; Footers</a>
+        <a href="performance.html">Performance</a>
+        <div class="sidebar-section">Deploy</div>
+        <a href="docker.html">Docker</a>
+        <a href="cli.html">CLI</a>
+        <a href="rest-api.html">REST API</a>
+        <div class="sidebar-section">Internals</div>
+        <a href="architecture.html" class="active">Architecture</a>
+      </nav>
+    </aside>
+
+    <main class="docs-content">
+
+      <h2 id="pipeline">The 8-stage pipeline</h2>
+      <p>
+        EggPdf is a pure data transformation pipeline. Each stage takes a well-defined input type
+        and produces a well-defined output type. No stage holds state between renders.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Stage</th>
+              <th>Input</th>
+              <th>Output</th>
+              <th>Project</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1. HTML Parse</td>
+              <td>HTML string</td>
+              <td>DOM tree (<code>HtmlDocument</code>)</td>
+              <td><code>EggPdf.Html</code></td>
+            </tr>
+            <tr>
+              <td>2. CSS Parse</td>
+              <td>DOM + CSS text</td>
+              <td>Style sheets (<code>CssStyleSheet[]</code>)</td>
+              <td><code>EggPdf.Css</code></td>
+            </tr>
+            <tr>
+              <td>3. Style Resolve</td>
+              <td>DOM + style sheets</td>
+              <td>Styled tree (element &rarr; computed style)</td>
+              <td><code>EggPdf.Style</code></td>
+            </tr>
+            <tr>
+              <td>4. Box Generate</td>
+              <td>Styled tree</td>
+              <td>Box tree (formatting boxes)</td>
+              <td><code>EggPdf.Layout</code></td>
+            </tr>
+            <tr>
+              <td>5. Layout</td>
+              <td>Box tree + page dimensions</td>
+              <td>Layout tree (boxes with x/y/w/h)</td>
+              <td><code>EggPdf.Layout</code></td>
+            </tr>
+            <tr>
+              <td>6. Fragment</td>
+              <td>Layout tree + page size</td>
+              <td>Paged frames (one frame per page)</td>
+              <td><code>EggPdf.Fragmentation</code></td>
+            </tr>
+            <tr>
+              <td>7. Paint</td>
+              <td>Paged frames</td>
+              <td>Paint command list (abstract drawing ops)</td>
+              <td><code>EggPdf.Paint</code></td>
+            </tr>
+            <tr>
+              <td>8. PDF Write</td>
+              <td>Paint commands + fonts + images</td>
+              <td><code>byte[]</code> or <code>Stream</code> (PDF 1.7)</td>
+              <td><code>EggPdf.Pdf</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="projects">Project structure</h2>
+      <p>
+        The pipeline maps to independent C# projects with strict one-way dependencies.
+        No circular dependencies are permitted; <code>EggPdf.Core</code> depends on nothing.
+      </p>
+      <div class="code-block"><pre><code>EggPdf <span class="cmt">(public API facade)</span>
+  ├── EggPdf.Html        <span class="cmt">(depends on: Core)</span>
+  ├── EggPdf.Css         <span class="cmt">(depends on: Core, Html)</span>
+  ├── EggPdf.Style       <span class="cmt">(depends on: Core, Css, Text)</span>
+  ├── EggPdf.Layout      <span class="cmt">(depends on: Core, Style, Text)</span>
+  ├── EggPdf.Fragmentation <span class="cmt">(depends on: Core, Layout)</span>
+  ├── EggPdf.Paint       <span class="cmt">(depends on: Core, Layout, Fragmentation, Text)</span>
+  ├── EggPdf.Pdf         <span class="cmt">(depends on: Core, Paint, Text)</span>
+  ├── EggPdf.Text        <span class="cmt">(depends on: Core)</span>
+  └── EggPdf.Core        <span class="cmt">(no dependencies — primitives only)</span></code></pre></div>
+
+      <h2 id="design-principles">Key design decisions</h2>
+
+      <h3>Infallible parsers</h3>
+      <p>
+        The HTML and CSS parsers never throw. The HTML parser produces error-recovery DOM nodes per
+        the HTML5 specification — any string input, however malformed, produces a valid
+        <code>HtmlDocument</code>. The CSS parser skips invalid declarations and continues; no CSS
+        parse error will crash a render.
+      </p>
+
+      <h3>Region-based pagination</h3>
+      <p>
+        Rather than separating layout and pagination into two distinct passes, each layout element
+        receives a sequence of regions: the remaining space on the current page, then full subsequent
+        pages. The element decides how to split itself across those regions. This means new layout
+        modes (flex, grid, table) get correct pagination automatically without extra pagination logic.
+      </p>
+
+      <h3>Three-state layout response</h3>
+      <p>
+        Every layout element reports one of three outcomes after layout:
+      </p>
+      <ul>
+        <li><strong>Fit</strong> — the element fits entirely in the current region.</li>
+        <li><strong>Split</strong> — the element partially fits; render the part that fits now and
+          continue the remainder on the next page.</li>
+        <li><strong>Skip</strong> — the element does not fit at all; move it entirely to the next page.</li>
+      </ul>
+      <p>
+        This three-state contract drives automatic, lossless pagination across all layout modes.
+      </p>
+
+      <h3>Pluggable paint backend</h3>
+      <p>
+        The paint layer emits abstract drawing commands: draw text, draw rectangle, draw image,
+        draw border. The PDF backend consumes these commands and produces PDF operators. A raster
+        backend exists for visual regression testing — the layout engine produces pixel-accurate
+        output without any PDF round-trip, making test diffs fast and deterministic.
+      </p>
+
+      <h3>Self-serializing PDF objects</h3>
+      <p>
+        Each PDF object writes itself to the output stream. A central reference table assigns
+        object numbers and tracks byte offsets, which are then used to build the cross-reference
+        table at the end of the file. This avoids buffering the entire document in memory.
+      </p>
+
+      <h2 id="thread-model">Thread and memory model</h2>
+      <p>
+        <code>HtmlToPdf</code> is safe to use from multiple threads simultaneously. Each
+        <code>RenderAsync()</code> call creates its own pipeline instances — DOM tree, CSS cascade,
+        layout tree — with no shared mutable state. The only shared state (font cache, UA stylesheet)
+        is read-only after initialization and requires no locking.
+      </p>
+      <p>
+        Memory scales with document size but is bounded: only the current page's layout and paint
+        data are in memory at any time. Previous pages have already been written to the output stream
+        and their memory released.
+      </p>
+
+      <h2 id="error-handling">Error handling strategy</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Error</th>
+              <th>Behavior</th>
+              <th>Warning code</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Invalid HTML</td>
+              <td>Error-recovery DOM (HTML5 spec)</td>
+              <td>none</td>
+            </tr>
+            <tr>
+              <td>Invalid CSS declaration</td>
+              <td>Skip rule, continue</td>
+              <td><code>CSS_PARSE_ERROR</code></td>
+            </tr>
+            <tr>
+              <td>Unknown CSS property</td>
+              <td>Silently ignore</td>
+              <td><code>CSS_UNSUPPORTED</code></td>
+            </tr>
+            <tr>
+              <td>Font not found</td>
+              <td>Fall back: next in stack &rarr; system &rarr; Helvetica</td>
+              <td><code>FONT_NOT_FOUND</code></td>
+            </tr>
+            <tr>
+              <td>Image load failed</td>
+              <td>Render alt text in placeholder box</td>
+              <td><code>IMAGE_LOAD_FAILED</code></td>
+            </tr>
+            <tr>
+              <td>Layout overflow</td>
+              <td>Clip to page bounds</td>
+              <td><code>LAYOUT_OVERFLOW</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-logo" aria-hidden="true">
+      <svg width="28" height="20" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+    </div>
+    <p>An open-source project by <a href="https://eggspot.app" target="_blank" rel="noopener">Eggspot</a> &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
