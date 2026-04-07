@@ -38,7 +38,7 @@ public class FileResourceResolver : IResourceResolver
 
         // Security: ensure resolved path is within base directory.
         // Append separator to prevent "C:\docs" matching "C:\docs-evil\file".
-        string baseWithSep = _baseDirectory.EndsWith(Path.DirectorySeparatorChar)
+        string baseWithSep = _baseDirectory.EndsWith(Path.DirectorySeparatorChar.ToString())
             ? _baseDirectory
             : _baseDirectory + Path.DirectorySeparatorChar;
         if (!fullPath.StartsWith(baseWithSep, StringComparison.OrdinalIgnoreCase))

@@ -414,7 +414,7 @@ public class PdfDocument
                     float y2 = link.Y + link.Height;
                     pageDict.Append($" << /Type /Annot /Subtype /Link /Rect [{F(x1)} {F(y1)} {F(x2)} {F(y2)}]");
                     pageDict.Append($" /Border [0 0 0]");
-                    pageDict.Append($" /A << /Type /Action /S /URI /URI ({link.Url}) >> >>");
+                    pageDict.Append($" /A << /Type /Action /S /URI /URI ({EscapePdfString(link.Url)}) >> >>");
                 }
                 pageDict.Append(" ]");
             }
