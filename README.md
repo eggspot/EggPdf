@@ -225,16 +225,17 @@ See the [Wiki](https://github.com/eggspot/EggPdf/wiki) for full documentation:
 
 ## Contributing
 
-Contributions are welcome! Please follow our development workflow:
+Contributions are welcome! We follow strict TDD — **write the test before the code**:
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feat/my-feature`
-3. **Write tests first** (test must fail before implementation)
-4. Implement the feature
-5. **Verify all tests pass**: `dotnet test --configuration Release`
-6. **Check performance** if touching hot paths
-7. Commit with conventional prefixes: `feat:`, `fix:`, `perf:`, `test:`
-8. Push and create a PR
+3. **Write the failing test first** — run it, confirm it fails
+4. Write minimal code to make the test pass
+5. **Run the test** — if it fails, fix code and run again; repeat until it passes
+6. **Run ALL tests** — fix any regressions and repeat until the full suite passes
+7. **Check performance** if touching hot paths
+8. Commit with conventional prefixes: `feat:`, `fix:`, `perf:`, `test:`
+9. Push and create a PR
 
 See [CLAUDE.md](CLAUDE.md) for detailed development guidelines.
 
