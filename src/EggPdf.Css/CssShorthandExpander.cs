@@ -243,13 +243,70 @@ public static class CssShorthandExpander
         }
     }
 
-    /// <summary>Expand flex shorthand: "1 0 auto" -> grow + shrink + basis.</summary>
+    /// <summary>
+    /// Expand flex shorthand per CSS Flexible Box Layout spec §7.2.
+    /// <list type="bullet">
+    ///   <item>flex: none        → 0 0 auto</item>
+    ///   <item>flex: auto        → 1 1 auto</item>
+    ///   <item>flex: &lt;n&gt;        → flex-grow:n, flex-shrink:1, flex-basis:0</item>
+    ///   <item>flex: &lt;g&gt; &lt;s&gt;    → flex-grow:g, flex-shrink:s, flex-basis:0</item>
+    ///   <item>flex: &lt;g&gt; &lt;basis&gt; → flex-grow:g, flex-shrink:1, flex-basis:basis</item>
+    ///   <item>flex: &lt;g&gt; &lt;s&gt; &lt;b&gt; → all three set explicitly</item>
+    /// </list>
+    /// </summary>
     private static void ExpandFlexShorthand(string value, ComputedStyle style)
     {
+        // Keywords
+        if (value == "none")  { style.Set("flex-grow", "0"); style.Set("flex-shrink", "0"); style.Set("flex-basis", "auto"); return; }
+        if (value == "auto")  { style.Set("flex-grow", "1"); style.Set("flex-shrink", "1"); style.Set("flex-basis", "auto"); return; }
+        if (value == "initial") { style.Set("flex-grow", "0"); style.Set("flex-shrink", "1"); style.Set("flex-basis", "auto"); return; }
+
         var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length >= 1) style.Set("flex-grow", parts[0]);
-        if (parts.Length >= 2) style.Set("flex-shrink", parts[1]);
-        if (parts.Length >= 3) style.Set("flex-basis", parts[2]);
+
+        if (parts.Length == 1)
+        {
+            // Single value: unitless number → flex-grow, flex-shrink=1, flex-basis=0
+            // Otherwise treat as flex-basis with grow=1, shrink=1
+            if (float.TryParse(parts[0], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out _))
+            {
+                style.Set("flex-grow", parts[0]);
+                style.Set("flex-shrink", "1");
+                style.Set("flex-basis", "0");
+            }
+            else
+            {
+                style.Set("flex-grow", "1");
+                style.Set("flex-shrink", "1");
+                style.Set("flex-basis", parts[0]);
+            }
+        }
+        else if (parts.Length == 2)
+        {
+            bool p1IsNumber = float.TryParse(parts[1], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out _);
+
+            style.Set("flex-grow", parts[0]);
+            if (p1IsNumber)
+            {
+                // flex: <grow> <shrink> → flex-basis:0
+                style.Set("flex-shrink", parts[1]);
+                style.Set("flex-basis", "0");
+            }
+            else
+            {
+                // flex: <grow> <basis>
+                style.Set("flex-shrink", "1");
+                style.Set("flex-basis", parts[1]);
+            }
+        }
+        else
+        {
+            // 3 values: flex-grow flex-shrink flex-basis
+            style.Set("flex-grow", parts[0]);
+            style.Set("flex-shrink", parts[1]);
+            style.Set("flex-basis", parts[2]);
+        }
     }
 
     /// <summary>Expand border-top/right/bottom/left: "1px solid red" -> width + style + color for one side.</summary>

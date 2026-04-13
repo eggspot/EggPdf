@@ -542,4 +542,54 @@ public class FlexLayoutTests
         item.X.Should().BeApproximately(container.X + 20f, 1f);
         item.Y.Should().BeApproximately(container.Y + 20f, 1f);
     }
+
+    [Fact]
+    public void FlexShorthand_SingleNumber_ProportionalSizing()
+    {
+        // flex: 2 + flex: 1 + flex: 1 + flex: 1 → widths in 2:1:1:1 ratio
+        // CSS spec: flex: <n> means flex-grow:<n>, flex-shrink:1, flex-basis:0
+        // With flex-basis:0, ALL container space is distributed by grow ratio
+        // Using explicit width on items to prove flex-basis:0 overrides it
+        var root = LayoutFlex(
+            "<div style='display: flex'>" +
+            "<div style='flex: 2; width: 50px; height: 50px'></div>" +
+            "<div style='flex: 1; width: 50px; height: 50px'></div>" +
+            "<div style='flex: 1; width: 50px; height: 50px'></div>" +
+            "<div style='flex: 1; width: 50px; height: 50px'></div>" +
+            "</div>");
+
+        var container = FindInnerDivs(root)[0];
+        float w = container.ContentWidth;
+
+        var item1 = container.Children[0];
+        var item2 = container.Children[1];
+        var item3 = container.Children[2];
+        var item4 = container.Children[3];
+
+        // flex-basis:0 means full container width distributed 2:1:1:1,
+        // ignoring the width:50px (flex-basis:0 takes precedence over width)
+        item1.Width.Should().BeApproximately(w * 2f / 5f, 1f);
+        item2.Width.Should().BeApproximately(w * 1f / 5f, 1f);
+        item3.Width.Should().BeApproximately(w * 1f / 5f, 1f);
+        item4.Width.Should().BeApproximately(w * 1f / 5f, 1f);
+    }
+
+    [Fact]
+    public void FlexShorthand_None_ZeroGrow()
+    {
+        // flex: none → flex-grow:0, flex-shrink:0, flex-basis:auto → item keeps natural size
+        var root = LayoutFlex(
+            "<div style='display: flex'>" +
+            "<div style='flex: none; width: 100px; height: 50px'></div>" +
+            "<div style='flex: none; width: 80px; height: 50px'></div>" +
+            "</div>");
+
+        var container = FindInnerDivs(root)[0];
+        var item1 = container.Children[0];
+        var item2 = container.Children[1];
+
+        // flex: none → items keep their specified widths, no grow or shrink
+        item1.Width.Should().BeApproximately(100f, 1f);
+        item2.Width.Should().BeApproximately(80f, 1f);
+    }
 }

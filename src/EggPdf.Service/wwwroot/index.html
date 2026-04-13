@@ -213,6 +213,7 @@
     <div class="tpl-grid">
       <div class="tpl-card" onclick="loadTpl('blank')"><div class="icon">&#x1F4C4;</div><div class="name">Blank</div><div class="desc">Start from scratch</div></div>
       <div class="tpl-card" onclick="loadTpl('invoice')"><div class="icon">&#x1F4B0;</div><div class="name">Invoice</div><div class="desc">Table with totals</div></div>
+      <div class="tpl-card" onclick="loadTpl('invoice_pro')"><div class="icon">&#x1F9FE;</div><div class="name">Invoice Pro</div><div class="desc">Branded invoice with payment details</div></div>
       <div class="tpl-card" onclick="loadTpl('report')"><div class="icon">&#x1F4CA;</div><div class="name">Report</div><div class="desc">Multi-section report</div></div>
       <div class="tpl-card" onclick="loadTpl('letter')"><div class="icon">&#x2709;</div><div class="name">Letter</div><div class="desc">Formal letter</div></div>
       <div class="tpl-card" onclick="loadTpl('certificate')"><div class="icon">&#x1F3C6;</div><div class="name">Certificate</div><div class="desc">Award certificate</div></div>
@@ -579,6 +580,132 @@ function copyApiCall() {
 const templates = {
   blank: '<html>\n<head><style>body { font-family: Arial; margin: 40px; }</style></head>\n<body>\n  <h1>Title</h1>\n  <p>Start writing...</p>\n</body>\n</html>',
   invoice: defaultHtml,
+  invoice_pro: `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice #{{invoice_number}}</title>
+    <style>@media print {
+            body { margin: 0; padding: 10px 20px; }
+            @page { margin: 5mm; }
+        }
+    </style></head>
+
+<body style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px; color: #333333; font-size: 14px; line-height: 1.5; background-color: #ffffff;">
+
+<div style="display: flex; justify-content: space-between; margin-bottom: 60px;">
+    <div style="font-size: 32px; font-weight: bold; color: #f97316; letter-spacing: 3px;">{{company_name}}</div>
+    <div style="text-align: left;">
+        <p style="margin: 0; font-weight: bold;">{{vendor_name}}</p>
+        <p style="margin: 0;">{{vendor_address}}</p>
+        <p style="margin: 0;">{{vendor_city_state}}</p>
+        <p style="margin: 0;">{{vendor_country}}</p>
+        <p style="margin: 0;">{{vendor_zip}}</p>
+        <p style="margin: 0;">{{vendor_email}}</p>
+    </div>
+</div>
+
+<div style="display: flex; justify-content: space-between; margin-bottom: 40px;">
+    <div style="flex: 2;">
+        <p style="margin: 0 0 5px 0; color: #f97316; font-size: 13px;">Billed To</p>
+        <p style="margin: 0;">{{client_name}}</p>
+        <p style="margin: 0;">{{client_email}}</p>
+        <p style="margin: 0;">Billing period: {{billing_period}}</p>
+    </div>
+    <div style="flex: 1;">
+        <p style="margin: 0 0 5px 0; color: #f97316; font-size: 13px;">Date of Issue</p>
+        <p style="margin: 0 0 15px 0;">{{issue_date}}</p>
+        <p style="margin: 0 0 5px 0; color: #f97316; font-size: 13px;">Due Date</p>
+        <p style="margin: 0;">{{due_date}}</p>
+    </div>
+    <div style="flex: 1;">
+        <p style="margin: 0 0 5px 0; color: #f97316; font-size: 13px;">Invoice Number</p>
+        <p style="margin: 0;">{{invoice_number}}</p>
+    </div>
+    <div style="flex: 1; text-align: right;">
+        <p style="margin: 0 0 5px 0; color: #f97316; font-size: 13px;">Amount Due (USD)</p>
+        <p style="margin: 0; font-size: 24px; font-weight: bold; color: #333333;">{{amount_due}}</p>
+    </div>
+</div>
+
+<div style="border-top: 3px solid #f97316; margin-bottom: 30px;">
+    <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr style="border-bottom: 1px solid #eeeeee;">
+                <th style="text-align: left; padding: 15px 0; color: #f97316; font-weight: normal; font-size: 13px; width: 50%;">Description</th>
+                <th style="text-align: center; padding: 15px 0; color: #f97316; font-weight: normal; font-size: 13px; width: 20%;">Rate</th>
+                <th style="text-align: center; padding: 15px 0; color: #f97316; font-weight: normal; font-size: 13px; width: 10%;">Qty</th>
+                <th style="text-align: right; padding: 15px 0; color: #f97316; font-weight: normal; font-size: 13px; width: 20%;">Line Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td style="padding: 15px 0; vertical-align: top;">
+                    <p style="margin: 0; font-weight: 500;">{{item_description}}</p>
+                    <p style="margin: 5px 0 0 0; color: #666666; font-size: 13px;">{{item_detail}}</p>
+                </td>
+                <td style="text-align: center; padding: 15px 0;">{{item_rate}}</td>
+                <td style="text-align: center; padding: 15px 0;">{{item_qty}}</td>
+                <td style="text-align: right; padding: 15px 0;">{{line_total}}</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<div style="display: flex; justify-content: flex-end; margin-bottom: 40px;">
+    <div style="width: 280px;">
+        <div style="display: flex; justify-content: space-between; padding: 8px 0;">
+            <span>Subtotal</span>
+            <span>{{subtotal}}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eeeeee;">
+            <span>Tax</span>
+            <span>{{tax}}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 8px 0;">
+            <span>Total</span>
+            <span>{{total}}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 12px 0; color: #f97316; font-weight: 500;">
+            <span>Amount Due (USD)</span>
+            <span style="font-weight: bold;">{{amount_due}}</span>
+        </div>
+    </div>
+</div>
+
+<div style="margin-bottom: 80px;">
+    <p style="margin: 0 0 5px 0; color: #f97316; font-size: 13px;">Notes</p>
+    <p style="margin: 0; font-weight: bold; font-style: italic;">
+        PAYMENT LINK: &nbsp;&nbsp;
+        <a href="{{payment_url}}" style="text-decoration: underline;">Pay Now</a>
+    </p>
+    <p style="margin: 0; font-size: 13px;">
+        (<strong>Stripe</strong> payment gateway, supports credit/debit cards: Visa, Mastercard, American Express, JCB, and more)
+    </p>
+    <p style="margin: 15px 0 0 0; font-weight: bold; font-style: italic;">
+        Alternative: Bank Transfer
+    </p>
+    <p style="margin: 0; font-size: 13px;">
+        - Account Name: {{vendor_name}} <br>
+        - Account Number: {{bank_account}} <br>
+        - Bank Name: {{bank_name}} <br>
+        - Bank Location: United States <br>
+        - SWIFT Code: {{swift_code}} <br>
+        - ACH Routing Number: {{ach_routing}} <br>
+        - Fedwire Routing Number: {{fedwire_routing}} <br>
+        - Reference: use invoice number #{{invoice_number}} <br>
+    </p>
+    <p style="margin: 5px 0 0 0; font-size: 13px; font-weight: bold;">
+        Important: Please kindly ensure that all transaction fees are covered by the sender to guarantee the full amount is received
+    </p>
+</div>
+
+<div>
+    <p style="margin: 0 0 5px 0; color: #f97316; font-size: 13px;">Terms</p>
+    <p style="margin: 0;">Net 30 days</p>
+    <p style="margin: 0;">Late Payment Policy: A late fee of 10% of the total invoice will be applied to overdue balances. {{company_name}} reserves the right to suspend or terminate services immediately following a missed payment deadline.</p>
+</div>
+
+</body></html>`,
   report: `<html><head><style>body{font-family:Arial;margin:40px}h1{color:#333}h2{color:#666;border-bottom:1px solid #ddd;padding-bottom:5px}p{line-height:1.6;color:#555}.section{margin:20px 0}</style></head><body><h1>Annual Report 2024</h1><div class="section"><h2>Executive Summary</h2><p>This report covers the key achievements and metrics for the fiscal year 2024.</p></div><div class="section"><h2>Financial Overview</h2><p>Revenue grew by 25% year-over-year, reaching $12.5 million.</p></div><div class="section"><h2>Key Metrics</h2><ul><li>Customer satisfaction: 94%</li><li>Employee retention: 92%</li><li>Market share: 15%</li></ul></div></body></html>`,
   letter: `<html><head><style>body{font-family:'Times New Roman';margin:60px;line-height:1.8}p{margin:10px 0}.date{text-align:right}.signature{margin-top:40px}</style></head><body><p class="date">March 21, 2026</p><p>Dear Sir/Madam,</p><p>I am writing to inform you about our new product launch scheduled for next quarter. We believe this will significantly improve our service offering.</p><p>Please find enclosed the detailed proposal for your review.</p><p class="signature">Sincerely,<br><strong>John Smith</strong><br>CEO, Acme Corp</p></body></html>`,
   certificate: `<html><head><style>@page{size:794px 574px}body{font-family:Georgia;text-align:center;margin:80px;border:3px double #6c5ce7;padding:60px}h1{color:#6c5ce7;font-size:36px;margin-bottom:20px}h2{color:#333;font-weight:normal;font-size:24px}.name{font-size:32px;color:#2d3436;margin:30px 0;font-style:italic}.date{color:#666;margin-top:40px}</style></head><body><h1>Certificate of Achievement</h1><h2>This is proudly presented to</h2><p class="name">Jane Doe</p><p>For outstanding performance in the field of Software Engineering</p><p class="date">Awarded on March 21, 2026</p></body></html>`,

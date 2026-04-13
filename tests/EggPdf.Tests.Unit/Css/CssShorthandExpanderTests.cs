@@ -192,6 +192,63 @@ public class CssShorthandExpanderTests
     }
 
     [Fact]
+    public void Flex_SingleNumber_SetsBasisToZero()
+    {
+        // CSS spec: flex: <number> → flex-grow:<n>, flex-shrink:1, flex-basis:0
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("flex", "2", style).Should().BeTrue();
+
+        style.Get("flex-grow").Should().Be("2");
+        style.Get("flex-shrink").Should().Be("1");
+        style.Get("flex-basis").Should().Be("0");
+    }
+
+    [Fact]
+    public void Flex_SingleOne_SetsBasisToZero()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("flex", "1", style).Should().BeTrue();
+
+        style.Get("flex-grow").Should().Be("1");
+        style.Get("flex-shrink").Should().Be("1");
+        style.Get("flex-basis").Should().Be("0");
+    }
+
+    [Fact]
+    public void Flex_None_SetsZeroZeroAuto()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("flex", "none", style).Should().BeTrue();
+
+        style.Get("flex-grow").Should().Be("0");
+        style.Get("flex-shrink").Should().Be("0");
+        style.Get("flex-basis").Should().Be("auto");
+    }
+
+    [Fact]
+    public void Flex_Auto_SetsOneOneAuto()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("flex", "auto", style).Should().BeTrue();
+
+        style.Get("flex-grow").Should().Be("1");
+        style.Get("flex-shrink").Should().Be("1");
+        style.Get("flex-basis").Should().Be("auto");
+    }
+
+    [Fact]
+    public void Flex_TwoNumbers_SetsBasisToZero()
+    {
+        // CSS spec: flex: <grow> <shrink> → flex-basis:0
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("flex", "2 1", style).Should().BeTrue();
+
+        style.Get("flex-grow").Should().Be("2");
+        style.Get("flex-shrink").Should().Be("1");
+        style.Get("flex-basis").Should().Be("0");
+    }
+
+    [Fact]
     public void Outline_Shorthand_WidthStyleColor()
     {
         var style = new ComputedStyle();
