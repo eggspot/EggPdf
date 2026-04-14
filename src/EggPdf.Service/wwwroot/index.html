@@ -583,7 +583,7 @@ const templates = {
   invoice_pro: `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice #{{invoice_number}}</title>
+    <title>Invoice #INV-2026-00001</title>
     <style>@media print {
             body { margin: 0; padding: 10px 20px; }
             @page { margin: 5mm; }
@@ -593,37 +593,37 @@ const templates = {
 <body style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px; color: #333333; font-size: 14px; line-height: 1.5; background-color: #ffffff;">
 
 <div style="display: flex; justify-content: space-between; margin-bottom: 60px;">
-    <div style="font-size: 32px; font-weight: bold; color: #f97316; letter-spacing: 3px;">{{company_name}}</div>
+    <div style="font-size: 32px; font-weight: bold; color: #f97316; letter-spacing: 3px;">ACME CORP</div>
     <div style="text-align: left;">
-        <p style="margin: 0; font-weight: bold;">{{vendor_name}}</p>
-        <p style="margin: 0;">{{vendor_address}}</p>
-        <p style="margin: 0;">{{vendor_city_state}}</p>
-        <p style="margin: 0;">{{vendor_country}}</p>
-        <p style="margin: 0;">{{vendor_zip}}</p>
-        <p style="margin: 0;">{{vendor_email}}</p>
+        <p style="margin: 0; font-weight: bold;">Acme Corporation LLC</p>
+        <p style="margin: 0;">100 Tech Boulevard</p>
+        <p style="margin: 0;">Austin, Texas</p>
+        <p style="margin: 0;">United States</p>
+        <p style="margin: 0;">78701</p>
+        <p style="margin: 0;">billing@acmecorp.example</p>
     </div>
 </div>
 
 <div style="display: flex; justify-content: space-between; margin-bottom: 40px;">
     <div style="flex: 2;">
         <p style="margin: 0 0 5px 0; color: #f97316; font-size: 13px;">Billed To</p>
-        <p style="margin: 0;">{{client_name}}</p>
-        <p style="margin: 0;">{{client_email}}</p>
-        <p style="margin: 0;">Billing period: {{billing_period}}</p>
+        <p style="margin: 0;">ClientCo Inc</p>
+        <p style="margin: 0;">finance@clientco.example</p>
+        <p style="margin: 0;">Billing period: March 2026</p>
     </div>
     <div style="flex: 1;">
         <p style="margin: 0 0 5px 0; color: #f97316; font-size: 13px;">Date of Issue</p>
-        <p style="margin: 0 0 15px 0;">{{issue_date}}</p>
+        <p style="margin: 0 0 15px 0;">2026-04-01</p>
         <p style="margin: 0 0 5px 0; color: #f97316; font-size: 13px;">Due Date</p>
-        <p style="margin: 0;">{{due_date}}</p>
+        <p style="margin: 0;">2026-05-01</p>
     </div>
     <div style="flex: 1;">
         <p style="margin: 0 0 5px 0; color: #f97316; font-size: 13px;">Invoice Number</p>
-        <p style="margin: 0;">{{invoice_number}}</p>
+        <p style="margin: 0;">INV-2026-00001</p>
     </div>
     <div style="flex: 1; text-align: right;">
         <p style="margin: 0 0 5px 0; color: #f97316; font-size: 13px;">Amount Due (USD)</p>
-        <p style="margin: 0; font-size: 24px; font-weight: bold; color: #333333;">{{amount_due}}</p>
+        <p style="margin: 0; font-size: 24px; font-weight: bold; color: #333333;">$1,500.00</p>
     </div>
 </div>
 
@@ -640,12 +640,12 @@ const templates = {
         <tbody>
             <tr>
                 <td style="padding: 15px 0; vertical-align: top;">
-                    <p style="margin: 0; font-weight: 500;">{{item_description}}</p>
-                    <p style="margin: 5px 0 0 0; color: #666666; font-size: 13px;">{{item_detail}}</p>
+                    <p style="margin: 0; font-weight: 500;">Software Development Services</p>
+                    <p style="margin: 5px 0 0 0; color: #666666; font-size: 13px;">Monthly subscription – Professional plan (500 GB / 5,000 API calls)</p>
                 </td>
-                <td style="text-align: center; padding: 15px 0;">{{item_rate}}</td>
-                <td style="text-align: center; padding: 15px 0;">{{item_qty}}</td>
-                <td style="text-align: right; padding: 15px 0;">{{line_total}}</td>
+                <td style="text-align: center; padding: 15px 0;">$750.00</td>
+                <td style="text-align: center; padding: 15px 0;">2</td>
+                <td style="text-align: right; padding: 15px 0;">$1,500.00</td>
             </tr>
         </tbody>
     </table>
@@ -655,19 +655,19 @@ const templates = {
     <div style="width: 280px;">
         <div style="display: flex; justify-content: space-between; padding: 8px 0;">
             <span>Subtotal</span>
-            <span>{{subtotal}}</span>
+            <span>$1,500.00</span>
         </div>
         <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eeeeee;">
             <span>Tax</span>
-            <span>{{tax}}</span>
+            <span>$0.00</span>
         </div>
         <div style="display: flex; justify-content: space-between; padding: 8px 0;">
             <span>Total</span>
-            <span>{{total}}</span>
+            <span>$1,500.00</span>
         </div>
         <div style="display: flex; justify-content: space-between; padding: 12px 0; color: #f97316; font-weight: 500;">
             <span>Amount Due (USD)</span>
-            <span style="font-weight: bold;">{{amount_due}}</span>
+            <span style="font-weight: bold;">$1,500.00</span>
         </div>
     </div>
 </div>
@@ -676,7 +676,7 @@ const templates = {
     <p style="margin: 0 0 5px 0; color: #f97316; font-size: 13px;">Notes</p>
     <p style="margin: 0; font-weight: bold; font-style: italic;">
         PAYMENT LINK: &nbsp;&nbsp;
-        <a href="{{payment_url}}" style="text-decoration: underline;">Pay Now</a>
+        <a href="https://pay.example.com/invoice/INV-2026-00001" style="text-decoration: underline;">Pay Now</a>
     </p>
     <p style="margin: 0; font-size: 13px;">
         (<strong>Stripe</strong> payment gateway, supports credit/debit cards: Visa, Mastercard, American Express, JCB, and more)
@@ -685,14 +685,14 @@ const templates = {
         Alternative: Bank Transfer
     </p>
     <p style="margin: 0; font-size: 13px;">
-        - Account Name: {{vendor_name}} <br>
-        - Account Number: {{bank_account}} <br>
-        - Bank Name: {{bank_name}} <br>
+        - Account Name: Acme Corporation LLC <br>
+        - Account Number: 123456789 <br>
+        - Bank Name: First National Bank <br>
         - Bank Location: United States <br>
-        - SWIFT Code: {{swift_code}} <br>
-        - ACH Routing Number: {{ach_routing}} <br>
-        - Fedwire Routing Number: {{fedwire_routing}} <br>
-        - Reference: use invoice number #{{invoice_number}} <br>
+        - SWIFT Code: FNBKUS33 <br>
+        - ACH Routing Number: 021000021 <br>
+        - Fedwire Routing Number: 021000021 <br>
+        - Reference: use invoice number #INV-2026-00001 <br>
     </p>
     <p style="margin: 5px 0 0 0; font-size: 13px; font-weight: bold;">
         Important: Please kindly ensure that all transaction fees are covered by the sender to guarantee the full amount is received
@@ -702,7 +702,7 @@ const templates = {
 <div>
     <p style="margin: 0 0 5px 0; color: #f97316; font-size: 13px;">Terms</p>
     <p style="margin: 0;">Net 30 days</p>
-    <p style="margin: 0;">Late Payment Policy: A late fee of 10% of the total invoice will be applied to overdue balances. {{company_name}} reserves the right to suspend or terminate services immediately following a missed payment deadline.</p>
+    <p style="margin: 0;">Late Payment Policy: A late fee of 10% of the total invoice will be applied to overdue balances. Acme Corporation LLC reserves the right to suspend or terminate services immediately following a missed payment deadline.</p>
 </div>
 
 </body></html>`,
