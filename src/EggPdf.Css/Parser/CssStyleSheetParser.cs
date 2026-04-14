@@ -162,6 +162,19 @@ public static class CssStyleSheetParser
             SkipWhitespace(tokens, ref pos);
             if (pos >= tokens.Count || tokens[pos].Type == CssTokenType.RightCurly) break;
 
+            // Handle nested at-rules inside @media (e.g. @page { margin: 5mm; })
+            if (tokens[pos].Type == CssTokenType.AtKeyword)
+            {
+                var innerKeyword = tokens[pos].Value?.ToLowerInvariant() ?? "";
+                pos++;
+                SkipWhitespace(tokens, ref pos);
+                if (innerKeyword == "page")
+                    ParsePageRule(sheet, tokens, ref pos);
+                else
+                    SkipAtRule(tokens, ref pos);
+                continue;
+            }
+
             var innerRule = ParseSingleStyleRule(tokens, ref pos);
             if (innerRule != null)
                 rule.Rules.Add(innerRule);

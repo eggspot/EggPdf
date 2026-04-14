@@ -71,6 +71,11 @@ public static class StandardFontMetrics
         ["Helvetica-Bold"] = HelveticaBoldWidths,
         ["Helvetica-Oblique"] = HelveticaWidths,  // same widths as regular
         ["Helvetica-BoldOblique"] = HelveticaBoldWidths,
+        // Arial is metric-compatible with Helvetica (identical advance widths per PDF spec)
+        ["Arial"] = HelveticaWidths,
+        ["Arial-Bold"] = HelveticaBoldWidths,
+        ["Arial-Italic"] = HelveticaWidths,
+        ["Arial-BoldItalic"] = HelveticaBoldWidths,
         ["Times-Roman"] = TimesRomanWidths,
         ["Times-Bold"] = TimesRomanWidths, // approximate with regular widths
         ["Times-Italic"] = TimesRomanWidths,
@@ -140,6 +145,17 @@ public static class StandardFontMetrics
             if (bold) return "Times-Bold";
             if (italic) return "Times-Italic";
             return "Times-Roman";
+        }
+
+        // Arial and Segoe UI: return "Arial" so the system TrueType font gets embedded.
+        // Arial is metric-compatible with Helvetica, so layout measurements remain correct.
+        if (family.IndexOf("arial", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            family.IndexOf("segoe", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            if (bold && italic) return "Arial-BoldItalic";
+            if (bold) return "Arial-Bold";
+            if (italic) return "Arial-Italic";
+            return "Arial";
         }
 
         // Default: Helvetica (sans-serif)
