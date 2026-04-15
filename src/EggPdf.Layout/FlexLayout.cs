@@ -62,6 +62,15 @@ public static class FlexLayout
             ResolveFlexibleLengths(lines[li], mainSize, mainGap, isRow);
         }
 
+        // Re-layout items whose width changed from the initial CreateBox pass.
+        // This ensures inner content (text, block children) wraps at the correct
+        // flex-resolved width rather than overflowing at the initial container width.
+        if (isRow)
+        {
+            for (int li = 0; li < lines.Count; li++)
+                RelayoutRowItemsIfResized(lines[li], container, resolver, style);
+        }
+
         // Determine cross sizes for each line
         DetermineLineCrossSizes(lines, crossSize, crossGap, alignItems, isRow);
 
@@ -211,22 +220,14 @@ public static class FlexLayout
             }
             else
             {
-                // Auto: use content-based size
+                // Auto: use content-based size.
+                // Recurse to leaf text/image boxes to get the true max-content width.
+                // Direct children of auto-width block elements (e.g. <p> inside a flex item div)
+                // have ContentWidth equal to the containing block width, which would inflate
+                // the baseSize incorrectly. Leaf text runs have ContentWidth = measured text width.
                 if (isRow)
                 {
-                    // Use the measured content width from child boxes
-                    // Text boxes have ContentWidth = measured text width (not full container width)
-                    float contentBasedWidth = 0;
-                    for (int ci = 0; ci < childBox.Children.Count; ci++)
-                    {
-                        float cw = childBox.Children[ci].ContentWidth;
-                        if (cw > contentBasedWidth) contentBasedWidth = cw;
-                    }
-                    // If no children, measure the element's own text content
-                    if (contentBasedWidth <= 0 && childBox.ContentWidth < childBox.Width)
-                        contentBasedWidth = childBox.ContentWidth;
-                    // Include padding
-                    baseSize = contentBasedWidth + childBox.PaddingLeft + childBox.PaddingRight;
+                    baseSize = GetMaxLeafContentWidth(childBox);
                 }
                 else
                 {
@@ -256,6 +257,7 @@ public static class FlexLayout
             items.Add(new FlexItem
             {
                 Box = childBox,
+                Element = childElem,
                 Style = childStyle,
                 FlexGrow = flexGrow,
                 FlexShrink = flexShrink,
@@ -265,7 +267,8 @@ public static class FlexLayout
                 AlignSelf = alignSelf,
                 MinMain = minMain ?? 0,
                 MaxMain = maxMain ?? float.MaxValue,
-                SourceIndex = i
+                SourceIndex = i,
+                InitialBoxWidth = childBox.Width
             });
         }
 
@@ -560,6 +563,67 @@ public static class FlexLayout
         return offsets;
     }
 
+    /// <summary>
+    /// Recursively compute the max-content width of a box by finding the widest leaf box
+    /// (text run, image, or empty element) in the subtree. This avoids using the auto-filled
+    /// width of block descendants (which equals the containing block width, not content width).
+    /// </summary>
+    private static float GetMaxLeafContentWidth(LayoutBox box)
+    {
+        // Text run: ContentWidth is the measured word/glyph width (not container-fill width)
+        if (box.Text != null)
+            return box.ContentWidth + box.PaddingLeft + box.PaddingRight;
+
+        // Empty container with no text content: no intrinsic width
+        if (box.Children.Count == 0)
+            return 0;
+
+        float maxChildWidth = 0;
+        for (int i = 0; i < box.Children.Count; i++)
+        {
+            float w = GetMaxLeafContentWidth(box.Children[i]);
+            if (w > maxChildWidth) maxChildWidth = w;
+        }
+        return maxChildWidth + box.PaddingLeft + box.PaddingRight;
+    }
+
+    /// <summary>
+    /// Re-layout flex items (row direction) whose computed width differs from their initial
+    /// CreateBox width. This reflowing ensures block children wrap at the correct width
+    /// instead of overflowing at the initial full-container width.
+    /// </summary>
+    private static void RelayoutRowItemsIfResized(FlexLine line, LayoutBox container,
+        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? containerStyle)
+    {
+        for (int i = 0; i < line.Items.Count; i++)
+        {
+            var item = line.Items[i];
+            // Skip items whose width didn't change (explicit-width items that kept their size)
+            if (Math.Abs(item.Box.Width - item.InitialBoxWidth) < 0.5f) continue;
+
+            // Re-create the box with the flex-resolved width as the containing width.
+            // For an auto-width item: box.Width = containingWidth - marginLeft - marginRight,
+            // so pass containingWidth = computedWidth + margins to get box.Width = computedWidth.
+            float computedWidth = item.Box.Width; // set by ResolveFlexibleLengths
+            float reLayoutContaining = computedWidth + item.Box.MarginLeft + item.Box.MarginRight;
+
+            var newBox = BlockLayout.CreateBox(item.Element, item.Style, container,
+                reLayoutContaining, resolver, containerStyle);
+
+            // If the item has an explicit width in its style, CreateBox will set Width from
+            // the style value, which may differ from computedWidth (e.g. after shrink).
+            // In that case force the flex-resolved width so layout is consistent.
+            if (Math.Abs(newBox.Width - computedWidth) > 0.5f)
+            {
+                newBox.Width = computedWidth;
+                newBox.ContentWidth = computedWidth - newBox.PaddingLeft - newBox.PaddingRight;
+                if (newBox.ContentWidth < 0) newBox.ContentWidth = 0;
+            }
+
+            item.Box = newBox;
+        }
+    }
+
     /// <summary>Position items along the main axis.</summary>
     private static void PositionMainAxis(FlexLine line, float mainSize, float mainGap,
         string justifyContent, bool isRow, bool isReverse, LayoutBox container)
@@ -852,6 +916,7 @@ public static class FlexLayout
     private sealed class FlexItem
     {
         public LayoutBox Box = null!;
+        public HtmlElement Element = null!;
         public ComputedStyle Style = null!;
         public float FlexGrow;
         public float FlexShrink;
@@ -863,6 +928,8 @@ public static class FlexLayout
         public float MinMain;
         public float MaxMain;
         public int SourceIndex;
+        /// <summary>Box.Width at initial CreateBox time, before flex resizing.</summary>
+        public float InitialBoxWidth;
     }
 
     /// <summary>A flex line containing one or more flex items.</summary>

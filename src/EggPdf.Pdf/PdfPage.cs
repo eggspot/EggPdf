@@ -32,10 +32,8 @@ public class PdfPage
         UsedFonts.Add(fontName);
         ContentStream.AppendLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
         ContentStream.Append($"BT /{fontName} {F(fontSize)} Tf ");
-        if (letterSpacing != 0)
-            ContentStream.Append($"{F(letterSpacing)} Tc ");
-        if (wordSpacing != 0)
-            ContentStream.Append($"{F(wordSpacing)} Tw ");
+        ContentStream.Append($"{F(letterSpacing)} Tc ");
+        ContentStream.Append($"{F(wordSpacing)} Tw ");
         ContentStream.Append($"{F(x)} {F(y)} Td ");
         ContentStream.Append($"({EscapePdfString(text)}) Tj ");
         ContentStream.AppendLine("ET");
@@ -49,11 +47,8 @@ public class PdfPage
         UsedFonts.Add(fontName);
         ContentStream.AppendLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
         ContentStream.Append($"BT /{fontName} {F(fontSize)} Tf ");
-        ContentStream.Append($"/{fontName} {F(fontSize)} Tf ");
-        if (letterSpacing != 0)
-            ContentStream.Append($"{F(letterSpacing)} Tc ");
-        if (wordSpacing != 0)
-            ContentStream.Append($"{F(wordSpacing)} Tw ");
+        ContentStream.Append($"{F(letterSpacing)} Tc ");
+        ContentStream.Append($"{F(wordSpacing)} Tw ");
         ContentStream.Append($"{F(x)} {F(y)} Td ");
         // Encode glyph IDs as hex string: <001A002B003C>
         ContentStream.Append('<');

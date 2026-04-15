@@ -189,4 +189,51 @@ public class InlineLayoutTests
         // Both inline elements should be on the same line
         em!.Y.Should().Be(strong!.Y, "strong and em should share the same Y");
     }
+
+    [Fact]
+    public void TextNode_ThenInlineElement_XOrderCorrect()
+    {
+        // Reproduces: text node followed by inline element in same block
+        // Text "Hello " should come before the <a> "World" on the X axis
+        var root = LayoutTestHelper.Layout(
+            "<p>Hello <a href='#'>World</a></p>", 600, 800);
+
+        var p = root.FindByTag("p");
+        p.Should().NotBeNull();
+
+        // Find text run boxes for "Hello" (no element ref) and "World" (element ref = <a>)
+        var textBoxes = new System.Collections.Generic.List<LayoutBox>();
+        foreach (var child in p!.Children)
+            if (child.Text != null) textBoxes.Add(child);
+
+        textBoxes.Should().HaveCountGreaterThan(1, "should have multiple word boxes");
+
+        // First word ("Hello") should have smaller X than last word ("World")
+        float firstX = textBoxes[0].X;
+        float lastX = textBoxes[textBoxes.Count - 1].X;
+        lastX.Should().BeGreaterThan(firstX, "inline element text must follow the preceding text node");
+    }
+
+    [Fact]
+    public void MixedTextAndStrong_XOrderCorrect()
+    {
+        // Reproduces: (<strong>Stripe</strong> payment gateway)
+        var root = LayoutTestHelper.Layout(
+            "<p>(<strong>Bold</strong> normal text)</p>", 600, 800);
+
+        var p = root.FindByTag("p");
+        p.Should().NotBeNull();
+
+        var textBoxes = new System.Collections.Generic.List<LayoutBox>();
+        foreach (var child in p!.Children)
+            if (child.Text != null) textBoxes.Add(child);
+
+        // Should have at least 3 word boxes: "(", "Bold", " normal", ...
+        textBoxes.Should().HaveCountGreaterThan(2);
+
+        // Each successive word should be to the right of the previous
+        for (int i = 1; i < textBoxes.Count; i++)
+            textBoxes[i].X.Should().BeGreaterThan(textBoxes[i - 1].X,
+                $"word {i} ('{textBoxes[i].Text}') must be right of word {i-1} ('{textBoxes[i-1].Text}')");
+    }
 }

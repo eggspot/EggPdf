@@ -141,4 +141,24 @@ public class CssStyleSheetParserTests
             act.Should().NotThrow($"input '{input}' should not throw");
         }
     }
+
+    [Fact]
+    public void PageRule_InsideMediaPrint_IsAddedToPageRules()
+    {
+        var sheet = CssStyleSheetParser.Parse("@media print { @page { margin: 5mm; } }");
+
+        sheet.PageRules.Should().HaveCount(1, "nested @page inside @media print should be parsed");
+        sheet.PageRules[0].Declarations.Should().Contain(d => d.Property == "margin" && d.Value == "5mm");
+    }
+
+    [Fact]
+    public void PageRule_InsideMediaPrint_WithStyleRules_BothParsed()
+    {
+        var css = "@media print { body { margin: 0; } @page { margin: 5mm; } }";
+        var sheet = CssStyleSheetParser.Parse(css);
+
+        sheet.MediaRules.Should().HaveCount(1);
+        sheet.MediaRules[0].Rules.Should().HaveCount(1, "body rule should be in media rules");
+        sheet.PageRules.Should().HaveCount(1, "@page should be extracted to top-level PageRules");
+    }
 }

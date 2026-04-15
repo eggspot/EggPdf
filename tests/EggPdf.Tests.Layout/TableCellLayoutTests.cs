@@ -129,6 +129,49 @@ public class TableCellLayoutTests
         tds[1].X.Should().BeGreaterThan(tds[0].X);
     }
 
+    [Fact]
+    public void ThHeader_PercentageWidth_ContentWidthReflectsColumnWidth()
+    {
+        // Regression: th with width:20% was being resolved relative to the CELL width (20%),
+        // not the table width — yielding content width = 20% of 20% of table = 4% of table.
+        // The text "Line Total" then wrapped to two lines inside a ~20px cell.
+        var root = LayoutTestHelper.Layout(
+            "<table style='width: 500px; border-collapse: collapse'><thead><tr>" +
+            "<th style='width: 50%'>Description</th>" +
+            "<th style='width: 30%'>Rate</th>" +
+            "<th style='width: 20%'>Line Total</th>" +
+            "</tr></thead></table>", 600, 800);
+
+        var ths = root.FindAllByTag("th");
+        ths.Should().HaveCount(3);
+
+        // Last th should be 20% of table width = 100px, not 20% of 100px = 20px
+        ths[2].Width.Should().BeApproximately(100f, 5f,
+            "th with width:20% should get 20% of TABLE width, not 20% of itself");
+
+        // "Line Total" must fit on a single text line (not wrap to two)
+        var lineBox = FindTextInSubtree(ths[2], "Line Total");
+        lineBox.Should().NotBeNull("Line Total text should be a single text box");
+    }
+
+    [Fact]
+    public void TdCell_PercentageWidth_ContentWidthReflectsColumnWidth()
+    {
+        // Same regression check for td cells
+        var root = LayoutTestHelper.Layout(
+            "<table style='width: 500px; border-collapse: collapse'><tbody><tr>" +
+            "<td style='width: 80%'>Long description text here</td>" +
+            "<td style='width: 20%'>Value</td>" +
+            "</tr></tbody></table>", 600, 800);
+
+        var tds = root.FindAllByTag("td");
+        tds.Should().HaveCount(2);
+
+        // Second td: 20% of 500px = 100px
+        tds[1].Width.Should().BeApproximately(100f, 5f,
+            "td with width:20% should get 20% of TABLE width, not 20% of itself");
+    }
+
     private static System.Collections.Generic.List<LayoutBox> GetCellsInRow(LayoutBox row)
     {
         var cells = new System.Collections.Generic.List<LayoutBox>();

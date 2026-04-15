@@ -107,7 +107,12 @@ public static class BlockLayout
         bool borderBox = style.Get("box-sizing") == "border-box";
 
         // Width
-        float? specifiedWidth = ResolveOptionalLength(style.Width, containingWidth, fontSize);
+        // For table cells (td/th), ignore the explicit width style — the column width has already
+        // been computed by the table layout algorithm and is passed in as containingWidth. Resolving
+        // a percentage width like "20%" relative to the cell's own containingWidth (which is already
+        // the column width) would give 20% of 20% = 4%, incorrectly shrinking the cell.
+        bool isTableCell = element.TagName == "td" || element.TagName == "th";
+        float? specifiedWidth = isTableCell ? null : ResolveOptionalLength(style.Width, containingWidth, fontSize);
         if (specifiedWidth.HasValue)
         {
             if (borderBox)

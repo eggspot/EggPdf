@@ -542,4 +542,156 @@ public class FlexLayoutTests
         item.X.Should().BeApproximately(container.X + 20f, 1f);
         item.Y.Should().BeApproximately(container.Y + 20f, 1f);
     }
+
+    [Fact]
+    public void FlexShorthand_SingleNumber_ProportionalSizing()
+    {
+        // flex: 2 + flex: 1 + flex: 1 + flex: 1 → widths in 2:1:1:1 ratio
+        // CSS spec: flex: <n> means flex-grow:<n>, flex-shrink:1, flex-basis:0
+        // With flex-basis:0, ALL container space is distributed by grow ratio
+        // Using explicit width on items to prove flex-basis:0 overrides it
+        var root = LayoutFlex(
+            "<div style='display: flex'>" +
+            "<div style='flex: 2; width: 50px; height: 50px'></div>" +
+            "<div style='flex: 1; width: 50px; height: 50px'></div>" +
+            "<div style='flex: 1; width: 50px; height: 50px'></div>" +
+            "<div style='flex: 1; width: 50px; height: 50px'></div>" +
+            "</div>");
+
+        var container = FindInnerDivs(root)[0];
+        float w = container.ContentWidth;
+
+        var item1 = container.Children[0];
+        var item2 = container.Children[1];
+        var item3 = container.Children[2];
+        var item4 = container.Children[3];
+
+        // flex-basis:0 means full container width distributed 2:1:1:1,
+        // ignoring the width:50px (flex-basis:0 takes precedence over width)
+        item1.Width.Should().BeApproximately(w * 2f / 5f, 1f);
+        item2.Width.Should().BeApproximately(w * 1f / 5f, 1f);
+        item3.Width.Should().BeApproximately(w * 1f / 5f, 1f);
+        item4.Width.Should().BeApproximately(w * 1f / 5f, 1f);
+    }
+
+    [Fact]
+    public void FlexShorthand_None_ZeroGrow()
+    {
+        // flex: none → flex-grow:0, flex-shrink:0, flex-basis:auto → item keeps natural size
+        var root = LayoutFlex(
+            "<div style='display: flex'>" +
+            "<div style='flex: none; width: 100px; height: 50px'></div>" +
+            "<div style='flex: none; width: 80px; height: 50px'></div>" +
+            "</div>");
+
+        var container = FindInnerDivs(root)[0];
+        var item1 = container.Children[0];
+        var item2 = container.Children[1];
+
+        // flex: none → items keep their specified widths, no grow or shrink
+        item1.Width.Should().BeApproximately(100f, 1f);
+        item2.Width.Should().BeApproximately(80f, 1f);
+    }
+
+    [Fact]
+    public void FlexRow_SpaceBetween_BlockChildItems_SizedToTextNotContainerWidth()
+    {
+        // Two items each wrapping block <p> children (no explicit widths, no flex properties).
+        // Without the fix: each item's baseSize = container width (inflated by auto-width <p> blocks).
+        // With the fix: each item's baseSize = max leaf text width, much smaller than container.
+        // Result: neither item should be anywhere near the container width (400px).
+        var root = LayoutFlex(
+            "<div style='display:flex; justify-content:space-between; width:400px; margin:0; padding:0'>" +
+            "<div style='margin:0; padding:0'><p style='margin:0'>Left item</p></div>" +
+            "<div style='margin:0; padding:0'><p style='margin:0'>Right</p></div>" +
+            "</div>");
+
+        var container = FindInnerDivs(root)[0];
+        var item1 = container.Children[0];
+        var item2 = container.Children[1];
+
+        // If content-based sizing is wrong, items would each be ~200px (shrunk from 400px).
+        // With correct sizing, items should be their text widths (~50-80px each).
+        item1.Width.Should().BeLessThan(200f, "item should be sized to text, not container");
+        item2.Width.Should().BeLessThan(200f, "item should be sized to text, not container");
+
+        // Items at opposite ends (space-between) — item2 should start well past item1
+        item2.X.Should().BeGreaterThan(item1.X + item1.Width + 50f,
+            "space-between should place items far apart when they are narrower than container");
+    }
+
+    [Fact]
+    public void FlexGrow_ProportionalRatio_FlexShorthand_2and1()
+    {
+        // flex:2 + flex:1 + flex:1 → widths in ratio 2:1:1 → 200:100:100 in 400px
+        var root = LayoutFlex(
+            "<div style='display:flex; width:400px; margin:0; padding:0'>" +
+            "<div style='flex:2; margin:0; padding:0'></div>" +
+            "<div style='flex:1; margin:0; padding:0'></div>" +
+            "<div style='flex:1; margin:0; padding:0'></div>" +
+            "</div>");
+
+        var container = FindInnerDivs(root)[0];
+        container.Children.Count.Should().Be(3);
+
+        container.Children[0].Width.Should().BeApproximately(200f, 1f);
+        container.Children[1].Width.Should().BeApproximately(100f, 1f);
+        container.Children[2].Width.Should().BeApproximately(100f, 1f);
+    }
+
+    [Fact]
+    public void FlexRow_AutoWidthItems_InnerBlockChildrenFitFinalWidth()
+    {
+        // Two flex:1 items each wrapping a <p>. After layout the <p> must fit
+        // within its flex-parent, not overflow at the initial full-container width.
+        var root = LayoutFlex(
+            "<div style='display:flex; width:400px; margin:0; padding:0'>" +
+            "<div style='flex:1; margin:0; padding:0'>" +
+            "<p style='margin:0'>Content A</p>" +
+            "</div>" +
+            "<div style='flex:1; margin:0; padding:0'>" +
+            "<p style='margin:0'>Content B</p>" +
+            "</div>" +
+            "</div>");
+
+        var container = FindInnerDivs(root)[0];
+        container.Children.Count.Should().BeGreaterOrEqualTo(2);
+
+        var item1 = container.Children[0];
+        var item2 = container.Children[1];
+
+        item1.Width.Should().BeApproximately(200f, 1f);
+        item2.Width.Should().BeApproximately(200f, 1f);
+
+        // Inner <p> tags must not exceed their parent's width
+        foreach (var child in item1.Children)
+            child.Width.Should().BeLessOrEqualTo(item1.Width + 0.5f, "inner content must fit within flex item");
+        foreach (var child in item2.Children)
+            child.Width.Should().BeLessOrEqualTo(item2.Width + 0.5f, "inner content must fit within flex item");
+    }
+
+    [Fact]
+    public void FlexRow_SpaceBetween_AutoWidth_InnerChildrenDoNotOverflow()
+    {
+        // justify-content: space-between with two auto-width items.
+        // Each item's inner block must not overflow into the other item's space.
+        var root = LayoutFlex(
+            "<div style='display:flex; justify-content:space-between; width:400px; margin:0; padding:0'>" +
+            "<div style='margin:0; padding:0'><p style='margin:0'>Left text</p></div>" +
+            "<div style='margin:0; padding:0'><p style='margin:0'>Right text</p></div>" +
+            "</div>");
+
+        var container = FindInnerDivs(root)[0];
+        var item1 = container.Children[0];
+        var item2 = container.Children[1];
+
+        // Items must not overlap
+        item2.X.Should().BeGreaterOrEqualTo(item1.X + item1.Width - 0.5f, "items must not overlap");
+
+        // Inner children must fit within their parent
+        foreach (var child in item1.Children)
+            child.Width.Should().BeLessOrEqualTo(item1.Width + 0.5f);
+        foreach (var child in item2.Children)
+            child.Width.Should().BeLessOrEqualTo(item2.Width + 0.5f);
+    }
 }
