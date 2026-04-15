@@ -536,6 +536,12 @@ public static class HtmlToPdf
             case "Courier-BoldOblique":
             case "Symbol":
             case "ZapfDingbats":
+            // Arial variants are metric-compatible with Helvetica and available on all major
+            // operating systems. Reference without embedding; PDF viewers load system Arial.
+            case "Arial":
+            case "Arial-Bold":
+            case "Arial-Italic":
+            case "Arial-BoldItalic":
                 return true;
             default:
                 return false;
