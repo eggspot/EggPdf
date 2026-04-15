@@ -162,6 +162,7 @@ dotnet run --project src/EggPdf.Service -c Release -- --urls http://localhost:55
 - `/ship` -- create PR with test + perf evidence
 - `/fix` -- fix a bug (reproduce with test first)
 - `/render-debug` -- trace a rendering issue through the pipeline
+- `/review` -- dual-perspective code review: Lead Dev (architecture/correctness) + Dev (implementation/tests), runs in main agent for easy follow-up
 
 ## Key Files
 
