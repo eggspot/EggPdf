@@ -4,7 +4,7 @@
     <TargetFrameworks>net6.0;net8.0;net9.0;net10.0</TargetFrameworks>
     <RootNamespace>EggPdf.AspNetCore</RootNamespace>
     <Description>ASP.NET Core integration for EggPdf (PdfResult, middleware)</Description>
-    <Version>1.1.3</Version>
+    <Version>1.1.4</Version>
   </PropertyGroup>
 
   <ItemGroup>
