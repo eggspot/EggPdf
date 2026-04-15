@@ -137,6 +137,11 @@ dotnet run --project src/EggPdf.Service -c Release -- --urls http://localhost:55
 # Docker uses port 8080 (see docker/Dockerfile.service)
 ```
 
+## Code Editing
+
+- Always edit source files directly using the Edit or Write tools -- never create helper scripts (PowerShell, Python, bash, etc.) to modify code files.
+- Read the file first, understand the context, then apply targeted edits.
+
 ## Code Style
 
 - C# 12+ features OK, but must compile on netstandard2.0 via `#if`
