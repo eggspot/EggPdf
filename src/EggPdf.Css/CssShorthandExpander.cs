@@ -73,6 +73,15 @@ public static class CssShorthandExpander
             case "place-content":
                 ExpandTwoPartShorthand(value, "align-content", "justify-content", style);
                 return true;
+            case "text-emphasis":
+                ExpandTextEmphasisShorthand(value, style);
+                return true;
+            case "mask":
+                ExpandMaskShorthand(value, style);
+                return true;
+            case "border-image":
+                ExpandBorderImageShorthand(value, style);
+                return true;
             default:
                 return false;
         }
@@ -602,5 +611,216 @@ public static class CssShorthandExpander
         var second = parts.Length >= 2 ? parts[1] : first;
         style.Set(firstProp, first);
         style.Set(secondProp, second);
+    }
+
+    /// <summary>
+    /// Expand text-emphasis shorthand: "[style] [color]" into text-emphasis-style and text-emphasis-color.
+    /// Style values: none, filled, open, dot, circle, double-circle, triangle, sesame, or quoted string.
+    /// Color: any CSS color value.
+    /// </summary>
+    private static void ExpandTextEmphasisShorthand(string value, ComputedStyle style)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+
+        var parts = value.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return;
+
+        // Known text-emphasis-style keywords
+        var styleKeywords = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "none", "filled", "open", "dot", "circle", "double-circle", "triangle", "sesame"
+        };
+
+        string? emphasisStyle = null;
+        string? emphasisColor = null;
+
+        foreach (var part in parts)
+        {
+            if (emphasisStyle == null && (styleKeywords.Contains(part) || part.StartsWith("'")))
+                emphasisStyle = part;
+            else if (emphasisColor == null)
+                emphasisColor = part;
+        }
+
+        if (emphasisStyle != null)
+            style.Set("text-emphasis-style", emphasisStyle);
+        if (emphasisColor != null)
+            style.Set("text-emphasis-color", emphasisColor);
+    }
+
+    /// <summary>
+    /// Expand mask shorthand into mask-image, mask-position, mask-size, mask-repeat,
+    /// mask-origin, mask-clip, mask-composite, mask-mode longhands.
+    /// Simplified: extracts url(...) as mask-image, then handles position/size/repeat keywords.
+    /// </summary>
+    private static void ExpandMaskShorthand(string value, ComputedStyle style)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+
+        var trimmed = value.Trim();
+
+        // Extract url(...) as mask-image
+        int urlStart = trimmed.IndexOf("url(", StringComparison.OrdinalIgnoreCase);
+        if (urlStart >= 0)
+        {
+            int urlEnd = trimmed.IndexOf(')', urlStart);
+            if (urlEnd >= 0)
+            {
+                string urlPart = trimmed.Substring(urlStart, urlEnd - urlStart + 1);
+                style.Set("mask-image", urlPart);
+
+                // Process remainder after url(...)
+                string remainder = trimmed.Substring(urlEnd + 1).Trim();
+                if (!string.IsNullOrEmpty(remainder))
+                    ExpandMaskRemainder(remainder, style);
+                return;
+            }
+        }
+
+        // No url — try gradient or keyword
+        if (trimmed.StartsWith("linear-gradient", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("radial-gradient", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("conic-gradient", StringComparison.OrdinalIgnoreCase))
+        {
+            style.Set("mask-image", trimmed);
+            return;
+        }
+
+        if (trimmed.Equals("none", StringComparison.OrdinalIgnoreCase))
+        {
+            style.Set("mask-image", "none");
+            return;
+        }
+
+        // Fallback: store as mask-image
+        style.Set("mask-image", trimmed);
+    }
+
+    private static void ExpandMaskRemainder(string remainder, ComputedStyle style)
+    {
+        var repeatKeywords = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "repeat", "repeat-x", "repeat-y", "no-repeat", "space", "round"
+        };
+        var positionKeywords = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "top", "bottom", "left", "right", "center"
+        };
+        var compositKeywords = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "add", "subtract", "intersect", "exclude"
+        };
+
+        var parts = remainder.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            if (repeatKeywords.Contains(part))
+                style.Set("mask-repeat", part);
+            else if (positionKeywords.Contains(part))
+                style.Set("mask-position", part);
+            else if (compositKeywords.Contains(part))
+                style.Set("mask-composite", part);
+        }
+    }
+
+    /// <summary>
+    /// Expand the border-image shorthand.
+    /// Syntax: border-image: &lt;source&gt; [&lt;slice&gt; [/ &lt;width&gt; [/ &lt;outset&gt;]]?] [&lt;repeat&gt;]
+    /// </summary>
+    private static void ExpandBorderImageShorthand(string value, ComputedStyle style)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value == "none") return;
+
+        // Extract source: url(...) or gradient function
+        string rest = value.Trim();
+        string? source = null;
+
+        if (rest.IndexOf("url(", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            rest.IndexOf("linear-gradient(", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            rest.IndexOf("radial-gradient(", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            rest.IndexOf("conic-gradient(", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            rest.IndexOf("none", StringComparison.OrdinalIgnoreCase) == 0)
+        {
+            // Find the end of the first function call (url(...) or gradient(...))
+            int funcStart = rest.IndexOf('(');
+            if (funcStart >= 0)
+            {
+                int depth = 0;
+                int funcEnd = funcStart;
+                for (int i = funcStart; i < rest.Length; i++)
+                {
+                    if (rest[i] == '(') depth++;
+                    else if (rest[i] == ')') { depth--; if (depth == 0) { funcEnd = i; break; } }
+                }
+                source = rest.Substring(0, funcEnd + 1).Trim();
+                rest = rest.Substring(funcEnd + 1).Trim();
+            }
+            else if (rest.StartsWith("none", StringComparison.OrdinalIgnoreCase))
+            {
+                source = "none";
+                rest = rest.Substring(4).Trim();
+            }
+        }
+
+        if (source != null)
+            style.Set("border-image-source", source);
+
+        // Repeat keywords
+        var repeatKw = new[] { "stretch", "repeat", "round", "space" };
+
+        // Find repeat at end of remaining value
+        string? repeat = null;
+        foreach (var kw in repeatKw)
+        {
+            int kwIdx = rest.IndexOf(kw, StringComparison.OrdinalIgnoreCase);
+            if (kwIdx >= 0)
+            {
+                // Collect all repeat keywords
+                var repeatParts = new System.Text.StringBuilder();
+                string[] tokens = rest.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                var nonRepeat = new System.Text.StringBuilder();
+                foreach (var tok in tokens)
+                {
+                    bool isRepeat = false;
+                    foreach (var rkw in repeatKw)
+                        if (tok.Equals(rkw, StringComparison.OrdinalIgnoreCase)) { isRepeat = true; break; }
+                    if (isRepeat)
+                    {
+                        if (repeatParts.Length > 0) repeatParts.Append(' ');
+                        repeatParts.Append(tok);
+                    }
+                    else
+                    {
+                        if (nonRepeat.Length > 0) nonRepeat.Append(' ');
+                        nonRepeat.Append(tok);
+                    }
+                }
+                if (repeatParts.Length > 0)
+                    style.Set("border-image-repeat", repeatParts.ToString());
+                rest = nonRepeat.ToString();
+                break;
+            }
+        }
+
+        // remaining: slice [/ width [/ outset]]
+        rest = rest.Trim();
+        if (string.IsNullOrEmpty(rest)) return;
+
+        var slashParts = rest.Split('/');
+        string sliceStr = slashParts[0].Trim();
+        if (!string.IsNullOrEmpty(sliceStr))
+            style.Set("border-image-slice", sliceStr);
+        if (slashParts.Length > 1)
+        {
+            string widthStr = slashParts[1].Trim();
+            if (!string.IsNullOrEmpty(widthStr))
+                style.Set("border-image-width", widthStr);
+        }
+        if (slashParts.Length > 2)
+        {
+            string outsetStr = slashParts[2].Trim();
+            if (!string.IsNullOrEmpty(outsetStr))
+                style.Set("border-image-outset", outsetStr);
+        }
     }
 }

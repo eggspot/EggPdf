@@ -186,4 +186,33 @@ public class CssVariablesTests
         CssVariableResolver.IsCustomProperty("--").Should().BeFalse();
         CssVariableResolver.IsCustomProperty("").Should().BeFalse();
     }
+
+    // ── env() tests ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Env_SafeAreaInset_ReturnsZero()
+    {
+        // env(safe-area-inset-top) should resolve to 0px for PDF rendering
+        var style = new ComputedStyle();
+        var result = CssVariableResolver.ResolveVariables("env(safe-area-inset-top)", style);
+        result.Should().Be("0px");
+    }
+
+    [Fact]
+    public void Env_WithFallback_UsesFallback()
+    {
+        // env(--unknown, 10px) — unknown env var, uses fallback
+        var style = new ComputedStyle();
+        var result = CssVariableResolver.ResolveVariables("env(--unknown, 10px)", style);
+        result.Should().Be("10px");
+    }
+
+    [Fact]
+    public void Env_InCalc_Works()
+    {
+        // calc(100px + env(safe-area-inset-top)) should resolve to calc(100px + 0px)
+        var style = new ComputedStyle();
+        var result = CssVariableResolver.ResolveVariables("calc(100px + env(safe-area-inset-top))", style);
+        result.Should().Be("calc(100px + 0px)");
+    }
 }

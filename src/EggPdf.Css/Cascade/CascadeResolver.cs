@@ -265,6 +265,11 @@ public class CascadeResolver
             case "font-kerning":
             case "font-optical-sizing":
             case "font-variation-settings":
+            case "print-color-adjust":
+            case "text-emphasis":
+            case "text-emphasis-style":
+            case "text-emphasis-color":
+            case "text-emphasis-position":
                 return true;
             default:
                 return CssVariableResolver.IsCustomProperty(property);
@@ -282,7 +287,8 @@ public class CascadeResolver
         foreach (var kv in style.All)
         {
             if (!CssVariableResolver.IsCustomProperty(kv.Key) &&
-                kv.Value.IndexOf("var(", StringComparison.OrdinalIgnoreCase) >= 0)
+                (kv.Value.IndexOf("var(", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 kv.Value.IndexOf("env(", StringComparison.OrdinalIgnoreCase) >= 0))
             {
                 toResolve.Add(kv);
             }

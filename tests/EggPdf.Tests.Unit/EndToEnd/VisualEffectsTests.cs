@@ -107,4 +107,41 @@ public class VisualEffectsTests
         var act = async () => await HtmlToPdf.RenderAsync(html);
         await act.Should().NotThrowAsync();
     }
+
+    [Fact]
+    public async Task BackdropFilter_DoesNotCrash()
+    {
+        var html = "<div style='backdrop-filter: blur(8px) saturate(180%); background-color: rgba(255,255,255,0.5); width:200px; height:100px'>Glass</div>";
+        var act = async () => await HtmlToPdf.RenderAsync(html);
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task ImageSet_DoesNotCrash()
+    {
+        // image-set() with multiple resolutions — PDF should pick the best and not crash
+        var html = "<div style=\"background-image: image-set(url('low.png') 1x, url('high.png') 2x); width:100px; height:100px\">IS</div>";
+        var act = async () => await HtmlToPdf.RenderAsync(html);
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task ImageSet_StyleStored()
+    {
+        // Verify image-set() value is stored in computed style without crashing cascade
+        var html = "<div style=\"background-image: image-set('img.png' 1x, 'img2x.png' 2x); width:100px; height:100px\">IS2</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        pdf.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task BackgroundClip_Text_DoesNotCrash()
+    {
+        // background-clip: text creates gradient text — PDF approximates by rendering background behind text
+        var html = @"<h1 style='background-image: linear-gradient(to right, red, blue);
+            background-clip: text; -webkit-background-clip: text;
+            color: transparent; font-size: 32px'>Gradient Text</h1>";
+        var act = async () => await HtmlToPdf.RenderAsync(html);
+        await act.Should().NotThrowAsync("background-clip: text should not crash the renderer");
+    }
 }

@@ -413,4 +413,48 @@ public class TextFormattingTests
         var p = root.FindByTag("p");
         p!.Style.Get("text-align-last").Should().Be("left");
     }
+
+    // ── text-emphasis ────────────────────────────────────────────────────────
+
+    [Fact]
+    public void TextEmphasis_Dot_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<span style='text-emphasis: dot'>CJK</span>", 400, 600);
+        var span = root.FindByTag("span");
+        span.Should().NotBeNull();
+        span!.Style.Get("text-emphasis-style").Should().Be("dot",
+            "text-emphasis: dot shorthand should set text-emphasis-style");
+    }
+
+    [Fact]
+    public void TextEmphasis_Position_Over_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<span style='text-emphasis-position: over'>CJK</span>", 400, 600);
+        var span = root.FindByTag("span");
+        span.Should().NotBeNull();
+        span!.Style.Get("text-emphasis-position").Should().Be("over");
+    }
+
+    [Fact]
+    public void TextEmphasis_Color_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<span style='text-emphasis-color: red'>CJK</span>", 400, 600);
+        var span = root.FindByTag("span");
+        span.Should().NotBeNull();
+        span!.Style.Get("text-emphasis-color").Should().Be("red");
+    }
+
+    [Fact]
+    public void TextEmphasis_Inherited_FromParent()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='text-emphasis-color: blue'><span>child</span></div>", 400, 600);
+        var span = root.FindByTag("span");
+        span.Should().NotBeNull();
+        span!.Style.Get("text-emphasis-color").Should().Be("blue",
+            "text-emphasis-color is an inherited property");
+    }
 }

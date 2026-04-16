@@ -1623,6 +1623,82 @@ internal static class PdfRenderer
                     return new Matrix2D { A = args[0], B = args[1], C = args[2], D = args[3], E = args[4], F = args[5] };
                 return null;
             }
+            // ── 3D transform functions (flattened to 2D for PDF) ────────────────
+            case "rotateZ":
+            {
+                // rotateZ is identical to rotate in 2D
+                float angle = args.Length > 0 ? args[0] : 0;
+                float cos = (float)Math.Cos(angle);
+                float sin = (float)Math.Sin(angle);
+                return new Matrix2D { A = cos, B = sin, C = -sin, D = cos, E = 0, F = 0 };
+            }
+            case "rotateX":
+            {
+                // Orthographic flatten: X axis unchanged, Y compressed by cos(angle)
+                float angle = args.Length > 0 ? args[0] : 0;
+                float cos = (float)Math.Abs(Math.Cos(angle));
+                return new Matrix2D { A = 1, B = 0, C = 0, D = cos, E = 0, F = 0 };
+            }
+            case "rotateY":
+            {
+                // Orthographic flatten: Y axis unchanged, X compressed by cos(angle)
+                float angle = args.Length > 0 ? args[0] : 0;
+                float cos = (float)Math.Abs(Math.Cos(angle));
+                return new Matrix2D { A = cos, B = 0, C = 0, D = 1, E = 0, F = 0 };
+            }
+            case "rotate3d":
+            {
+                // rotate3d(x, y, z, angle) — if axis is primarily Z, treat as rotateZ
+                float x = args.Length > 0 ? args[0] : 0;
+                float y = args.Length > 1 ? args[1] : 0;
+                float z = args.Length > 2 ? args[2] : 0;
+                float ang = args.Length > 3 ? args[3] : 0;
+                float len = (float)Math.Sqrt(x * x + y * y + z * z);
+                if (len < 0.0001f) return null;
+                float nz = z / len;
+                float cos = (float)Math.Cos(ang);
+                float sin = (float)Math.Sin(ang);
+                // Weight 2D rotation by Z component; flatten X/Y components
+                float a = cos + (1 - cos) * (1 - nz * nz) < 0 ? 0 : cos;
+                return new Matrix2D { A = a, B = nz * sin, C = -nz * sin, D = a, E = 0, F = 0 };
+            }
+            case "translateZ":
+            {
+                // Z translation has no 2D effect — return identity (not null, so hasTransform stays false)
+                return null;
+            }
+            case "translate3d":
+            {
+                float tx = args.Length > 0 ? args[0] : 0;
+                float ty = args.Length > 1 ? args[1] : 0;
+                // tz (args[2]) is ignored in 2D
+                return new Matrix2D { A = 1, B = 0, C = 0, D = 1, E = tx, F = ty };
+            }
+            case "scaleZ":
+            {
+                // Z scale has no 2D effect
+                return null;
+            }
+            case "scale3d":
+            {
+                float sx = args.Length > 0 ? args[0] : 1;
+                float sy = args.Length > 1 ? args[1] : 1;
+                // sz (args[2]) is ignored in 2D
+                return new Matrix2D { A = sx, B = 0, C = 0, D = sy, E = 0, F = 0 };
+            }
+            case "perspective":
+            {
+                // perspective() in a transform list has no 2D flat equivalent
+                return null;
+            }
+            case "matrix3d":
+            {
+                // CSS matrix3d is column-major 4x4. Extract the 2D affine subset:
+                // a=m[0], b=m[1], c=m[4], d=m[5], e=m[12], f=m[13]
+                if (args.Length >= 16)
+                    return new Matrix2D { A = args[0], B = args[1], C = args[4], D = args[5], E = args[12], F = args[13] };
+                return null;
+            }
             default:
                 return null;
         }

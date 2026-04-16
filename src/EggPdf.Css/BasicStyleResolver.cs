@@ -23,7 +23,9 @@ public class BasicStyleResolver
         "border-collapse", "border-spacing", "caption-side", "empty-cells",
         "quotes", "tab-size",
         "font-feature-settings", "font-synthesis", "font-size-adjust",
-        "font-kerning", "font-optical-sizing", "font-variation-settings"
+        "font-kerning", "font-optical-sizing", "font-variation-settings",
+        "print-color-adjust",
+        "text-emphasis", "text-emphasis-style", "text-emphasis-color", "text-emphasis-position"
     };
 
     // UA defaults per element
@@ -196,7 +198,8 @@ public class BasicStyleResolver
         foreach (var kv in style.All)
         {
             if (!CssVariableResolver.IsCustomProperty(kv.Key) &&
-                kv.Value.IndexOf("var(", StringComparison.OrdinalIgnoreCase) >= 0)
+                (kv.Value.IndexOf("var(", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 kv.Value.IndexOf("env(", StringComparison.OrdinalIgnoreCase) >= 0))
             {
                 toResolve.Add(kv);
             }
