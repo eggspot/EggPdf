@@ -44,9 +44,17 @@ public static class GridLayout
         // Parse template areas if specified
         var areaMap = ParseTemplateAreas(templateAreas);
 
+        // Expand auto-fill / auto-fit repeat() before full track parsing
+        string? resolvedColumns = templateColumns;
+        if (!string.IsNullOrEmpty(resolvedColumns) && HasAutoRepeat(resolvedColumns))
+            resolvedColumns = ExpandAutoRepeat(resolvedColumns, container.ContentWidth, items.Count);
+        string? resolvedRows = templateRows;
+        if (!string.IsNullOrEmpty(resolvedRows) && HasAutoRepeat(resolvedRows))
+            resolvedRows = ExpandAutoRepeat(resolvedRows, container.ContentWidth, items.Count);
+
         // Parse column and row track definitions
-        var columnTracks = ParseTrackList(templateColumns, container.ContentWidth, fontSize);
-        var rowTracks = ParseTrackList(templateRows, container.ContentWidth, fontSize);
+        var columnTracks = ParseTrackList(resolvedColumns, container.ContentWidth, fontSize);
+        var rowTracks = ParseTrackList(resolvedRows, container.ContentWidth, fontSize);
 
         // If no explicit columns defined, determine from items
         if (columnTracks.Count == 0)
@@ -688,6 +696,128 @@ public static class GridLayout
         }
 
         return tracks;
+    }
+
+    /// <summary>Returns true if the track list contains an auto-fill or auto-fit repeat.</summary>
+    private static bool HasAutoRepeat(string input)
+    {
+        return input.IndexOf("auto-fill", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               input.IndexOf("auto-fit", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    /// <summary>
+    /// Expand repeat(auto-fill, ...) and repeat(auto-fit, ...) into concrete track lists.
+    /// auto-fill: creates as many tracks as fit (floor(containerWidth / minTrackSize)).
+    /// auto-fit: same count but capped to itemCount so empty tracks collapse.
+    /// </summary>
+    private static string ExpandAutoRepeat(string input, float containingSize, int itemCount)
+    {
+        int idx = 0;
+        while (idx < input.Length)
+        {
+            int repeatStart = input.IndexOf("repeat(", idx, StringComparison.OrdinalIgnoreCase);
+            if (repeatStart < 0) break;
+
+            // Find matching close paren
+            int parenDepth = 0;
+            int closeIdx = -1;
+            for (int i = repeatStart + 7; i < input.Length; i++)
+            {
+                if (input[i] == '(') parenDepth++;
+                else if (input[i] == ')')
+                {
+                    if (parenDepth == 0) { closeIdx = i; break; }
+                    parenDepth--;
+                }
+            }
+            if (closeIdx < 0) break;
+
+            string inner = input.Substring(repeatStart + 7, closeIdx - repeatStart - 7);
+            int commaIdx = inner.IndexOf(',');
+            if (commaIdx < 0) { idx = closeIdx + 1; continue; }
+
+            string countStr = inner.Substring(0, commaIdx).Trim();
+            bool isAutoFill = string.Equals(countStr, "auto-fill", StringComparison.OrdinalIgnoreCase);
+            bool isAutoFit = string.Equals(countStr, "auto-fit", StringComparison.OrdinalIgnoreCase);
+
+            if (!isAutoFill && !isAutoFit) { idx = closeIdx + 1; continue; }
+
+            string trackStr = inner.Substring(commaIdx + 1).Trim();
+
+            // Extract minimum size from minmax(min, max) to compute how many columns fit
+            float minSize = ExtractMinSizeFromTrack(trackStr);
+            if (minSize <= 0) minSize = 1;
+
+            int count = (int)(containingSize / minSize);
+            if (count < 1) count = 1;
+
+            // auto-fit: collapse empty tracks — only create tracks for actual items
+            if (isAutoFit)
+                count = Math.Min(count, Math.Max(1, itemCount));
+
+            // Use the max value (or full track) for the expanded track definition
+            string expandedTrack = ExtractMaxTrackValue(trackStr);
+
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < count; i++)
+            {
+                if (i > 0) sb.Append(' ');
+                sb.Append(expandedTrack);
+            }
+
+            string expanded = sb.ToString();
+            input = input.Substring(0, repeatStart) + expanded + input.Substring(closeIdx + 1);
+            idx = repeatStart + expanded.Length;
+        }
+
+        return input;
+    }
+
+    /// <summary>Extracts the minimum (first) size value from a minmax() track or returns the raw value.</summary>
+    private static float ExtractMinSizeFromTrack(string trackStr)
+    {
+        if (trackStr.StartsWith("minmax(", StringComparison.OrdinalIgnoreCase))
+        {
+            int closeIdx = trackStr.IndexOf(')');
+            if (closeIdx > 7)
+            {
+                string inner = trackStr.Substring(7, closeIdx - 7);
+                int commaIdx = inner.IndexOf(',');
+                if (commaIdx >= 0)
+                    return ParseSimpleLength(inner.Substring(0, commaIdx).Trim());
+            }
+        }
+        return ParseSimpleLength(trackStr);
+    }
+
+    /// <summary>Extracts the maximum (second) value from a minmax() track, or returns the raw value.</summary>
+    private static string ExtractMaxTrackValue(string trackStr)
+    {
+        if (trackStr.StartsWith("minmax(", StringComparison.OrdinalIgnoreCase))
+        {
+            int closeIdx = trackStr.IndexOf(')');
+            if (closeIdx > 7)
+            {
+                string inner = trackStr.Substring(7, closeIdx - 7);
+                int commaIdx = inner.IndexOf(',');
+                if (commaIdx >= 0)
+                    return inner.Substring(commaIdx + 1).Trim();
+            }
+        }
+        return trackStr;
+    }
+
+    /// <summary>Parse a simple CSS length value (px only) for auto-repeat minimum size calculation.</summary>
+    private static float ParseSimpleLength(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return 0;
+        if (value.EndsWith("px", StringComparison.OrdinalIgnoreCase))
+        {
+            var numStr = value.Substring(0, value.Length - 2);
+            if (float.TryParse(numStr, NumberStyles.Float, CultureInfo.InvariantCulture, out float px))
+                return px;
+        }
+        return 0;
     }
 
     /// <summary>Expand repeat(N, track) into N copies of track.</summary>

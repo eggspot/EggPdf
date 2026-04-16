@@ -277,4 +277,103 @@ public class BoxModelTests
         span!.Width.Should().BeApproximately(80, 1f);
         span.Height.Should().BeApproximately(40, 1f);
     }
+
+    // ── margin: auto centering ────────────────────────────────────────────────
+
+    [Fact]
+    public void MarginAuto_BothSides_CentersBlock()
+    {
+        // Use a zero-padding wrapper so the container edge is exactly known.
+        var root = LayoutTestHelper.Layout(
+            "<div id='wrap' style='width: 600px; padding: 0; margin: 0'>" +
+            "<div id='inner' style='width: 200px; margin: 0 auto'></div>" +
+            "</div>", 800, 800);
+
+        var wrap  = root.FindById("wrap");
+        var inner = root.FindById("inner");
+        wrap.Should().NotBeNull();
+        inner.Should().NotBeNull();
+
+        // Container is 600px wide, inner is 200px — should center at wrap.X + 200
+        float expectedX = wrap!.X + (600f - 200f) / 2f;
+        inner!.X.Should().BeApproximately(expectedX, 1f,
+            "margin: 0 auto should center a block within its container");
+    }
+
+    [Fact]
+    public void MarginAutoLeft_PushesBlockToRight()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div id='wrap' style='width: 600px; padding: 0; margin: 0'>" +
+            "<div id='inner' style='width: 200px; margin-left: auto; margin-right: 0'></div>" +
+            "</div>", 800, 800);
+
+        var wrap  = root.FindById("wrap");
+        var inner = root.FindById("inner");
+        wrap.Should().NotBeNull();
+        inner.Should().NotBeNull();
+
+        // margin-left absorbs all remaining space → inner pushed to right edge of wrap
+        float expectedX = wrap!.X + 600f - 200f;
+        inner!.X.Should().BeApproximately(expectedX, 1f,
+            "margin-left: auto should push block to the right edge");
+    }
+
+    [Fact]
+    public void MarginAutoRight_KeepsBlockAtLeft()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div id='wrap' style='width: 600px; padding: 0; margin: 0'>" +
+            "<div id='inner' style='width: 200px; margin-left: 0; margin-right: auto'></div>" +
+            "</div>", 800, 800);
+
+        var wrap  = root.FindById("wrap");
+        var inner = root.FindById("inner");
+        wrap.Should().NotBeNull();
+        inner.Should().NotBeNull();
+
+        // margin-right: auto — left margin is 0, block stays at left edge of wrap
+        inner!.X.Should().BeApproximately(wrap!.X, 1f,
+            "margin-right: auto with margin-left: 0 should keep block at left");
+    }
+
+    [Fact]
+    public void MarginAuto_ShorthandZeroAuto_Centering()
+    {
+        // Common pattern: margin: 0 auto via shorthand expander
+        var root = LayoutTestHelper.Layout(
+            "<div id='wrap' style='width: 900px; padding: 0; margin: 0'>" +
+            "<div id='inner' style='width: 300px; margin: 0 auto'></div>" +
+            "</div>", 1000, 800);
+
+        var wrap  = root.FindById("wrap");
+        var inner = root.FindById("inner");
+        wrap.Should().NotBeNull();
+        inner.Should().NotBeNull();
+
+        float expectedX = wrap!.X + (900f - 300f) / 2f; // 300 from wrap edge
+        inner!.X.Should().BeApproximately(expectedX, 1f,
+            "margin: 0 auto should center within the 900px container");
+    }
+
+    // ── outline-offset ───────────────────────────────────────────────────────
+
+    [Fact]
+    public void OutlineOffset_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='outline: 2px solid black; outline-offset: 5px'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div!.Style.Get("outline-offset").Should().Be("5px",
+            "outline-offset should be preserved in computed style");
+    }
+
+    [Fact]
+    public void OutlineOffset_NegativeValue_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='outline: 2px solid black; outline-offset: -3px'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div!.Style.Get("outline-offset").Should().Be("-3px");
+    }
 }

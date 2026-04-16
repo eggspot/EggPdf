@@ -176,6 +176,55 @@ public class TextFormattingTests
         p!.Style.Get("text-decoration").Should().Be("line-through");
     }
 
+    [Fact]
+    public void TextUnderlineOffset_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<p style='text-decoration: underline; text-underline-offset: 4px'>Text</p>", 400, 600);
+        var p = root.FindByTag("p");
+        p!.Style.Get("text-underline-offset").Should().Be("4px",
+            "text-underline-offset should be preserved in computed style");
+    }
+
+    [Fact]
+    public void TextDecorationThickness_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<p style='text-decoration: underline; text-decoration-thickness: 2px'>Text</p>", 400, 600);
+        var p = root.FindByTag("p");
+        p!.Style.Get("text-decoration-thickness").Should().Be("2px",
+            "text-decoration-thickness should be preserved in computed style");
+    }
+
+    [Fact]
+    public void TextDecorationSkipInk_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<p style='text-decoration: underline; text-decoration-skip-ink: none'>Text</p>", 400, 600);
+        var p = root.FindByTag("p");
+        p!.Style.Get("text-decoration-skip-ink").Should().Be("none",
+            "text-decoration-skip-ink should be preserved in computed style");
+    }
+
+    [Fact]
+    public void TextDecorationColor_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<p style='text-decoration: underline; text-decoration-color: red'>Text</p>", 400, 600);
+        var p = root.FindByTag("p");
+        p!.Style.Get("text-decoration-color").Should().Be("red");
+    }
+
+    [Fact]
+    public void TextDecorationStyle_Wavy_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<p style='text-decoration: underline wavy'>Text</p>", 400, 600);
+        var p = root.FindByTag("p");
+        // text-decoration shorthand with style=wavy should set text-decoration-style
+        p!.Style.Get("text-decoration-style").Should().Be("wavy");
+    }
+
     // ── white-space ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -275,5 +324,93 @@ public class TextFormattingTests
         rootSmall.FindByTag("p")!.Height.Should()
             .BeLessThan(rootLarge.FindByTag("p")!.Height,
             "larger font size should produce taller text boxes");
+    }
+
+    // ── initial-letter (drop cap) ────────────────────────────────────────────
+
+    [Fact]
+    public void InitialLetter_StyleStoredOnParagraph()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<p style='initial-letter:3'>Once upon a time</p>", 400, 600);
+        var p = root.FindByTag("p");
+        p.Should().NotBeNull();
+        p!.Style.Get("initial-letter").Should().Be("3",
+            "initial-letter value should be preserved in style");
+    }
+
+    [Fact]
+    public void InitialLetter_3_FirstLetterTallerThanNormalText()
+    {
+        // With initial-letter:3, the first letter box should be about 3x taller than normal text
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0'>" +
+            "<p style='initial-letter:3; font-size:12px; width:300px'>Once upon a time in a land far away</p>" +
+            "</body>", 400, 600);
+
+        var p = root.FindByTag("p");
+        p.Should().NotBeNull();
+
+        // Find the first text child — should be the drop-cap letter 'O'
+        var textBoxes = p!.Children.FindAll(b => !string.IsNullOrEmpty(b.Text));
+        textBoxes.Should().NotBeEmpty("paragraph should have text boxes");
+
+        var firstLetterBox = textBoxes[0];
+        firstLetterBox.Text.Should().Be("O", "first text box should contain only the first letter");
+
+        // Normal line height at 12px ≈ 14-16px. Drop cap at 3 lines ≈ 42-48px.
+        firstLetterBox.Height.Should().BeGreaterThan(30f,
+            "initial-letter:3 should make first letter at least 3x taller than base font size");
+    }
+
+    [Fact]
+    public void InitialLetter_1_SameHeightAsNormalText()
+    {
+        // initial-letter:1 should behave like normal text (no enlargement)
+        var rootNormal = LayoutTestHelper.Layout(
+            "<p style='font-size:12px; width:200px'>Hello world</p>", 400, 600);
+        var rootDrop = LayoutTestHelper.Layout(
+            "<p style='initial-letter:1; font-size:12px; width:200px'>Hello world</p>", 400, 600);
+
+        var normalFirstBox = rootNormal.FindByTag("p")!.Children.Find(b => !string.IsNullOrEmpty(b.Text));
+        var dropFirstBox = rootDrop.FindByTag("p")!.Children.Find(b => !string.IsNullOrEmpty(b.Text));
+
+        normalFirstBox.Should().NotBeNull();
+        dropFirstBox.Should().NotBeNull();
+
+        // Heights should be similar (within 5px)
+        dropFirstBox!.Height.Should().BeApproximately(normalFirstBox!.Height, 5f,
+            "initial-letter:1 should not significantly change text height");
+    }
+
+    // ── text-align-last ─────────────────────────────────────────────────────
+
+    [Fact]
+    public void TextAlignLast_Center_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<p style='text-align: justify; text-align-last: center'>Some text</p>", 400, 600);
+        var p = root.FindByTag("p");
+        p.Should().NotBeNull();
+        p!.Style.Get("text-align-last").Should().Be("center",
+            "text-align-last: center should be preserved in computed style");
+    }
+
+    [Fact]
+    public void TextAlignLast_Right_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<p style='text-align: justify; text-align-last: right'>Some text</p>", 400, 600);
+        var p = root.FindByTag("p");
+        p!.Style.Get("text-align-last").Should().Be("right");
+    }
+
+    [Fact]
+    public void TextAlignLast_Left_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<p style='text-align-last: left'>Some text</p>", 400, 600);
+        var p = root.FindByTag("p");
+        p!.Style.Get("text-align-last").Should().Be("left");
     }
 }

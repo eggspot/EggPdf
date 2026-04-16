@@ -117,6 +117,12 @@ public readonly struct Color : IEquatable<Color>
             return TryParseHslFunction(value);
         }
 
+        // color-mix()
+        if (value.StartsWith("color-mix(", StringComparison.OrdinalIgnoreCase))
+        {
+            return TryParseColorMix(value);
+        }
+
         // Named colors
         return TryParseNamed(value);
     }
@@ -227,6 +233,66 @@ public readonly struct Color : IEquatable<Color>
         r = ClampByte((r1 + m) * 255f);
         g = ClampByte((g1 + m) * 255f);
         b = ClampByte((b1 + m) * 255f);
+    }
+
+    private static Color? TryParseColorMix(string value)
+    {
+        // color-mix(in <colorspace>, <color1> [<pct>], <color2> [<pct>])
+        // We support srgb, hsl (all treated as sRGB linear mix for now)
+        int openParen = value.IndexOf('(');
+        int closeParen = value.LastIndexOf(')');
+        if (openParen < 0 || closeParen < 0) return null;
+
+        var inner = value.Substring(openParen + 1, closeParen - openParen - 1).Trim();
+
+        // Split on commas to get: "in srgb", "red 30%", "blue"
+        var parts = inner.Split(',');
+        if (parts.Length != 3) return null;
+
+        // parts[0] = "in srgb" — ignore color space, always do sRGB
+        // parts[1] = "red 30%"  parts[2] = "blue 70%"
+        var (c1, p1) = ParseColorWithOptionalPct(parts[1].Trim());
+        var (c2, p2) = ParseColorWithOptionalPct(parts[2].Trim());
+
+        if (c1 == null || c2 == null) return null;
+
+        // If neither has a percentage, default to 50/50
+        float w1 = p1 ?? (p2.HasValue ? 1f - p2.Value : 0.5f);
+        float w2 = p2 ?? (1f - w1);
+
+        // Normalize so they sum to 1
+        float total = w1 + w2;
+        if (total <= 0) return null;
+        w1 /= total;
+        w2 /= total;
+
+        byte r = ClampByte(c1.Value.R * w1 + c2.Value.R * w2);
+        byte g = ClampByte(c1.Value.G * w1 + c2.Value.G * w2);
+        byte b = ClampByte(c1.Value.B * w1 + c2.Value.B * w2);
+        byte a = ClampByte(c1.Value.A * w1 + c2.Value.A * w2);
+        return FromRgba(r, g, b, a);
+    }
+
+    private static (Color? color, float? pct) ParseColorWithOptionalPct(string token)
+    {
+        // token = "red 30%" or "blue" or "#ff0000 50%"
+        // Find a trailing percentage
+        float? pct = null;
+        var lastSpace = token.LastIndexOf(' ');
+        if (lastSpace > 0)
+        {
+            var maybePct = token.Substring(lastSpace + 1).Trim();
+            if (maybePct.EndsWith("%"))
+            {
+                if (float.TryParse(maybePct.TrimEnd('%'), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float p))
+                {
+                    pct = p / 100f;
+                    token = token.Substring(0, lastSpace).Trim();
+                }
+            }
+        }
+        return (TryParse(token), pct);
     }
 
     public bool Equals(Color other) => R == other.R && G == other.G && B == other.B && A == other.A;

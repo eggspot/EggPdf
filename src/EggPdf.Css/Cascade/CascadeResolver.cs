@@ -17,6 +17,9 @@ public class CascadeResolver
     private readonly BasicStyleResolver _uaResolver = new();
     private readonly string _mediaType;
 
+    /// <summary>Custom @counter-style rules from all parsed stylesheets.</summary>
+    public List<CssCounterStyleRule> CounterStyleRules { get; } = new();
+
     public CascadeResolver(IEnumerable<CssStyleSheet> stylesheets, string mediaType = "print")
     {
         _mediaType = mediaType;
@@ -32,6 +35,9 @@ public class CascadeResolver
                 if (MediaMatches(mediaRule.MediaQuery))
                     _authorRules.AddRange(mediaRule.Rules);
             }
+
+            // @counter-style rules
+            CounterStyleRules.AddRange(sheet.CounterStyleRules);
         }
     }
 
@@ -139,6 +145,12 @@ public class CascadeResolver
         // 8. Resolve var() references in all non-custom property values
         ResolveCustomProperties(style);
 
+        // 9. Map logical properties (margin-inline-start, padding-block, inline-size, etc.)
+        //    to their physical counterparts based on writing direction.
+        bool isRTL = style.Get("direction") == "rtl";
+        bool isVertical = style.Get("writing-mode")?.IndexOf("vertical", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        LogicalPropertyResolver.Resolve(style, isRTL, isVertical);
+
         return style;
     }
 
@@ -205,8 +217,12 @@ public class CascadeResolver
                 style.Set(decl.Property, decl.Value);
         }
 
-        // Only return if there is a content property
-        if (!style.Has("content")) return null;
+        // ::before and ::after require a content property to generate a box.
+        // ::first-line, ::first-letter, and ::marker style existing content — no content property needed.
+        if (pseudo != "first-line" && pseudo != "first-letter" && pseudo != "marker")
+        {
+            if (!style.Has("content")) return null;
+        }
 
         ResolveCustomProperties(style);
         return style;
@@ -222,6 +238,11 @@ public class CascadeResolver
             case "font-size":
             case "font-weight":
             case "font-style":
+            case "font-variant":
+            case "font-variant-caps":
+            case "font-variant-numeric":
+            case "font-variant-ligatures":
+            case "font-variant-alternates":
             case "line-height":
             case "text-align":
             case "white-space":
@@ -236,6 +257,14 @@ public class CascadeResolver
             case "border-spacing":
             case "caption-side":
             case "empty-cells":
+            case "quotes":
+            case "tab-size":
+            case "font-feature-settings":
+            case "font-synthesis":
+            case "font-size-adjust":
+            case "font-kerning":
+            case "font-optical-sizing":
+            case "font-variation-settings":
                 return true;
             default:
                 return CssVariableResolver.IsCustomProperty(property);

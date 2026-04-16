@@ -13,6 +13,13 @@ public static class BlockLayout
     private const float DefaultFontSize = 16f;
     private const float DefaultLineHeight = 1.2f;
 
+    // Thread-local context for ::before/::after and CSS counters.
+    // Set by LayoutDocumentInternal when a CascadeResolver is available.
+    [System.ThreadStatic]
+    private static Css.Cascade.CascadeResolver? _threadCascadeResolver;
+    [System.ThreadStatic]
+    private static CssCounterContext? _threadCounterCtx;
+
     /// <summary>A segment of text with associated style for inline formatting.</summary>
     private struct InlineRun
     {
@@ -39,8 +46,20 @@ public static class BlockLayout
     public static LayoutBox LayoutDocument(HtmlDocument document, float pageWidth, float pageHeight,
         Css.Cascade.CascadeResolver cascadeResolver)
     {
-        return LayoutDocumentInternal(document, pageWidth, pageHeight,
-            (elem, parent) => cascadeResolver.Resolve(elem, parent));
+        _threadCascadeResolver = cascadeResolver;
+        _threadCounterCtx = new CssCounterContext();
+        if (cascadeResolver.CounterStyleRules.Count > 0)
+            _threadCounterCtx.RegisterCounterStyles(cascadeResolver.CounterStyleRules);
+        try
+        {
+            return LayoutDocumentInternal(document, pageWidth, pageHeight,
+                (elem, parent) => cascadeResolver.Resolve(elem, parent));
+        }
+        finally
+        {
+            _threadCascadeResolver = null;
+            _threadCounterCtx = null;
+        }
     }
 
     private static LayoutBox LayoutDocumentInternal(HtmlDocument document, float pageWidth, float pageHeight,
@@ -92,10 +111,12 @@ public static class BlockLayout
 
         // Handle shorthand margin/padding (single value -> all 4 sides)
         var marginShort = style.Get("margin");
-        box.MarginTop = ResolveLength(style.MarginTop ?? marginShort, containingWidth, fontSize);
-        box.MarginRight = ResolveLength(style.MarginRight ?? marginShort, containingWidth, fontSize);
+        string? rawMarginLeft  = style.MarginLeft  ?? marginShort;
+        string? rawMarginRight = style.MarginRight ?? marginShort;
+        box.MarginTop    = ResolveLength(style.MarginTop    ?? marginShort, containingWidth, fontSize);
+        box.MarginRight  = ResolveLength(rawMarginRight, containingWidth, fontSize);
         box.MarginBottom = ResolveLength(style.MarginBottom ?? marginShort, containingWidth, fontSize);
-        box.MarginLeft = ResolveLength(style.MarginLeft ?? marginShort, containingWidth, fontSize);
+        box.MarginLeft   = ResolveLength(rawMarginLeft, containingWidth, fontSize);
 
         var paddingShort = style.Get("padding");
         box.PaddingTop = ResolveLength(style.PaddingTop ?? paddingShort, containingWidth, fontSize);
@@ -148,6 +169,32 @@ public static class BlockLayout
         {
             box.Width = maxWidth.Value;
             box.ContentWidth = box.Width - box.PaddingLeft - box.PaddingRight;
+        }
+
+        // Auto-margin centering (CSS spec: block elements with explicit width and auto margins).
+        // Only applies when width is specified; auto-width elements fill the container instead.
+        if (specifiedWidth.HasValue)
+        {
+            bool leftAuto  = rawMarginLeft  == "auto";
+            bool rightAuto = rawMarginRight == "auto";
+            if (leftAuto || rightAuto)
+            {
+                float remaining = containingWidth - box.Width;
+                if (remaining < 0) remaining = 0;
+                if (leftAuto && rightAuto)
+                {
+                    box.MarginLeft  = remaining / 2f;
+                    box.MarginRight = remaining / 2f;
+                }
+                else if (leftAuto)
+                {
+                    box.MarginLeft = remaining - box.MarginRight;
+                }
+                else
+                {
+                    box.MarginRight = remaining - box.MarginLeft;
+                }
+            }
         }
 
         // Position
@@ -281,6 +328,22 @@ public static class BlockLayout
                 multiColWidth = colWidth; // lay out children at column width
         }
 
+        // CSS counters: apply counter-reset, counter-set, and counter-increment for this element
+        var counterCtx = _threadCounterCtx;
+        var cascadeRes  = _threadCascadeResolver;
+        if (counterCtx != null)
+        {
+            counterCtx.ApplyReset(style.Get("counter-reset"));
+            counterCtx.ApplySet(style.Get("counter-set"));
+            counterCtx.ApplyIncrement(style.Get("counter-increment"));
+        }
+
+        // Resolve ::first-line and ::first-letter pseudo-element styles (if any rules exist).
+        // These style existing content, not generated content, so no 'content' property is needed.
+        ComputedStyle? firstLineStyle = cascadeRes?.ResolvePseudoElement(element, "first-line", style);
+        ComputedStyle? firstLetterStyle = cascadeRes?.ResolvePseudoElement(element, "first-letter", style);
+        bool firstBlockLineEmitted = false; // tracks if the first text line of this block has been laid out
+
         // Layout children using inline formatting context awareness
         float childY = 0;
         float childContainingWidth = isMultiColumn ? multiColWidth : box.ContentWidth;
@@ -290,8 +353,45 @@ public static class BlockLayout
         bool lastWasTextNode = false; // track if previous child was a text node (for <br> handling)
         bool hasBlockChild = false;   // for O(1) margin-collapse first-child check
 
+        // Float tracking: record the bottom (relative to content area) of active floats
+        // so that clear: left/right/both and float stacking work correctly.
+        float leftFloatBottom = 0f;
+        float rightFloatBottom = 0f;
+
         // Collect absolutely/fixed positioned children for deferred layout
         var absChildren = new System.Collections.Generic.List<(HtmlElement elem, ComputedStyle style, string pos)>();
+
+        // ::before pseudo-element content
+        if (cascadeRes != null && counterCtx != null)
+        {
+            var beforeStyle = cascadeRes.ResolvePseudoElement(element, "before", style);
+            if (beforeStyle != null)
+            {
+                var content = counterCtx.ResolveContent(beforeStyle.Get("content"), element, beforeStyle);
+                if (content != null)
+                {
+                    float bFontSize = ResolveFontSize(beforeStyle.FontSize, fontSize);
+                    float bLineHeight = TextMeasurer.GetLineHeight(bFontSize, beforeStyle.Get("line-height"));
+                    var textBox = new LayoutBox
+                    {
+                        Style = beforeStyle,
+                        X = box.X + box.PaddingLeft,
+                        Y = box.Y + box.PaddingTop + childY,
+                        Width = childContainingWidth,
+                        Height = bLineHeight,
+                        ContentWidth = TextMeasurer.MeasureWidth(content, bFontSize,
+                            beforeStyle.FontFamily, beforeStyle.FontWeight, beforeStyle.Get("font-style")),
+                        ContentHeight = bLineHeight,
+                        Text = content
+                    };
+                    box.Children.Add(textBox);
+                    childY += bLineHeight;
+                }
+            }
+        }
+
+        // Form element special rendering: inject value/content text for void/custom form elements
+        childY = InjectFormElementContent(element, style, box, fontSize, childContainingWidth, childY);
 
         foreach (var childNode in element.ChildNodes)
         {
@@ -392,17 +492,80 @@ public static class BlockLayout
                         // Normal block layout: stack vertically
                         var childBox = CreateBox(childElem, childStyle, box, childContainingWidth, resolver, style);
 
-                        // Margin collapsing between adjacent block siblings
-                        float effectiveTopMargin = hasBlockChild
-                            ? Math.Max(prevMarginBottom, childBox.MarginTop)
-                            : childBox.MarginTop;
+                        var floatValue = childStyle.Get("float");
+                        bool isFloatChild = floatValue == "left" || floatValue == "right";
 
-                        childBox.Y = box.Y + box.PaddingTop + childY + effectiveTopMargin;
-                        childBox.X = box.X + box.PaddingLeft + childBox.MarginLeft;
+                        if (isFloatChild)
+                        {
+                            // Float: removed from normal flow — position at edge, don't increment childY.
+                            childBox.IsFloat = true;
+                            childBox.Y = box.Y + box.PaddingTop + childY;
 
-                        box.Children.Add(childBox);
-                        childY += effectiveTopMargin + childBox.Height;
-                        prevMarginBottom = childBox.MarginBottom;
+                            if (floatValue == "right")
+                                childBox.X = box.X + box.PaddingLeft + box.ContentWidth - childBox.Width;
+                            else
+                                childBox.X = box.X + box.PaddingLeft + childBox.MarginLeft;
+
+                            box.Children.Add(childBox);
+
+                            // Record float bottom (relative to content area) for clear tracking.
+                            // shape-margin expands the exclusion zone below the float.
+                            float floatRelBottom = childBox.Y + childBox.Height - (box.Y + box.PaddingTop);
+                            var shapeMarginStr = childStyle.Get("shape-margin");
+                            if (!string.IsNullOrEmpty(shapeMarginStr))
+                            {
+                                float sm = ResolveLength(shapeMarginStr, box.ContentWidth, fontSize);
+                                if (sm > 0) floatRelBottom += sm;
+                            }
+                            if (floatValue == "left")
+                                leftFloatBottom = Math.Max(leftFloatBottom, floatRelBottom);
+                            else
+                                rightFloatBottom = Math.Max(rightFloatBottom, floatRelBottom);
+                        }
+                        else
+                        {
+                            // clear: move childY below active floats
+                            var clearValue = childStyle.Get("clear");
+                            if (clearValue == "both" || clearValue == "left")
+                                childY = Math.Max(childY, leftFloatBottom);
+                            if (clearValue == "both" || clearValue == "right")
+                                childY = Math.Max(childY, rightFloatBottom);
+
+                            // Margin collapsing between adjacent block siblings
+                            float effectiveTopMargin = hasBlockChild
+                                ? Math.Max(prevMarginBottom, childBox.MarginTop)
+                                : childBox.MarginTop;
+
+                            childBox.Y = box.Y + box.PaddingTop + childY + effectiveTopMargin;
+                            childBox.X = box.X + box.PaddingLeft + childBox.MarginLeft;
+
+                            // Apply relative/sticky position offset after normal-flow position is set.
+                            // These must be applied here (not inside CreateBox) because the parent's
+                            // childBox.Y assignment above would overwrite any offset set inside CreateBox.
+                            var childPos = childStyle.Get("position");
+                            if (childPos == "relative" || childPos == "sticky")
+                            {
+                                float childFontSize = ResolveFontSize(childStyle.FontSize, fontSize);
+                                childBox.Y += ResolveLength(childStyle.Get("top"), 0, childFontSize);
+                                childBox.X += ResolveLength(childStyle.Get("left"), 0, childFontSize);
+                            }
+
+                            // visibility:collapse on table rows removes them from layout flow (no height).
+                            // On non-table elements it behaves like visibility:hidden (keeps space).
+                            bool isCollapsedTableRow = childStyle.Get("visibility") == "collapse"
+                                && childStyle.Display == "table-row";
+
+                            box.Children.Add(childBox);
+                            if (isCollapsedTableRow)
+                            {
+                                childBox.Height = 0f;
+                            }
+                            else
+                            {
+                                childY += effectiveTopMargin + childBox.Height;
+                                prevMarginBottom = childBox.MarginBottom;
+                            }
+                        }
                         lastWasTextNode = false;
                         hasBlockChild = true;
                     }
@@ -439,6 +602,10 @@ public static class BlockLayout
                         inlineLineHeight = 0;
                     }
 
+                    // srcset: pick best URL (prefer 1x descriptor or smallest width; fallback to src)
+                    string? imgSrc = ResolveSrcset(childElem.GetAttribute("srcset"), imgWidth)
+                        ?? childElem.GetAttribute("src");
+
                     var childBox = new LayoutBox
                     {
                         Element = childElem,
@@ -449,12 +616,47 @@ public static class BlockLayout
                         Height = imgHeight,
                         ContentWidth = imgWidth,
                         ContentHeight = imgHeight,
-                        ImageSource = childElem.GetAttribute("src")
+                        ImageSource = imgSrc
                     };
                     box.Children.Add(childBox);
                     inlineX += imgWidth;
                     if (imgHeight > inlineLineHeight)
                         inlineLineHeight = imgHeight;
+                }
+                else if (childElem.TagName == "picture")
+                {
+                    // <picture>: find best <source> or fall back to inner <img>
+                    var (picSrc, picElem) = ResolvePicture(childElem);
+                    if (picSrc != null && picElem != null)
+                    {
+                        var picStyle = resolver != null ? resolver(picElem, childStyle) : childStyle;
+                        float imgWidth = ResolveImgDimension(picStyle.Width, picElem.GetAttribute("width"), childContainingWidth, fontSize, 150);
+                        float imgHeight = ResolveImgDimension(picStyle.Height, picElem.GetAttribute("height"), 0, fontSize, 150);
+
+                        if (inlineX > 0 && inlineX + imgWidth > childContainingWidth)
+                        {
+                            childY += inlineLineHeight;
+                            inlineX = 0;
+                            inlineLineHeight = 0;
+                        }
+
+                        var childBox = new LayoutBox
+                        {
+                            Element = picElem,
+                            Style = picStyle,
+                            X = box.X + box.PaddingLeft + inlineX,
+                            Y = box.Y + box.PaddingTop + childY,
+                            Width = imgWidth,
+                            Height = imgHeight,
+                            ContentWidth = imgWidth,
+                            ContentHeight = imgHeight,
+                            ImageSource = picSrc
+                        };
+                        box.Children.Add(childBox);
+                        inlineX += imgWidth;
+                        if (imgHeight > inlineLineHeight)
+                            inlineLineHeight = imgHeight;
+                    }
                 }
                 else if (childStyle.Display == "inline-block")
                 {
@@ -503,8 +705,9 @@ public static class BlockLayout
                 var whiteSpaceProp = style.Get("white-space") ?? "normal";
                 bool preserveWhitespace = whiteSpaceProp == "pre" || whiteSpaceProp == "pre-wrap" || whiteSpaceProp == "pre-line";
 
-                // Skip empty text nodes unless preserving whitespace
-                if (!preserveWhitespace && string.IsNullOrWhiteSpace(textNode.Data))
+                // Skip empty text nodes unless preserving whitespace.
+                // IsHtmlWhitespaceOnly preserves \u00A0 (non-breaking space) — it is never skipped.
+                if (!preserveWhitespace && IsHtmlWhitespaceOnly(textNode.Data))
                     continue;
 
                 // Check if parent has mixed inline content (inline elements + text)
@@ -517,7 +720,7 @@ public static class BlockLayout
                     var ilFontWeight = style.FontWeight;
                     var ilFontStyle = style.Get("font-style");
                     float ilLineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
-                    var ilTextData = textNode.Data.Trim();
+                    var ilTextData = TrimHtmlText(textNode.Data);
                     if (string.IsNullOrEmpty(ilTextData)) continue;
 
                     // Split into words and lay them out inline
@@ -562,18 +765,44 @@ public static class BlockLayout
                 var fontStyle = style.Get("font-style");
                 float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
                 float textIndent = ResolveLength(style.Get("text-indent"), childContainingWidth, fontSize);
-                var textData = preserveWhitespace ? textNode.Data : textNode.Data.Trim();
+                var textData = preserveWhitespace ? textNode.Data : TrimHtmlText(textNode.Data);
+
+                // tab-size: expand \t to spaces when preserving whitespace (pre/pre-wrap)
+                if (preserveWhitespace && textData.IndexOf('\t') >= 0)
+                {
+                    var tabSizeStr = style.Get("tab-size");
+                    int tabSize = 8; // CSS default
+                    if (!string.IsNullOrEmpty(tabSizeStr) &&
+                        int.TryParse(tabSizeStr, System.Globalization.NumberStyles.Integer,
+                            System.Globalization.CultureInfo.InvariantCulture, out int ts) && ts > 0)
+                        tabSize = ts;
+                    textData = TextMeasurer.ExpandTabs(textData, tabSize);
+                }
 
                 // Check overflow-wrap/word-break for character-level breaking
                 var overflowWrap = style.Get("overflow-wrap") ?? style.Get("word-wrap");
                 var wordBreak = style.Get("word-break");
                 bool breakWord = overflowWrap == "break-word" || overflowWrap == "anywhere" ||
                                  wordBreak == "break-all" || wordBreak == "break-word";
+                bool enableHyphenation = style.Get("hyphens") == "auto";
+
+                // text-wrap: balance — compute an optimal balanced width before wrapping
+                float balanceWidth = childContainingWidth;
+                var textWrapProp = style.Get("text-wrap");
+                if (textWrapProp == "balance")
+                {
+                    float totalTextWidth = TextMeasurer.MeasureWidth(textData, fontSize, fontFamily, fontWeight, fontStyle);
+                    // First pass: wrap at full width to count lines
+                    var preWrapLines = TextMeasurer.WrapText(textData, fontSize, fontFamily, fontWeight, fontStyle,
+                        childContainingWidth, whiteSpaceProp, breakWord, enableHyphenation);
+                    if (TextWrapBalance.ShouldBalance(textWrapProp, preWrapLines.Count))
+                        balanceWidth = TextWrapBalance.CalculateBalancedWidth(totalTextWidth, childContainingWidth, preWrapLines.Count);
+                }
 
                 // For text-indent, reduce first line's available width
-                float firstLineWidth = textIndent > 0 ? childContainingWidth - textIndent : childContainingWidth;
+                float firstLineWidth = textIndent > 0 ? balanceWidth - textIndent : balanceWidth;
                 var lines = TextMeasurer.WrapText(textData, fontSize, fontFamily, fontWeight, fontStyle,
-                    firstLineWidth > 0 ? firstLineWidth : childContainingWidth, whiteSpaceProp, breakWord);
+                    firstLineWidth > 0 ? firstLineWidth : balanceWidth, whiteSpaceProp, breakWord, enableHyphenation);
 
                 // If indent caused wrapping and there are remaining lines, re-wrap with full width
                 if (textIndent > 0 && lines.Count > 1)
@@ -583,9 +812,37 @@ public static class BlockLayout
                     lines = new System.Collections.Generic.List<string> { firstLine };
                     if (!string.IsNullOrEmpty(remaining))
                     {
-                        var moreLines = TextMeasurer.WrapText(remaining, fontSize, fontFamily, fontWeight, fontStyle, childContainingWidth, whiteSpaceProp, breakWord);
+                        var moreLines = TextMeasurer.WrapText(remaining, fontSize, fontFamily, fontWeight, fontStyle, childContainingWidth, whiteSpaceProp, breakWord, enableHyphenation);
                         lines.AddRange(moreLines);
                     }
+                }
+
+                // Apply -webkit-line-clamp: limit to N lines, truncate last with ellipsis
+                var lineClampStr = style.Get("-webkit-line-clamp");
+                if (!string.IsNullOrEmpty(lineClampStr) && lineClampStr != "none" &&
+                    int.TryParse(lineClampStr, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out int lineClampN) &&
+                    lineClampN > 0 && lines.Count > lineClampN)
+                {
+                    // Truncate to lineClampN lines; make the last line fit with "…"
+                    while (lines.Count > lineClampN) lines.RemoveAt(lines.Count - 1);
+                    const string ellipsis = "\u2026";
+                    var lastLine = lines[lines.Count - 1];
+                    float ellipsisWidth = TextMeasurer.MeasureWidth(ellipsis, fontSize, fontFamily, fontWeight, fontStyle);
+                    float maxLastLineWidth = childContainingWidth - ellipsisWidth;
+                    if (maxLastLineWidth > 0)
+                    {
+                        // Trim words from end of last line until it fits
+                        while (lastLine.Length > 0)
+                        {
+                            float w = TextMeasurer.MeasureWidth(lastLine, fontSize, fontFamily, fontWeight, fontStyle);
+                            if (w <= maxLastLineWidth) break;
+                            // Remove last word (or char if single word)
+                            int lastSpace = lastLine.LastIndexOf(' ');
+                            lastLine = lastSpace > 0 ? lastLine.Substring(0, lastSpace) : lastLine.Substring(0, lastLine.Length - 1);
+                        }
+                    }
+                    lines[lines.Count - 1] = lastLine.TrimEnd() + ellipsis;
                 }
 
                 bool isFirstLine = true;
@@ -595,20 +852,101 @@ public static class BlockLayout
                     if (isFirstLine && textIndent > 0)
                         lineX += textIndent;
 
-                    var textBox = new LayoutBox
+                    bool applyFirstLine = isFirstLine && !firstBlockLineEmitted && firstLineStyle != null;
+                    var initialLetterStr = style.Get("initial-letter");
+                    bool hasInitialLetter = !string.IsNullOrEmpty(initialLetterStr) &&
+                        initialLetterStr != "normal" &&
+                        float.TryParse(initialLetterStr.Split(' ')[0], System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out _);
+                    bool applyFirstLetter = isFirstLine && !firstBlockLineEmitted &&
+                        (firstLetterStyle != null || hasInitialLetter) && !string.IsNullOrEmpty(line);
+
+                    if (applyFirstLetter)
                     {
-                        Style = style,
-                        X = lineX,
-                        Y = box.Y + box.PaddingTop + childY,
-                        Width = childContainingWidth,
-                        Height = lineHeight,
-                        ContentWidth = TextMeasurer.MeasureWidth(line, fontSize, fontFamily, fontWeight, fontStyle),
-                        ContentHeight = lineHeight,
-                        Text = line
-                    };
+                        // Split first character into its own box with ::first-letter style or initial-letter size.
+                        var letterChar = line.Substring(0, 1);
+                        var remainder = line.Length > 1 ? line.Substring(1) : "";
+
+                        float flFontSize;
+                        float flLineHeight;
+                        ComputedStyle flStyle;
+
+                        if (hasInitialLetter)
+                        {
+                            // initial-letter: N — scale first letter to span N lines
+                            float n = 1f;
+                            float.TryParse(initialLetterStr!.Split(' ')[0], System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out n);
+                            if (n < 1f) n = 1f;
+                            flFontSize = fontSize * n;
+                            flLineHeight = lineHeight * n;
+                            // Build a synthetic style for the drop cap
+                            flStyle = new ComputedStyle();
+                            foreach (var kv in style.All) flStyle.Set(kv.Key, kv.Value);
+                            flStyle.Set("font-size", flFontSize.ToString(System.Globalization.CultureInfo.InvariantCulture) + "px");
+                        }
+                        else
+                        {
+                            flFontSize = ResolveFontSize(firstLetterStyle!.FontSize, fontSize);
+                            flLineHeight = TextMeasurer.GetLineHeight(flFontSize, firstLetterStyle.Get("line-height"));
+                            flStyle = firstLetterStyle!;
+                        }
+                        float letterWidth = TextMeasurer.MeasureWidth(letterChar, flFontSize,
+                            flStyle.FontFamily, flStyle.FontWeight, flStyle.Get("font-style"));
+
+                        var letterBox = new LayoutBox
+                        {
+                            Style = flStyle,
+                            X = lineX,
+                            Y = box.Y + box.PaddingTop + childY,
+                            Width = letterWidth,
+                            Height = flLineHeight,
+                            ContentWidth = letterWidth,
+                            ContentHeight = flLineHeight,
+                            Text = letterChar
+                        };
+                        box.Children.Add(letterBox);
+
+                        if (!string.IsNullOrEmpty(remainder))
+                        {
+                            var remStyle = applyFirstLine ? firstLineStyle! : style;
+                            float remWidth = TextMeasurer.MeasureWidth(remainder, fontSize, fontFamily, fontWeight, fontStyle);
+                            var remBox = new LayoutBox
+                            {
+                                Style = remStyle,
+                                X = lineX + letterWidth,
+                                Y = box.Y + box.PaddingTop + childY,
+                                Width = childContainingWidth - letterWidth,
+                                Height = lineHeight,
+                                ContentWidth = remWidth,
+                                ContentHeight = lineHeight,
+                                Text = remainder
+                            };
+                            box.Children.Add(remBox);
+                        }
+
+                        childY += Math.Max(lineHeight, flLineHeight);
+                    }
+                    else
+                    {
+                        var lineStyle = applyFirstLine ? firstLineStyle! : style;
+                        var textBox = new LayoutBox
+                        {
+                            Style = lineStyle,
+                            X = lineX,
+                            Y = box.Y + box.PaddingTop + childY,
+                            Width = childContainingWidth,
+                            Height = lineHeight,
+                            ContentWidth = TextMeasurer.MeasureWidth(line, fontSize, fontFamily, fontWeight, fontStyle),
+                            ContentHeight = lineHeight,
+                            Text = line
+                        };
+                        box.Children.Add(textBox);
+                        childY += lineHeight;
+                    }
+
                     isFirstLine = false;
-                    box.Children.Add(textBox);
-                    childY += lineHeight;
+                    firstBlockLineEmitted = true;
                 }
                 lastWasTextNode = true;
             }
@@ -618,6 +956,68 @@ public static class BlockLayout
         if (inlineX > 0)
         {
             childY += inlineLineHeight;
+        }
+
+        // ::after pseudo-element content
+        if (cascadeRes != null && counterCtx != null)
+        {
+            var afterStyle = cascadeRes.ResolvePseudoElement(element, "after", style);
+            if (afterStyle != null)
+            {
+                var content = counterCtx.ResolveContent(afterStyle.Get("content"), element, afterStyle);
+                if (content != null)
+                {
+                    float aFontSize = ResolveFontSize(afterStyle.FontSize, fontSize);
+                    float aLineHeight = TextMeasurer.GetLineHeight(aFontSize, afterStyle.Get("line-height"));
+                    var textBox = new LayoutBox
+                    {
+                        Style = afterStyle,
+                        X = box.X + box.PaddingLeft,
+                        Y = box.Y + box.PaddingTop + childY,
+                        Width = childContainingWidth,
+                        Height = aLineHeight,
+                        ContentWidth = TextMeasurer.MeasureWidth(content, aFontSize,
+                            afterStyle.FontFamily, afterStyle.FontWeight, afterStyle.Get("font-style")),
+                        ContentHeight = aLineHeight,
+                        Text = content
+                    };
+                    box.Children.Add(textBox);
+                    childY += aLineHeight;
+                }
+            }
+        }
+
+        // CSS counters: pop scopes created by counter-reset on this element (after children processed)
+        if (counterCtx != null)
+            counterCtx.PopReset(style.Get("counter-reset"));
+
+        // Post-pass: caption-side:bottom — move caption boxes below all table rows
+        if (style.Display == "table" && style.Get("caption-side") == "bottom")
+        {
+            // Identify caption boxes and non-caption children
+            float rowBottom = box.Y + box.PaddingTop; // Y of the bottom of all non-caption children
+            for (int ci = 0; ci < box.Children.Count; ci++)
+            {
+                var child = box.Children[ci];
+                if (child.Element != null && child.Style.Display == "table-caption")
+                    continue;
+                float childBottom = child.Y + child.Height;
+                if (childBottom > rowBottom) rowBottom = childBottom;
+            }
+            for (int ci = 0; ci < box.Children.Count; ci++)
+            {
+                var child = box.Children[ci];
+                if (child.Element == null || child.Style.Display != "table-caption")
+                    continue;
+                // Move this caption to rowBottom, adjusting all its children too
+                float deltaY = rowBottom - child.Y;
+                if (Math.Abs(deltaY) > 0.01f)
+                {
+                    child.Y += deltaY;
+                    for (int gi = 0; gi < child.Children.Count; gi++)
+                        child.Children[gi].Y += deltaY;
+                }
+            }
         }
 
         // Post-pass: equalize table cell heights and apply vertical-align
@@ -653,14 +1053,31 @@ public static class BlockLayout
         // List marker for display:list-item
         if (style.Display == "list-item")
         {
+            // Resolve ::marker pseudo-element style if any rules target it.
+            var markerCascadeRes = _threadCascadeResolver;
+            var markerStyle = markerCascadeRes?.ResolvePseudoElement(element, "marker", style);
+
             var listStyleType = style.Get("list-style-type") ?? (parentStyle?.Get("list-style-type")) ?? "disc";
-            string markerText = GetListMarkerText(listStyleType, element, parent.Element);
+            string markerText = GetListMarkerText(listStyleType, element, parent.Element, counterCtx);
+
+            // ::marker content property overrides the auto-generated marker text.
+            if (markerStyle != null && markerStyle.Has("content"))
+            {
+                var counterCtxMarker = _threadCounterCtx;
+                var customContent = counterCtxMarker != null
+                    ? counterCtxMarker.ResolveContent(markerStyle.Get("content"), element, markerStyle)
+                    : markerStyle.Get("content");
+                if (customContent != null)
+                    markerText = customContent;
+            }
+
             if (!string.IsNullOrEmpty(markerText))
             {
+                var effectiveMarkerStyle = markerStyle ?? style;
                 float markerWidth = TextMeasurer.MeasureWidth(markerText + " ", fontSize, null);
                 var markerBox = new LayoutBox
                 {
-                    Style = style,
+                    Style = effectiveMarkerStyle,
                     IsListMarker = true,
                     X = box.X - markerWidth,
                     Y = box.Y + box.PaddingTop,
@@ -702,22 +1119,85 @@ public static class BlockLayout
                     var childList = new List<LayoutBox>(box.Children.Count);
                     foreach (var c in box.Children)
                         if (c is LayoutBox lb) childList.Add(lb);
-                    var columns = MultiColumnLayout.DistributeIntoColumns(childList, colCount, colWidth, colGap,
-                        box.X + box.PaddingLeft, box.Y + box.PaddingTop);
 
+                    // Split by column-span:all elements, distributing segments into columns
                     box.Children.Clear();
-                    float maxColHeight = 0;
-                    foreach (var col in columns)
+                    float currentY = box.Y + box.PaddingTop;
+                    float containerX = box.X + box.PaddingLeft;
+                    float totalHeight = 0;
+
+                    var segment = new List<LayoutBox>();
+                    for (int ci = 0; ci <= childList.Count; ci++)
                     {
-                        box.Children.Add(col);
-                        if (col.Height > maxColHeight) maxColHeight = col.Height;
+                        bool isLast = ci == childList.Count;
+                        LayoutBox? child = isLast ? null : childList[ci];
+                        bool isSpanning = !isLast && child!.Element != null &&
+                            child.Style.Get("column-span") == "all";
+
+                        if (isSpanning || isLast)
+                        {
+                            // Distribute accumulated segment into columns
+                            if (segment.Count > 0)
+                            {
+                                var columns = MultiColumnLayout.DistributeIntoColumns(
+                                    segment, colCount, colWidth, colGap, containerX, currentY);
+                                float segHeight = 0;
+                                foreach (var col in columns)
+                                {
+                                    box.Children.Add(col);
+                                    if (col.Height > segHeight) segHeight = col.Height;
+                                }
+                                currentY += segHeight;
+                                totalHeight += segHeight;
+                                segment.Clear();
+                            }
+
+                            // Place the spanning element at full container width
+                            if (isSpanning)
+                            {
+                                float spanDeltaY = currentY - child!.Y;
+                                float spanDeltaX = containerX - child.X;
+                                child.X = containerX;
+                                child.Y = currentY;
+                                child.Width = box.ContentWidth;
+                                child.ContentWidth = box.ContentWidth - child.PaddingLeft - child.PaddingRight;
+                                if (child.ContentWidth < 0) child.ContentWidth = 0;
+                                // Shift all inline/text children
+                                for (int gi = 0; gi < child.Children.Count; gi++)
+                                {
+                                    child.Children[gi].X += spanDeltaX;
+                                    child.Children[gi].Y += spanDeltaY;
+                                }
+                                box.Children.Add(child);
+                                currentY += child.Height + child.MarginTop + child.MarginBottom;
+                                totalHeight += child.Height + child.MarginTop + child.MarginBottom;
+                            }
+                        }
+                        else
+                        {
+                            segment.Add(child!);
+                        }
                     }
-                    childY = maxColHeight;
+
+                    childY = totalHeight;
                 }
             }
 
             box.ContentHeight = childY;
             box.Height = childY + box.PaddingTop + box.PaddingBottom;
+        }
+
+        // aspect-ratio: when height is auto (no explicit height), derive it from width and ratio
+        if (!specifiedHeight.HasValue)
+        {
+            var aspectRatio = AspectRatioLayout.ParseAspectRatio(style.Get("aspect-ratio"));
+            if (aspectRatio.HasValue && aspectRatio.Value > 0)
+            {
+                float computedHeight = box.Width / aspectRatio.Value;
+                box.ContentHeight = computedHeight - box.PaddingTop - box.PaddingBottom;
+                if (box.ContentHeight < 0) box.ContentHeight = 0;
+                box.Height = computedHeight;
+            }
         }
 
         // Min/max height constraints
@@ -824,8 +1304,8 @@ public static class BlockLayout
             box.Children.Add(absBox);
         }
 
-        // Apply relative position Y offset
-        if (position == "relative")
+        // Apply relative/sticky position Y offset (sticky behaves like relative in PDF — no scrolling)
+        if (position == "relative" || position == "sticky")
         {
             float offsetTop = ResolveLength(style.Get("top"), 0, fontSize);
             box.Y += offsetTop;
@@ -939,6 +1419,15 @@ public static class BlockLayout
         if (_tableColumnWidthCache.TryGetValue(tableElement, out var cached))
             return cached;
 
+        // table-layout: fixed — widths determined by first row only (no content scanning)
+        var tableStyle = resolver(tableElement, parentStyle);
+        if (tableStyle.Get("table-layout") == "fixed")
+        {
+            var fixedWidths = ComputeFixedColumnWidths(tableElement, totalColumns, availableWidth, fontSize, resolver, parentStyle);
+            _tableColumnWidthCache[tableElement] = fixedWidths;
+            return fixedWidths;
+        }
+
         // Scan all rows in the table to find max content width per column
         var maxContentWidths = new float[totalColumns];
         var hasExplicitWidth = new bool[totalColumns];
@@ -990,19 +1479,180 @@ public static class BlockLayout
         return result;
     }
 
+    /// <summary>
+    /// table-layout:fixed — determine column widths from the first row only.
+    /// Explicit cell widths (from width attribute/style on first-row cells or &lt;col&gt;) are used;
+    /// remaining columns share the leftover width equally.
+    /// </summary>
+    private static float[] ComputeFixedColumnWidths(HtmlElement tableElement, int totalColumns,
+        float availableWidth, float fontSize,
+        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
+    {
+        var explicitWidths = new float[totalColumns];
+        var hasExplicit = new bool[totalColumns];
+
+        // 1. Check <colgroup>/<col> elements first
+        foreach (var child in tableElement.ChildNodes)
+        {
+            var group = child as HtmlElement;
+            if (group == null || group.TagName != "colgroup") continue;
+            int colIdx = 0;
+            foreach (var colNode in group.ChildNodes)
+            {
+                var col = colNode as HtmlElement;
+                if (col == null || col.TagName != "col") continue;
+                var colStyle = resolver(col, parentStyle);
+                var wStr = colStyle.Width ?? col.GetAttribute("width");
+                if (!string.IsNullOrEmpty(wStr) && colIdx < totalColumns)
+                {
+                    float w = ResolveLength(wStr, availableWidth, fontSize);
+                    if (w > 0) { explicitWidths[colIdx] = w; hasExplicit[colIdx] = true; }
+                }
+                colIdx++;
+            }
+        }
+
+        // 2. Scan only the first row for explicit cell widths
+        HtmlElement? firstRow = null;
+        foreach (var child in tableElement.ChildNodes)
+        {
+            var group = child as HtmlElement;
+            if (group == null) continue;
+            if (group.TagName == "tr") { firstRow = group; break; }
+            // thead/tbody/tfoot
+            if (group.TagName == "thead" || group.TagName == "tbody" || group.TagName == "tfoot")
+            {
+                foreach (var rowNode in group.ChildNodes)
+                {
+                    var row = rowNode as HtmlElement;
+                    if (row != null && row.TagName == "tr") { firstRow = row; break; }
+                }
+                if (firstRow != null) break;
+            }
+        }
+
+        if (firstRow != null)
+        {
+            int colIdx = 0;
+            foreach (var cellNode in firstRow.ChildNodes)
+            {
+                var cell = cellNode as HtmlElement;
+                if (cell == null || (cell.TagName != "td" && cell.TagName != "th")) continue;
+                if (colIdx >= totalColumns) break;
+                if (!hasExplicit[colIdx])
+                {
+                    var cellStyle = resolver(cell, parentStyle);
+                    var wStr = cellStyle.Width ?? cell.GetAttribute("width");
+                    if (!string.IsNullOrEmpty(wStr) && wStr != "auto")
+                    {
+                        float w = ResolveLength(wStr, availableWidth, fontSize);
+                        if (w > 0) { explicitWidths[colIdx] = w; hasExplicit[colIdx] = true; }
+                    }
+                }
+                colIdx++;
+            }
+        }
+
+        // 3. Distribute remaining width equally among columns with no explicit width
+        float usedWidth = 0;
+        int flexCols = 0;
+        for (int i = 0; i < totalColumns; i++)
+        {
+            if (hasExplicit[i]) usedWidth += explicitWidths[i];
+            else flexCols++;
+        }
+
+        float remaining = availableWidth - usedWidth;
+        if (remaining < 0) remaining = 0;
+        float flexWidth = flexCols > 0 ? remaining / flexCols : 0;
+
+        var result = new float[totalColumns];
+        for (int i = 0; i < totalColumns; i++)
+            result[i] = hasExplicit[i] ? explicitWidths[i] : flexWidth;
+
+        return result;
+    }
+
     private static void ScanTableForColumnWidths(HtmlElement tableElement, int totalColumns,
         float[] maxContentWidths, bool[] hasExplicitWidth, float[] explicitWidths,
         float fontSize, float availableWidth,
         Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
     {
         // Walk: table -> thead/tbody/tfoot -> tr -> td/th
+        // Also process <colgroup>/<col> elements which define explicit column widths.
         foreach (var child in tableElement.ChildNodes)
         {
             var group = child as HtmlElement;
             if (group == null) continue;
 
+            // <colgroup> may contain <col> children or carry a span attribute itself
+            if (group.TagName == "colgroup")
+            {
+                int colIdx = 0;
+                bool hasColChildren = false;
+                foreach (var colNode in group.ChildNodes)
+                {
+                    var col = colNode as HtmlElement;
+                    if (col == null || col.TagName != "col") continue;
+                    hasColChildren = true;
+
+                    int span = 1;
+                    var spanAttr = col.GetAttribute("span");
+                    if (!string.IsNullOrEmpty(spanAttr) && int.TryParse(spanAttr,
+                            System.Globalization.NumberStyles.Integer,
+                            System.Globalization.CultureInfo.InvariantCulture, out int spanVal) && spanVal > 0)
+                        span = spanVal;
+
+                    // Resolve width from style or attribute
+                    var colStyle = resolver(col, parentStyle);
+                    var widthStr = colStyle?.Width ?? col.GetAttribute("width");
+                    if (!string.IsNullOrEmpty(widthStr) && widthStr != "auto")
+                    {
+                        float? w = ResolveOptionalLength(widthStr, availableWidth, fontSize);
+                        if (w.HasValue)
+                        {
+                            for (int s = 0; s < span && colIdx + s < totalColumns; s++)
+                            {
+                                hasExplicitWidth[colIdx + s] = true;
+                                explicitWidths[colIdx + s] = w.Value;
+                            }
+                        }
+                    }
+                    colIdx += span;
+                    if (colIdx >= totalColumns) break;
+                }
+
+                // Colgroup without <col> children: apply its own width to spanned columns
+                if (!hasColChildren)
+                {
+                    int span = 1;
+                    var spanAttr = group.GetAttribute("span");
+                    if (!string.IsNullOrEmpty(spanAttr) && int.TryParse(spanAttr,
+                            System.Globalization.NumberStyles.Integer,
+                            System.Globalization.CultureInfo.InvariantCulture, out int spanVal) && spanVal > 0)
+                        span = spanVal;
+
+                    var cgStyle = resolver(group, parentStyle);
+                    var widthStr = cgStyle?.Width ?? group.GetAttribute("width");
+                    if (!string.IsNullOrEmpty(widthStr) && widthStr != "auto")
+                    {
+                        float? w = ResolveOptionalLength(widthStr, availableWidth, fontSize);
+                        if (w.HasValue)
+                        {
+                            for (int s = 0; s < span && s < totalColumns; s++)
+                            {
+                                if (!hasExplicitWidth[s])
+                                {
+                                    hasExplicitWidth[s] = true;
+                                    explicitWidths[s] = w.Value;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             // Direct <tr> children of <table>
-            if (group.TagName == "tr")
+            else if (group.TagName == "tr")
             {
                 ScanRowForColumnWidths(group, totalColumns, maxContentWidths, hasExplicitWidth, explicitWidths,
                     fontSize, availableWidth, resolver, parentStyle);
@@ -1080,7 +1730,7 @@ public static class BlockLayout
         {
             if (node is Html.Dom.HtmlTextNode textNode)
             {
-                var text = textNode.Data?.Trim();
+                var text = TrimHtmlText(textNode.Data ?? "");
                 if (!string.IsNullOrEmpty(text))
                     totalWidth += TextMeasurer.MeasureWidth(text, fontSize, "Helvetica");
             }
@@ -1124,7 +1774,8 @@ public static class BlockLayout
         return 1;
     }
 
-    private static string GetListMarkerText(string listStyleType, HtmlElement element, HtmlElement? parentElement)
+    private static string GetListMarkerText(string listStyleType, HtmlElement element,
+        HtmlElement? parentElement, CssCounterContext? counterCtx = null)
     {
         switch (listStyleType)
         {
@@ -1157,6 +1808,13 @@ public static class BlockLayout
                 int ui = GetListItemIndex(element, parentElement);
                 return ToRoman(ui) + ".";
             default:
+                // Check custom @counter-style
+                if (counterCtx != null)
+                {
+                    int itemIdx = GetListItemIndex(element, parentElement);
+                    var custom = counterCtx.FormatCustomStyle(listStyleType, itemIdx);
+                    if (custom != null) return custom;
+                }
                 return "\u2022"; // default to disc
         }
     }
@@ -1235,6 +1893,107 @@ public static class BlockLayout
                display == "table-cell" || display == "table-caption";
     }
 
+    /// <summary>
+    /// Parse a CSS srcset attribute and return the best URL for PDF rendering.
+    /// PDF is treated as a 1x print context: prefer the 1x density or smallest-width candidate.
+    /// Returns null if srcset is empty/null so the caller can fall back to src.
+    /// </summary>
+    private static string? ResolveSrcset(string? srcset, float elementWidthPx)
+    {
+        if (string.IsNullOrWhiteSpace(srcset)) return null;
+
+        string? bestUrl = null;
+        float bestWidth = float.MaxValue;
+        bool foundDensity = false;
+
+        // Each candidate: "url [descriptor]" separated by commas
+        var candidates = srcset.Split(',');
+        for (int i = 0; i < candidates.Length; i++)
+        {
+            var candidate = candidates[i].Trim();
+            if (string.IsNullOrEmpty(candidate)) continue;
+
+            // Split into URL and descriptor (last token that is a descriptor)
+            int lastSpace = candidate.LastIndexOf(' ');
+            if (lastSpace < 0)
+            {
+                // No descriptor — treat as 1x
+                if (!foundDensity && bestUrl == null)
+                    bestUrl = candidate;
+                continue;
+            }
+
+            string url = candidate.Substring(0, lastSpace).Trim();
+            string descriptor = candidate.Substring(lastSpace + 1).Trim().ToLowerInvariant();
+
+            if (descriptor.EndsWith("x"))
+            {
+                // Density descriptor: prefer 1x
+                float.TryParse(descriptor.TrimEnd('x'), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float density);
+                if (!foundDensity || Math.Abs(density - 1f) < Math.Abs(bestWidth - 1f))
+                {
+                    if (!foundDensity || density <= 1f)
+                    { bestUrl = url; bestWidth = density; foundDensity = true; }
+                }
+            }
+            else if (descriptor.EndsWith("w"))
+            {
+                // Width descriptor: pick closest to element width from below, or smallest
+                float.TryParse(descriptor.TrimEnd('w'), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float w);
+                if (!foundDensity && w < bestWidth)
+                { bestUrl = url; bestWidth = w; }
+            }
+        }
+
+        return bestUrl;
+    }
+
+    /// <summary>
+    /// Find the best image source from a &lt;picture&gt; element.
+    /// Returns (imageUrl, imgElement) from a &lt;source&gt; or the fallback &lt;img&gt;.
+    /// </summary>
+    private static (string? src, Html.Dom.HtmlElement? imgElem) ResolvePicture(Html.Dom.HtmlElement picture)
+    {
+        Html.Dom.HtmlElement? fallbackImg = null;
+        Html.Dom.HtmlElement? selectedSource = null;
+
+        foreach (var child in picture.ChildNodes)
+        {
+            if (!(child is Html.Dom.HtmlElement elem)) continue;
+            if (elem.TagName == "img")
+            { fallbackImg = elem; }
+            else if (elem.TagName == "source" && selectedSource == null)
+            {
+                // Prefer <source> with media="print" or no media (first wins)
+                var media = elem.GetAttribute("media");
+                if (string.IsNullOrEmpty(media) ||
+                    media.IndexOf("print", StringComparison.OrdinalIgnoreCase) >= 0)
+                    selectedSource = elem;
+            }
+        }
+
+        if (selectedSource != null)
+        {
+            // Use the source's srcset, or fall back to img dimensions
+            var srcset = selectedSource.GetAttribute("srcset");
+            var src = ResolveSrcset(srcset, 0) ?? srcset?.Split(',')[0].Trim().Split(' ')[0];
+            // Return img element for dimension resolution; source provides the URL
+            return (src, fallbackImg ?? selectedSource);
+        }
+
+        if (fallbackImg != null)
+        {
+            var srcset = fallbackImg.GetAttribute("srcset");
+            var src = ResolveSrcset(srcset, 0) ?? fallbackImg.GetAttribute("src");
+            return (src, fallbackImg);
+        }
+
+        return (null, null);
+    }
+
+
     private static string? GetTextContent(HtmlElement element)
     {
         var sb = new System.Text.StringBuilder();
@@ -1290,8 +2049,40 @@ public static class BlockLayout
             if (style.Display == "none") return;
             float fontSize = ResolveFontSize(style.FontSize, parentFontSize);
 
+            // ::before pseudo-element injection for inline elements
+            var cascadeResInline = _threadCascadeResolver;
+            var counterCtxInline = _threadCounterCtx;
+            if (cascadeResInline != null && counterCtxInline != null)
+            {
+                var beforeStyle = cascadeResInline.ResolvePseudoElement(elem, "before", style);
+                if (beforeStyle != null)
+                {
+                    var content = counterCtxInline.ResolveContent(beforeStyle.Get("content"), elem, beforeStyle);
+                    if (content != null)
+                    {
+                        float bfs = ResolveFontSize(beforeStyle.FontSize, fontSize);
+                        runs.Add(new InlineRun { Text = content, Style = beforeStyle, Element = elem, FontSize = bfs, HasLeadingSpace = false });
+                    }
+                }
+            }
+
             foreach (var child in elem.ChildNodes)
                 CollectInlineRuns(child, style, fontSize, resolver, runs);
+
+            // ::after pseudo-element injection for inline elements
+            if (cascadeResInline != null && counterCtxInline != null)
+            {
+                var afterStyle = cascadeResInline.ResolvePseudoElement(elem, "after", style);
+                if (afterStyle != null)
+                {
+                    var content = counterCtxInline.ResolveContent(afterStyle.Get("content"), elem, afterStyle);
+                    if (content != null)
+                    {
+                        float afs = ResolveFontSize(afterStyle.FontSize, fontSize);
+                        runs.Add(new InlineRun { Text = content, Style = afterStyle, Element = null, FontSize = afs, HasLeadingSpace = false });
+                    }
+                }
+            }
         }
     }
 
@@ -1449,6 +2240,35 @@ public static class BlockLayout
         return 0;
     }
 
+    /// <summary>
+    /// Trim collapsible HTML whitespace (space, tab, CR, LF) from both ends of a string,
+    /// but preserve U+00A0 NON-BREAKING SPACE which must never be collapsed or trimmed.
+    /// </summary>
+    private static string TrimHtmlText(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return s;
+        int start = 0, end = s.Length - 1;
+        while (start <= end && IsCollapsibleWhitespace(s[start])) start++;
+        while (end >= start && IsCollapsibleWhitespace(s[end])) end--;
+        return start > end ? "" : s.Substring(start, end - start + 1);
+    }
+
+    /// <summary>
+    /// Returns true only when every character in the string is collapsible whitespace.
+    /// U+00A0 (non-breaking space) is NOT collapsible and causes this to return false.
+    /// </summary>
+    private static bool IsHtmlWhitespaceOnly(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return true;
+        for (int i = 0; i < s.Length; i++)
+            if (!IsCollapsibleWhitespace(s[i])) return false;
+        return true;
+    }
+
+    /// <summary>Collapsible whitespace: regular space, tab, CR, LF only — NOT U+00A0.</summary>
+    private static bool IsCollapsibleWhitespace(char c)
+        => c == ' ' || c == '\t' || c == '\r' || c == '\n';
+
     /// <summary>Offset a box and all its descendants by deltaY (skip absolutely positioned).</summary>
     private static void OffsetBoxY(LayoutBox box, float deltaY)
     {
@@ -1486,5 +2306,124 @@ public static class BlockLayout
 
             ResolveAbsolutePositions(child, child.X, child.Y);
         }
+    }
+
+    /// <summary>
+    /// Inject synthetic text/content for form elements that don't have normal child text nodes.
+    /// Returns updated childY after any injected content.
+    /// </summary>
+    private static float InjectFormElementContent(HtmlElement element, ComputedStyle style,
+        LayoutBox box, float fontSize, float contentWidth, float childY)
+    {
+        var tag = element.TagName;
+
+        if (tag == "input")
+        {
+            var inputType = (element.GetAttribute("type") ?? "text").ToLowerInvariant();
+            string? text = null;
+
+            if (inputType == "checkbox" || inputType == "radio")
+            {
+                bool isChecked = element.HasAttribute("checked");
+                text = inputType == "checkbox"
+                    ? (isChecked ? "[x]" : "[ ]")
+                    : (isChecked ? "(o)" : "( )");
+            }
+            else if (inputType == "submit" || inputType == "button" || inputType == "reset")
+            {
+                text = element.GetAttribute("value") ?? inputType;
+            }
+            else if (inputType != "hidden" && inputType != "file" && inputType != "image")
+            {
+                // text, password, email, number, tel, url, search, date, etc.
+                text = element.GetAttribute("value") ?? "";
+            }
+
+            if (text != null)
+            {
+                float lh = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
+                float tw = text.Length > 0 ? TextMeasurer.MeasureWidth(text, fontSize, style.FontFamily, style.FontWeight, style.Get("font-style")) : 0;
+                var textBox = new LayoutBox
+                {
+                    Style = style,
+                    X = box.X + box.PaddingLeft,
+                    Y = box.Y + box.PaddingTop + childY,
+                    Width = contentWidth,
+                    Height = lh,
+                    ContentWidth = tw,
+                    ContentHeight = lh,
+                    Text = text
+                };
+                box.Children.Add(textBox);
+                childY += lh;
+            }
+        }
+        else if (tag == "select")
+        {
+            // Find selected option text
+            string? optionText = null;
+            foreach (var child in element.ChildNodes)
+            {
+                if (child is HtmlElement optElem)
+                {
+                    HtmlElement? opt = null;
+                    if (optElem.TagName == "option")
+                        opt = optElem;
+                    else if (optElem.TagName == "optgroup")
+                    {
+                        // Find first selected within optgroup
+                        foreach (var og in optElem.ChildNodes)
+                            if (og is HtmlElement o && o.TagName == "option" && o.HasAttribute("selected"))
+                            { opt = o; break; }
+                        if (opt == null)
+                            foreach (var og in optElem.ChildNodes)
+                                if (og is HtmlElement o && o.TagName == "option")
+                                { opt = o; break; }
+                    }
+
+                    if (opt != null && opt.HasAttribute("selected"))
+                    {
+                        optionText = GetOptionText(opt);
+                        break;
+                    }
+                    if (opt != null && optionText == null)
+                        optionText = GetOptionText(opt); // fallback to first
+                }
+            }
+
+            if (!string.IsNullOrEmpty(optionText))
+            {
+                float lh = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
+                float tw = TextMeasurer.MeasureWidth(optionText, fontSize, style.FontFamily, style.FontWeight, style.Get("font-style"));
+                var textBox = new LayoutBox
+                {
+                    Style = style,
+                    X = box.X + box.PaddingLeft,
+                    Y = box.Y + box.PaddingTop + childY,
+                    Width = contentWidth,
+                    Height = lh,
+                    ContentWidth = tw,
+                    ContentHeight = lh,
+                    Text = optionText
+                };
+                box.Children.Add(textBox);
+                childY += lh;
+            }
+        }
+
+        return childY;
+    }
+
+    private static string GetOptionText(HtmlElement element)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var node in element.ChildNodes)
+        {
+            if (node is Html.Dom.HtmlTextNode t)
+                sb.Append(t.Data);
+            else if (node is HtmlElement child)
+                sb.Append(GetOptionText(child));
+        }
+        return sb.ToString().Trim();
     }
 }

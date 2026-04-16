@@ -320,4 +320,104 @@ public class TableLayoutTests
         cells.Should().HaveCount(2);
         cells[0].Height.Should().Be(cells[1].Height, "cells in same row should have equal height");
     }
+
+    [Fact]
+    public void VisibilityCollapse_TableRow_TakesNoSpace()
+    {
+        // Row 2 is visibility:collapse — it must not contribute height to the table.
+        // Row 3 should start at the same Y as Row 2 would have if Row 2 were not there.
+        var html =
+            "<table>" +
+            "<tr id='r1'><td style='padding:10px'>Row1</td></tr>" +
+            "<tr id='r2' style='visibility:collapse'><td style='padding:10px'>Row2</td></tr>" +
+            "<tr id='r3'><td style='padding:10px'>Row3</td></tr>" +
+            "</table>";
+
+        var root = LayoutTestHelper.Layout(html, 400, 600);
+        var rows = root.FindAllByTag("tr");
+        rows.Should().HaveCount(3);
+
+        var r1 = rows[0];
+        var r2 = rows[1];
+        var r3 = rows[2];
+
+        // Collapsed row should have zero height in layout
+        r2.Height.Should().Be(0f, "visibility:collapse row must contribute no height");
+
+        // Row 3 should start where Row 2 would have started (immediately after Row 1)
+        r3.Y.Should().BeApproximately(r1.Y + r1.Height, 1f,
+            "row after collapsed row should be positioned as if collapsed row does not exist");
+    }
+
+    [Fact]
+    public void VisibilityCollapse_NonTableElement_KeepsSpace()
+    {
+        // visibility:collapse on non-table elements behaves like visibility:hidden — keeps space
+        var html =
+            "<div>" +
+            "<p id='p1' style='height:30px'>Para1</p>" +
+            "<p id='p2' style='visibility:collapse; height:30px'>Para2</p>" +
+            "<p id='p3' style='height:30px'>Para3</p>" +
+            "</div>";
+
+        var root = LayoutTestHelper.Layout(html, 400, 600);
+        var paras = root.FindAllByTag("p");
+        paras.Should().HaveCount(3);
+
+        var p2 = paras[1];
+        var p3 = paras[2];
+
+        // p2 (non-table) with visibility:collapse still occupies its 30px
+        p2.Height.Should().BeApproximately(30f, 1f,
+            "visibility:collapse on non-table element should not collapse height");
+
+        // p3 starts after p2 (space is preserved)
+        p3.Y.Should().BeGreaterThan(p2.Y,
+            "p3 should start below p2 even though p2 has visibility:collapse");
+    }
+
+    // ── empty-cells ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public void EmptyCells_Show_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<table style='empty-cells:show'><tr><td></td></tr></table>", 400, 600);
+        var table = root.FindByTag("table");
+        table!.Style.Get("empty-cells").Should().Be("show");
+    }
+
+    [Fact]
+    public void EmptyCells_Hide_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<table style='empty-cells:hide'><tr><td></td></tr></table>", 400, 600);
+        var table = root.FindByTag("table");
+        table!.Style.Get("empty-cells").Should().Be("hide",
+            "empty-cells: hide should be preserved in computed style");
+    }
+
+    [Fact]
+    public void EmptyCells_Hide_EmptyCellHasNoBackground()
+    {
+        // With empty-cells: hide the empty td should have no background painted.
+        // We test this by checking the td box's style has empty-cells inherited from table.
+        var root = LayoutTestHelper.Layout(
+            "<table style='empty-cells:hide; border-collapse:separate'>" +
+            "<tr><td id='empty'></td><td>content</td></tr>" +
+            "</table>", 400, 600);
+
+        var tds = root.FindAllByTag("td");
+        tds.Should().HaveCountGreaterOrEqualTo(2);
+
+        // Empty td should have empty-cells:hide in its resolved style
+        var emptyTd = tds.Find(td =>
+        {
+            var text = string.Concat(td.Children.Where(b => !string.IsNullOrEmpty(b.Text)).Select(b => b.Text));
+            return string.IsNullOrEmpty(text);
+        });
+        emptyTd.Should().NotBeNull("empty td should still have a layout box");
+        emptyTd!.Style.Get("empty-cells").Should().Be("hide",
+            "empty-cells should be inherited from the table into the td");
+    }
 }

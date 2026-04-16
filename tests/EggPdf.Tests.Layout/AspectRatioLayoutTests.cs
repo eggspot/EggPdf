@@ -143,4 +143,42 @@ public class AspectRatioLayoutTests
         div.Should().NotBeNull();
         div!.Height.Should().BeApproximately(80, 1f);
     }
+
+    [Fact]
+    public void Layout_AspectRatio_WidthKnown_HeightComputed()
+    {
+        // width=320, aspect-ratio=16/9 → height must be 320*(9/16)=180
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 320px; aspect-ratio: 16/9'></div>", 600, 800);
+
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Height.Should().BeApproximately(180f, 2f,
+            "height should be computed as width / (16/9) = 180px");
+    }
+
+    [Fact]
+    public void Layout_AspectRatioSquare_WidthKnown_HeightEqualsWidth()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 100px; aspect-ratio: 1'></div>", 600, 800);
+
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Height.Should().BeApproximately(100f, 2f,
+            "square aspect-ratio: height should equal width");
+    }
+
+    [Fact]
+    public void Layout_AspectRatio_ExplicitHeightWins()
+    {
+        // Both width and height specified — aspect-ratio is ignored per spec
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 200px; height: 50px; aspect-ratio: 16/9'></div>", 600, 800);
+
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Height.Should().BeApproximately(50f, 2f,
+            "explicit height should override aspect-ratio computation");
+    }
 }

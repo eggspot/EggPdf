@@ -457,4 +457,64 @@ public class GridLayoutTests
         itemA.Width.Should().BeApproximately(halfWidth, 1f);
         itemB.Width.Should().BeApproximately(halfWidth, 1f);
     }
+
+    [Fact]
+    public void Grid_AutoFill_CreatesCorrectColumnCount()
+    {
+        // With 584px container and 100px min, auto-fill should create floor(584/100)=5 columns
+        // 3 items fill columns 1-3; columns 4-5 exist but are empty
+        // Each column = 584/5 = 116.8px
+        var root = LayoutGrid(
+            "<div style='display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr))'>" +
+            "<div style='height: 50px'>1</div>" +
+            "<div style='height: 50px'>2</div>" +
+            "<div style='height: 50px'>3</div>" +
+            "</div>");
+
+        var container = root.FindAllByTag("div")[0];
+        container.Children.Count.Should().Be(3);
+
+        float expectedColWidth = ContainerWidth / 5f;
+        container.Children[0].Width.Should().BeApproximately(expectedColWidth, 2f);
+        container.Children[1].Width.Should().BeApproximately(expectedColWidth, 2f);
+        container.Children[2].Width.Should().BeApproximately(expectedColWidth, 2f);
+
+        // All items on the same row (row 1)
+        container.Children[0].Y.Should().BeApproximately(container.Children[1].Y, 1f);
+        container.Children[1].Y.Should().BeApproximately(container.Children[2].Y, 1f);
+
+        // Items are side by side
+        container.Children[1].X.Should().BeGreaterThan(container.Children[0].X);
+        container.Children[2].X.Should().BeGreaterThan(container.Children[1].X);
+    }
+
+    [Fact]
+    public void Grid_AutoFit_CollapsesEmptyTracks()
+    {
+        // auto-fit: empty tracks collapse, so 2 items share full container width
+        var root = LayoutGrid(
+            "<div style='display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr))'>" +
+            "<div style='height: 50px'>1</div>" +
+            "<div style='height: 50px'>2</div>" +
+            "</div>");
+
+        var container = root.FindAllByTag("div")[0];
+        container.Children.Count.Should().Be(2);
+
+        // 2 items share full width: 584/2 = 292px each
+        float expectedColWidth = ContainerWidth / 2f;
+        container.Children[0].Width.Should().BeApproximately(expectedColWidth, 2f);
+        container.Children[1].Width.Should().BeApproximately(expectedColWidth, 2f);
+
+        // Side by side
+        container.Children[1].X.Should().BeGreaterThan(container.Children[0].X);
+    }
+
+    [Fact]
+    public void Grid_AutoFill_DoesNotCrash_WithNoItems()
+    {
+        var act = () => LayoutGrid(
+            "<div style='display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr))'></div>");
+        act.Should().NotThrow();
+    }
 }

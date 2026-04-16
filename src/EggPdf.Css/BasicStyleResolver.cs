@@ -15,10 +15,15 @@ public class BasicStyleResolver
     private static readonly HashSet<string> InheritedProperties = new(StringComparer.OrdinalIgnoreCase)
     {
         "color", "font-family", "font-size", "font-weight", "font-style",
+        "font-variant", "font-variant-caps", "font-variant-numeric",
+        "font-variant-ligatures", "font-variant-alternates",
         "line-height", "text-align", "text-indent", "text-transform",
         "letter-spacing", "word-spacing", "white-space", "direction",
         "visibility", "list-style-type", "list-style-position",
-        "border-collapse", "border-spacing", "caption-side", "empty-cells"
+        "border-collapse", "border-spacing", "caption-side", "empty-cells",
+        "quotes", "tab-size",
+        "font-feature-settings", "font-synthesis", "font-size-adjust",
+        "font-kerning", "font-optical-sizing", "font-variation-settings"
     };
 
     // UA defaults per element
@@ -81,6 +86,32 @@ public class BasicStyleResolver
         ["figcaption"] = new() { ["display"] = "block" },
         ["details"] = new() { ["display"] = "block" },
         ["summary"] = new() { ["display"] = "list-item" },
+        // Semantic / interactive
+        ["dialog"] = new() { ["display"] = "block", ["position"] = "absolute", ["background-color"] = "white", ["border-top-width"] = "2px", ["border-right-width"] = "2px", ["border-bottom-width"] = "2px", ["border-left-width"] = "2px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid", ["padding-top"] = "1em", ["padding-right"] = "1em", ["padding-bottom"] = "1em", ["padding-left"] = "1em" },
+        ["details"] = new() { ["display"] = "block" },
+        ["summary"] = new() { ["display"] = "list-item", ["cursor"] = "default" },
+        ["meter"] = new() { ["display"] = "inline-block", ["width"] = "5em", ["height"] = "1em", ["border-top-width"] = "1px", ["border-right-width"] = "1px", ["border-bottom-width"] = "1px", ["border-left-width"] = "1px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid" },
+        ["progress"] = new() { ["display"] = "inline-block", ["width"] = "10em", ["height"] = "1em", ["border-top-width"] = "1px", ["border-right-width"] = "1px", ["border-bottom-width"] = "1px", ["border-left-width"] = "1px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid" },
+        ["output"] = new() { ["display"] = "inline" },
+        // Ruby annotation elements
+        ["ruby"] = new() { ["display"] = "inline" },
+        ["rt"] = new() { ["display"] = "inline", ["font-size"] = "0.5em", ["line-height"] = "1" },
+        ["rp"] = new() { ["display"] = "none" }, // fallback parens hidden when ruby is supported
+        ["rb"] = new() { ["display"] = "inline" },
+        ["rtc"] = new() { ["display"] = "inline", ["font-size"] = "0.5em" },
+        ["datalist"] = new() { ["display"] = "none" },
+        ["template"] = new() { ["display"] = "none" },
+        ["wbr"] = new() { ["display"] = "inline" },
+        ["noscript"] = new() { ["display"] = "inline" },
+        // Form elements
+        ["form"] = new() { ["display"] = "block" },
+        ["input"] = new() { ["display"] = "inline-block", ["border-top-width"] = "1px", ["border-right-width"] = "1px", ["border-bottom-width"] = "1px", ["border-left-width"] = "1px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid", ["padding-top"] = "2px", ["padding-right"] = "4px", ["padding-bottom"] = "2px", ["padding-left"] = "4px", ["min-height"] = "1.4em" },
+        ["textarea"] = new() { ["display"] = "block", ["border-top-width"] = "1px", ["border-right-width"] = "1px", ["border-bottom-width"] = "1px", ["border-left-width"] = "1px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid", ["padding-top"] = "2px", ["padding-right"] = "4px", ["padding-bottom"] = "2px", ["padding-left"] = "4px", ["font-family"] = "monospace", ["white-space"] = "pre-wrap" },
+        ["select"] = new() { ["display"] = "inline-block", ["border-top-width"] = "1px", ["border-right-width"] = "1px", ["border-bottom-width"] = "1px", ["border-left-width"] = "1px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid", ["padding-top"] = "2px", ["padding-right"] = "4px", ["padding-bottom"] = "2px", ["padding-left"] = "4px" },
+        ["button"] = new() { ["display"] = "inline-block", ["border-top-width"] = "1px", ["border-right-width"] = "1px", ["border-bottom-width"] = "1px", ["border-left-width"] = "1px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid", ["padding-top"] = "2px", ["padding-right"] = "8px", ["padding-bottom"] = "2px", ["padding-left"] = "8px" },
+        ["label"] = new() { ["display"] = "inline" },
+        ["option"] = new() { ["display"] = "block" },
+        ["optgroup"] = new() { ["display"] = "block" },
     };
 
     /// <summary>
@@ -146,6 +177,12 @@ public class BasicStyleResolver
 
         // 5. Resolve var() references in all non-custom property values
         ResolveCustomProperties(style);
+
+        // 6. Map logical properties (margin-inline-start, padding-block, inline-size, etc.)
+        //    to their physical counterparts based on writing direction.
+        bool isRTL = style.Get("direction") == "rtl";
+        bool isVertical = style.Get("writing-mode")?.IndexOf("vertical", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        LogicalPropertyResolver.Resolve(style, isRTL, isVertical);
 
         return style;
     }

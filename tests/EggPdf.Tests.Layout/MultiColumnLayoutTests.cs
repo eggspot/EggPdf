@@ -226,4 +226,44 @@ public class MultiColumnLayoutTests
         div.Should().NotBeNull();
         MultiColumnLayout.IsMultiColumn(div!.Style).Should().BeTrue();
     }
+
+    // ── column-span: all ────────────────────────────────────────────────────
+
+    [Fact]
+    public void ColumnSpanAll_SpanningElementWidthEqualsContainerWidth()
+    {
+        // h2 has column-span:all — should span the full 400px container width
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0'>" +
+            "<div style='column-count:2; width:400px; column-gap:0'>" +
+            "<p>Before</p>" +
+            "<h2 style='column-span:all'>Heading</h2>" +
+            "<p>After</p>" +
+            "</div></body>", 500, 800);
+
+        var h2 = root.FindByTag("h2");
+        h2.Should().NotBeNull("h2 with column-span:all should be laid out");
+        h2!.Width.Should().BeApproximately(400f, 5f,
+            "column-span:all element should span full container width");
+    }
+
+    [Fact]
+    public void ColumnSpanAll_SpanningElementBelowFirstColumnSection()
+    {
+        // The h2 should appear below the content laid out before it
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0'>" +
+            "<div style='column-count:2; width:400px; column-gap:0'>" +
+            "<p style='height:30px'>Before</p>" +
+            "<h2 style='column-span:all; height:20px'>Heading</h2>" +
+            "<p style='height:30px'>After</p>" +
+            "</div></body>", 500, 800);
+
+        var h2 = root.FindByTag("h2");
+        h2.Should().NotBeNull();
+        // The h2 should be below the "before" paragraph
+        var before = root.FindAllByTag("p")[0];
+        h2!.Y.Should().BeGreaterOrEqualTo(before.Y,
+            "column-span:all element should appear below preceding content");
+    }
 }

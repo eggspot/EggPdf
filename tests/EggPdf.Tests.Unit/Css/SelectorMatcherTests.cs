@@ -465,6 +465,68 @@ public class SelectorMatcherTests
         SelectorMatcher.Matches("h1, p", p!).Should().BeTrue();
     }
 
+    // --- Form state pseudo-classes ---
+
+    [Fact]
+    public void PseudoClass_Required_MatchesRequiredAttribute()
+    {
+        var doc = Doc("<input required>");
+        var input = doc.Body!.ChildNodes.OfType<HtmlElement>().First();
+        SelectorMatcher.Matches("input:required", input).Should().BeTrue();
+        SelectorMatcher.Matches("input:optional", input).Should().BeFalse();
+    }
+
+    [Fact]
+    public void PseudoClass_Optional_MatchesWithoutRequired()
+    {
+        var doc = Doc("<input type='text'>");
+        var input = doc.Body!.ChildNodes.OfType<HtmlElement>().First();
+        SelectorMatcher.Matches("input:optional", input).Should().BeTrue();
+        SelectorMatcher.Matches("input:required", input).Should().BeFalse();
+    }
+
+    [Fact]
+    public void PseudoClass_ReadOnly_MatchesReadonlyAttribute()
+    {
+        var doc = Doc("<input readonly>");
+        var input = doc.Body!.ChildNodes.OfType<HtmlElement>().First();
+        SelectorMatcher.Matches("input:read-only", input).Should().BeTrue();
+        SelectorMatcher.Matches("input:read-write", input).Should().BeFalse();
+    }
+
+    [Fact]
+    public void PseudoClass_ReadWrite_MatchesEditableInput()
+    {
+        var doc = Doc("<input type='text'>");
+        var input = doc.Body!.ChildNodes.OfType<HtmlElement>().First();
+        SelectorMatcher.Matches("input:read-write", input).Should().BeTrue();
+    }
+
+    [Fact]
+    public void PseudoClass_Indeterminate_MatchesIndeterminateAttribute()
+    {
+        var doc = Doc("<input type='checkbox' indeterminate>");
+        var input = doc.Body!.ChildNodes.OfType<HtmlElement>().First();
+        SelectorMatcher.Matches(":indeterminate", input).Should().BeTrue();
+    }
+
+    [Fact]
+    public void PseudoClass_PlaceholderShown_MatchesWhenPlaceholderAndNoValue()
+    {
+        var doc = Doc("<input placeholder='Enter...'>");
+        var input = doc.Body!.ChildNodes.OfType<HtmlElement>().First();
+        SelectorMatcher.Matches(":placeholder-shown", input).Should().BeTrue();
+    }
+
+    [Fact]
+    public void PseudoClass_Lang_MatchesLangAttribute()
+    {
+        var doc = Doc("<p lang='en'>Hello</p>");
+        var p = doc.Body!.ChildNodes.OfType<HtmlElement>().First();
+        SelectorMatcher.Matches(":lang(en)", p).Should().BeTrue();
+        SelectorMatcher.Matches(":lang(fr)", p).Should().BeFalse();
+    }
+
     // --- Edge cases ---
 
     [Fact]

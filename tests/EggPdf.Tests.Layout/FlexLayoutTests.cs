@@ -694,4 +694,58 @@ public class FlexLayoutTests
         foreach (var child in item2.Children)
             child.Width.Should().BeLessOrEqualTo(item2.Width + 0.5f);
     }
+
+    [Fact]
+    public void Order_ReordersItems()
+    {
+        // DOM order: A(order=2), B(order=0), C(order=1)
+        // Visual/paint order (sorted by `order`): B(0), C(1), A(2)
+        // container.Children are in visual order after layout.
+        var root = LayoutFlex(
+            "<div style='display:flex; margin:0; padding:0; width:300px'>" +
+            "<div style='order:2; width:80px; height:50px; margin:0'>A</div>" +
+            "<div style='order:0; width:80px; height:50px; margin:0'>B</div>" +
+            "<div style='order:1; width:80px; height:50px; margin:0'>C</div>" +
+            "</div>");
+
+        var container = FindInnerDivs(root)[0];
+        container.Children.Count.Should().Be(3);
+
+        // Children in container are in visual order (sorted by `order` property):
+        // [0] = B(order=0), [1] = C(order=1), [2] = A(order=2)
+        var visual1 = container.Children[0]; // should be B (order=0)
+        var visual2 = container.Children[1]; // should be C (order=1)
+        var visual3 = container.Children[2]; // should be A (order=2)
+
+        // Verify sorted by `order` value
+        visual1.Style.Get("order").Should().Be("0", "first visual item should be B (order=0)");
+        visual2.Style.Get("order").Should().Be("1", "second visual item should be C (order=1)");
+        visual3.Style.Get("order").Should().Be("2", "third visual item should be A (order=2)");
+
+        // And they should be physically side-by-side left-to-right
+        visual1.X.Should().BeLessThan(visual2.X);
+        visual2.X.Should().BeLessThan(visual3.X);
+    }
+
+    [Fact]
+    public void FlexShorthand_ThreeValues_GrowShrinkBasis()
+    {
+        // flex: 1 0 100px → grow=1, shrink=0, basis=100px
+        // Two items: flex: 1 0 100px → each starts at 100px basis, then grows equally
+        var root = LayoutFlex(
+            "<div style='display:flex; width:400px; margin:0; padding:0'>" +
+            "<div style='flex: 1 0 100px; margin:0'></div>" +
+            "<div style='flex: 1 0 100px; margin:0'></div>" +
+            "</div>");
+
+        var container = FindInnerDivs(root)[0];
+        container.Children.Count.Should().Be(2);
+
+        var item1 = container.Children[0];
+        var item2 = container.Children[1];
+
+        // Each starts at 100px basis + equal share of remaining 200px = 200px each
+        item1.Width.Should().BeApproximately(200f, 2f);
+        item2.Width.Should().BeApproximately(200f, 2f);
+    }
 }
