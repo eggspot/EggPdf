@@ -54,7 +54,7 @@ public static class SelectorMatcher
             pos++;
         }
         var pseudo = sb.ToString().ToLowerInvariant();
-        return pseudo == "before" || pseudo == "after" || pseudo == "first-line" || pseudo == "first-letter";
+        return pseudo == "before" || pseudo == "after" || pseudo == "first-line" || pseudo == "first-letter" || pseudo == "marker";
     }
 
     /// <summary>Match a single complex selector (with combinators).</summary>
@@ -415,9 +415,56 @@ public static class SelectorMatcher
             case "nth-last-of-type":
                 return MatchNthOfType(arg.Trim(), element, fromEnd: true);
 
+            case "lang":
+            {
+                // Match element or ancestor with matching lang attribute
+                var langArg = arg.Trim().Trim('\'', '"');
+                HtmlElement? cur = element;
+                while (cur != null)
+                {
+                    var lang = cur.GetAttribute("lang");
+                    if (!string.IsNullOrEmpty(lang) &&
+                        (string.Equals(lang, langArg, StringComparison.OrdinalIgnoreCase) ||
+                         lang.StartsWith(langArg + "-", StringComparison.OrdinalIgnoreCase)))
+                        return true;
+                    cur = cur.Parent as HtmlElement;
+                }
+                return false;
+            }
+
+            case "has":
+                // :has() — simplified: check if element has a descendant matching arg
+                return HasDescendantMatching(element, arg.Trim());
+
             default:
                 return true; // Unknown functional pseudo: don't reject
         }
+    }
+
+    private static bool HasDescendantMatching(HtmlElement element, string selector)
+    {
+        foreach (var child in element.ChildNodes)
+        {
+            if (child is HtmlElement ce)
+            {
+                if (Matches(selector, ce)) return true;
+                if (HasDescendantMatching(ce, selector)) return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsEditableElement(HtmlElement element)
+    {
+        var tag = element.TagName;
+        if (tag == "textarea") return true;
+        if (tag == "input")
+        {
+            var type = (element.GetAttribute("type") ?? "text").ToLowerInvariant();
+            return type != "hidden" && type != "submit" && type != "button" &&
+                   type != "reset" && type != "image" && type != "checkbox" && type != "radio";
+        }
+        return false;
     }
 
     private static bool MatchPseudoClass(string pseudo, HtmlElement element)
@@ -522,11 +569,39 @@ public static class SelectorMatcher
             case "checked":
                 return element.HasAttribute("checked") || element.HasAttribute("selected");
 
+            case "indeterminate":
+                return element.HasAttribute("indeterminate");
+
+            case "required":
+                return element.HasAttribute("required");
+
+            case "optional":
+                return !element.HasAttribute("required");
+
+            case "read-only":
+                return element.HasAttribute("readonly") || element.HasAttribute("disabled");
+
+            case "read-write":
+                return !element.HasAttribute("readonly") && !element.HasAttribute("disabled") &&
+                       IsEditableElement(element);
+
+            case "placeholder-shown":
+                return element.HasAttribute("placeholder") && string.IsNullOrEmpty(element.GetAttribute("value"));
+
+            case "default":
+                return element.HasAttribute("checked") || element.HasAttribute("selected") ||
+                       element.HasAttribute("default");
+
             case "hover":
             case "active":
             case "focus":
+            case "focus-within":
+            case "focus-visible":
             case "visited":
                 return false; // Interactive pseudo-classes never match in print
+
+            case "target":
+                return false; // URL fragment not available during PDF render
 
             default:
                 return true; // Unknown pseudo-class: don't reject

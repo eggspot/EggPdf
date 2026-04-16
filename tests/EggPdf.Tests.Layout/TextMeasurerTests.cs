@@ -115,4 +115,37 @@ public class TextMeasurerTests
         float lh = TextMeasurer.GetLineHeight(16, "1.5");
         lh.Should().BeApproximately(24f, 0.1f);
     }
+
+    [Fact]
+    public void WrapText_Hyphenation_LongWordGetsHyphenated()
+    {
+        // "hyphenation" is a long English word that should be hyphenable
+        // With a narrow container, hyphenation should insert a hyphen to break the word
+        var lines = TextMeasurer.WrapText("hyphenation", 16, null, null, null, 60f, "normal", false, true);
+        // At least one line should end with a hyphen, or there should be more than one line
+        lines.Should().HaveCountGreaterThan(1, "long word should be split with hyphenation");
+        // All except possibly the last line should end with a hyphen
+        for (int i = 0; i < lines.Count - 1; i++)
+            lines[i].Should().EndWith("-", $"line {i} should end with a hyphen when hyphenation is enabled");
+    }
+
+    [Fact]
+    public void WrapText_Hyphenation_ShortWord_NotHyphenated()
+    {
+        // "run" is too short to hyphenate (< leftMin + rightMin = 5 chars)
+        var lines = TextMeasurer.WrapText("run", 16, null, null, null, 10f, "normal", false, true);
+        // Should produce 1 line without hyphen (word too short to hyphenate)
+        lines.Count.Should().Be(1);
+        lines[0].Should().NotEndWith("-");
+    }
+
+    [Fact]
+    public void WrapText_Hyphenation_Disabled_NoHyphens()
+    {
+        // Without hyphenation, long words are not split with hyphens
+        var lines = TextMeasurer.WrapText("hyphenation", 16, null, null, null, 60f, "normal", false, false);
+        // Should produce one line (not broken) without hyphens
+        foreach (var line in lines)
+            line.Should().NotEndWith("-");
+    }
 }

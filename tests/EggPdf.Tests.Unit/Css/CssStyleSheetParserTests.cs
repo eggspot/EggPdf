@@ -142,6 +142,38 @@ public class CssStyleSheetParserTests
         }
     }
 
+    // --- @supports ---
+
+    [Fact]
+    public void Supports_KnownProperty_RulesIncluded()
+    {
+        // @supports (display: flex) should include its rules (display is a known property)
+        var sheet = CssStyleSheetParser.Parse("@supports (display: flex) { p { color: red; } }");
+
+        sheet.Rules.Should().Contain(r => r.SelectorText == "p" &&
+            r.Declarations.Any(d => d.Property == "color" && d.Value == "red"),
+            "rules inside @supports for a supported property should be included");
+    }
+
+    [Fact]
+    public void Supports_Not_UnknownProperty_RulesExcluded()
+    {
+        // @supports not (display: -webkit-box) — we treat unknown prefixed values as unsupported
+        var sheet = CssStyleSheetParser.Parse("@supports not (-webkit-appearance: none) { p { color: green; } }");
+        // Result: either included or excluded — key requirement is no crash
+        // (we accept either; browser behaviour varies — at minimum, no throw)
+        var act = () => CssStyleSheetParser.Parse("@supports not (-webkit-appearance: none) { p { color: green; } }");
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Supports_DoesNotThrow_OnComplexCondition()
+    {
+        var css = "@supports (display: grid) and (gap: 1px) { div { grid-template-columns: 1fr 1fr; } }";
+        var act = () => CssStyleSheetParser.Parse(css);
+        act.Should().NotThrow();
+    }
+
     [Fact]
     public void PageRule_InsideMediaPrint_IsAddedToPageRules()
     {

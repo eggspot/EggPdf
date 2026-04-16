@@ -10,6 +10,7 @@ public class CssStyleSheet
     public List<CssFontFaceRule> FontFaceRules { get; } = new();
     public List<CssPageRule> PageRules { get; } = new();
     public List<CssImportRule> ImportRules { get; } = new();
+    public List<CssCounterStyleRule> CounterStyleRules { get; } = new();
 }
 
 /// <summary>@import rule with URL and optional media query.</summary>
@@ -44,4 +45,20 @@ public class CssPageRule
 {
     public string? PageSelector { get; set; }
     public List<CssDeclaration> Declarations { get; } = new();
+}
+
+/// <summary>@counter-style rule defining a custom list marker style.</summary>
+public class CssCounterStyleRule
+{
+    public string Name { get; set; } = "";
+    /// <summary>system: cyclic | symbolic | alphabetic | numeric | fixed | extends &lt;name&gt;</summary>
+    public string System { get; set; } = "symbolic";
+    /// <summary>Space/comma-separated symbols (may be quoted strings or identifiers).</summary>
+    public List<string> Symbols { get; } = new();
+    public string Prefix { get; set; } = "";
+    public string Suffix { get; set; } = ". ";
+    /// <summary>Name of the counter style this one extends (for system: extends).</summary>
+    public string? Extends { get; set; }
+    public string? Negative { get; set; }
+    public string? Fallback { get; set; }
 }

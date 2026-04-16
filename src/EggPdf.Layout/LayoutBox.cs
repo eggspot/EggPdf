@@ -67,4 +67,31 @@ public class LayoutBox
         foreach (var child in Children)
             child.FindAllByTagRecursive(tagName, results);
     }
+
+    /// <summary>Find first descendant whose element has the given id attribute.</summary>
+    public LayoutBox? FindById(string id)
+    {
+        if (Element is EggPdf.Html.Dom.HtmlElement el && el.Id == id) return this;
+        foreach (var child in Children)
+        {
+            var found = child.FindById(id);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    /// <summary>Find all descendants matching the given predicate.</summary>
+    public List<LayoutBox> FindAll(System.Func<LayoutBox, bool> predicate)
+    {
+        var results = new List<LayoutBox>();
+        FindAllRecursive(predicate, results);
+        return results;
+    }
+
+    private void FindAllRecursive(System.Func<LayoutBox, bool> predicate, List<LayoutBox> results)
+    {
+        if (predicate(this)) results.Add(this);
+        foreach (var child in Children)
+            child.FindAllRecursive(predicate, results);
+    }
 }

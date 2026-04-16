@@ -70,6 +70,16 @@ public static class CssStyleSheetParser
             case "page":
                 ParsePageRule(sheet, tokens, ref pos);
                 break;
+            case "supports":
+                ParseSupportsRule(sheet, tokens, ref pos);
+                break;
+            case "layer":
+                // @layer: treat like a transparent block — include its rules unconditionally
+                ParseLayerRule(sheet, tokens, ref pos);
+                break;
+            case "counter-style":
+                ParseCounterStyleRule(sheet, tokens, ref pos);
+                break;
             default:
                 // Skip unknown at-rule: consume until { } or ;
                 SkipAtRule(tokens, ref pos);
@@ -339,6 +349,312 @@ public static class CssStyleSheetParser
 
             if (pos < tokens.Count && tokens[pos].Type == CssTokenType.Semicolon) pos++;
         }
+    }
+
+    /// <summary>
+    /// @supports (condition) { rules }
+    /// Strategy: evaluate whether EggPdf supports the tested property.
+    /// Unknown or vendor-prefixed properties → false.
+    /// If condition evaluates true, include the nested rules; otherwise skip the block.
+    /// </summary>
+    private static void ParseSupportsRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos)
+    {
+        // Collect condition tokens up to the opening {
+        var condBuilder = new StringBuilder();
+        while (pos < tokens.Count && tokens[pos].Type != CssTokenType.LeftCurly)
+        {
+            condBuilder.Append(tokens[pos].Value ?? "");
+            pos++;
+        }
+        if (pos >= tokens.Count) return;
+        pos++; // skip {
+
+        bool supported = EvaluateSupportsCondition(condBuilder.ToString().Trim());
+
+        if (supported)
+        {
+            // Parse nested rules into the sheet directly (like a transparent wrapper)
+            while (pos < tokens.Count && tokens[pos].Type != CssTokenType.RightCurly)
+            {
+                SkipWhitespace(tokens, ref pos);
+                if (pos >= tokens.Count || tokens[pos].Type == CssTokenType.RightCurly) break;
+
+                if (tokens[pos].Type == CssTokenType.Delim && tokens[pos].Value == "@")
+                {
+                    pos++;
+                    ParseAtRule(sheet, tokens, ref pos);
+                }
+                else
+                {
+                    var rule = ParseSingleStyleRule(tokens, ref pos);
+                    if (rule != null) sheet.Rules.Add(rule);
+                }
+            }
+        }
+        else
+        {
+            SkipBlock(tokens, ref pos);
+            return;
+        }
+
+        if (pos < tokens.Count && tokens[pos].Type == CssTokenType.RightCurly) pos++;
+    }
+
+    /// <summary>
+    /// @layer name { rules } — include rules unconditionally (cascade layers not tracked).
+    /// </summary>
+    private static void ParseCounterStyleRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos)
+    {
+        // @counter-style <name> { system: ...; symbols: ...; suffix: ...; prefix: ...; }
+        SkipWhitespace(tokens, ref pos);
+        if (pos >= tokens.Count) return;
+
+        // Read the name
+        var name = tokens[pos].Type == CssTokenType.Ident ? tokens[pos].Value ?? "" : "";
+        if (string.IsNullOrEmpty(name)) { SkipAtRule(tokens, ref pos); return; }
+        pos++;
+        SkipWhitespace(tokens, ref pos);
+
+        // Expect {
+        if (pos >= tokens.Count || tokens[pos].Type != CssTokenType.LeftCurly)
+        { SkipAtRule(tokens, ref pos); return; }
+        pos++; // skip {
+
+        var rule = new CssCounterStyleRule { Name = name };
+
+        // Parse declarations inside the block
+        while (pos < tokens.Count && tokens[pos].Type != CssTokenType.RightCurly)
+        {
+            SkipWhitespace(tokens, ref pos);
+            if (pos >= tokens.Count || tokens[pos].Type == CssTokenType.RightCurly) break;
+
+            // Read property name
+            if (tokens[pos].Type != CssTokenType.Ident) { pos++; continue; }
+            var propName = tokens[pos].Value?.ToLowerInvariant() ?? "";
+            pos++;
+            SkipWhitespace(tokens, ref pos);
+
+            // Expect :
+            if (pos >= tokens.Count || tokens[pos].Type != CssTokenType.Colon) continue;
+            pos++;
+            SkipWhitespace(tokens, ref pos);
+
+            // Read value tokens until ; or }
+            var valueSb = new StringBuilder();
+            while (pos < tokens.Count &&
+                   tokens[pos].Type != CssTokenType.Semicolon &&
+                   tokens[pos].Type != CssTokenType.RightCurly)
+            {
+                valueSb.Append(tokens[pos].Value ?? "");
+                pos++;
+            }
+            if (pos < tokens.Count && tokens[pos].Type == CssTokenType.Semicolon) pos++;
+
+            var value = valueSb.ToString().Trim();
+            switch (propName)
+            {
+                case "system":
+                    if (value.StartsWith("extends", StringComparison.OrdinalIgnoreCase))
+                    {
+                        rule.System = "extends";
+                        var ext = value.Substring(7).Trim();
+                        rule.Extends = ext;
+                    }
+                    else rule.System = value;
+                    break;
+                case "symbols":
+                    // Parse space/comma-separated symbols; quoted strings are unquoted
+                    ParseSymbolList(value, rule.Symbols);
+                    break;
+                case "suffix":
+                    rule.Suffix = UnquoteString(value);
+                    break;
+                case "prefix":
+                    rule.Prefix = UnquoteString(value);
+                    break;
+                case "negative":
+                    rule.Negative = value;
+                    break;
+                case "fallback":
+                    rule.Fallback = value;
+                    break;
+            }
+        }
+        if (pos < tokens.Count && tokens[pos].Type == CssTokenType.RightCurly) pos++;
+
+        // Default suffix is ". " if not specified and system is not cyclic/symbolic
+        sheet.CounterStyleRules.Add(rule);
+    }
+
+    private static void ParseSymbolList(string value, List<string> symbols)
+    {
+        var remaining = value.Trim();
+        while (remaining.Length > 0)
+        {
+            remaining = remaining.TrimStart();
+            if (remaining.Length == 0) break;
+
+            if (remaining[0] == '"' || remaining[0] == '\'')
+            {
+                char q = remaining[0];
+                int end = remaining.IndexOf(q, 1);
+                if (end < 0) end = remaining.Length - 1;
+                symbols.Add(remaining.Substring(1, end - 1));
+                remaining = remaining.Substring(end + 1).TrimStart(',').TrimStart();
+            }
+            else if (remaining[0] == '\\')
+            {
+                // Unicode escape like \1F44D
+                int end = 1;
+                while (end < remaining.Length && end < 7 &&
+                       IsHexDigit(remaining[end])) end++;
+                var hex = remaining.Substring(1, end - 1);
+                if (hex.Length > 0 && int.TryParse(hex, System.Globalization.NumberStyles.HexNumber,
+                    System.Globalization.CultureInfo.InvariantCulture, out int cp))
+                {
+                    symbols.Add(char.ConvertFromUtf32(cp));
+                }
+                remaining = remaining.Substring(end).TrimStart(',').TrimStart();
+            }
+            else
+            {
+                // Identifier token
+                int end = 0;
+                while (end < remaining.Length && remaining[end] != ' ' &&
+                       remaining[end] != ',' && remaining[end] != '\t') end++;
+                if (end > 0) symbols.Add(remaining.Substring(0, end));
+                remaining = remaining.Substring(end).TrimStart(',').TrimStart();
+            }
+        }
+    }
+
+    private static bool IsHexDigit(char c)
+        => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+
+    private static string UnquoteString(string value)
+    {
+        value = value.Trim();
+        if (value.Length >= 2 && (value[0] == '"' || value[0] == '\'') && value[value.Length - 1] == value[0])
+            return value.Substring(1, value.Length - 2);
+        return value;
+    }
+
+    private static void ParseLayerRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos)
+    {
+        // Skip layer name/order declaration until { or ;
+        while (pos < tokens.Count &&
+               tokens[pos].Type != CssTokenType.LeftCurly &&
+               tokens[pos].Type != CssTokenType.Semicolon)
+            pos++;
+
+        if (pos >= tokens.Count) return;
+        if (tokens[pos].Type == CssTokenType.Semicolon) { pos++; return; } // @layer name; declaration
+        pos++; // skip {
+
+        // Parse nested rules as if they were at top level
+        while (pos < tokens.Count && tokens[pos].Type != CssTokenType.RightCurly)
+        {
+            SkipWhitespace(tokens, ref pos);
+            if (pos >= tokens.Count || tokens[pos].Type == CssTokenType.RightCurly) break;
+
+            if (tokens[pos].Type == CssTokenType.Delim && tokens[pos].Value == "@")
+            {
+                pos++;
+                ParseAtRule(sheet, tokens, ref pos);
+            }
+            else
+            {
+                var rule = ParseSingleStyleRule(tokens, ref pos);
+                if (rule != null) sheet.Rules.Add(rule);
+            }
+        }
+        if (pos < tokens.Count && tokens[pos].Type == CssTokenType.RightCurly) pos++;
+    }
+
+    /// <summary>
+    /// Evaluate a @supports condition string.
+    /// Returns true if EggPdf claims to support the tested property/value.
+    /// Handles: (prop: val), not (...), (...) and (...), (...) or (...)
+    /// </summary>
+    private static bool EvaluateSupportsCondition(string condition)
+    {
+        condition = condition.Trim();
+        if (string.IsNullOrEmpty(condition)) return true;
+
+        // Handle "not (...)"
+        if (condition.StartsWith("not ", StringComparison.OrdinalIgnoreCase))
+            return !EvaluateSupportsCondition(condition.Substring(4).Trim());
+
+        // Handle "not(...)" without space
+        if (condition.StartsWith("not(", StringComparison.OrdinalIgnoreCase))
+            return !EvaluateSupportsCondition(StripOuterParens(condition.Substring(3)));
+
+        // Split by top-level " and " / " or "
+        var andParts = SplitByKeyword(condition, " and ");
+        if (andParts.Length > 1)
+        {
+            foreach (var part in andParts)
+                if (!EvaluateSupportsCondition(part.Trim())) return false;
+            return true;
+        }
+
+        var orParts = SplitByKeyword(condition, " or ");
+        if (orParts.Length > 1)
+        {
+            foreach (var part in orParts)
+                if (EvaluateSupportsCondition(part.Trim())) return true;
+            return false;
+        }
+
+        // Strip outer parens
+        condition = StripOuterParens(condition);
+
+        // At this point, expect "(property: value)" or "property: value"
+        int colon = condition.IndexOf(':');
+        if (colon < 0) return true; // no colon — be permissive
+
+        var propName = condition.Substring(0, colon).Trim().ToLowerInvariant();
+
+        // Vendor-prefixed properties → false
+        if (propName.StartsWith("-webkit-", StringComparison.Ordinal) ||
+            propName.StartsWith("-moz-", StringComparison.Ordinal) ||
+            propName.StartsWith("-ms-", StringComparison.Ordinal) ||
+            propName.StartsWith("-o-", StringComparison.Ordinal))
+            return false;
+
+        // Known CSS properties → true (be permissive, assume we support standard props)
+        return true;
+    }
+
+    private static string StripOuterParens(string s)
+    {
+        s = s.Trim();
+        if (s.Length >= 2 && s[0] == '(' && s[s.Length - 1] == ')')
+            return s.Substring(1, s.Length - 2).Trim();
+        return s;
+    }
+
+    private static string[] SplitByKeyword(string s, string keyword)
+    {
+        var parts = new System.Collections.Generic.List<string>();
+        int depth = 0;
+        int start = 0;
+        int kLen = keyword.Length;
+
+        for (int i = 0; i <= s.Length - kLen; i++)
+        {
+            char c = s[i];
+            if (c == '(') depth++;
+            else if (c == ')') depth--;
+            else if (depth == 0 && string.Equals(s.Substring(i, kLen), keyword, StringComparison.OrdinalIgnoreCase))
+            {
+                parts.Add(s.Substring(start, i - start));
+                start = i + kLen;
+                i += kLen - 1;
+            }
+        }
+        parts.Add(s.Substring(start));
+        return parts.ToArray();
     }
 
     private static void SkipAtRule(List<CssToken> tokens, ref int pos)

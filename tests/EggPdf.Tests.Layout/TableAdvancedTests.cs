@@ -85,6 +85,45 @@ public class TableAdvancedTests
         table.Should().NotBeNull();
     }
 
+    [Fact]
+    public void Colgroup_ColWidths_AppliedToColumns()
+    {
+        // col elements with explicit widths should set the column widths.
+        // col1 = 200px, col2 = 400px in a 600px table.
+        var root = LayoutTestHelper.Layout(
+            "<table style='width: 600px'>" +
+            "<colgroup><col style='width: 200px'><col style='width: 400px'></colgroup>" +
+            "<tbody><tr><td>A</td><td>B</td></tr></tbody>" +
+            "</table>", 800, 800);
+
+        var tds = root.FindAllByTag("td");
+        tds.Should().HaveCount(2);
+
+        tds[0].Width.Should().BeApproximately(200f, 5f,
+            "first col with width:200px should produce a ~200px cell");
+        tds[1].Width.Should().BeApproximately(400f, 5f,
+            "second col with width:400px should produce a ~400px cell");
+    }
+
+    [Fact]
+    public void Colgroup_ColPercentageWidth_AppliedToColumns()
+    {
+        // col with percentage widths relative to the table width
+        var root = LayoutTestHelper.Layout(
+            "<table style='width: 500px'>" +
+            "<colgroup><col style='width: 40%'><col style='width: 60%'></colgroup>" +
+            "<tbody><tr><td>A</td><td>B</td></tr></tbody>" +
+            "</table>", 800, 800);
+
+        var tds = root.FindAllByTag("td");
+        tds.Should().HaveCount(2);
+
+        tds[0].Width.Should().BeApproximately(200f, 5f,
+            "40% col in 500px table should produce a ~200px cell");
+        tds[1].Width.Should().BeApproximately(300f, 5f,
+            "60% col in 500px table should produce a ~300px cell");
+    }
+
     // ── border-spacing ───────────────────────────────────────────────────────
 
     [Fact]
@@ -205,5 +244,54 @@ public class TableAdvancedTests
         for (int i = 1; i < rows.Count; i++)
             rows[i].Y.Should().BeGreaterThan(rows[i - 1].Y,
                 $"row {i} should be below row {i - 1}");
+    }
+
+    // ── table-layout: fixed ─────────────────────────────────────────────────
+
+    [Fact]
+    public void TableLayoutFixed_EqualWidthCells_WhenNoExplicitWidth()
+    {
+        // With table-layout:fixed and no explicit widths, columns are equal
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0'><table style='table-layout:fixed; width:300px; border-spacing:0'>" +
+            "<tr><td>A</td><td>B</td><td>C</td></tr>" +
+            "<tr><td>very long content here</td><td>B2</td><td>C2</td></tr>" +
+            "</table></body>", 400, 600);
+
+        var tds = root.FindAllByTag("td");
+        tds.Should().HaveCountGreaterOrEqualTo(3);
+
+        // First row cells should all be equal width (300 / 3 = 100)
+        tds[0].Width.Should().BeApproximately(100f, 2f, "fixed layout distributes equally");
+        tds[1].Width.Should().BeApproximately(100f, 2f, "fixed layout distributes equally");
+        tds[2].Width.Should().BeApproximately(100f, 2f, "fixed layout distributes equally");
+
+        // Second row cells should use the same column widths, not content-driven widths
+        tds[3].Width.Should().BeApproximately(100f, 2f,
+            "fixed layout: second row must use first-row column widths, not content");
+    }
+
+    [Fact]
+    public void TableLayoutFixed_ExplicitFirstRowWidths_Respected()
+    {
+        // With table-layout:fixed, first-row explicit widths define all column widths
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0'><table style='table-layout:fixed; width:300px; border-spacing:0'>" +
+            "<tr><td style='width:60px'>A</td><td style='width:120px'>B</td><td>C</td></tr>" +
+            "<tr><td>very long content here</td><td>short</td><td>x</td></tr>" +
+            "</table></body>", 400, 600);
+
+        var tds = root.FindAllByTag("td");
+        tds.Should().HaveCountGreaterOrEqualTo(6);
+
+        // First row: explicit widths 60, 120, remaining = 120
+        tds[0].Width.Should().BeApproximately(60f, 2f, "first-row explicit width:60px respected");
+        tds[1].Width.Should().BeApproximately(120f, 2f, "first-row explicit width:120px respected");
+
+        // Second row must use same column widths as first row
+        tds[3].Width.Should().BeApproximately(60f, 2f,
+            "second row inherits first-row column widths in fixed layout");
+        tds[4].Width.Should().BeApproximately(120f, 2f,
+            "second row inherits first-row column widths in fixed layout");
     }
 }

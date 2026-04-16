@@ -91,7 +91,8 @@ public static class HtmlToPdf
         ResolveImages(layoutRoot, pdfDoc);
 
         // 6b. Subset and embed TrueType fonts for non-standard fonts
-        SubsetAndEmbedFonts(layoutRoot, pdfDoc);
+        // Pass stylesheets so @font-face src URLs are tried before system font lookup.
+        SubsetAndEmbedFonts(layoutRoot, pdfDoc, stylesheets);
 
         // 7. Render to PDF
         float pageWidthPt = pageWidthPx * PdfCoordinates.PxToPt;
@@ -446,13 +447,17 @@ public static class HtmlToPdf
     /// Walk the layout tree, find text using TrueType system fonts, subset them,
     /// and register as CIDFont Type 2 in the PDF document.
     /// </summary>
-    private static void SubsetAndEmbedFonts(LayoutBox root, PdfDocument pdfDoc)
+    private static void SubsetAndEmbedFonts(LayoutBox root, PdfDocument pdfDoc,
+        List<CssStyleSheet>? stylesheets = null)
     {
         // Collect all (fontName, codepoints) used in the document
         var fontCodepoints = new Dictionary<string, HashSet<int>>();
         CollectTextCodepoints(root, fontCodepoints);
 
         if (fontCodepoints.Count == 0) return;
+
+        // Build lookup: normalized PDF font name -> @font-face src value
+        var fontFaceSrcs = BuildFontFaceMap(stylesheets);
 
         var fontResolver = new Text.FontResolver();
 
@@ -464,8 +469,42 @@ public static class HtmlToPdf
             // Only embed if this is NOT a standard PDF built-in font
             if (IsStandardPdfFont(pdfFontName)) continue;
 
-            // Try to find a system TrueType font matching this name
-            var fontData = fontResolver.Resolve(pdfFontName);
+            // Try @font-face src first, then fall back to system font resolver
+            Text.TrueType.FontData? fontData = null;
+
+            if (fontFaceSrcs.TryGetValue(pdfFontName, out var srcValue))
+            {
+                // Parse src: may be comma-separated list of url() or local()
+                var srcParts = srcValue.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var srcPart in srcParts)
+                {
+                    var url = Text.FontUrlFetcher.ParseFontSrcUrl(srcPart.Trim());
+                    if (url == null) continue;
+
+                    if (url.StartsWith("local:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // local("FontName") — resolve via system
+                        var localName = url.Substring(6);
+                        fontData = fontResolver.Resolve(localName);
+                    }
+                    else
+                    {
+                        var rawBytes = Text.FontUrlFetcher.Fetch(url);
+                        if (rawBytes != null && rawBytes.Length > 0)
+                        {
+                            try { fontData = Text.TrueType.TtfParser.Parse(rawBytes); }
+                            catch { fontData = null; }
+                        }
+                    }
+
+                    if (fontData != null) break;
+                }
+            }
+
+            // Fall back to system font resolver
+            if (fontData == null)
+                fontData = fontResolver.Resolve(pdfFontName);
+
             if (fontData == null || fontData.RawData == null || fontData.RawData.Length == 0)
                 continue;
 
@@ -484,6 +523,43 @@ public static class HtmlToPdf
                 fontData.Ascent,
                 fontData.Descent);
         }
+    }
+
+    /// <summary>
+    /// Build a map from normalized PDF font name to @font-face src value.
+    /// Scans all font-face rules in all stylesheets.
+    /// </summary>
+    private static Dictionary<string, string> BuildFontFaceMap(List<CssStyleSheet>? stylesheets)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (stylesheets == null) return result;
+
+        foreach (var sheet in stylesheets)
+        {
+            foreach (var rule in sheet.FontFaceRules)
+            {
+                string? family = null, src = null, weight = null, fontStyle = null;
+                foreach (var decl in rule.Declarations)
+                {
+                    switch (decl.Property)
+                    {
+                        case "font-family": family = decl.Value.Trim().Trim('"', '\''); break;
+                        case "src":         src = decl.Value; break;
+                        case "font-weight": weight = decl.Value; break;
+                        case "font-style":  fontStyle = decl.Value; break;
+                    }
+                }
+
+                if (string.IsNullOrEmpty(family) || string.IsNullOrEmpty(src)) continue;
+
+                // Map to the same PDF font name the renderer will use
+                var pdfName = Layout.StandardFontMetrics.ResolvePdfFontName(family, weight, fontStyle);
+                if (!result.ContainsKey(pdfName))
+                    result[pdfName] = src;
+            }
+        }
+
+        return result;
     }
 
     private static void CollectTextCodepoints(LayoutBox box, Dictionary<string, HashSet<int>> fontCodepoints)
