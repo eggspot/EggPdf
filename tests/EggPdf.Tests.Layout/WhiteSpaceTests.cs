@@ -183,4 +183,90 @@ public class WhiteSpaceTests
         var textBoxes = div!.Children.Where(c => !string.IsNullOrEmpty(c.Text)).ToList();
         textBoxes.Count.Should().Be(1, "without break-word, long word stays as single line");
     }
+
+    // ── &nbsp; / \u00A0 non-breaking space ──────────────────────────────────
+
+    [Fact]
+    public void Nbsp_InlineText_IsRendered()
+    {
+        // Text node with &nbsp; between two words should produce a visible gap.
+        // The \u00A0 must NOT be trimmed or collapsed.
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0'><p>PAYMENT LINK:&nbsp;&nbsp;<a>Pay Now</a></p></body>",
+            400, 600);
+
+        var p = root.FindByTag("p");
+        p.Should().NotBeNull();
+
+        // All text boxes concatenated should contain the original \u00A0 characters
+        var allText = string.Concat(p!.Children
+            .Where(b => !string.IsNullOrEmpty(b.Text))
+            .Select(b => b.Text));
+
+        allText.Should().Contain("\u00A0",
+            "non-breaking spaces from &nbsp; must survive trimming and appear in layout");
+    }
+
+    [Fact]
+    public void Nbsp_OnlyNode_IsNotSkipped()
+    {
+        // A text node that contains ONLY &nbsp; entities should produce a layout box.
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0'><p><span>A</span>&nbsp;&nbsp;<span>B</span></p></body>",
+            400, 600);
+
+        var p = root.FindByTag("p");
+        p.Should().NotBeNull();
+
+        var allText = string.Concat(p!.Children
+            .SelectMany(b => new[] { b }.Concat(b.Children))
+            .Where(b => !string.IsNullOrEmpty(b.Text))
+            .Select(b => b.Text));
+
+        allText.Should().Contain("\u00A0",
+            "a text node with only &nbsp; must not be skipped");
+    }
+
+    [Fact]
+    public void Nbsp_Width_EqualsSpaceWidth()
+    {
+        // A paragraph with one &nbsp; should have the same width as one normal space
+        // when measured (within a small tolerance for font metric rounding).
+        float spaceWidth = EggPdf.Layout.TextMeasurer.MeasureWidth(" ", 12f, "Arial");
+        float nbspWidth  = EggPdf.Layout.TextMeasurer.MeasureWidth("\u00A0", 12f, "Arial");
+
+        nbspWidth.Should().BeApproximately(spaceWidth, 0.5f,
+            "non-breaking space should have the same width as a regular space");
+    }
+
+    // ── tab-size ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void TabSize_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<pre style='tab-size: 8'>text</pre>", 400, 600);
+        var pre = root.FindByTag("pre");
+        pre!.Style.Get("tab-size").Should().Be("8",
+            "tab-size should be preserved in computed style");
+    }
+
+    [Fact]
+    public void TabSize_4_WiderThan_2()
+    {
+        // In a pre block a tab with tab-size:4 is expanded to 4 spaces, while tab-size:2
+        // expands to 2 spaces.  The text box that contains the tab + "X" should therefore
+        // be wider when tab-size is larger.
+        var root2 = LayoutTestHelper.Layout("<pre style='tab-size:2'>\tX</pre>", 400, 600);
+        var root4 = LayoutTestHelper.Layout("<pre style='tab-size:4'>\tX</pre>", 400, 600);
+
+        var box2 = root2.FindByTag("pre")!.Children.Find(b => !string.IsNullOrEmpty(b.Text) && b.Text.Contains("X"));
+        var box4 = root4.FindByTag("pre")!.Children.Find(b => !string.IsNullOrEmpty(b.Text) && b.Text.Contains("X"));
+
+        box2.Should().NotBeNull();
+        box4.Should().NotBeNull();
+
+        box4!.ContentWidth.Should().BeGreaterThan(box2!.ContentWidth,
+            "tab-size:4 expands to 4 spaces so the line should be wider than tab-size:2 (2 spaces)");
+    }
 }

@@ -107,6 +107,19 @@ public static class PdfGradient
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Render a CSS repeating-radial-gradient() as PDF content stream commands.
+    /// Approximated as radial gradient bands (same as radial-gradient, patterns not repeated).
+    /// </summary>
+    public static string? RenderRepeatingRadialGradient(string cssGradient, float x, float y, float width, float height)
+    {
+        if (string.IsNullOrEmpty(cssGradient)) return null;
+        // Re-map prefix so PdfRadialGradient.Render can parse the color stops
+        var remapped = "radial-gradient(" +
+            cssGradient.Substring("repeating-radial-gradient(".Length);
+        return PdfRadialGradient.Render(remapped, x, y, width, height);
+    }
+
     private static List<string> SplitGradientArgs(string args)
     {
         var result = new List<string>();

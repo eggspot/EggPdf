@@ -102,6 +102,7 @@ public static class StandardFontMetrics
         for (int i = 0; i < text.Length; i++)
         {
             int c = text[i];
+            if (c == '\u00A0') c = ' '; // non-breaking space → same width as regular space
             if (c >= 32 && c <= 126)
             {
                 totalWidth += widths[c - 32];

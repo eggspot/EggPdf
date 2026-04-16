@@ -97,6 +97,48 @@ public class CssShorthandExpanderTests
     }
 
     [Fact]
+    public void Background_Shorthand_ColorAndImage_ExtractsBoth()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("background", "url('img.png') no-repeat center #fff", style).Should().BeTrue();
+
+        style.BackgroundColor.Should().Be("#fff");
+        style.Get("background-image").Should().Be("url('img.png')");
+        style.Get("background-repeat").Should().Be("no-repeat");
+        style.Get("background-position").Should().Be("center");
+    }
+
+    [Fact]
+    public void Background_Shorthand_GradientNoColor_SetsImage()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("background", "linear-gradient(to right, red, blue)", style).Should().BeTrue();
+
+        style.Get("background-image").Should().Contain("linear-gradient");
+    }
+
+    [Fact]
+    public void Background_Shorthand_NoneKeyword_ClearsImage()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("background", "none", style).Should().BeTrue();
+
+        style.Get("background-image").Should().Be("none");
+    }
+
+    [Fact]
+    public void Background_Shorthand_SizeAfterSlash_ExtractsSize()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("background", "url('bg.png') center/cover no-repeat", style).Should().BeTrue();
+
+        style.Get("background-image").Should().Be("url('bg.png')");
+        style.Get("background-position").Should().Be("center");
+        style.Get("background-size").Should().Be("cover");
+        style.Get("background-repeat").Should().Be("no-repeat");
+    }
+
+    [Fact]
     public void NonShorthand_ReturnsFalse()
     {
         var style = new ComputedStyle();
@@ -266,5 +308,205 @@ public class CssShorthandExpanderTests
         CssShorthandExpander.TryExpand("outline", "none", style).Should().BeTrue();
 
         style.Get("outline-style").Should().Be("none");
+    }
+
+    [Fact]
+    public void FlexFlow_RowWrap_ExpandsDirectionAndWrap()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("flex-flow", "row wrap", style).Should().BeTrue();
+
+        style.Get("flex-direction").Should().Be("row");
+        style.Get("flex-wrap").Should().Be("wrap");
+    }
+
+    [Fact]
+    public void FlexFlow_ColumnNowrap_ExpandsDirectionAndWrap()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("flex-flow", "column nowrap", style).Should().BeTrue();
+
+        style.Get("flex-direction").Should().Be("column");
+        style.Get("flex-wrap").Should().Be("nowrap");
+    }
+
+    [Fact]
+    public void FlexFlow_DirectionOnly_DefaultsWrapToNowrap()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("flex-flow", "row-reverse", style).Should().BeTrue();
+
+        style.Get("flex-direction").Should().Be("row-reverse");
+        style.Get("flex-wrap").Should().Be("nowrap");
+    }
+
+    [Fact]
+    public void FlexFlow_WrapOnly_DefaultsDirectionToRow()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("flex-flow", "wrap-reverse", style).Should().BeTrue();
+
+        style.Get("flex-direction").Should().Be("row");
+        style.Get("flex-wrap").Should().Be("wrap-reverse");
+    }
+
+    // === border-radius shorthand ===
+
+    [Fact]
+    public void BorderRadius_SingleValue_AllFourCorners()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("border-radius", "8px", style).Should().BeTrue();
+
+        style.Get("border-top-left-radius").Should().Be("8px");
+        style.Get("border-top-right-radius").Should().Be("8px");
+        style.Get("border-bottom-right-radius").Should().Be("8px");
+        style.Get("border-bottom-left-radius").Should().Be("8px");
+    }
+
+    [Fact]
+    public void BorderRadius_TwoValues_TopLeftBottomRight_TopRightBottomLeft()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("border-radius", "4px 8px", style).Should().BeTrue();
+
+        style.Get("border-top-left-radius").Should().Be("4px");
+        style.Get("border-top-right-radius").Should().Be("8px");
+        style.Get("border-bottom-right-radius").Should().Be("4px");
+        style.Get("border-bottom-left-radius").Should().Be("8px");
+    }
+
+    [Fact]
+    public void BorderRadius_ThreeValues_TopLeft_TopRightBottomLeft_BottomRight()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("border-radius", "4px 8px 12px", style).Should().BeTrue();
+
+        style.Get("border-top-left-radius").Should().Be("4px");
+        style.Get("border-top-right-radius").Should().Be("8px");
+        style.Get("border-bottom-right-radius").Should().Be("12px");
+        style.Get("border-bottom-left-radius").Should().Be("8px");
+    }
+
+    [Fact]
+    public void BorderRadius_FourValues_EachCorner()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("border-radius", "2px 4px 6px 8px", style).Should().BeTrue();
+
+        style.Get("border-top-left-radius").Should().Be("2px");
+        style.Get("border-top-right-radius").Should().Be("4px");
+        style.Get("border-bottom-right-radius").Should().Be("6px");
+        style.Get("border-bottom-left-radius").Should().Be("8px");
+    }
+
+    [Fact]
+    public void BorderRadius_Percentage_Preserved()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("border-radius", "50%", style).Should().BeTrue();
+
+        style.Get("border-top-left-radius").Should().Be("50%");
+        style.Get("border-top-right-radius").Should().Be("50%");
+        style.Get("border-bottom-right-radius").Should().Be("50%");
+        style.Get("border-bottom-left-radius").Should().Be("50%");
+    }
+
+    [Fact]
+    public void BorderRadius_SlashSyntax_StoresHorizontalAndVerticalRadii()
+    {
+        // border-radius: 10px / 5px → each corner has "10px 5px" (h v)
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("border-radius", "10px / 5px", style).Should().BeTrue();
+
+        style.Get("border-top-left-radius").Should().Be("10px 5px",
+            "slash syntax sets horizontal and vertical radius as two-value shorthand");
+        style.Get("border-top-right-radius").Should().Be("10px 5px");
+        style.Get("border-bottom-right-radius").Should().Be("10px 5px");
+        style.Get("border-bottom-left-radius").Should().Be("10px 5px");
+    }
+
+    [Fact]
+    public void BorderRadius_SlashSyntax_DifferentPerSide()
+    {
+        // border-radius: 20px 10px / 8px 4px
+        // TL=20px 8px, TR=10px 4px, BR=20px 8px, BL=10px 4px
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("border-radius", "20px 10px / 8px 4px", style).Should().BeTrue();
+
+        style.Get("border-top-left-radius").Should().Be("20px 8px");
+        style.Get("border-top-right-radius").Should().Be("10px 4px");
+        style.Get("border-bottom-right-radius").Should().Be("20px 8px");
+        style.Get("border-bottom-left-radius").Should().Be("10px 4px");
+    }
+
+    // === text-decoration shorthand ===
+
+    [Fact]
+    public void TextDecoration_Underline_SetsLine()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("text-decoration", "underline", style).Should().BeTrue();
+        style.Get("text-decoration-line").Should().Be("underline");
+    }
+
+    [Fact]
+    public void TextDecoration_UnderlineDashedRed_SetsAllLonghands()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("text-decoration", "underline dashed red", style).Should().BeTrue();
+        style.Get("text-decoration-line").Should().Be("underline");
+        style.Get("text-decoration-style").Should().Be("dashed");
+        style.Get("text-decoration-color").Should().Be("red");
+    }
+
+    [Fact]
+    public void TextDecoration_None_SetsLineNone()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("text-decoration", "none", style).Should().BeTrue();
+        style.Get("text-decoration-line").Should().Be("none");
+    }
+
+    // === place-items / place-self / place-content ===
+
+    [Fact]
+    public void PlaceItems_SingleValue_SetsAlignAndJustify()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("place-items", "center", style).Should().BeTrue();
+
+        style.Get("align-items").Should().Be("center");
+        style.Get("justify-items").Should().Be("center");
+    }
+
+    [Fact]
+    public void PlaceItems_TwoValues_SetsAlignAndJustify()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("place-items", "start end", style).Should().BeTrue();
+
+        style.Get("align-items").Should().Be("start");
+        style.Get("justify-items").Should().Be("end");
+    }
+
+    [Fact]
+    public void PlaceSelf_SingleValue_SetsAlignAndJustify()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("place-self", "center", style).Should().BeTrue();
+
+        style.Get("align-self").Should().Be("center");
+        style.Get("justify-self").Should().Be("center");
+    }
+
+    [Fact]
+    public void PlaceContent_TwoValues_SetsAlignAndJustify()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("place-content", "space-between end", style).Should().BeTrue();
+
+        style.Get("align-content").Should().Be("space-between");
+        style.Get("justify-content").Should().Be("end");
     }
 }

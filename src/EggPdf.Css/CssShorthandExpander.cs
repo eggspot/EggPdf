@@ -46,6 +46,9 @@ public static class CssShorthandExpander
             case "flex":
                 ExpandFlexShorthand(value, style);
                 return true;
+            case "flex-flow":
+                ExpandFlexFlowShorthand(value, style);
+                return true;
             case "border-top":
             case "border-right":
             case "border-bottom":
@@ -54,6 +57,21 @@ public static class CssShorthandExpander
                 return true;
             case "outline":
                 ExpandOutlineShorthand(value, style);
+                return true;
+            case "border-radius":
+                ExpandBorderRadiusShorthand(value, style);
+                return true;
+            case "text-decoration":
+                ExpandTextDecorationShorthand(value, style);
+                return true;
+            case "place-items":
+                ExpandTwoPartShorthand(value, "align-items", "justify-items", style);
+                return true;
+            case "place-self":
+                ExpandTwoPartShorthand(value, "align-self", "justify-self", style);
+                return true;
+            case "place-content":
+                ExpandTwoPartShorthand(value, "align-content", "justify-content", style);
                 return true;
             default:
                 return false;
@@ -138,12 +156,114 @@ public static class CssShorthandExpander
         }
     }
 
-    /// <summary>Expand background shorthand: just extract color for now.</summary>
+    /// <summary>
+    /// Expand background shorthand into individual longhand properties.
+    /// Handles: background-image (url() or gradient), background-repeat,
+    /// background-position, background-size (after /), and background-color.
+    /// The color, if present, must appear last per the CSS spec.
+    /// </summary>
     private static void ExpandBackgroundShorthand(string value, ComputedStyle style)
     {
-        // Simple: treat the whole value as background-color
-        // Full parsing of background shorthand (image, position, repeat) deferred
-        style.Set("background-color", value.Trim());
+        var trimmed = value.Trim();
+
+        // "none" keyword — clear the image, leave color as transparent
+        if (trimmed == "none")
+        {
+            style.Set("background-image", "none");
+            return;
+        }
+
+        // Extract url(...) or gradient functions first (they may contain spaces/commas)
+        string? image = null;
+        string remaining = trimmed;
+
+        int urlIdx = remaining.IndexOf("url(", StringComparison.OrdinalIgnoreCase);
+        if (urlIdx >= 0)
+        {
+            int closeIdx = remaining.IndexOf(')', urlIdx);
+            if (closeIdx >= 0)
+            {
+                image = remaining.Substring(urlIdx, closeIdx - urlIdx + 1);
+                remaining = remaining.Substring(0, urlIdx) + remaining.Substring(closeIdx + 1);
+            }
+        }
+        else
+        {
+            // Check for CSS gradient functions
+            foreach (var fn in new[] { "linear-gradient(", "radial-gradient(", "conic-gradient(" })
+            {
+                int fnIdx = remaining.IndexOf(fn, StringComparison.OrdinalIgnoreCase);
+                if (fnIdx < 0) continue;
+
+                // Find matching closing paren (may contain nested parens)
+                int depth = 0;
+                int end = fnIdx;
+                for (int i = fnIdx; i < remaining.Length; i++)
+                {
+                    if (remaining[i] == '(') depth++;
+                    else if (remaining[i] == ')') { depth--; if (depth == 0) { end = i; break; } }
+                }
+                image = remaining.Substring(fnIdx, end - fnIdx + 1);
+                remaining = remaining.Substring(0, fnIdx) + remaining.Substring(end + 1);
+                break;
+            }
+        }
+
+        if (image != null)
+            style.Set("background-image", image.Trim());
+
+        // Now tokenize the remainder by spaces
+        var parts = remaining.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+        string? position = null;
+        string? size = null;
+        string? repeat = null;
+        string? color = null;
+
+        for (int i = 0; i < parts.Length; i++)
+        {
+            var part = parts[i].Trim('/');
+            var raw  = parts[i];
+
+            // position/size split by slash: "center/cover" or "50%/contain"
+            int slashIdx = raw.IndexOf('/');
+            if (slashIdx >= 0)
+            {
+                position = raw.Substring(0, slashIdx);
+                size     = raw.Substring(slashIdx + 1);
+                continue;
+            }
+
+            if (IsBackgroundRepeat(part))  { repeat = part; continue; }
+            if (IsBackgroundPosition(part)) { position = position == null ? part : position + " " + part; continue; }
+            if (IsBackgroundSize(part))    { size = part; continue; }
+
+            // Anything else at the end treated as color
+            color = part;
+        }
+
+        if (repeat   != null) style.Set("background-repeat", repeat);
+        if (position != null) style.Set("background-position", position);
+        if (size     != null) style.Set("background-size", size);
+        if (color    != null) style.Set("background-color", color);
+    }
+
+    private static bool IsBackgroundRepeat(string part)
+    {
+        return part == "repeat" || part == "no-repeat" || part == "repeat-x" ||
+               part == "repeat-y" || part == "round" || part == "space";
+    }
+
+    private static bool IsBackgroundPosition(string part)
+    {
+        return part == "center" || part == "top" || part == "bottom" ||
+               part == "left"   || part == "right" ||
+               part.EndsWith("%") || part.EndsWith("px") || part.EndsWith("em");
+    }
+
+    private static bool IsBackgroundSize(string part)
+    {
+        return part == "cover" || part == "contain" || part == "auto";
     }
 
     private static bool IsBorderStyle(string part)
@@ -309,6 +429,28 @@ public static class CssShorthandExpander
         }
     }
 
+    /// <summary>
+    /// Expand flex-flow shorthand: "flex-direction flex-wrap".
+    /// Each token is classified as a direction keyword or a wrap keyword; defaults are "row" and "nowrap".
+    /// </summary>
+    private static void ExpandFlexFlowShorthand(string value, ComputedStyle style)
+    {
+        var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        string direction = "row";
+        string wrap = "nowrap";
+
+        foreach (var part in parts)
+        {
+            if (part == "row" || part == "column" || part == "row-reverse" || part == "column-reverse")
+                direction = part;
+            else if (part == "wrap" || part == "nowrap" || part == "wrap-reverse")
+                wrap = part;
+        }
+
+        style.Set("flex-direction", direction);
+        style.Set("flex-wrap", wrap);
+    }
+
     /// <summary>Expand border-top/right/bottom/left: "1px solid red" -> width + style + color for one side.</summary>
     private static void ExpandBorderSideShorthand(string value, string property, ComputedStyle style)
     {
@@ -350,5 +492,115 @@ public static class CssShorthandExpander
         if (width != null) style.Set("outline-width", width);
         if (outlineStyle != null) style.Set("outline-style", outlineStyle);
         if (color != null) style.Set("outline-color", color);
+    }
+
+    /// <summary>
+    /// Expand text-decoration shorthand: "underline dashed red 2px"
+    /// → text-decoration-line, text-decoration-style, text-decoration-color, text-decoration-thickness.
+    /// </summary>
+    private static void ExpandTextDecorationShorthand(string value, ComputedStyle style)
+    {
+        if (string.IsNullOrEmpty(value)) return;
+        if (value == "none") { style.Set("text-decoration-line", "none"); style.Set("text-decoration", "none"); return; }
+
+        var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        string? line = null, decoStyle = null, color = null, thickness = null;
+
+        foreach (var part in parts)
+        {
+            var lower = part.ToLowerInvariant();
+            if (lower == "underline" || lower == "overline" || lower == "line-through" || lower == "blink")
+                line = (line == null) ? part : line + " " + part;
+            else if (lower == "solid" || lower == "double" || lower == "dotted" || lower == "dashed" || lower == "wavy")
+                decoStyle = part;
+            else if (lower == "auto" || lower == "from-font")
+                thickness = part;
+            else if (IsLength(part) || part.EndsWith("px") || part.EndsWith("em"))
+                thickness = part;
+            else
+                color = part;
+        }
+
+        if (line != null) style.Set("text-decoration-line", line);
+        if (decoStyle != null) style.Set("text-decoration-style", decoStyle);
+        if (color != null) style.Set("text-decoration-color", color);
+        if (thickness != null) style.Set("text-decoration-thickness", thickness);
+
+        // Keep the original value on text-decoration for backward compat
+        style.Set("text-decoration", value);
+    }
+
+    private static bool IsLength(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return false;
+        if (s.EndsWith("px") || s.EndsWith("em") || s.EndsWith("rem") ||
+            s.EndsWith("pt") || s.EndsWith("cm") || s.EndsWith("mm") || s.EndsWith("%"))
+            return true;
+        return float.TryParse(s, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out _);
+    }
+
+    /// <summary>
+    /// Expand border-radius shorthand.
+    /// CSS spec: 1-4 values before optional '/' map to horizontal radii;
+    /// 1-4 values after '/' map to vertical radii.
+    /// Each corner property receives both values as "Xpx Ypx" when vertical radii differ.
+    /// </summary>
+    private static void ExpandBorderRadiusShorthand(string value, ComputedStyle style)
+    {
+        var slashIdx = value.IndexOf('/');
+        var hPart = slashIdx >= 0 ? value.Substring(0, slashIdx).Trim() : value.Trim();
+        var vPart = slashIdx >= 0 ? value.Substring(slashIdx + 1).Trim() : null;
+
+        var hParts = hPart.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (hParts.Length == 0) return;
+
+        string tlH, trH, brH, blH;
+        switch (hParts.Length)
+        {
+            case 1:  tlH = trH = brH = blH = hParts[0]; break;
+            case 2:  tlH = brH = hParts[0]; trH = blH = hParts[1]; break;
+            case 3:  tlH = hParts[0]; trH = blH = hParts[1]; brH = hParts[2]; break;
+            default: tlH = hParts[0]; trH = hParts[1]; brH = hParts[2]; blH = hParts[3]; break;
+        }
+
+        if (vPart != null && vPart.Length > 0)
+        {
+            var vParts = vPart.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            string tlV, trV, brV, blV;
+            switch (vParts.Length)
+            {
+                case 1:  tlV = trV = brV = blV = vParts[0]; break;
+                case 2:  tlV = brV = vParts[0]; trV = blV = vParts[1]; break;
+                case 3:  tlV = vParts[0]; trV = blV = vParts[1]; brV = vParts[2]; break;
+                default: tlV = vParts[0]; trV = vParts[1]; brV = vParts[2]; blV = vParts[3]; break;
+            }
+            // Store both radii as "H V" (two-value individual corner property)
+            style.Set("border-top-left-radius",     tlH + " " + tlV);
+            style.Set("border-top-right-radius",    trH + " " + trV);
+            style.Set("border-bottom-right-radius", brH + " " + brV);
+            style.Set("border-bottom-left-radius",  blH + " " + blV);
+        }
+        else
+        {
+            style.Set("border-top-left-radius",     tlH);
+            style.Set("border-top-right-radius",    trH);
+            style.Set("border-bottom-right-radius", brH);
+            style.Set("border-bottom-left-radius",  blH);
+        }
+    }
+
+    /// <summary>
+    /// Expand a two-part shorthand where the second value defaults to the first.
+    /// Used for place-items, place-self, place-content.
+    /// </summary>
+    private static void ExpandTwoPartShorthand(string value, string firstProp, string secondProp, ComputedStyle style)
+    {
+        var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return;
+        var first = parts[0];
+        var second = parts.Length >= 2 ? parts[1] : first;
+        style.Set(firstProp, first);
+        style.Set(secondProp, second);
     }
 }

@@ -82,6 +82,15 @@ internal static class PdfRenderer
         CollectPageBreaks(layoutRoot, pageBreakYs);
         pageBreakYs.Sort();
 
+        // Collect boxes that must not be split across pages (break-inside: avoid).
+        // These may not be in allBoxes (no paint) but still need to be kept whole.
+        var avoidBreakBoxes = new List<(float y, float height)>();
+        CollectBreakInsideAvoid(layoutRoot, avoidBreakBoxes);
+
+        // Collect text blocks with explicit orphans/widows constraints.
+        var orphanWidowBlocks = new List<OrphanWidowBlock>();
+        CollectOrphansWidowsBlocks(layoutRoot, orphanWidowBlocks);
+
         // Determine total content height
         float maxY = 0;
         for (int i = 0; i < allBoxes.Count; i++)
@@ -144,6 +153,69 @@ internal static class PdfRenderer
                     bool inMarginZone = bTop >= effectiveBottom;
                     if ((straddles || inMarginZone) && bTop < smartBottom)
                         smartBottom = bTop;
+                }
+            }
+
+            // break-inside: avoid — move page break before any avoid box that would be split
+            for (int ai = 0; ai < avoidBreakBoxes.Count; ai++)
+            {
+                float bTop    = avoidBreakBoxes[ai].y;
+                float bHeight = avoidBreakBoxes[ai].height;
+                float bBottom = bTop + bHeight;
+                if (bTop > currentTop && bTop < naiveBottom && bHeight <= paginationHeight)
+                {
+                    if (bBottom > naiveBottom && bTop < smartBottom)
+                        smartBottom = bTop;
+                }
+            }
+
+            // orphans / widows check for text blocks
+            for (int oi = 0; oi < orphanWidowBlocks.Count; oi++)
+            {
+                float bTop    = orphanWidowBlocks[oi].Y;
+                float bBottom = bTop + orphanWidowBlocks[oi].Height;
+                var   lineYs  = orphanWidowBlocks[oi].LineYs;
+
+                // Only check blocks that straddle this page boundary
+                if (bTop < currentTop || bTop >= naiveBottom || bBottom <= naiveBottom)
+                    continue;
+                if (lineYs.Length < 2)
+                    continue; // nothing to balance
+
+                // Count lines on current page (orphans) vs next page (widows)
+                int orphanCount = 0;
+                for (int li = 0; li < lineYs.Length; li++)
+                {
+                    if (lineYs[li] < naiveBottom)
+                        orphanCount++;
+                }
+                int widowCount = lineYs.Length - orphanCount;
+
+                int minOrphans = orphanWidowBlocks[oi].OrphansValue;
+                int minWidows  = orphanWidowBlocks[oi].WidowsValue;
+
+                if (orphanCount > 0 && orphanCount < minOrphans)
+                {
+                    // Too few lines remain on current page: push break to before the block
+                    if (bTop > currentTop && bTop < smartBottom)
+                        smartBottom = bTop;
+                }
+                else if (widowCount > 0 && widowCount < minWidows && lineYs.Length > minWidows)
+                {
+                    // Too few lines go to next page: move break back so minWidows lines go over
+                    int lastOnCurrentIdx = lineYs.Length - minWidows - 1;
+                    if (lastOnCurrentIdx >= 0)
+                    {
+                        float newBreakY = lineYs[lastOnCurrentIdx];
+                        if (newBreakY > currentTop && newBreakY < smartBottom)
+                            smartBottom = newBreakY;
+                    }
+                    else
+                    {
+                        // Can't satisfy widows without moving whole block: push block to next page
+                        if (bTop > currentTop && bTop < smartBottom)
+                            smartBottom = bTop;
+                    }
                 }
             }
 
@@ -246,9 +318,16 @@ internal static class PdfRenderer
         var bgImageStyle = box.Style.Get("background-image");
         bool hasBgImage = !string.IsNullOrEmpty(bgImageStyle) && bgImageStyle != "none";
 
+        // Check for column-rule (needs a paint pass even without background/border)
+        var colRuleShorthand = box.Style.Get("column-rule");
+        var colRuleStyle = box.Style.Get("column-rule-style");
+        bool hasColumnRule = (!string.IsNullOrEmpty(colRuleStyle) && colRuleStyle != "none") ||
+            (!string.IsNullOrEmpty(colRuleShorthand) && colRuleShorthand != "none" &&
+             colRuleShorthand.IndexOf("none", StringComparison.OrdinalIgnoreCase) < 0);
+
         bool hasPaint = !string.IsNullOrEmpty(box.Text) ||
                         !string.IsNullOrEmpty(box.ImageSource) ||
-                        hasBorder || hasBgImage ||
+                        hasBorder || hasBgImage || hasColumnRule ||
                         !string.IsNullOrEmpty(box.Style.BackgroundColor) &&
                         box.Style.BackgroundColor != "transparent" ||
                         box.Element?.TagName == "a";
@@ -278,6 +357,93 @@ internal static class PdfRenderer
 
         foreach (var child in box.Children)
             CollectPageBreaks(child, breakYs);
+    }
+
+    /// <summary>
+    /// Collect all boxes that have break-inside: avoid (or page-break-inside: avoid).
+    /// These boxes must not be split across pages; if they would straddle a page boundary
+    /// a page break is forced before their top edge.
+    /// </summary>
+    private static void CollectBreakInsideAvoid(LayoutBox box, List<(float y, float height)> result)
+    {
+        var breakInside = box.Style.Get("break-inside") ?? box.Style.Get("page-break-inside");
+        if (breakInside == "avoid" || breakInside == "avoid-page")
+            result.Add((box.Y, box.Height));
+
+        foreach (var child in box.Children)
+            CollectBreakInsideAvoid(child, result);
+    }
+
+    /// <summary>Text block with orphans/widows constraints for pagination.</summary>
+    private struct OrphanWidowBlock
+    {
+        public float Y;
+        public float Height;
+        public int OrphansValue;
+        public int WidowsValue;
+        public float[] LineYs;
+    }
+
+    /// <summary>Walk the layout tree and collect blocks with explicit orphans/widows CSS values.</summary>
+    private static void CollectOrphansWidowsBlocks(LayoutBox box, List<OrphanWidowBlock> result)
+    {
+        if (box.Style != null)
+        {
+            var orphansStr = box.Style.Get("orphans");
+            var widowsStr  = box.Style.Get("widows");
+
+            if (!string.IsNullOrEmpty(orphansStr) || !string.IsNullOrEmpty(widowsStr))
+            {
+                int orphans = ParsePaginationInt(orphansStr, 2);
+                int widows  = ParsePaginationInt(widowsStr,  2);
+
+                // Gather text-line Y positions within this block
+                var lineYList = new List<float>();
+                CollectTextLineYs(box, lineYList);
+
+                if (lineYList.Count > 1)
+                {
+                    lineYList.Sort();
+                    var uniqueYList = new List<float>();
+                    for (int i = 0; i < lineYList.Count; i++)
+                    {
+                        if (uniqueYList.Count == 0 || lineYList[i] - uniqueYList[uniqueYList.Count - 1] > 0.5f)
+                            uniqueYList.Add(lineYList[i]);
+                    }
+
+                    if (uniqueYList.Count > 1)
+                    {
+                        var block = new OrphanWidowBlock();
+                        block.Y = box.Y;
+                        block.Height = box.Height;
+                        block.OrphansValue = orphans;
+                        block.WidowsValue = widows;
+                        block.LineYs = uniqueYList.ToArray();
+                        result.Add(block);
+                    }
+                }
+            }
+        }
+
+        for (int i = 0; i < box.Children.Count; i++)
+            CollectOrphansWidowsBlocks(box.Children[i], result);
+    }
+
+    private static void CollectTextLineYs(LayoutBox box, List<float> lineYs)
+    {
+        if (!string.IsNullOrEmpty(box.Text))
+            lineYs.Add(box.Y);
+        for (int i = 0; i < box.Children.Count; i++)
+            CollectTextLineYs(box.Children[i], lineYs);
+    }
+
+    private static int ParsePaginationInt(string? value, int defaultValue)
+    {
+        if (string.IsNullOrEmpty(value)) return defaultValue;
+        if (int.TryParse(value, System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out int result))
+            return result;
+        return defaultValue;
     }
 
     private static void CollectHeadings(LayoutBox box, List<(string title, int level, float yPx)> headings)
@@ -320,6 +486,9 @@ internal static class PdfRenderer
         // CSS transform: wrap entire box painting in SaveState/cm/RestoreState
         bool hasTransform = ApplyTransform(page, box, pageHeightPx, adjustedY, effectiveX);
 
+        // writing-mode: vertical-rl / vertical-lr — rotate box 90° clockwise around its center
+        bool hasWritingModeTransform = ApplyWritingModeTransform(page, box, pageHeightPx, adjustedY, effectiveX);
+
         // Overflow:hidden clipping
         var overflow = box.Style.Get("overflow");
         bool hasClip = overflow == "hidden" || overflow == "clip";
@@ -333,12 +502,37 @@ internal static class PdfRenderer
             page.AddClipRect(clipX, clipY, clipW, clipH);
         }
 
-        // CSS opacity property
+        // CSS clip-path — establish clipping region before painting box content
+        var clipPathStr = box.Style.Get("clip-path");
+        bool hasCssClipPath = false;
+        if (!string.IsNullOrEmpty(clipPathStr) && clipPathStr != "none")
+        {
+            float cpX = effectiveX * PdfCoordinates.PxToPt;
+            float cpY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+            float cpW = box.Width * PdfCoordinates.PxToPt;
+            float cpH = box.Height * PdfCoordinates.PxToPt;
+            var clipCommands = PdfClipPath.GenerateClipPath(clipPathStr, cpX, cpY, cpW, cpH);
+            if (clipCommands != null)
+            {
+                page.SaveState();
+                page.AppendRawContent(clipCommands);
+                hasCssClipPath = true;
+            }
+        }
+
+        // CSS filter effects — parse once and apply to colors throughout this box's painting
+        var filterStr = box.Style.Get("filter");
+        var filterParams = !string.IsNullOrEmpty(filterStr) && filterStr != "none"
+            ? EggPdf.Pdf.PdfFilterEffects.Parse(filterStr) : null;
+
+        // CSS opacity property (combined with filter opacity)
         var opacityStr = box.Style.Get("opacity");
         float cssOpacity = 1f;
         if (!string.IsNullOrEmpty(opacityStr) && float.TryParse(opacityStr,
             System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float op))
             cssOpacity = Math.Max(0, Math.Min(1, op));
+        // Apply filter opacity on top of CSS opacity
+        if (filterParams != null) cssOpacity *= filterParams.Opacity;
 
         // Resolve border-radius values
         float tlr = ResolveBorderRadius(box.Style, "border-top-left-radius", box.Width);
@@ -357,12 +551,36 @@ internal static class PdfRenderer
         // their own backgrounds or borders — those belong to the parent element box only.
         bool isAnonymousTextBox = box.Element == null && box.Text != null;
 
-        // Paint box-shadow (before background)
+        // empty-cells: hide — suppress background+border paint for empty td/th in separate border model
+        bool suppressEmptyCell = false;
         if (!isAnonymousTextBox)
+        {
+            var tagName = box.Element?.TagName;
+            if ((tagName == "td" || tagName == "th") && box.Style.Get("empty-cells") == "hide")
+            {
+                // A cell is empty when it has no renderable content (no text, no images)
+                bool hasContent = false;
+                foreach (var child in box.Children)
+                {
+                    if (!string.IsNullOrEmpty(child.Text) || !string.IsNullOrEmpty(child.ImageSource))
+                    { hasContent = true; break; }
+                    foreach (var gc in child.Children)
+                    {
+                        if (!string.IsNullOrEmpty(gc.Text) || !string.IsNullOrEmpty(gc.ImageSource))
+                        { hasContent = true; break; }
+                    }
+                    if (hasContent) break;
+                }
+                if (!hasContent) suppressEmptyCell = true;
+            }
+        }
+
+        // Paint box-shadow (before background)
+        if (!isAnonymousTextBox && !suppressEmptyCell)
             PaintBoxShadow(page, box, effectiveX, pageHeightPx, adjustedY);
 
         // Paint background
-        if (!isAnonymousTextBox)
+        if (!isAnonymousTextBox && !suppressEmptyCell)
         {
             var bgColor = box.Style.BackgroundColor;
             if (!string.IsNullOrEmpty(bgColor) && bgColor != "transparent")
@@ -374,18 +592,20 @@ internal static class PdfRenderer
                     if (bgAlpha < 1f)
                         page.SetOpacity(bgAlpha);
 
+                    float bgR = color.Value.R / 255f, bgG = color.Value.G / 255f, bgB = color.Value.B / 255f;
+                    if (filterParams != null && filterParams.HasEffect)
+                        (bgR, bgG, bgB) = EggPdf.Pdf.PdfFilterEffects.ApplyColorFilter(bgR, bgG, bgB, filterParams);
+
                     float pdfX = effectiveX * PdfCoordinates.PxToPt;
                     float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
                     float pdfW = box.Width * PdfCoordinates.PxToPt;
                     float pdfH = box.Height * PdfCoordinates.PxToPt;
 
                     if (hasRadius)
-                        page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH,
-                            color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f,
+                        page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH, bgR, bgG, bgB,
                             tlrPt, trrPt, brrPt, blrPt);
                     else
-                        page.AddRectangle(pdfX, pdfY, pdfW, pdfH,
-                            color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f);
+                        page.AddRectangle(pdfX, pdfY, pdfW, pdfH, bgR, bgG, bgB);
                 }
             }
 
@@ -397,7 +617,16 @@ internal static class PdfRenderer
             }
 
             // Paint border (per-side with style support)
-            PaintBorders(page, box, effectiveX, pageHeightPt, pageHeightPx, adjustedY, hasRadius, tlrPt, trrPt, brrPt, blrPt);
+            // Suppressed for empty cells when empty-cells: hide
+            if (!suppressEmptyCell)
+                PaintBorders(page, box, effectiveX, pageHeightPt, pageHeightPx, adjustedY, hasRadius, tlrPt, trrPt, brrPt, blrPt);
+        }
+
+        // Paint <progress> and <meter> fill bars
+        var elemTagName = box.Element?.TagName;
+        if (elemTagName == "progress" || elemTagName == "meter")
+        {
+            PaintProgressOrMeter(page, box, elemTagName, effectiveX, pageHeightPx, adjustedY);
         }
 
         // Paint outline (outside border, doesn't affect layout)
@@ -409,13 +638,59 @@ internal static class PdfRenderer
             var outlineColorStr = box.Style.Get("outline-color");
             Color outlineColor = ParseColor(outlineColorStr ?? "") ?? Color.Black;
 
+            float outlineOffset = BlockLayout.ResolveLength(box.Style.Get("outline-offset"), 0, 16);
             float owPt = outlineWidth * PdfCoordinates.PxToPt;
-            float olX = (effectiveX - outlineWidth) * PdfCoordinates.PxToPt;
-            float olY = (pageHeightPx - adjustedY - box.Height - outlineWidth) * PdfCoordinates.PxToPt;
-            float olW = (box.Width + outlineWidth * 2) * PdfCoordinates.PxToPt;
-            float olH = (box.Height + outlineWidth * 2) * PdfCoordinates.PxToPt;
+            float gap = outlineWidth + outlineOffset; // gap from element edge to outline outer edge
+            float olX = (effectiveX - gap) * PdfCoordinates.PxToPt;
+            float olY = (pageHeightPx - adjustedY - box.Height - gap) * PdfCoordinates.PxToPt;
+            float olW = (box.Width + gap * 2) * PdfCoordinates.PxToPt;
+            float olH = (box.Height + gap * 2) * PdfCoordinates.PxToPt;
             page.AddStrokeRectangle(olX, olY, olW, olH,
                 outlineColor.R / 255f, outlineColor.G / 255f, outlineColor.B / 255f, owPt);
+        }
+
+        // Paint column-rule between columns (multi-column layout)
+        var colCountStr = box.Style.Get("column-count");
+        if (!string.IsNullOrEmpty(colCountStr) && colCountStr != "auto" &&
+            int.TryParse(colCountStr, out int colCount) && colCount > 1)
+        {
+            var ruleShorthand = box.Style.Get("column-rule");
+            var ruleWidth = box.Style.Get("column-rule-width");
+            var ruleStyle = box.Style.Get("column-rule-style");
+            var ruleColorStr = box.Style.Get("column-rule-color");
+
+            // Parse shorthand if present: "2px solid red"
+            if (!string.IsNullOrEmpty(ruleShorthand))
+                ParseColumnRuleShorthand(ruleShorthand, ref ruleWidth, ref ruleStyle, ref ruleColorStr);
+
+            bool hasRule = !string.IsNullOrEmpty(ruleStyle) && ruleStyle != "none" &&
+                           !string.IsNullOrEmpty(ruleColorStr) && !string.IsNullOrEmpty(ruleWidth);
+            if (hasRule)
+            {
+                float rw = BlockLayout.ResolveLength(ruleWidth!, box.Width, 16);
+                var rc = ParseColor(ruleColorStr!);
+                if (rw > 0 && rc.HasValue && rw > 0)
+                {
+                    float rwPt = rw * PdfCoordinates.PxToPt;
+                    float topPt = (pageHeightPx - adjustedY) * PdfCoordinates.PxToPt;
+                    float bottomPt = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+                    // Find column boxes (element-less direct children positioned side by side)
+                    float prevRight = float.MinValue;
+                    for (int ci = 0; ci < box.Children.Count; ci++)
+                    {
+                        var col = box.Children[ci];
+                        if (col.Element != null || col.Text != null) continue;
+                        if (prevRight > float.MinValue)
+                        {
+                            // Mid-point between previous column's right edge and this column's left edge
+                            float midX = ((prevRight + col.X) / 2f) * PdfCoordinates.PxToPt;
+                            page.AddLine(midX, bottomPt, midX, topPt,
+                                rc.Value.R / 255f, rc.Value.G / 255f, rc.Value.B / 255f, rwPt);
+                        }
+                        prevRight = col.X + col.Width;
+                    }
+                }
+            }
         }
 
         // Paint text
@@ -430,6 +705,14 @@ internal static class PdfRenderer
                 else if (textTransform == "lowercase") paintText = paintText.ToLowerInvariant();
                 else if (textTransform == "capitalize") paintText = CapitalizeText(paintText);
             }
+
+            // font-variant: small-caps / font-variant-caps: small-caps → render as uppercase
+            var fontVariant = box.Style.Get("font-variant");
+            var fontVariantCaps = box.Style.Get("font-variant-caps");
+            bool isSmallCaps = fontVariant == "small-caps" ||
+                fontVariantCaps == "small-caps" || fontVariantCaps == "all-small-caps";
+            if (isSmallCaps && !string.IsNullOrEmpty(paintText))
+                paintText = paintText.ToUpperInvariant();
 
             // Apply BiDi reordering for RTL text
             if (Text.BidiAlgorithm.ContainsRTL(paintText))
@@ -483,6 +766,7 @@ internal static class PdfRenderer
 
             // Text alignment
             var textAlign = box.Style.TextAlign;
+            float justifyExtraWordSpacing = 0;
             if (!string.IsNullOrEmpty(textAlign) && box.ContentWidth < box.Width)
             {
                 float availableWidth = box.Width - box.PaddingLeft - box.PaddingRight;
@@ -491,6 +775,34 @@ internal static class PdfRenderer
                     textX += (availableWidth - textWidth) / 2;
                 else if (textAlign == "right")
                     textX += availableWidth - textWidth;
+                else if (textAlign == "justify")
+                {
+                    // Distribute extra space between words on non-last lines.
+                    // A line is considered non-last when it fills ≥ 50% of the container.
+                    // (Last lines, which are typically short, are left-aligned.)
+                    bool isLastLine = string.IsNullOrEmpty(box.Text) || textWidth < availableWidth * 0.5f;
+                    if (!isLastLine)
+                    {
+                        int spaceCount = 0;
+                        for (int si = 0; si < box.Text!.Length; si++)
+                            if (box.Text[si] == ' ') spaceCount++;
+                        if (spaceCount > 0)
+                        {
+                            float gap = (availableWidth - textWidth) * PdfCoordinates.PxToPt;
+                            justifyExtraWordSpacing = gap / spaceCount;
+                        }
+                    }
+                    else
+                    {
+                        // Last line: apply text-align-last if specified
+                        var textAlignLast = box.Style.Get("text-align-last");
+                        if (textAlignLast == "center")
+                            textX += (availableWidth - textWidth) / 2;
+                        else if (textAlignLast == "right")
+                            textX += availableWidth - textWidth;
+                        // left / auto / unset → left-aligned (default, no shift)
+                    }
+                }
             }
 
             float pdfX = textX * PdfCoordinates.PxToPt;
@@ -506,11 +818,17 @@ internal static class PdfRenderer
                     pdfY -= fontSize * 0.2f * PdfCoordinates.PxToPt; // shift down
             }
 
-            // Text color
+            // Text color (with filter applied if present)
             var textColor = box.Style.Color;
             Color? color = null;
             if (!string.IsNullOrEmpty(textColor))
                 color = ParseColor(textColor);
+            if (filterParams != null && filterParams.HasEffect && color.HasValue)
+            {
+                var (fr, fg, fb) = EggPdf.Pdf.PdfFilterEffects.ApplyColorFilter(
+                    color.Value.R / 255f, color.Value.G / 255f, color.Value.B / 255f, filterParams);
+                color = Color.FromRgba((byte)(fr * 255), (byte)(fg * 255), (byte)(fb * 255), color.Value.A);
+            }
 
             // Letter-spacing and word-spacing
             float letterSpacing = 0, wordSpacing = 0;
@@ -520,6 +838,8 @@ internal static class PdfRenderer
             var wsStr = box.Style.Get("word-spacing");
             if (!string.IsNullOrEmpty(wsStr) && wsStr != "normal")
                 wordSpacing = BlockLayout.ResolveLength(wsStr, 0, fontSize) * PdfCoordinates.PxToPt;
+            // Justify: add inter-word spacing to fill the line
+            wordSpacing += justifyExtraWordSpacing;
 
             // Text shadow: render shadow text before the main text
             var textShadow = box.Style.Get("text-shadow");
@@ -560,31 +880,54 @@ internal static class PdfRenderer
                     letterSpacing, wordSpacing);
             }
 
-            // Text decoration (underline, line-through)
-            var textDecoration = box.Style.Get("text-decoration");
-            if (!string.IsNullOrEmpty(textDecoration) && textDecoration != "none")
+            // Text decoration (underline, line-through, overline)
+            // Honour text-decoration-line, text-decoration-color, text-decoration-thickness longhands.
+            var textDecorationLine = box.Style.Get("text-decoration-line")
+                                  ?? box.Style.Get("text-decoration")
+                                  ?? "";
+            if (!string.IsNullOrEmpty(textDecorationLine) && textDecorationLine != "none")
             {
                 float lineY;
-                // Use actual measured text width for decoration, not the box's content width
                 float measuredPx = TextMeasurer.MeasureWidth(paintText, fontSize,
                     box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"));
                 float textWidth = measuredPx * PdfCoordinates.PxToPt;
+
+                // text-decoration-thickness: auto / from-font / <length>
                 float decoLineWidth = Math.Max(fontSize * 0.05f, 0.5f) * PdfCoordinates.PxToPt;
-
-                float dr = 0, dg = 0, db = 0;
-                if (color.HasValue) { dr = color.Value.R / 255f; dg = color.Value.G / 255f; db = color.Value.B / 255f; }
-
-                if (textDecoration.IndexOf("underline", StringComparison.OrdinalIgnoreCase) >= 0)
+                var thicknessVal = box.Style.Get("text-decoration-thickness");
+                if (!string.IsNullOrEmpty(thicknessVal) && thicknessVal != "auto" && thicknessVal != "from-font")
                 {
-                    lineY = pdfY - fontSize * 0.15f * PdfCoordinates.PxToPt;
+                    float resolved = Layout.BlockLayout.ResolveLength(thicknessVal, fontSize, fontSize);
+                    if (resolved > 0) decoLineWidth = resolved * PdfCoordinates.PxToPt;
+                }
+
+                // text-decoration-color: defaults to text color
+                float dr = 0, dg = 0, db = 0;
+                var decoColorStr = box.Style.Get("text-decoration-color");
+                Core.Color? decoColor = (!string.IsNullOrEmpty(decoColorStr) && decoColorStr != "currentColor")
+                    ? Core.Color.TryParse(decoColorStr) : color;
+                if (decoColor.HasValue)
+                {
+                    dr = decoColor.Value.R / 255f;
+                    dg = decoColor.Value.G / 255f;
+                    db = decoColor.Value.B / 255f;
+                }
+
+                if (textDecorationLine.IndexOf("underline", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    float underlineOffsetPx = 0f;
+                    var underlineOffsetVal = box.Style.Get("text-underline-offset");
+                    if (!string.IsNullOrEmpty(underlineOffsetVal) && underlineOffsetVal != "auto")
+                        underlineOffsetPx = Layout.BlockLayout.ResolveLength(underlineOffsetVal, fontSize, fontSize);
+                    lineY = pdfY - (fontSize * 0.15f + underlineOffsetPx) * PdfCoordinates.PxToPt;
                     page.AddLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth);
                 }
-                if (textDecoration.IndexOf("line-through", StringComparison.OrdinalIgnoreCase) >= 0)
+                if (textDecorationLine.IndexOf("line-through", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     lineY = pdfY + fontSize * 0.3f * PdfCoordinates.PxToPt;
                     page.AddLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth);
                 }
-                if (textDecoration.IndexOf("overline", StringComparison.OrdinalIgnoreCase) >= 0)
+                if (textDecorationLine.IndexOf("overline", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     lineY = pdfY + fontSize * 0.85f * PdfCoordinates.PxToPt;
                     page.AddLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth);
@@ -600,26 +943,51 @@ internal static class PdfRenderer
             float pdfW = box.Width * PdfCoordinates.PxToPt;
             float pdfH = box.Height * PdfCoordinates.PxToPt;
 
-            // Apply object-fit
-            var objectFit = box.Style.Get("object-fit");
-            if (objectFit == "contain" || objectFit == "cover")
+            // Apply object-fit + object-position
+            var objectFit = box.Style.Get("object-fit") ?? "fill";
+            var objectPosition = box.Style.Get("object-position") ?? "50% 50%";
+
+            // Parse object-position: "x y" keywords or percentages
+            float posX = 0.5f, posY = 0.5f; // fractions of available offset space
+            var posParts = objectPosition.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (posParts.Length >= 1) posX = ParseObjectPositionFraction(posParts[0], false);
+            if (posParts.Length >= 2) posY = ParseObjectPositionFraction(posParts[1], true);
+
+            if (objectFit == "contain" || objectFit == "cover" || objectFit == "scale-down" || objectFit == "none")
             {
-                // Get natural image dimensions
-                float natW = box.ImageData.Length > 0 ? pdfW : pdfW; // approximation
-                float natH = pdfH;
-                float scaleX = pdfW / Math.Max(natW, 1);
-                float scaleY = pdfH / Math.Max(natH, 1);
-                float scale = objectFit == "contain" ? Math.Min(scaleX, scaleY) : Math.Max(scaleX, scaleY);
-                float fitW = natW * scale;
-                float fitH = natH * scale;
-                // Center the image
-                pdfX += (pdfW - fitW) / 2;
-                pdfY += (pdfH - fitH) / 2;
+                // Get natural image dimensions — attempt to read from ImageData header
+                float natW = pdfW, natH = pdfH; // fallback: same as box
+                var dims = TryGetImageDimensions(box.ImageData!);
+                if (dims.HasValue) { natW = dims.Value.w * PdfCoordinates.PxToPt; natH = dims.Value.h * PdfCoordinates.PxToPt; }
+
+                float fitW, fitH;
+                if (objectFit == "none")
+                {
+                    fitW = natW; fitH = natH;
+                }
+                else if (objectFit == "scale-down")
+                {
+                    // smaller of none or contain
+                    float scaleX2 = pdfW / Math.Max(natW, 1);
+                    float scaleY2 = pdfH / Math.Max(natH, 1);
+                    float scale2 = Math.Min(Math.Min(scaleX2, scaleY2), 1f);
+                    fitW = natW * scale2; fitH = natH * scale2;
+                }
+                else
+                {
+                    float scaleX = pdfW / Math.Max(natW, 1);
+                    float scaleY = pdfH / Math.Max(natH, 1);
+                    float scale = objectFit == "contain" ? Math.Min(scaleX, scaleY) : Math.Max(scaleX, scaleY);
+                    fitW = natW * scale; fitH = natH * scale;
+                }
+
+                // object-position offsets within the box
+                pdfX += (pdfW - fitW) * posX;
+                pdfY += (pdfH - fitH) * posY;
                 pdfW = fitW;
                 pdfH = fitH;
             }
-            // object-fit: none would use natural size (not scaled)
-            // object-fit: fill (default) uses the box dimensions as-is
+            // object-fit: fill (default) uses the box dimensions unchanged
 
             string imgName = "Img" + box.ImageSource.GetHashCode().ToString("X8");
             page.AddImage(imgName, pdfX, pdfY, pdfW, pdfH);
@@ -654,8 +1022,16 @@ internal static class PdfRenderer
             }
         }
 
-        // Restore clipping state
+        // Restore CSS clip-path state
+        if (hasCssClipPath)
+            page.RestoreState();
+
+        // Restore overflow:hidden clipping state
         if (hasClip)
+            page.RestoreState();
+
+        // Restore writing-mode transform state
+        if (hasWritingModeTransform)
             page.RestoreState();
 
         // Restore transform state
@@ -690,7 +1066,11 @@ internal static class PdfRenderer
         if (string.IsNullOrEmpty(value) || value == "0" || value == "0px")
             return 0;
 
-        float resolved = Layout.BlockLayout.ResolveLength(value, boxWidth, 16);
+        // Two-value "H V" from slash syntax — use horizontal (first) radius only for circular approximation
+        var spaceIdx = value.IndexOf(' ');
+        var hValue = spaceIdx > 0 ? value.Substring(0, spaceIdx) : value;
+
+        float resolved = Layout.BlockLayout.ResolveLength(hValue, boxWidth, 16);
         return Math.Max(0, resolved);
     }
 
@@ -717,6 +1097,26 @@ internal static class PdfRenderer
             float pdfW = box.Width * PdfCoordinates.PxToPt;
             float pdfH = box.Height * PdfCoordinates.PxToPt;
             var commands = Pdf.PdfRadialGradient.Render(bgImage, pdfX, pdfY, pdfW, pdfH);
+            if (commands != null) page.AppendRawContent(commands);
+            return;
+        }
+        if (bgImage.StartsWith("repeating-radial-gradient(", StringComparison.OrdinalIgnoreCase))
+        {
+            float pdfX = effectiveX * PdfCoordinates.PxToPt;
+            float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+            float pdfW = box.Width * PdfCoordinates.PxToPt;
+            float pdfH = box.Height * PdfCoordinates.PxToPt;
+            var commands = Pdf.PdfGradient.RenderRepeatingRadialGradient(bgImage, pdfX, pdfY, pdfW, pdfH);
+            if (commands != null) page.AppendRawContent(commands);
+            return;
+        }
+        if (bgImage.StartsWith("conic-gradient(", StringComparison.OrdinalIgnoreCase))
+        {
+            float pdfX = effectiveX * PdfCoordinates.PxToPt;
+            float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+            float pdfW = box.Width * PdfCoordinates.PxToPt;
+            float pdfH = box.Height * PdfCoordinates.PxToPt;
+            var commands = Pdf.PdfConicGradient.Render(bgImage, pdfX, pdfY, pdfW, pdfH);
             if (commands != null) page.AppendRawContent(commands);
             return;
         }
@@ -989,6 +1389,38 @@ internal static class PdfRenderer
             page.AddBorderLine(pdfX, pdfY, pdfX, pdfY + pdfH,
                 sideR[3], sideG[3], sideB[3], sideWidths[3] * PdfCoordinates.PxToPt, sideStyles[3]);
         }
+    }
+
+    // ===== writing-mode support =====
+
+    /// <summary>
+    /// Apply a 90° clockwise rotation for vertical writing modes.
+    /// The rotation is applied around the box's center so the content appears
+    /// rotated 90° within the same bounding region.
+    /// Returns true if a SaveState was pushed (caller must RestoreState).
+    /// </summary>
+    private static bool ApplyWritingModeTransform(PdfPage page, LayoutBox box,
+        float pageHeightPx, float adjustedY, float effectiveX)
+    {
+        var writingMode = box.Style.Get("writing-mode");
+        if (writingMode != "vertical-rl" && writingMode != "vertical-lr")
+            return false;
+
+        // Center of the box in PDF coordinate space (Y is up in PDF)
+        float cx = (effectiveX + box.Width / 2f) * PdfCoordinates.PxToPt;
+        float cy = (pageHeightPx - adjustedY - box.Height / 2f) * PdfCoordinates.PxToPt;
+
+        // 90° clockwise rotation matrix: [0, -1, 1, 0] with translation to keep center fixed
+        // The full composed matrix is: translate(cx,cy) * rotate(-90°) * translate(-cx,-cy)
+        // = [0, -1, 1, 0, cx + cy, cy - cx]  (cos-sin variant for clockwise)
+        // In PDF (Y-up), clockwise in CSS = counter-clockwise in PDF coords
+        float pdfA = 0f, pdfB = 1f, pdfC = -1f, pdfD = 0f;
+        float pdfE = cx + cy;
+        float pdfF = cy - cx;
+
+        page.SaveState();
+        page.ConcatMatrix(pdfA, pdfB, pdfC, pdfD, pdfE, pdfF);
+        return true;
     }
 
     // ===== CSS Transform support =====
@@ -1310,6 +1742,129 @@ internal static class PdfRenderer
         return Color.TryParse(value);
     }
 
+    /// <summary>Paint the fill bar for &lt;progress&gt; and &lt;meter&gt; elements.</summary>
+    private static void PaintProgressOrMeter(PdfPage page, LayoutBox box, string tagName,
+        float effectiveX, float pageHeightPx, float adjustedY)
+    {
+        var elem = box.Element;
+        if (elem == null) return;
+
+        float fraction = 0f;
+
+        if (tagName == "progress")
+        {
+            var valueStr = elem.GetAttribute("value");
+            var maxStr = elem.GetAttribute("max");
+            if (string.IsNullOrEmpty(valueStr))
+                fraction = 0.4f; // indeterminate — show partial fill
+            else
+            {
+                float.TryParse(valueStr, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float value);
+                float max = 1f;
+                if (!string.IsNullOrEmpty(maxStr))
+                    float.TryParse(maxStr, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out max);
+                if (max <= 0) max = 1;
+                fraction = Math.Max(0f, Math.Min(1f, value / max));
+            }
+
+            // Default progress bar color: medium blue
+            float r = 0.26f, g = 0.55f, b = 0.96f;
+            PaintFillBar(page, box, effectiveX, pageHeightPx, adjustedY, fraction, r, g, b);
+        }
+        else // meter
+        {
+            var valueStr = elem.GetAttribute("value");
+            var minStr = elem.GetAttribute("min");
+            var maxStr = elem.GetAttribute("max");
+            var lowStr = elem.GetAttribute("low");
+            var highStr = elem.GetAttribute("high");
+
+            float value = 0.5f;
+            float min = 0f, max = 1f;
+            if (!string.IsNullOrEmpty(valueStr))
+                float.TryParse(valueStr, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out value);
+            if (!string.IsNullOrEmpty(minStr))
+                float.TryParse(minStr, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out min);
+            if (!string.IsNullOrEmpty(maxStr))
+                float.TryParse(maxStr, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out max);
+            if (max <= min) max = min + 1;
+
+            fraction = Math.Max(0f, Math.Min(1f, (value - min) / (max - min)));
+
+            // Color: green=optimal, yellow=suboptimal, red=bad
+            float low = min + (max - min) * 0.25f;
+            float high = min + (max - min) * 0.75f;
+            if (!string.IsNullOrEmpty(lowStr))
+                float.TryParse(lowStr, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out low);
+            if (!string.IsNullOrEmpty(highStr))
+                float.TryParse(highStr, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out high);
+
+            float r, g, b;
+            if (value >= low && value <= high)
+            { r = 0.2f; g = 0.7f; b = 0.2f; } // green
+            else if ((value < low && value >= min) || (value > high && value <= max))
+            { r = 0.9f; g = 0.8f; b = 0.1f; } // yellow
+            else
+            { r = 0.8f; g = 0.2f; b = 0.2f; } // red
+
+            PaintFillBar(page, box, effectiveX, pageHeightPx, adjustedY, fraction, r, g, b);
+        }
+    }
+
+    private static void PaintFillBar(PdfPage page, LayoutBox box, float effectiveX,
+        float pageHeightPx, float adjustedY, float fraction, float r, float g, float b)
+    {
+        // Inset inside borders (2px)
+        const float inset = 2f;
+        float barX = (effectiveX + inset) * PdfCoordinates.PxToPt;
+        float barY = (pageHeightPx - adjustedY - box.Height + inset) * PdfCoordinates.PxToPt;
+        float maxW = (box.Width - inset * 2) * PdfCoordinates.PxToPt;
+        float barH = (box.Height - inset * 2) * PdfCoordinates.PxToPt;
+        float barW = maxW * fraction;
+
+        if (barW <= 0 || barH <= 0) return;
+        page.AddRectangle(barX, barY, barW, barH, r, g, b);
+    }
+
+    /// <summary>Parse column-rule shorthand: "2px solid red" -> width, style, color parts.</summary>
+    private static void ParseColumnRuleShorthand(string shorthand,
+        ref string? width, ref string? style, ref string? color)
+    {
+        // Same format as border shorthand: each token is width, style keyword, or color
+        var parts = shorthand.Split(SpaceSep, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            var p = part.Trim();
+            if (string.IsNullOrEmpty(p)) continue;
+            // Style keywords
+            if (p == "none" || p == "solid" || p == "dashed" || p == "dotted" ||
+                p == "double" || p == "groove" || p == "ridge" || p == "inset" || p == "outset")
+            {
+                style = p;
+            }
+            // Width: ends with px, em, pt, or is a keyword
+            else if (p == "thin" || p == "medium" || p == "thick" ||
+                     p.EndsWith("px", StringComparison.OrdinalIgnoreCase) ||
+                     p.EndsWith("em", StringComparison.OrdinalIgnoreCase) ||
+                     p.EndsWith("pt", StringComparison.OrdinalIgnoreCase))
+            {
+                width = p;
+            }
+            // Otherwise treat as color
+            else
+            {
+                color = p;
+            }
+        }
+    }
+
     /// <summary>Parse text-shadow: offsetX offsetY [blur] [color]</summary>
     private static void ParseTextShadow(string shadow, float fontSize,
         out float x, out float y, out float r, out float g, out float b, out float a)
@@ -1419,5 +1974,50 @@ internal static class PdfRenderer
         if (sa < 1f) page.SetOpacity(sa);
         page.AddRectangle(pdfX, pdfY, pdfW, pdfH, sr, sg, sb);
         if (sa < 1f) page.SetOpacity(1f);
+    }
+
+    /// <summary>
+    /// Parse an object-position component to a 0–1 fraction.
+    /// Keywords: left/top=0, center=0.5, right/bottom=1.
+    /// Percentage: "30%" → 0.3.
+    /// </summary>
+    private static float ParseObjectPositionFraction(string value, bool isVertical)
+    {
+        if (string.IsNullOrEmpty(value)) return 0.5f;
+        var lower = value.ToLowerInvariant();
+        if (lower == "left" || lower == "top") return 0f;
+        if (lower == "center") return 0.5f;
+        if (lower == "right" || lower == "bottom") return 1f;
+        if (value.EndsWith("%") && float.TryParse(value.Substring(0, value.Length - 1),
+            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float pct))
+            return pct / 100f;
+        return 0.5f;
+    }
+
+    /// <summary>
+    /// Try to read natural pixel dimensions from image bytes (PNG or JPEG).
+    /// Returns null if unrecognised format.
+    /// </summary>
+    private static (float w, float h)? TryGetImageDimensions(byte[] data)
+    {
+        if (data == null || data.Length < 24) return null;
+        // PNG: 8-byte sig + 4-byte length + "IHDR" + 4-byte width + 4-byte height
+        if (data[0] == 137 && data[1] == 80 && data[2] == 78 && data[3] == 71)
+        {
+            int w = (data[16] << 24) | (data[17] << 16) | (data[18] << 8) | data[19];
+            int h = (data[20] << 24) | (data[21] << 16) | (data[22] << 8) | data[23];
+            if (w > 0 && h > 0) return (w, h);
+        }
+        // JPEG: scan for SOF0/SOF2 markers (FF C0 / FF C2)
+        for (int i = 2; i < data.Length - 8; i++)
+        {
+            if (data[i] == 0xFF && (data[i + 1] == 0xC0 || data[i + 1] == 0xC2))
+            {
+                int h = (data[i + 5] << 8) | data[i + 6];
+                int w = (data[i + 7] << 8) | data[i + 8];
+                if (w > 0 && h > 0) return (w, h);
+            }
+        }
+        return null;
     }
 }

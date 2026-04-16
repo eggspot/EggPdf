@@ -376,4 +376,54 @@ public class ColorTests
         color.Should().NotBeNull();
         color!.Value.R.Should().Be(255);
     }
+
+    // ── color-mix() ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ColorMix_EqualParts_ProducesMiddleColor()
+    {
+        // color-mix(in srgb, red, blue) → 50% red + 50% blue → (128, 0, 128) ± 1
+        var c = Color.TryParse("color-mix(in srgb, red, blue)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().BeInRange(127, 128);
+        c.Value.G.Should().Be(0);
+        c.Value.B.Should().BeInRange(127, 128);
+    }
+
+    [Fact]
+    public void ColorMix_WithPercentages_RespectsWeights()
+    {
+        // color-mix(in srgb, red 100%, blue 0%) → pure red
+        var c = Color.TryParse("color-mix(in srgb, red 100%, blue 0%)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().Be(255);
+        c.Value.B.Should().Be(0);
+    }
+
+    [Fact]
+    public void ColorMix_FirstColorHeavy_CloserToFirst()
+    {
+        // color-mix(in srgb, red 75%, blue 25%) → R=191, B=64
+        var c = Color.TryParse("color-mix(in srgb, red 75%, blue 25%)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().BeInRange(190, 192);
+        c.Value.B.Should().BeInRange(63, 65);
+    }
+
+    [Fact]
+    public void ColorMix_WhiteAndBlack_ProducesGray()
+    {
+        // color-mix(in srgb, white, black) → (128, 128, 128)
+        var c = Color.TryParse("color-mix(in srgb, white, black)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().BeInRange(127, 128);
+        c.Value.G.Should().BeInRange(127, 128);
+        c.Value.B.Should().BeInRange(127, 128);
+    }
+
+    [Fact]
+    public void ColorMix_InvalidSyntax_ReturnsNull()
+    {
+        Color.TryParse("color-mix(in srgb, red)").Should().BeNull();
+    }
 }

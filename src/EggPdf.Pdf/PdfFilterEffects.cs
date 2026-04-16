@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Text;
+using EggPdf.Core;
 
 namespace EggPdf.Pdf;
 
@@ -61,6 +61,9 @@ public static class PdfFilterEffects
                     break;
                 case "blur":
                     result.BlurRadius = func.value;
+                    break;
+                case "drop-shadow":
+                    ParseDropShadow(func.rawArgs, result);
                     break;
             }
         }
@@ -126,9 +129,9 @@ public static class PdfFilterEffects
         return (r, g, b);
     }
 
-    private static List<(string name, float value)> SplitFilterFunctions(string filter)
+    private static List<(string name, float value, string rawArgs)> SplitFilterFunctions(string filter)
     {
-        var result = new List<(string name, float value)>();
+        var result = new List<(string name, float value, string rawArgs)>();
         int i = 0;
 
         while (i < filter.Length)
@@ -167,10 +170,69 @@ public static class PdfFilterEffects
                 float.TryParse(valStr, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
             }
 
-            result.Add((name, value));
+            result.Add((name, value, valStr));
         }
 
         return result;
+    }
+
+    private static void ParseDropShadow(string args, FilterParams result)
+    {
+        // drop-shadow( <offset-x> <offset-y> [<blur-radius>] [<color>] )
+        // tokens are space-separated; color can be a named color, #hex, or rgb()
+        var tokens = args.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+        float x = 0f, y = 0f, blur = 0f;
+        float r = 0f, g = 0f, b = 0f;
+        int lengthsFound = 0;
+
+        for (int i = 0; i < tokens.Length; i++)
+        {
+            var tok = tokens[i];
+            float len;
+            if (TryParseLength(tok, out len))
+            {
+                if (lengthsFound == 0) x = len;
+                else if (lengthsFound == 1) y = len;
+                else if (lengthsFound == 2) blur = len;
+                lengthsFound++;
+            }
+            else
+            {
+                // Treat as color
+                var c = Color.TryParse(tok);
+                if (c.HasValue)
+                {
+                    r = c.Value.R / 255f;
+                    g = c.Value.G / 255f;
+                    b = c.Value.B / 255f;
+                }
+            }
+        }
+
+        result.DropShadowX = x;
+        result.DropShadowY = y;
+        result.DropShadowBlur = blur;
+        result.DropShadowR = r;
+        result.DropShadowG = g;
+        result.DropShadowB = b;
+    }
+
+    private static bool TryParseLength(string token, out float value)
+    {
+        if (token.EndsWith("px"))
+            return float.TryParse(token.Substring(0, token.Length - 2), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+        if (token.EndsWith("em") || token.EndsWith("rem"))
+        {
+            // treat as px approximation (1em ≈ 16px) — good enough for shadow offsets
+            int unitLen = token.EndsWith("rem") ? 3 : 2;
+            if (float.TryParse(token.Substring(0, token.Length - unitLen), NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+            { value *= 16f; return true; }
+        }
+        // bare zero
+        if (token == "0") { value = 0f; return true; }
+        value = 0f;
+        return false;
     }
 }
 
@@ -186,6 +248,16 @@ public class FilterParams
     public float HueRotateDeg { get; set; } = 0f;
     public float Invert { get; set; } = 0f;
     public float BlurRadius { get; set; } = 0f;
+
+    // drop-shadow
+    public float DropShadowX { get; set; } = 0f;
+    public float DropShadowY { get; set; } = 0f;
+    public float DropShadowBlur { get; set; } = 0f;
+    public float DropShadowR { get; set; } = 0f;
+    public float DropShadowG { get; set; } = 0f;
+    public float DropShadowB { get; set; } = 0f;
+    public bool HasDropShadow => DropShadowX != 0f || DropShadowY != 0f || DropShadowBlur != 0f;
+
     public bool HasEffect => Opacity < 1f || Grayscale > 0 || Brightness != 1f ||
-        Contrast != 1f || Sepia > 0 || Invert > 0 || BlurRadius > 0;
+        Contrast != 1f || Sepia > 0 || Invert > 0 || BlurRadius > 0 || HasDropShadow;
 }
