@@ -282,4 +282,23 @@ public class CascadeResolverTests
         // revert on non-inherited: reverts to UA default; "revert" must not remain as computed value
         pStyle.Get("margin-top").Should().NotBe("revert");
     }
+
+    [Fact]
+    public void SpecificityCache_MultipleElements_EachGetsCorrectStyle()
+    {
+        // Regression guard: pre-computed specificity must not bleed between elements.
+        // A #id rule (1,0,0) must beat .class (0,1,0) on the id element only.
+        var doc = HtmlParser.Parse("<p id='hero' class='highlight'>A</p><p class='highlight'>B</p>");
+        var sheet = CssStyleSheetParser.Parse(
+            "#hero { color: gold; } .highlight { color: green; } p { color: red; }");
+        var resolver = new CascadeResolver(new[] { sheet });
+
+        var elements = doc.Body!.ChildNodes.OfType<HtmlElement>()
+            .Where(e => e.TagName == "p").ToList();
+        var heroStyle  = resolver.Resolve(elements[0], null); // has id=hero
+        var otherStyle = resolver.Resolve(elements[1], null); // class only
+
+        heroStyle.Color.Should().Be("gold");   // #hero (1,0,0) wins
+        otherStyle.Color.Should().Be("green"); // .highlight (0,1,0) wins over p
+    }
 }

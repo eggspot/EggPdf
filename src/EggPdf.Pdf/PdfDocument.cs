@@ -776,11 +776,14 @@ public class PdfDocument
         }
 
         // Write in batches of 100 (PDF limit per beginbfchar block)
-        var entries = gidToCodepoint.OrderBy(kv => kv.Key).ToList();
+        var entries = new KeyValuePair<ushort, int>[gidToCodepoint.Count];
+        int ei = 0;
+        foreach (var kv in gidToCodepoint) entries[ei++] = kv;
+        Array.Sort(entries, (a, b) => a.Key.CompareTo(b.Key));
         int idx = 0;
-        while (idx < entries.Count)
+        while (idx < entries.Length)
         {
-            int batchSize = Math.Min(100, entries.Count - idx);
+            int batchSize = Math.Min(100, entries.Length - idx);
             sb.AppendLine($"{batchSize} beginbfchar");
             for (int i = 0; i < batchSize; i++)
             {

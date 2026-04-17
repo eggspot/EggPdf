@@ -389,14 +389,14 @@ public class TtfSubsetter
     private static void WriteFormat4(BinaryWriter bw, Dictionary<int, ushort> cpToGid)
     {
         // Sort codepoints into segments of contiguous ranges
-        var sorted = cpToGid.Keys.Where(k => k <= 0xFFFF).OrderBy(k => k).ToList();
-        if (sorted.Count == 0) sorted.Add(0);
+        int[] sortedKeys = GetSortedKeys(cpToGid, bmp: true);
+        int[] sorted = sortedKeys.Length == 0 ? new[] { 0 } : sortedKeys;
 
         var segments = new List<(ushort startCode, ushort endCode, short idDelta)>();
         int segStart = 0;
-        for (int i = 0; i <= sorted.Count; i++)
+        for (int i = 0; i <= sorted.Length; i++)
         {
-            if (i == sorted.Count || (i > segStart && sorted[i] != sorted[i - 1] + 1))
+            if (i == sorted.Length || (i > segStart && sorted[i] != sorted[i - 1] + 1))
             {
                 ushort sc = (ushort)sorted[segStart];
                 ushort ec = (ushort)sorted[i - 1];
@@ -441,17 +441,17 @@ public class TtfSubsetter
 
     private static void WriteFormat12(BinaryWriter bw, Dictionary<int, ushort> cpToGid)
     {
-        var sorted = cpToGid.Keys.OrderBy(k => k).ToList();
+        int[] sorted = GetSortedKeys(cpToGid, bmp: false);
         var groups = new List<(uint startCharCode, uint endCharCode, uint startGlyphID)>();
 
         int i = 0;
-        while (i < sorted.Count)
+        while (i < sorted.Length)
         {
             int start = sorted[i];
             ushort startGid = cpToGid[start];
             int end = start;
 
-            while (i + 1 < sorted.Count && sorted[i + 1] == end + 1 &&
+            while (i + 1 < sorted.Length && sorted[i + 1] == end + 1 &&
                    cpToGid[sorted[i + 1]] == startGid + (sorted[i + 1] - start))
             {
                 end = sorted[++i];
@@ -474,6 +474,19 @@ public class TtfSubsetter
             WriteU32BE(bw, g.endCharCode);
             WriteU32BE(bw, g.startGlyphID);
         }
+    }
+
+    private static int[] GetSortedKeys(Dictionary<int, ushort> cpToGid, bool bmp)
+    {
+        int count = 0;
+        foreach (var k in cpToGid.Keys)
+            if (!bmp || k <= 0xFFFF) count++;
+        var arr = new int[count];
+        int idx = 0;
+        foreach (var k in cpToGid.Keys)
+            if (!bmp || k <= 0xFFFF) arr[idx++] = k;
+        Array.Sort(arr);
+        return arr;
     }
 
     private static byte[] BuildMaxp(byte[] data, Dictionary<string, (uint offset, uint length)> tables, int numGlyphs)

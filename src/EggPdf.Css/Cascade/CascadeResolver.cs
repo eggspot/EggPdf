@@ -14,6 +14,7 @@ namespace EggPdf.Css.Cascade;
 public class CascadeResolver
 {
     private readonly List<CssStyleRule> _authorRules = new();
+    private readonly List<int> _authorRuleSpecificities = new();
     private readonly BasicStyleResolver _uaResolver = new();
     private readonly string _mediaType;
     private readonly float _pageWidth;
@@ -33,13 +34,13 @@ public class CascadeResolver
         foreach (var sheet in stylesheets)
         {
             // Direct rules
-            _authorRules.AddRange(sheet.Rules);
+            AddRules(sheet.Rules);
 
             // @media rules - include if media matches
             foreach (var mediaRule in sheet.MediaRules)
             {
                 if (MediaMatches(mediaRule.MediaQuery))
-                    _authorRules.AddRange(mediaRule.Rules);
+                    AddRules(mediaRule.Rules);
             }
 
             // @container rules — evaluate against page width (best approximation for PDF)
@@ -49,7 +50,7 @@ public class CascadeResolver
                 var rawCondition = containerRule.Condition.Trim('(', ')').Trim();
                 var condition = NormalizeCondition(rawCondition);
                 if (ContainerQueryResolver.Evaluate(condition, _pageWidth, 0f))
-                    _authorRules.AddRange(containerRule.Rules);
+                    AddRules(containerRule.Rules);
             }
 
             // @counter-style rules
@@ -74,21 +75,16 @@ public class CascadeResolver
         // Tuple: (decl, specificity, layerOrder, sourceOrder)
         // layerOrder: int.MaxValue = unlayered (wins), 0,1,2... = layer index (later wins)
         var matches = new List<(CssDeclaration decl, int specificity, int layerOrder, int order)>();
-        int ruleOrder = 0;
 
-        foreach (var rule in _authorRules)
+        for (int ri = 0; ri < _authorRules.Count; ri++)
         {
+            var rule = _authorRules[ri];
             if (SelectorMatcher.Matches(rule.SelectorText, element))
             {
-                var spec = SelectorMatcher.CalculateSpecificity(rule.SelectorText);
-                int specScore = spec.A * 10000 + spec.B * 100 + spec.C;
-
+                int specScore = _authorRuleSpecificities[ri];
                 foreach (var decl in rule.Declarations)
-                {
-                    matches.Add((decl, specScore, rule.LayerOrder, ruleOrder));
-                }
+                    matches.Add((decl, specScore, rule.LayerOrder, ri));
             }
-            ruleOrder++;
         }
 
         // 3. Sort: !important first, then specificity, then layer order, then source order
@@ -372,6 +368,16 @@ public class CascadeResolver
 
         // Unknown media query: include by default
         return true;
+    }
+
+    private void AddRules(IEnumerable<CssStyleRule> rules)
+    {
+        foreach (var rule in rules)
+        {
+            var spec = SelectorMatcher.CalculateSpecificity(rule.SelectorText);
+            _authorRuleSpecificities.Add(spec.A * 10000 + spec.B * 100 + spec.C);
+            _authorRules.Add(rule);
+        }
     }
 
     /// <summary>Remove spaces around colons in container conditions: "min-width : 400px" → "min-width:400px".</summary>
