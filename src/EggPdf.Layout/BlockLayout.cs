@@ -19,6 +19,15 @@ public static class BlockLayout
     private static Css.Cascade.CascadeResolver? _threadCascadeResolver;
     [System.ThreadStatic]
     private static CssCounterContext? _threadCounterCtx;
+    [System.ThreadStatic]
+    private static float _viewportWidth;
+    [System.ThreadStatic]
+    private static float _viewportHeight;
+
+    /// <summary>Current viewport width in pixels (for vw unit resolution). Set during layout.</summary>
+    public static float ViewportWidth => _viewportWidth;
+    /// <summary>Current viewport height in pixels (for vh unit resolution). Set during layout.</summary>
+    public static float ViewportHeight => _viewportHeight;
 
     /// <summary>A segment of text with associated style for inline formatting.</summary>
     private struct InlineRun
@@ -65,6 +74,9 @@ public static class BlockLayout
     private static LayoutBox LayoutDocumentInternal(HtmlDocument document, float pageWidth, float pageHeight,
         Func<HtmlElement, ComputedStyle?, ComputedStyle> resolveStyle)
     {
+        _viewportWidth = pageWidth;
+        _viewportHeight = pageHeight;
+
         var root = new LayoutBox
         {
             X = 0, Y = 0,
@@ -2437,6 +2449,9 @@ public static class BlockLayout
         if (value.EndsWith("pt"))
             return ParseFloat(value.Substring(0, value.Length - 2)) * 96f / 72f;
 
+        if (value.EndsWith("pc"))
+            return ParseFloat(value.Substring(0, value.Length - 2)) * 96f / 6f; // 1pc = 12pt = 16px
+
         if (value.EndsWith("cm"))
             return ParseFloat(value.Substring(0, value.Length - 2)) * 96f / 2.54f;
 
@@ -2445,6 +2460,38 @@ public static class BlockLayout
 
         if (value.EndsWith("in"))
             return ParseFloat(value.Substring(0, value.Length - 2)) * 96f;
+
+        // Viewport-relative units
+        if (value.EndsWith("vw"))
+        {
+            float vw = _viewportWidth > 0 ? _viewportWidth : containingSize;
+            return ParseFloat(value.Substring(0, value.Length - 2)) / 100f * vw;
+        }
+        if (value.EndsWith("vh"))
+        {
+            float vh = _viewportHeight > 0 ? _viewportHeight : containingSize;
+            return ParseFloat(value.Substring(0, value.Length - 2)) / 100f * vh;
+        }
+        if (value.EndsWith("vmin"))
+        {
+            float vmin = _viewportWidth > 0 && _viewportHeight > 0
+                ? System.Math.Min(_viewportWidth, _viewportHeight) : containingSize;
+            return ParseFloat(value.Substring(0, value.Length - 4)) / 100f * vmin;
+        }
+        if (value.EndsWith("vmax"))
+        {
+            float vmax = _viewportWidth > 0 && _viewportHeight > 0
+                ? System.Math.Max(_viewportWidth, _viewportHeight) : containingSize;
+            return ParseFloat(value.Substring(0, value.Length - 4)) / 100f * vmax;
+        }
+
+        // ch: width of the '0' glyph (approximated as 0.5em)
+        if (value.EndsWith("ch"))
+            return ParseFloat(value.Substring(0, value.Length - 2)) * fontSize * 0.5f;
+
+        // lh: line height relative unit (1lh = line-height of the element, approximated as 1.2em)
+        if (value.EndsWith("lh"))
+            return ParseFloat(value.Substring(0, value.Length - 2)) * fontSize * 1.2f;
 
         // Try bare number (treat as px)
         if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float bare))

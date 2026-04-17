@@ -406,6 +406,35 @@ public static class CalcResolver
         if (term.EndsWith("in", StringComparison.OrdinalIgnoreCase))
             return ParseFloat(term.Substring(0, term.Length - 2)) * 96f;
 
+        if (term.EndsWith("pc", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 2)) * 96f / 6f; // 1pc = 12pt = 16px
+
+        if (term.EndsWith("vw", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 2)) / 100f * BlockLayout.ViewportWidth;
+
+        if (term.EndsWith("vh", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 2)) / 100f * BlockLayout.ViewportHeight;
+
+        if (term.EndsWith("vmin", StringComparison.OrdinalIgnoreCase))
+        {
+            float vmin = BlockLayout.ViewportWidth > 0 && BlockLayout.ViewportHeight > 0
+                ? System.Math.Min(BlockLayout.ViewportWidth, BlockLayout.ViewportHeight) : containingSize;
+            return ParseFloat(term.Substring(0, term.Length - 4)) / 100f * vmin;
+        }
+
+        if (term.EndsWith("vmax", StringComparison.OrdinalIgnoreCase))
+        {
+            float vmax = BlockLayout.ViewportWidth > 0 && BlockLayout.ViewportHeight > 0
+                ? System.Math.Max(BlockLayout.ViewportWidth, BlockLayout.ViewportHeight) : containingSize;
+            return ParseFloat(term.Substring(0, term.Length - 4)) / 100f * vmax;
+        }
+
+        if (term.EndsWith("ch", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 2)) * fontSize * 0.5f;
+
+        if (term.EndsWith("lh", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 2)) * fontSize * 1.2f;
+
         if (term.EndsWith("deg", StringComparison.OrdinalIgnoreCase))
             return ParseFloat(term.Substring(0, term.Length - 3)); // return degrees as-is for trig
 

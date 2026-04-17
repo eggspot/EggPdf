@@ -61,46 +61,51 @@ public static class PdfGradient
 
         if (stops.Count < 2) return null;
 
-        // For PDF, we approximate with a simple two-color gradient using the first and last stops
-        var c1 = stops[0];
-        var c2 = stops[stops.Count - 1];
-
-        // Calculate gradient axis based on angle
-        float rad = (90 - angle) * (float)Math.PI / 180f;
+        // Calculate gradient axis based on angle (CSS: 0deg = top, 90deg = right, 180deg = bottom)
+        // Convert to math angle: rad = (90 - angle) degrees
+        float rad = (90f - angle) * (float)Math.PI / 180f;
         float cos = (float)Math.Cos(rad);
         float sin = (float)Math.Sin(rad);
 
-        float cx = x + width / 2;
-        float cy = y + height / 2;
-        float halfDiag = (float)Math.Sqrt(width * width + height * height) / 2;
-
-        float x0 = cx - cos * halfDiag;
-        float y0 = cy - sin * halfDiag;
-        float x1 = cx + cos * halfDiag;
-        float y1 = cy + sin * halfDiag;
-
-        // Build PDF content: clip to rect, fill with gradient approximation
-        // For simplicity, render as multiple thin filled rectangles (gradient simulation)
+        // Build PDF content: clip to rect, fill with gradient approximation (N color bands)
         var sb = new StringBuilder();
         sb.AppendLine("q");
-
-        // Clip to the target rectangle
         sb.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re W n");
 
-        // Render gradient as 20 color bands
-        int bands = 20;
-        for (int i = 0; i < bands; i++)
+        // Determine dominant direction
+        bool horizontal = Math.Abs(cos) >= Math.Abs(sin);
+
+        int bands = 40; // more bands = smoother gradient
+        for (int i = 0; i <= bands; i++)
         {
             float t = (float)i / bands;
-            float r = c1.r + (c2.r - c1.r) * t;
-            float g = c1.g + (c2.g - c1.g) * t;
-            float b = c1.b + (c2.b - c1.b) * t;
+            // Interpolate across all stops using t position
+            var (r, g, b) = InterpolateStops(stops, t);
 
-            float bandY = y + height * i / bands;
-            float bandH = height / bands + 0.5f; // slight overlap to avoid gaps
+            float bandX, bandY, bandW, bandH;
+            if (horizontal)
+            {
+                // Horizontal: vertical strips varying in X direction
+                bool rightward = cos >= 0;
+                float tBand = rightward ? t : 1f - t;
+                bandX = x + width * tBand;
+                bandY = y;
+                bandW = width / bands + 0.5f;
+                bandH = height;
+            }
+            else
+            {
+                // Vertical: horizontal strips varying in Y direction
+                bool downward = sin <= 0; // In PDF y-axis, sin <= 0 means downward in page coords
+                float tBand = downward ? t : 1f - t;
+                bandX = x;
+                bandY = y + height * tBand;
+                bandW = width;
+                bandH = height / bands + 0.5f;
+            }
 
             sb.AppendLine($"{F(r)} {F(g)} {F(b)} rg");
-            sb.AppendLine($"{F(x)} {F(bandY)} {F(width)} {F(bandH)} re f");
+            sb.AppendLine($"{F(bandX)} {F(bandY)} {F(bandW)} {F(bandH)} re f");
         }
 
         sb.AppendLine("Q");
@@ -118,6 +123,31 @@ public static class PdfGradient
         var remapped = "radial-gradient(" +
             cssGradient.Substring("repeating-radial-gradient(".Length);
         return PdfRadialGradient.Render(remapped, x, y, width, height);
+    }
+
+    /// <summary>Interpolate color at position t (0..1) across a multi-stop list.</summary>
+    private static (float r, float g, float b) InterpolateStops(List<(float r, float g, float b, float position)> stops, float t)
+    {
+        if (stops.Count == 1) return (stops[0].r, stops[0].g, stops[0].b);
+        if (t <= stops[0].position) return (stops[0].r, stops[0].g, stops[0].b);
+        if (t >= stops[stops.Count - 1].position) return (stops[stops.Count - 1].r, stops[stops.Count - 1].g, stops[stops.Count - 1].b);
+
+        for (int i = 0; i < stops.Count - 1; i++)
+        {
+            var s0 = stops[i];
+            var s1 = stops[i + 1];
+            if (t >= s0.position && t <= s1.position)
+            {
+                float span = s1.position - s0.position;
+                float local = span > 0 ? (t - s0.position) / span : 0;
+                return (
+                    s0.r + (s1.r - s0.r) * local,
+                    s0.g + (s1.g - s0.g) * local,
+                    s0.b + (s1.b - s0.b) * local
+                );
+            }
+        }
+        return (stops[stops.Count - 1].r, stops[stops.Count - 1].g, stops[stops.Count - 1].b);
     }
 
     private static List<string> SplitGradientArgs(string args)
@@ -153,39 +183,19 @@ public static class PdfGradient
         return 180;
     }
 
-    private static (float r, float g, float b) ParseSimpleColor(string color)
+    internal static (float r, float g, float b) ParseSimpleColor(string color)
     {
-        color = color.Trim().Split(' ')[0]; // strip position if present
+        color = color.Trim();
+        // Strip position hint if present (e.g. "red 20%", "blue 80px")
+        int spaceIdx = color.IndexOf(' ');
+        if (spaceIdx > 0) color = color.Substring(0, spaceIdx);
 
-        if (color.StartsWith("#") && color.Length == 7)
-        {
-            int r = Convert.ToInt32(color.Substring(1, 2), 16);
-            int g = Convert.ToInt32(color.Substring(3, 2), 16);
-            int b = Convert.ToInt32(color.Substring(5, 2), 16);
-            return (r / 255f, g / 255f, b / 255f);
-        }
-        if (color.StartsWith("#") && color.Length == 4)
-        {
-            int r = Convert.ToInt32(new string(color[1], 2), 16);
-            int g = Convert.ToInt32(new string(color[2], 2), 16);
-            int b = Convert.ToInt32(new string(color[3], 2), 16);
-            return (r / 255f, g / 255f, b / 255f);
-        }
+        // Use the full EggPdf.Core color parser (handles all CSS color formats)
+        var parsed = EggPdf.Core.Color.TryParse(color);
+        if (parsed.HasValue)
+            return (parsed.Value.R / 255f, parsed.Value.G / 255f, parsed.Value.B / 255f);
 
-        switch (color.ToLowerInvariant())
-        {
-            case "red": return (1, 0, 0);
-            case "blue": return (0, 0, 1);
-            case "green": return (0, 0.5f, 0);
-            case "yellow": return (1, 1, 0);
-            case "orange": return (1, 0.647f, 0);
-            case "purple": return (0.5f, 0, 0.5f);
-            case "white": return (1, 1, 1);
-            case "black": return (0, 0, 0);
-            case "gray": case "grey": return (0.5f, 0.5f, 0.5f);
-            case "transparent": return (1, 1, 1);
-            default: return (0, 0, 0);
-        }
+        return (0, 0, 0); // fallback: black
     }
 
     private static string F(float v) => v.ToString("F2", CultureInfo.InvariantCulture);

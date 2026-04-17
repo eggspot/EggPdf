@@ -826,4 +826,49 @@ public class BoxModelTests
         div.Should().NotBeNull();
         div!.Width.Should().BeGreaterThan(0);
     }
+
+    // ── viewport + miscellaneous units ───────────────────────────────────────
+
+    [Fact]
+    public void ViewportWidth_50vw_IsHalfPageWidth()
+    {
+        // Page width = 600px → 50vw should resolve to ~300px (minus body margins ~8px each = 284)
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 50vw; height: 50px'>vw</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Width.Should().BeApproximately(300f, 20f, "50vw of 600px page should be ~300px");
+    }
+
+    [Fact]
+    public void ViewportHeight_50vh_IsHalfPageHeight()
+    {
+        // Page height = 800px → 50vh should resolve to ~400px
+        var root = LayoutTestHelper.Layout(
+            "<div style='height: 50vh; width: 200px'>vh</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Height.Should().BeApproximately(400f, 20f, "50vh of 800px page should be ~400px");
+    }
+
+    [Fact]
+    public void Unit_Ch_IsPositive()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 10ch; height: 50px'>Hello</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Width.Should().BeGreaterThan(0, "10ch should resolve to positive width");
+    }
+
+    [Fact]
+    public void Unit_Pc_Resolves()
+    {
+        // 1pc = 12pt = 16px; 6pc = 96px
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 6pc; height: 50px'>pc</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Width.Should().BeApproximately(96f, 5f, "6pc should be ~96px (1pc = 12pt = 16px)");
+    }
 }

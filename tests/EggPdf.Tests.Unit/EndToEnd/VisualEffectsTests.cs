@@ -479,4 +479,70 @@ public class VisualEffectsTests
         text.Should().Contain("0.00 0.00 1.00 rg", "blue layer must render");
     }
 
+    // ── multi-stop gradients ─────────────────────────────────────────────────
+
+    [Fact]
+    public async Task LinearGradient_ThreeStops_AllColorsPresent()
+    {
+        // red → green → blue — all three endpoint colors must appear in PDF
+        var html = "<div style='width:200px; height:100px; background: linear-gradient(red, green, blue)'>X</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("1.00 0.00 0.00 rg", "red stop must appear");
+        text.Should().Contain("0.00 0.50 0.00 rg", "green stop must appear");
+        text.Should().Contain("0.00 0.00 1.00 rg", "blue stop must appear");
+    }
+
+    [Fact]
+    public async Task LinearGradient_HorizontalDirection_DoesNotCrash()
+    {
+        var html = "<div style='width:300px; height:100px; background: linear-gradient(to right, red, blue)'>X</div>";
+        var act = async () => await HtmlToPdf.RenderAsync(html);
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task LinearGradient_HorizontalDirection_ContainsRedAndBlue()
+    {
+        // to right: red at left, blue at right — both must appear in PDF bands
+        var html = "<div style='width:300px; height:100px; background: linear-gradient(to right, red, blue)'>X</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("1.00 0.00 0.00 rg", "red end must appear");
+        text.Should().Contain("0.00 0.00 1.00 rg", "blue end must appear");
+    }
+
+    // ── CSS units: vw/vh/vmin/vmax/ch/lh/pc ─────────────────────────────────
+
+    [Fact]
+    public async Task ViewportUnit_Vw_DoesNotCrash()
+    {
+        var html = "<div style='width: 50vw; height: 100px'>vw test</div>";
+        var act = async () => await HtmlToPdf.RenderAsync(html);
+        await act.Should().NotThrowAsync("vw unit must not crash");
+    }
+
+    [Fact]
+    public async Task ViewportUnit_Vh_DoesNotCrash()
+    {
+        var html = "<div style='height: 50vh; width: 200px'>vh test</div>";
+        var act = async () => await HtmlToPdf.RenderAsync(html);
+        await act.Should().NotThrowAsync("vh unit must not crash");
+    }
+
+    [Fact]
+    public async Task Unit_Ch_DoesNotCrash()
+    {
+        var html = "<div style='width: 20ch; height: 100px'>ch unit</div>";
+        var act = async () => await HtmlToPdf.RenderAsync(html);
+        await act.Should().NotThrowAsync("ch unit must not crash");
+    }
+
+    [Fact]
+    public async Task Unit_Pc_DoesNotCrash()
+    {
+        var html = "<div style='margin-top: 2pc; width: 200px'>pc unit</div>";
+        var act = async () => await HtmlToPdf.RenderAsync(html);
+        await act.Should().NotThrowAsync("pc unit (picas) must not crash");
+    }
 }

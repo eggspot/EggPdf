@@ -35,14 +35,17 @@ public static class PdfRadialGradient
             first.Contains("closest") || first.Contains("farthest"))
             colorStart = 1;
 
-        var colors = new List<(float r, float g, float b)>();
+        // Build stop list with positions (0..1)
+        var stops = new List<(float r, float g, float b, float position)>();
+        int numColors = parts.Count - colorStart;
         for (int i = colorStart; i < parts.Count; i++)
-            colors.Add(ParseColor(parts[i].Trim().Split(' ')[0]));
+        {
+            var (cr, cg, cb) = PdfGradient.ParseSimpleColor(parts[i].Trim());
+            float pos = numColors > 1 ? (float)(i - colorStart) / (numColors - 1) : 0f;
+            stops.Add((cr, cg, cb, pos));
+        }
 
-        if (colors.Count < 2) return null;
-
-        var c1 = colors[0]; // center color
-        var c2 = colors[colors.Count - 1]; // edge color
+        if (stops.Count < 2) return null;
 
         float cx = x + width / 2;
         float cy = y + height / 2;
@@ -52,14 +55,13 @@ public static class PdfRadialGradient
         sb.AppendLine("q");
         sb.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re W n"); // clip
 
-        // Draw concentric circles from outside in (so inner colors paint over outer)
-        int bands = 25;
+        // Draw concentric circles from outside in (inner colors paint over outer)
+        int bands = 30;
         for (int i = bands; i >= 0; i--)
         {
             float t = (float)i / bands;
-            float r = c2.r + (c1.r - c2.r) * (1 - t);
-            float g = c2.g + (c1.g - c2.g) * (1 - t);
-            float b = c2.b + (c1.b - c2.b) * (1 - t);
+            // t=0 → center (stop[0] color), t=1 → edge (stop[last] color)
+            var (r, g, b) = InterpolateStops(stops, 1f - t);
             float radius = maxRadius * t;
 
             if (radius < 0.5f) radius = 0.5f;
@@ -101,26 +103,25 @@ public static class PdfRadialGradient
         return result;
     }
 
-    private static (float r, float g, float b) ParseColor(string color)
+    private static (float r, float g, float b) InterpolateStops(
+        List<(float r, float g, float b, float position)> stops, float t)
     {
-        color = color.Trim();
-        if (color.StartsWith("#") && color.Length == 7)
+        if (stops.Count == 1) return (stops[0].r, stops[0].g, stops[0].b);
+        if (t <= stops[0].position) return (stops[0].r, stops[0].g, stops[0].b);
+        if (t >= stops[stops.Count - 1].position)
+            return (stops[stops.Count - 1].r, stops[stops.Count - 1].g, stops[stops.Count - 1].b);
+
+        for (int i = 0; i < stops.Count - 1; i++)
         {
-            return (Convert.ToInt32(color.Substring(1, 2), 16) / 255f,
-                    Convert.ToInt32(color.Substring(3, 2), 16) / 255f,
-                    Convert.ToInt32(color.Substring(5, 2), 16) / 255f);
+            var s0 = stops[i]; var s1 = stops[i + 1];
+            if (t >= s0.position && t <= s1.position)
+            {
+                float span = s1.position - s0.position;
+                float local = span > 0 ? (t - s0.position) / span : 0;
+                return (s0.r + (s1.r - s0.r) * local, s0.g + (s1.g - s0.g) * local, s0.b + (s1.b - s0.b) * local);
+            }
         }
-        switch (color.ToLowerInvariant())
-        {
-            case "red": return (1, 0, 0);
-            case "blue": return (0, 0, 1);
-            case "green": return (0, 0.5f, 0);
-            case "yellow": return (1, 1, 0);
-            case "white": return (1, 1, 1);
-            case "black": return (0, 0, 0);
-            case "transparent": return (1, 1, 1);
-            default: return (0, 0, 0);
-        }
+        return (stops[stops.Count - 1].r, stops[stops.Count - 1].g, stops[stops.Count - 1].b);
     }
 
     private static string F(float v) => v.ToString("F2", CultureInfo.InvariantCulture);
