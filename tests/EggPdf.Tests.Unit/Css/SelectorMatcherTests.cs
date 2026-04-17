@@ -639,6 +639,20 @@ public class SelectorMatcherTests
         var act = () => SelectorMatcher.Matches("li:nth-child(odd of .a)", li1);
         act.Should().NotThrow();
     }
+
+    [Fact]
+    public void AttributeSelector_WordMatch_MultipleSpaces_EdgeCases()
+    {
+        // Regression guard for allocation-free ~= word matching.
+        var doc = Doc("<div data-tags='alpha beta gamma'></div>");
+        var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First();
+
+        SelectorMatcher.Matches("[data-tags~='alpha']", div).Should().BeTrue();  // first word
+        SelectorMatcher.Matches("[data-tags~='beta']",  div).Should().BeTrue();  // middle word
+        SelectorMatcher.Matches("[data-tags~='gamma']", div).Should().BeTrue();  // last word
+        SelectorMatcher.Matches("[data-tags~='alph']",  div).Should().BeFalse(); // partial — must not match
+        SelectorMatcher.Matches("[data-tags~='delta']", div).Should().BeFalse(); // absent word
+    }
 }
 
 // Helper extension for tests

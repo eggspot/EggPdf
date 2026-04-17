@@ -951,12 +951,20 @@ public static class SelectorMatcher
         switch (matchOp)
         {
             case "=": return string.Equals(attrValue, matchValue, StringComparison.OrdinalIgnoreCase);
-            case "~=": // contains word
+            case "~=": // contains word — scan without allocating a string[]
             {
-                var words = attrValue.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                for (int w = 0; w < words.Length; w++)
-                    if (string.Equals(words[w], matchValue, StringComparison.OrdinalIgnoreCase))
-                        return true;
+                int wStart = 0;
+                for (int wi = 0; wi <= attrValue.Length; wi++)
+                {
+                    if (wi == attrValue.Length || attrValue[wi] == ' ')
+                    {
+                        if (wi > wStart &&
+                            string.Compare(attrValue, wStart, matchValue, 0, wi - wStart, StringComparison.OrdinalIgnoreCase) == 0 &&
+                            wi - wStart == matchValue.Length)
+                            return true;
+                        wStart = wi + 1;
+                    }
+                }
                 return false;
             }
             case "|=": // starts with or equals (hyphen-separated)

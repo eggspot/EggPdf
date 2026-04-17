@@ -224,7 +224,7 @@ public static class CssShorthandExpander
         // Now tokenize the remainder by spaces
         var parts = remaining.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
-        string? position = null;
+        var positionSb = new System.Text.StringBuilder();
         string? size = null;
         string? repeat = null;
         string? color = null;
@@ -238,13 +238,14 @@ public static class CssShorthandExpander
             int slashIdx = raw.IndexOf('/');
             if (slashIdx >= 0)
             {
-                position = raw.Substring(0, slashIdx);
-                size     = raw.Substring(slashIdx + 1);
+                if (positionSb.Length > 0) positionSb.Append(' ');
+                positionSb.Append(raw.Substring(0, slashIdx));
+                size = raw.Substring(slashIdx + 1);
                 continue;
             }
 
             if (IsBackgroundRepeat(part))  { repeat = part; continue; }
-            if (IsBackgroundPosition(part)) { position = position == null ? part : position + " " + part; continue; }
+            if (IsBackgroundPosition(part)) { if (positionSb.Length > 0) positionSb.Append(' '); positionSb.Append(part); continue; }
             if (IsBackgroundSize(part))    { size = part; continue; }
 
             // Anything else at the end treated as color
@@ -252,7 +253,7 @@ public static class CssShorthandExpander
         }
 
         if (repeat   != null) style.Set("background-repeat", repeat);
-        if (position != null) style.Set("background-position", position);
+        if (positionSb.Length > 0) style.Set("background-position", positionSb.ToString());
         if (size     != null) style.Set("background-size", size);
         if (color    != null) style.Set("background-color", color);
     }
@@ -513,13 +514,14 @@ public static class CssShorthandExpander
         if (value == "none") { style.Set("text-decoration-line", "none"); style.Set("text-decoration", "none"); return; }
 
         var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-        string? line = null, decoStyle = null, color = null, thickness = null;
+        var lineSb = new System.Text.StringBuilder();
+        string? decoStyle = null, color = null, thickness = null;
 
         foreach (var part in parts)
         {
             var lower = part.ToLowerInvariant();
             if (lower == "underline" || lower == "overline" || lower == "line-through" || lower == "blink")
-                line = (line == null) ? part : line + " " + part;
+            { if (lineSb.Length > 0) lineSb.Append(' '); lineSb.Append(part); }
             else if (lower == "solid" || lower == "double" || lower == "dotted" || lower == "dashed" || lower == "wavy")
                 decoStyle = part;
             else if (lower == "auto" || lower == "from-font")
@@ -530,7 +532,7 @@ public static class CssShorthandExpander
                 color = part;
         }
 
-        if (line != null) style.Set("text-decoration-line", line);
+        if (lineSb.Length > 0) style.Set("text-decoration-line", lineSb.ToString());
         if (decoStyle != null) style.Set("text-decoration-style", decoStyle);
         if (color != null) style.Set("text-decoration-color", color);
         if (thickness != null) style.Set("text-decoration-thickness", thickness);

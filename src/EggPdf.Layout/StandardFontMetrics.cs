@@ -117,6 +117,18 @@ public static class StandardFontMetrics
         return totalWidth * fontSize / 1000f;
     }
 
+    public static float MeasureCharWidth(char ch, float fontSize, string pdfFontName)
+    {
+        if (fontSize <= 0) return 0;
+        if (pdfFontName.StartsWith("Courier", StringComparison.OrdinalIgnoreCase))
+            return CourierWidth * fontSize / 1000f;
+        if (!FontWidthTables.TryGetValue(pdfFontName, out var widths))
+            widths = HelveticaWidths;
+        int c = ch == '\u00A0' ? ' ' : ch;
+        int w = (c >= 32 && c <= 126) ? widths[c - 32] : 500;
+        return w * fontSize / 1000f;
+    }
+
     /// <summary>
     /// Map a CSS font-family + weight + style to a PDF standard font name.
     /// </summary>

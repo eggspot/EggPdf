@@ -308,9 +308,10 @@ internal static class PdfRenderer
     {
         // A box is paintable if it has text, background, image, border, or is a link
         bool hasBorder = false;
+        var borderStyleFallback = box.Style.Get("border-style");
         foreach (var side in BorderSides)
         {
-            var sideStyle = box.Style.Get($"border-{side}-style") ?? box.Style.Get("border-style");
+            var sideStyle = box.Style.Get($"border-{side}-style") ?? borderStyleFallback;
             if (!string.IsNullOrEmpty(sideStyle) && sideStyle != "none" && sideStyle != "hidden")
             { hasBorder = true; break; }
         }
@@ -1953,12 +1954,17 @@ internal static class PdfRenderer
     /// </summary>
     private static void SortByZIndex(List<LayoutBox> boxes)
     {
-        // Must use stable sort to preserve document order within same z-index.
-        // List.Sort() is unstable and scrambles equal elements, causing backgrounds
-        // to paint after text (hiding it). Use OrderBy which is stable.
-        var sorted = boxes.OrderBy(b => GetZIndex(b)).ToList();
+        // Stable sort: tag each box with its original index, sort by (zIndex, originalIndex)
+        // to preserve document order for equal z-indices without LINQ allocation.
+        var tagged = new (int z, int i)[boxes.Count];
+        for (int i = 0; i < boxes.Count; i++)
+            tagged[i] = (GetZIndex(boxes[i]), i);
+        Array.Sort(tagged, (a, b) => a.z != b.z ? a.z.CompareTo(b.z) : a.i.CompareTo(b.i));
+        var copy = new LayoutBox[boxes.Count];
+        for (int i = 0; i < tagged.Length; i++)
+            copy[i] = boxes[tagged[i].i];
         boxes.Clear();
-        boxes.AddRange(sorted);
+        boxes.AddRange(copy);
     }
 
     private static int GetZIndex(LayoutBox box)

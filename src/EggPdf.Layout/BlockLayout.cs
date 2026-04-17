@@ -894,10 +894,10 @@ public static class BlockLayout
 
                     bool applyFirstLine = isFirstLine && !firstBlockLineEmitted && firstLineStyle != null;
                     var initialLetterStr = style.Get("initial-letter");
+                    float initialLetterN = 1f;
                     bool hasInitialLetter = !string.IsNullOrEmpty(initialLetterStr) &&
                         initialLetterStr != "normal" &&
-                        float.TryParse(initialLetterStr.Split(' ')[0], System.Globalization.NumberStyles.Float,
-                            System.Globalization.CultureInfo.InvariantCulture, out _);
+                        TryParseFirstToken(initialLetterStr, out initialLetterN);
                     bool applyFirstLetter = isFirstLine && !firstBlockLineEmitted &&
                         (firstLetterStyle != null || hasInitialLetter) && !string.IsNullOrEmpty(line);
 
@@ -914,10 +914,7 @@ public static class BlockLayout
                         if (hasInitialLetter)
                         {
                             // initial-letter: N — scale first letter to span N lines
-                            float n = 1f;
-                            float.TryParse(initialLetterStr!.Split(' ')[0], System.Globalization.NumberStyles.Float,
-                                System.Globalization.CultureInfo.InvariantCulture, out n);
-                            if (n < 1f) n = 1f;
+                            float n = initialLetterN < 1f ? 1f : initialLetterN;
                             flFontSize = fontSize * n;
                             flLineHeight = lineHeight * n;
                             // Build a synthetic style for the drop cap
@@ -2018,7 +2015,7 @@ public static class BlockLayout
         {
             // Use the source's srcset, or fall back to img dimensions
             var srcset = selectedSource.GetAttribute("srcset");
-            var src = ResolveSrcset(srcset, 0) ?? srcset?.Split(',')[0].Trim().Split(' ')[0];
+            var src = ResolveSrcset(srcset, 0) ?? FirstSrcsetUrl(srcset);
             // Return img element for dimension resolution; source provides the URL
             return (src, fallbackImg ?? selectedSource);
         }
@@ -2516,6 +2513,23 @@ public static class BlockLayout
         if (float.TryParse(s.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float result))
             return result;
         return 0;
+    }
+
+    private static bool TryParseFirstToken(string s, out float value)
+    {
+        int end = s.IndexOf(' ');
+        string token = end >= 0 ? s.Substring(0, end) : s;
+        return float.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static string? FirstSrcsetUrl(string? srcset)
+    {
+        if (string.IsNullOrEmpty(srcset)) return null;
+        int commaIdx = srcset.IndexOf(',');
+        string candidate = commaIdx >= 0 ? srcset.Substring(0, commaIdx) : srcset;
+        candidate = candidate.Trim();
+        int spaceIdx = candidate.IndexOf(' ');
+        return spaceIdx >= 0 ? candidate.Substring(0, spaceIdx) : candidate;
     }
 
     /// <summary>

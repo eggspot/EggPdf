@@ -306,14 +306,22 @@ public static class TextMeasurer
             return chunks;
         }
 
+        // Resolve font once; accumulate width char-by-char to avoid per-iteration Substring allocations.
+        var pdfFont = StandardFontMetrics.ResolvePdfFontName(fontFamily, fontWeight, fontStyle);
         int start = 0;
-        for (int i = 1; i <= word.Length; i++)
+        float runWidth = 0f;
+        for (int i = 0; i < word.Length; i++)
         {
-            var chunk = word.Substring(start, i - start);
-            if (MeasureWidth(chunk, fontSize, fontFamily, fontWeight, fontStyle) > maxWidth && i - start > 1)
+            float cw = StandardFontMetrics.MeasureCharWidth(word[i], fontSize, pdfFont);
+            if (runWidth + cw > maxWidth && i > start)
             {
-                chunks.Add(word.Substring(start, i - 1 - start));
-                start = i - 1;
+                chunks.Add(word.Substring(start, i - start));
+                start = i;
+                runWidth = cw;
+            }
+            else
+            {
+                runWidth += cw;
             }
         }
         if (start < word.Length)
