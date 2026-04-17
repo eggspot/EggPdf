@@ -426,4 +426,205 @@ public class ColorTests
     {
         Color.TryParse("color-mix(in srgb, red)").Should().BeNull();
     }
+
+    // ── hwb() ───────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Hwb_PureRed_Parsed()
+    {
+        // hwb(0 0% 0%) = red (hue=0, white=0, black=0)
+        var c = Color.TryParse("hwb(0 0% 0%)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().Be(255);
+        c.Value.G.Should().Be(0);
+        c.Value.B.Should().Be(0);
+    }
+
+    [Fact]
+    public void Hwb_White_Parsed()
+    {
+        // hwb(0 100% 0%) = white (all white added)
+        var c = Color.TryParse("hwb(0 100% 0%)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().Be(255);
+        c.Value.G.Should().Be(255);
+        c.Value.B.Should().Be(255);
+    }
+
+    [Fact]
+    public void Hwb_Black_Parsed()
+    {
+        // hwb(0 0% 100%) = black (all black added)
+        var c = Color.TryParse("hwb(0 0% 100%)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().Be(0);
+        c.Value.G.Should().Be(0);
+        c.Value.B.Should().Be(0);
+    }
+
+    [Fact]
+    public void Hwb_WithAlpha_Parsed()
+    {
+        var c = Color.TryParse("hwb(120 0% 0% / 0.5)");
+        c.Should().NotBeNull();
+        c!.Value.G.Should().Be(255);
+        c.Value.A.Should().BeInRange(126, 128);
+    }
+
+    // ── oklch() ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Oklch_Black_Parsed()
+    {
+        // oklch(0 0 0) = black
+        var c = Color.TryParse("oklch(0 0 0)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().BeInRange(0, 5);
+        c.Value.G.Should().BeInRange(0, 5);
+        c.Value.B.Should().BeInRange(0, 5);
+    }
+
+    [Fact]
+    public void Oklch_White_Parsed()
+    {
+        // oklch(1 0 0) = white
+        var c = Color.TryParse("oklch(1 0 0)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().BeInRange(250, 255);
+        c.Value.G.Should().BeInRange(250, 255);
+        c.Value.B.Should().BeInRange(250, 255);
+    }
+
+    [Fact]
+    public void Oklch_Red_Parsed()
+    {
+        // oklch(0.6279 0.2576 29.23) ≈ CSS red #ff0000
+        var c = Color.TryParse("oklch(0.6279 0.2576 29.23)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().BeGreaterThan(200, "oklch red should have high R");
+        c.Value.G.Should().BeLessThan(80);
+    }
+
+    [Fact]
+    public void Oklch_WithAlpha_Parsed()
+    {
+        var c = Color.TryParse("oklch(0.5 0.1 180 / 0.5)");
+        c.Should().NotBeNull();
+        c!.Value.A.Should().BeInRange(126, 128);
+    }
+
+    // ── oklab() ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Oklab_Black_Parsed()
+    {
+        var c = Color.TryParse("oklab(0 0 0)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().BeInRange(0, 5);
+    }
+
+    [Fact]
+    public void Oklab_White_Parsed()
+    {
+        var c = Color.TryParse("oklab(1 0 0)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().BeInRange(250, 255);
+    }
+
+    // ── lab() ───────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Lab_Black_Parsed()
+    {
+        // lab(0 0 0) = black
+        var c = Color.TryParse("lab(0 0 0)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().BeInRange(0, 5);
+    }
+
+    [Fact]
+    public void Lab_White_Parsed()
+    {
+        // lab(100 0 0) = white
+        var c = Color.TryParse("lab(100 0 0)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().BeInRange(250, 255);
+    }
+
+    // ── lch() ───────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Lch_Black_Parsed()
+    {
+        var c = Color.TryParse("lch(0 0 0)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().BeInRange(0, 5);
+    }
+
+    [Fact]
+    public void Lch_White_Parsed()
+    {
+        var c = Color.TryParse("lch(100 0 0)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().BeInRange(250, 255);
+    }
+
+    // ── color() ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ColorFn_Srgb_Red_Parsed()
+    {
+        // color(srgb 1 0 0) = red
+        var c = Color.TryParse("color(srgb 1 0 0)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().Be(255);
+        c.Value.G.Should().Be(0);
+        c.Value.B.Should().Be(0);
+    }
+
+    [Fact]
+    public void ColorFn_Srgb_WithAlpha_Parsed()
+    {
+        var c = Color.TryParse("color(srgb 0 1 0 / 0.5)");
+        c.Should().NotBeNull();
+        c!.Value.G.Should().Be(255);
+        c.Value.A.Should().BeInRange(126, 128);
+    }
+
+    [Fact]
+    public void ColorFn_DisplayP3_Clamps_ToSrgb()
+    {
+        // display-p3 values get mapped to sRGB (may clip)
+        var c = Color.TryParse("color(display-p3 1 0 0)");
+        c.Should().NotBeNull();
+        c!.Value.R.Should().BeGreaterThan(200);
+    }
+
+    // ── light-dark() ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void LightDark_ReturnsLightColor_InPdfContext()
+    {
+        // PDF is always "light" context — light-dark(lightVal, darkVal) → lightVal
+        var c = Color.TryParse("light-dark(red, blue)");
+        c.Should().NotBeNull("light-dark() must parse");
+        c!.Value.R.Should().Be(255, "light mode → red");
+        c.Value.B.Should().Be(0, "light mode, not blue");
+    }
+
+    [Fact]
+    public void LightDark_WithComplexColors_Parsed()
+    {
+        var c = Color.TryParse("light-dark(rgb(0, 128, 0), #fff)");
+        c.Should().NotBeNull();
+        c!.Value.G.Should().Be(128);
+    }
+
+    [Fact]
+    public void LightDark_DoesNotCrashOnInvalid()
+    {
+        // Should not throw; returns null gracefully
+        var act = () => Color.TryParse("light-dark(invalid)");
+        act.Should().NotThrow();
+    }
 }

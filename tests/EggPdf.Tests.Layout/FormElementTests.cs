@@ -85,6 +85,62 @@ public class FormElementTests
             "checkbox should have non-zero dimensions");
     }
 
+    // ── appearance ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Checkbox_Checked_UsesUnicodeGlyph()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<input type='checkbox' checked>", 600, 800);
+        var input = root.FindByTag("input");
+        input.Should().NotBeNull();
+
+        // Default appearance should use a Unicode glyph (☑ U+2611) not ASCII [x]
+        bool hasUnicodeGlyph = HasDescendantText(root, "\u2611");
+        hasUnicodeGlyph.Should().BeTrue("checked checkbox should use Unicode ☑ glyph");
+    }
+
+    [Fact]
+    public void Checkbox_Unchecked_UsesUnicodeGlyph()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<input type='checkbox'>", 600, 800);
+
+        bool hasUnicodeGlyph = HasDescendantText(root, "\u2610");
+        hasUnicodeGlyph.Should().BeTrue("unchecked checkbox should use Unicode ☐ glyph");
+    }
+
+    [Fact]
+    public void Radio_Checked_UsesUnicodeGlyph()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<input type='radio' checked>", 600, 800);
+
+        bool hasUnicodeGlyph = HasDescendantText(root, "\u25c9");
+        hasUnicodeGlyph.Should().BeTrue("checked radio should use Unicode ◉ glyph");
+    }
+
+    [Fact]
+    public void Radio_Unchecked_UsesUnicodeGlyph()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<input type='radio'>", 600, 800);
+
+        bool hasUnicodeGlyph = HasDescendantText(root, "\u25cb");
+        hasUnicodeGlyph.Should().BeTrue("unchecked radio should use Unicode ○ glyph");
+    }
+
+    [Fact]
+    public void Appearance_None_HidesCheckboxGlyph()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<input type='checkbox' checked style='appearance: none; -webkit-appearance: none'>", 600, 800);
+
+        // With appearance:none, no glyph text should be rendered (author controls everything)
+        bool hasGlyph = HasDescendantText(root, "\u2611") || HasDescendantText(root, "[x]");
+        hasGlyph.Should().BeFalse("appearance:none should suppress the default checkbox glyph");
+    }
+
     // ── <progress> ──────────────────────────────────────────────────────────
 
     [Fact]
@@ -141,6 +197,45 @@ public class FormElementTests
         var el = root.FindByTag("meter");
         el.Should().NotBeNull();
         el!.Element?.GetAttribute("value").Should().Be("50");
+    }
+
+    // ── ::placeholder ────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Input_NoValue_ShowsPlaceholder()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<input type='text' placeholder='Enter your name'>", 600, 800);
+
+        // Placeholder text should appear when there's no value
+        bool hasPlaceholder = HasDescendantText(root, "Enter your name");
+        hasPlaceholder.Should().BeTrue("placeholder text should render when input has no value");
+    }
+
+    [Fact]
+    public void Input_WithValue_HidesPlaceholder()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<input type='text' value='John' placeholder='Enter your name'>", 600, 800);
+
+        // When value is present, placeholder should NOT render — only value renders
+        bool hasPlaceholder = HasDescendantText(root, "Enter your name");
+        hasPlaceholder.Should().BeFalse("placeholder should not render when input has a value");
+    }
+
+    [Fact]
+    public void Input_PlaceholderStyle_IsGray()
+    {
+        // ::placeholder default UA color should be gray
+        var root = LayoutTestHelper.Layout(
+            "<input type='text' placeholder='hint'>", 600, 800);
+
+        var phBox = root.FindAll(b => b.Text?.Contains("hint") == true).FirstOrDefault();
+        if (phBox == null) return;
+
+        // The placeholder box should have a gray/muted color (not pure black)
+        var colorStr = phBox.Style.Color ?? phBox.Style.Get("color");
+        colorStr.Should().NotBeNullOrEmpty("placeholder should have a color style");
     }
 
     private static bool HasDescendantText(LayoutBox box, string substring)

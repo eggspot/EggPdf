@@ -171,4 +171,115 @@ public class CascadeResolverTests
         style.Color.Should().Be("red");
         style.FontWeight.Should().Be("bold");
     }
+
+    [Fact]
+    public void Inherit_Keyword_CopiesParentValue()
+    {
+        var doc = HtmlParser.Parse("<div><p>Hello</p></div>");
+        var sheet = CssStyleSheetParser.Parse("div { color: purple; } p { color: inherit; }");
+        var resolver = new CascadeResolver(new[] { sheet });
+
+        var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
+        var p = div.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
+        var divStyle = resolver.Resolve(div, null);
+        var pStyle = resolver.Resolve(p, divStyle);
+
+        pStyle.Color.Should().Be("purple");
+    }
+
+    [Fact]
+    public void Inherit_Keyword_NoParent_FallsBackToInitial()
+    {
+        var doc = HtmlParser.Parse("<p>Hello</p>");
+        var sheet = CssStyleSheetParser.Parse("p { color: inherit; }");
+        var resolver = new CascadeResolver(new[] { sheet });
+
+        var p = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
+        var pStyle = resolver.Resolve(p, null);
+
+        // No parent => color should not be "inherit" (should be unset/initial, not a literal keyword)
+        pStyle.Color.Should().NotBe("inherit");
+    }
+
+    [Fact]
+    public void Initial_Keyword_ResetsToInitialValue()
+    {
+        var doc = HtmlParser.Parse("<div><p>Hello</p></div>");
+        var sheet = CssStyleSheetParser.Parse("div { color: purple; } p { color: initial; }");
+        var resolver = new CascadeResolver(new[] { sheet });
+
+        var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
+        var p = div.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
+        var divStyle = resolver.Resolve(div, null);
+        var pStyle = resolver.Resolve(p, divStyle);
+
+        // initial for color = "canvastext" or no color set, not "purple"
+        pStyle.Color.Should().NotBe("purple");
+        pStyle.Color.Should().NotBe("initial");
+    }
+
+    [Fact]
+    public void Unset_Keyword_InheritedProperty_ActsAsInherit()
+    {
+        var doc = HtmlParser.Parse("<div><p>Hello</p></div>");
+        var sheet = CssStyleSheetParser.Parse("div { color: purple; } p { color: unset; }");
+        var resolver = new CascadeResolver(new[] { sheet });
+
+        var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
+        var p = div.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
+        var divStyle = resolver.Resolve(div, null);
+        var pStyle = resolver.Resolve(p, divStyle);
+
+        // color is inherited => unset acts as inherit => gets purple from parent
+        pStyle.Color.Should().Be("purple");
+    }
+
+    [Fact]
+    public void Unset_Keyword_NonInheritedProperty_ActsAsInitial()
+    {
+        var doc = HtmlParser.Parse("<div><p>Hello</p></div>");
+        var sheet = CssStyleSheetParser.Parse("div { margin-top: 50px; } p { margin-top: unset; }");
+        var resolver = new CascadeResolver(new[] { sheet });
+
+        var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
+        var p = div.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
+        var divStyle = resolver.Resolve(div, null);
+        var pStyle = resolver.Resolve(p, divStyle);
+
+        // margin-top is not inherited => unset acts as initial => not 50px
+        pStyle.Get("margin-top").Should().NotBe("50px");
+        pStyle.Get("margin-top").Should().NotBe("unset");
+    }
+
+    [Fact]
+    public void Revert_Keyword_DoesNotLeaveKeywordLiteral()
+    {
+        // revert on an inherited property: reverts to UA cascade (which inherits from parent).
+        // The keyword itself must never appear as a computed value.
+        var doc = HtmlParser.Parse("<div><p>Hello</p></div>");
+        var sheet = CssStyleSheetParser.Parse("p { color: revert; }");
+        var resolver = new CascadeResolver(new[] { sheet });
+
+        var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
+        var p = div.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
+        var divStyle = resolver.Resolve(div, null);
+        var pStyle = resolver.Resolve(p, divStyle);
+
+        // The literal keyword "revert" must not appear as a computed value
+        pStyle.Color.Should().NotBe("revert");
+    }
+
+    [Fact]
+    public void Revert_Keyword_NonInheritedProperty_RemovesAuthorValue()
+    {
+        var doc = HtmlParser.Parse("<p>Hello</p>");
+        var sheet = CssStyleSheetParser.Parse("p { margin-top: revert; }");
+        var resolver = new CascadeResolver(new[] { sheet });
+
+        var p = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
+        var pStyle = resolver.Resolve(p, null);
+
+        // revert on non-inherited: reverts to UA default; "revert" must not remain as computed value
+        pStyle.Get("margin-top").Should().NotBe("revert");
+    }
 }

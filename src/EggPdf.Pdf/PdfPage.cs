@@ -294,6 +294,43 @@ public class PdfPage
         ContentStream.AppendLine($"/{gsName} gs");
     }
 
+    /// <summary>
+    /// Set PDF blend mode. CSS blend mode names are mapped to PDF /BM names.
+    /// Call SaveState/RestoreState around the element to scope the blend mode.
+    /// </summary>
+    public void SetBlendMode(string cssBlendMode)
+    {
+        var pdfBm = CssBlendModeToPdf(cssBlendMode);
+        if (pdfBm == null) return;
+        var gsName = $"GSBM_{cssBlendMode.ToLowerInvariant().Replace('-', '_')}";
+        UsedExtGStates.Add(gsName);
+        ContentStream.AppendLine($"/{gsName} gs");
+    }
+
+    internal static string? CssBlendModeToPdf(string cssMode)
+    {
+        switch (cssMode.ToLowerInvariant())
+        {
+            case "normal": return "Normal";
+            case "multiply": return "Multiply";
+            case "screen": return "Screen";
+            case "overlay": return "Overlay";
+            case "darken": return "Darken";
+            case "lighten": return "Lighten";
+            case "color-dodge": return "ColorDodge";
+            case "color-burn": return "ColorBurn";
+            case "hard-light": return "HardLight";
+            case "soft-light": return "SoftLight";
+            case "difference": return "Difference";
+            case "exclusion": return "Exclusion";
+            case "hue": return "Hue";
+            case "saturation": return "Saturation";
+            case "color": return "Color";
+            case "luminosity": return "Luminosity";
+            default: return null;
+        }
+    }
+
     /// <summary>Save graphics state.</summary>
     public void SaveState()
     {
@@ -337,6 +374,90 @@ public class PdfPage
         ContentStream.AppendLine($"{F(lineWidth)} w");
         ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
         ContentStream.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+    }
+
+    /// <summary>
+    /// Add a text-decoration line with the given CSS style
+    /// (solid, dashed, dotted, double, wavy).
+    /// </summary>
+    public void AddDecorationLine(float x1, float y1, float x2, float y2,
+        float r, float g, float b, float lineWidth, string? decorationStyle)
+    {
+        var style = (decorationStyle ?? "solid").ToLowerInvariant();
+        switch (style)
+        {
+            case "dashed":
+                ContentStream.AppendLine($"{F(lineWidth)} w");
+                ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
+                float dashLen = lineWidth * 4;
+                ContentStream.AppendLine($"[{F(dashLen)} {F(dashLen)}] 0 d 0 J");
+                ContentStream.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+                ContentStream.AppendLine("[] 0 d");
+                break;
+
+            case "dotted":
+                ContentStream.AppendLine($"{F(lineWidth)} w");
+                ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
+                ContentStream.AppendLine($"[0 {F(lineWidth * 2.5f)}] 0 d 1 J");
+                ContentStream.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+                ContentStream.AppendLine("[] 0 d 0 J");
+                break;
+
+            case "double":
+            {
+                float third = Math.Max(lineWidth / 3f, 0.3f);
+                ContentStream.AppendLine($"{F(third)} w");
+                ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
+                float off = lineWidth * 0.67f;
+                ContentStream.AppendLine($"{F(x1)} {F(y1 + off)} m {F(x2)} {F(y2 + off)} l S");
+                ContentStream.AppendLine($"{F(x1)} {F(y1 - off)} m {F(x2)} {F(y2 - off)} l S");
+                break;
+            }
+
+            case "wavy":
+            {
+                // Approximate wavy line with a cubic Bezier sine curve.
+                // Wave period = 4 × lineWidth; amplitude = lineWidth.
+                float amplitude = Math.Max(lineWidth * 1.5f, 0.5f);
+                float period = Math.Max(amplitude * 4f, 2f);
+                ContentStream.AppendLine($"{F(lineWidth)} w");
+                ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
+                ContentStream.AppendLine($"{F(x1)} {F(y1)} m");
+                float x = x1;
+                bool up = true;
+                while (x < x2)
+                {
+                    float segEnd = Math.Min(x + period, x2);
+                    float halfPeriod = (segEnd - x) / 2f;
+                    float cy = up ? y1 + amplitude : y1 - amplitude;
+                    // Two control points at 1/4 and 3/4 of segment
+                    float cp1x = x + halfPeriod * 0.5f;
+                    float cp2x = x + halfPeriod * 1.5f;
+                    float midX = x + halfPeriod;
+                    ContentStream.AppendLine(
+                        $"{F(cp1x)} {F(cy)} {F(cp2x)} {F(cy)} {F(midX)} {F(y1)} c");
+                    x = midX;
+                    up = !up;
+                    if (segEnd >= x2) break;
+                    // Second half of wave
+                    cy = up ? y1 + amplitude : y1 - amplitude;
+                    float segEnd2 = Math.Min(x + halfPeriod, x2);
+                    float cp3x = x + (segEnd2 - x) * 0.5f;
+                    float cp4x = x + (segEnd2 - x) * 1.5f;
+                    ContentStream.AppendLine(
+                        $"{F(cp3x)} {F(cy)} {F(cp4x)} {F(cy)} {F(segEnd2)} {F(y1)} c");
+                    x = segEnd2;
+                    up = !up;
+                    if (x >= x2) break;
+                }
+                ContentStream.AppendLine("S");
+                break;
+            }
+
+            default: // solid
+                AddLine(x1, y1, x2, y2, r, g, b, lineWidth);
+                break;
+        }
     }
 
     /// <summary>Add a clickable link annotation.</summary>

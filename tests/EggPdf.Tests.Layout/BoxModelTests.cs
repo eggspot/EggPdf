@@ -376,4 +376,499 @@ public class BoxModelTests
         var div = root.FindByTag("div");
         div!.Style.Get("outline-offset").Should().Be("-3px");
     }
+
+    // ── print-color-adjust ───────────────────────────────────────────────────
+
+    [Fact]
+    public void PrintColorAdjust_Economy_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='print-color-adjust: economy'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("print-color-adjust").Should().Be("economy");
+    }
+
+    [Fact]
+    public void PrintColorAdjust_Exact_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='print-color-adjust: exact'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("print-color-adjust").Should().Be("exact");
+    }
+
+    [Fact]
+    public void PrintColorAdjust_Inherited_FromParent()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='print-color-adjust: exact'><span>child</span></div>", 400, 600);
+        var span = root.FindByTag("span");
+        span.Should().NotBeNull();
+        span!.Style.Get("print-color-adjust").Should().Be("exact",
+            "print-color-adjust is an inherited property");
+    }
+
+    // ── container-type / container-name ──────────────────────────────────────
+
+    [Fact]
+    public void ContainerType_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='container-type: inline-size'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("container-type").Should().Be("inline-size");
+    }
+
+    [Fact]
+    public void ContainerName_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='container-name: card'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("container-name").Should().Be("card");
+    }
+
+    // ── mix-blend-mode / background-blend-mode ───────────────────────────────
+
+    [Fact]
+    public void MixBlendMode_Multiply_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='mix-blend-mode: multiply'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("mix-blend-mode").Should().Be("multiply");
+    }
+
+    [Fact]
+    public void MixBlendMode_Screen_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='mix-blend-mode: screen'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("mix-blend-mode").Should().Be("screen");
+    }
+
+    [Fact]
+    public void BackgroundBlendMode_Multiply_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='background-blend-mode: multiply'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("background-blend-mode").Should().Be("multiply");
+    }
+
+    // ── CSS masks ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void MaskImage_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='mask-image: url(mask.svg)'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("mask-image").Should().Be("url(mask.svg)");
+    }
+
+    [Fact]
+    public void MaskSize_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='mask-size: cover'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("mask-size").Should().Be("cover");
+    }
+
+    [Fact]
+    public void MaskComposite_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='mask-composite: intersect'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("mask-composite").Should().Be("intersect");
+    }
+
+    [Fact]
+    public void Mask_Shorthand_Expanded()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='mask: url(mask.png) no-repeat center'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        // The shorthand should expand — at minimum mask-image should be set
+        div!.Style.Get("mask-image").Should().Be("url(mask.png)",
+            "mask shorthand should expand mask-image longhand");
+    }
+
+    // ── backdrop-filter ──────────────────────────────────────────────────────
+
+    [Fact]
+    public void BackdropFilter_Blur_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='backdrop-filter: blur(10px)'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("backdrop-filter").Should().Be("blur(10px)");
+    }
+
+    [Fact]
+    public void BackdropFilter_Multiple_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='backdrop-filter: blur(4px) brightness(0.8)'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("backdrop-filter").Should().Be("blur(4px) brightness(0.8)");
+    }
+
+    [Fact]
+    public void BackdropFilter_DoesNotInherit()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='backdrop-filter: blur(10px)'><span>child</span></div>", 400, 600);
+        var span = root.FindByTag("span");
+        span.Should().NotBeNull();
+        // backdrop-filter is NOT inherited — child should not have it
+        span!.Style.Get("backdrop-filter").Should().BeNullOrEmpty();
+    }
+
+    // ── border-image ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void BorderImage_Shorthand_ExpandsSource()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='border-image: url(border.png) 30 round'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("border-image-source").Should().Be("url(border.png)",
+            "border-image shorthand should expand border-image-source");
+    }
+
+    [Fact]
+    public void BorderImage_Shorthand_ExpandsSlice()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='border-image: url(b.png) 27 / 4px stretch'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("border-image-slice").Should().Be("27",
+            "border-image shorthand should expand border-image-slice");
+    }
+
+    [Fact]
+    public void BorderImage_Source_Longhand_Stored()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='border-image-source: url(frame.png)'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("border-image-source").Should().Be("url(frame.png)");
+    }
+
+    [Fact]
+    public void BorderImage_Slice_Longhand_Stored()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='border-image-slice: 30%'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("border-image-slice").Should().Be("30%");
+    }
+
+    [Fact]
+    public void BorderImage_Width_Longhand_Stored()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='border-image-width: 4px'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("border-image-width").Should().Be("4px");
+    }
+
+    [Fact]
+    public void BorderImage_Repeat_Longhand_Stored()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='border-image-repeat: round'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("border-image-repeat").Should().Be("round");
+    }
+
+    // ── contain ──────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Contain_Strict_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='contain: strict'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("contain").Should().Be("strict");
+    }
+
+    [Fact]
+    public void Contain_Layout_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='contain: layout'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("contain").Should().Be("layout");
+    }
+
+    [Fact]
+    public void Contain_DoesNotInherit()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='contain: strict'><span>child</span></div>", 400, 600);
+        var span = root.FindByTag("span");
+        span.Should().NotBeNull();
+        span!.Style.Get("contain").Should().BeNullOrEmpty("contain is not inherited");
+    }
+
+    // ── isolation ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Isolation_Isolate_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='isolation: isolate'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("isolation").Should().Be("isolate");
+    }
+
+    [Fact]
+    public void Isolation_Auto_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='isolation: auto'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("isolation").Should().Be("auto");
+    }
+
+    [Fact]
+    public void Isolation_DoesNotInherit()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='isolation: isolate'><span>child</span></div>", 400, 600);
+        var span = root.FindByTag("span");
+        span.Should().NotBeNull();
+        span!.Style.Get("isolation").Should().BeNullOrEmpty("isolation is not inherited");
+    }
+
+    // ── background-clip ──────────────────────────────────────────────────────
+
+    [Fact]
+    public void BackgroundClip_Text_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='background-clip: text; -webkit-background-clip: text'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("background-clip").Should().Be("text");
+    }
+
+    [Fact]
+    public void BackgroundClip_BorderBox_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='background-clip: border-box'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("background-clip").Should().Be("border-box");
+    }
+
+    [Fact]
+    public void BackgroundClip_DoesNotInherit()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='background-clip: text'><span>child</span></div>", 400, 600);
+        var span = root.FindByTag("span");
+        span.Should().NotBeNull();
+        span!.Style.Get("background-clip").Should().BeNullOrEmpty();
+    }
+
+    // ── aspect-ratio ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void AspectRatio_WidthGiven_HeightComputed()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 200px; aspect-ratio: 2 / 1'></div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Height.Should().BeApproximately(100f, 1f,
+            "height = width(200) / ratio(2) = 100");
+    }
+
+    [Fact]
+    public void AspectRatio_Slash_Parsed()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 300px; aspect-ratio: 16 / 9'></div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Height.Should().BeApproximately(300f * 9f / 16f, 2f,
+            "height = 300 * 9/16 ≈ 168.75");
+    }
+
+    [Fact]
+    public void AspectRatio_NoSlash_Parsed()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 100px; aspect-ratio: 1'></div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Height.Should().BeApproximately(100f, 1f, "1:1 ratio → height = width");
+    }
+
+    [Fact]
+    public void AspectRatio_DoesNotOverrideExplicitHeight()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 200px; height: 50px; aspect-ratio: 2 / 1'></div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Height.Should().BeApproximately(50f, 1f,
+            "explicit height wins over aspect-ratio");
+    }
+
+    // ── details/summary collapsed state ────────────────────────────────────
+
+    [Fact]
+    public void Details_Closed_HidesContent()
+    {
+        // Without 'open', only <summary> should be visible; body content should be hidden
+        var root = LayoutTestHelper.Layout(
+            "<details><summary>Title</summary><p id='body'>Body content</p></details>", 400, 600);
+        var bodyBox = root.FindById("body");
+        // body content must be hidden (display:none → no box, or zero-size box)
+        if (bodyBox != null)
+        {
+            (bodyBox.Width == 0 && bodyBox.Height == 0).Should().BeTrue(
+                "closed <details> body content must have zero size (hidden)");
+        }
+        // summary should still be present
+        var summaryBoxes = root.FindAll(b => b.Text?.Contains("Title") == true);
+        summaryBoxes.Should().NotBeEmpty("summary text should always be visible");
+    }
+
+    [Fact]
+    public void Details_Open_ShowsContent()
+    {
+        // With 'open' attribute, body content should be visible
+        var root = LayoutTestHelper.Layout(
+            "<details open><summary>Title</summary><p id='body'>Body content</p></details>", 400, 600);
+        var bodyBoxes = root.FindAll(b => b.Text?.Contains("Body content") == true);
+        bodyBoxes.Should().NotBeEmpty("open <details> must show body content");
+    }
+
+    [Fact]
+    public void Details_Summary_AlwaysVisible()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<details><summary>Always shown</summary><p>Hidden</p></details>", 400, 600);
+        var summaryBoxes = root.FindAll(b => b.Text?.Contains("Always shown") == true);
+        summaryBoxes.Should().NotBeEmpty("summary should always render");
+    }
+
+    // ── fit-content / min-content / max-content ──────────────────────────────
+
+    [Fact]
+    public void FitContent_Width_DoesNotCrash()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: fit-content(200px); height: 50px'>Hello</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Width.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public void FitContent_Width_DoesNotExceedArgument()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: fit-content(150px); height: 50px'>Hello</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Width.Should().BeLessOrEqualTo(150);
+    }
+
+    [Fact]
+    public void MaxContent_Width_UsesAvailableWidth()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: max-content; height: 50px'>Hello</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Width.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public void MinContent_Width_IsPositive()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: min-content; height: 50px'>Hello</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Width.Should().BeGreaterThan(0);
+    }
+
+    // ── viewport + miscellaneous units ───────────────────────────────────────
+
+    [Fact]
+    public void ViewportWidth_50vw_IsHalfPageWidth()
+    {
+        // Page width = 600px → 50vw should resolve to ~300px (minus body margins ~8px each = 284)
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 50vw; height: 50px'>vw</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Width.Should().BeApproximately(300f, 20f, "50vw of 600px page should be ~300px");
+    }
+
+    [Fact]
+    public void ViewportHeight_50vh_IsHalfPageHeight()
+    {
+        // Page height = 800px → 50vh should resolve to ~400px
+        var root = LayoutTestHelper.Layout(
+            "<div style='height: 50vh; width: 200px'>vh</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Height.Should().BeApproximately(400f, 20f, "50vh of 800px page should be ~400px");
+    }
+
+    [Fact]
+    public void Unit_Ch_IsPositive()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 10ch; height: 50px'>Hello</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Width.Should().BeGreaterThan(0, "10ch should resolve to positive width");
+    }
+
+    [Fact]
+    public void Unit_Pc_Resolves()
+    {
+        // 1pc = 12pt = 16px; 6pc = 96px
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 6pc; height: 50px'>pc</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Width.Should().BeApproximately(96f, 5f, "6pc should be ~96px (1pc = 12pt = 16px)");
+    }
 }

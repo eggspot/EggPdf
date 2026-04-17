@@ -124,6 +124,44 @@ public class TableAdvancedTests
             "60% col in 500px table should produce a ~300px cell");
     }
 
+    [Fact]
+    public void Colgroup_SpanAttribute_WithWidth_AppliesToMultipleCols()
+    {
+        // <colgroup span="2" style="width:150px"> applies 150px to first 2 columns
+        var root = LayoutTestHelper.Layout(
+            "<table style='width: 600px; table-layout: fixed'>" +
+            "<colgroup span='2' style='width: 150px'><col><col>" +
+            "<col style='width: 300px'></colgroup>" +
+            "<tbody><tr><td>A</td><td>B</td><td>C</td></tr></tbody>" +
+            "</table>", 800, 800);
+
+        var tds = root.FindAllByTag("td");
+        tds.Should().HaveCountGreaterOrEqualTo(3);
+
+        // cols A and B should each be ~150px
+        tds[0].Width.Should().BeApproximately(150f, 10f,
+            "colgroup span=2 width=150px should give ~150px to first col");
+        tds[1].Width.Should().BeApproximately(150f, 10f,
+            "colgroup span=2 width=150px should give ~150px to second col");
+    }
+
+    [Fact]
+    public void Col_SpanAttribute_AppliesWidthToMultipleCols()
+    {
+        // <col span="2" style="width:200px"> covers 2 columns
+        var root = LayoutTestHelper.Layout(
+            "<table style='width: 600px; table-layout: fixed'>" +
+            "<colgroup><col span='2' style='width: 200px'><col style='width: 200px'></colgroup>" +
+            "<tbody><tr><td>A</td><td>B</td><td>C</td></tr></tbody>" +
+            "</table>", 800, 800);
+
+        var tds = root.FindAllByTag("td");
+        tds.Should().HaveCountGreaterOrEqualTo(3);
+
+        tds[0].Width.Should().BeApproximately(200f, 5f, "col span=2 should apply 200px to col 0");
+        tds[1].Width.Should().BeApproximately(200f, 5f, "col span=2 should apply 200px to col 1");
+    }
+
     // ── border-spacing ───────────────────────────────────────────────────────
 
     [Fact]

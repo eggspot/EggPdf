@@ -15,29 +15,23 @@ public static class CalcResolver
     /// <summary>
     /// Check if a CSS value contains a math function (calc, min, max, clamp).
     /// </summary>
+    // Known math function names (for IsMathFunction detection)
+    private static readonly string[] _mathFunctions = {
+        "calc(", "min(", "max(", "clamp(",
+        "sin(", "cos(", "tan(", "asin(", "acos(", "atan(", "atan2(",
+        "sqrt(", "pow(", "hypot(", "abs(", "sign(",
+        "round(", "mod(", "rem(", "log(", "exp("
+    };
+
     public static bool IsMathFunction(string value)
     {
-        if (string.IsNullOrEmpty(value))
-            return false;
-
-        // Check for calc(, min(, max(, clamp( - case insensitive
-        for (int i = 0; i < value.Length - 3; i++)
+        if (string.IsNullOrEmpty(value)) return false;
+        for (int f = 0; f < _mathFunctions.Length; f++)
         {
-            char c = value[i];
-            if ((c == 'c' || c == 'C') && i + 4 < value.Length)
-            {
-                var sub = value.Substring(i, 5);
-                if (string.Equals(sub, "calc(", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(sub, "clamp", StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-            if ((c == 'm' || c == 'M') && i + 3 < value.Length)
-            {
-                var sub = value.Substring(i, 4);
-                if (string.Equals(sub, "min(", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(sub, "max(", StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
+            var fn = _mathFunctions[f];
+            if (value.Length >= fn.Length &&
+                value.Substring(0, fn.Length).Equals(fn, StringComparison.OrdinalIgnoreCase))
+                return true;
         }
         return false;
     }
@@ -76,6 +70,108 @@ public static class CalcResolver
             string inner = value.Substring(6, value.Length - 7);
             return EvaluateClamp(inner, containingSize, fontSize);
         }
+
+        // ── CSS math functions (Level 4) ──────────────────────────────────
+        if (StartsWithIgnoreCase(value, "sin(") && value[value.Length - 1] == ')')
+            return (float)Math.Sin(ToRadians(Resolve(value.Substring(4, value.Length - 5), containingSize, fontSize), value.Substring(4, value.Length - 5)));
+        if (StartsWithIgnoreCase(value, "cos(") && value[value.Length - 1] == ')')
+            return (float)Math.Cos(ToRadians(Resolve(value.Substring(4, value.Length - 5), containingSize, fontSize), value.Substring(4, value.Length - 5)));
+        if (StartsWithIgnoreCase(value, "tan(") && value[value.Length - 1] == ')')
+            return (float)Math.Tan(ToRadians(Resolve(value.Substring(4, value.Length - 5), containingSize, fontSize), value.Substring(4, value.Length - 5)));
+        if (StartsWithIgnoreCase(value, "asin(") && value[value.Length - 1] == ')')
+            return (float)(Math.Asin(Resolve(value.Substring(5, value.Length - 6), containingSize, fontSize)) * 180.0 / Math.PI);
+        if (StartsWithIgnoreCase(value, "acos(") && value[value.Length - 1] == ')')
+            return (float)(Math.Acos(Resolve(value.Substring(5, value.Length - 6), containingSize, fontSize)) * 180.0 / Math.PI);
+        if (StartsWithIgnoreCase(value, "atan(") && value[value.Length - 1] == ')')
+            return (float)(Math.Atan(Resolve(value.Substring(5, value.Length - 6), containingSize, fontSize)) * 180.0 / Math.PI);
+        if (StartsWithIgnoreCase(value, "atan2(") && value[value.Length - 1] == ')')
+        {
+            var a2 = SplitArgs(value.Substring(6, value.Length - 7));
+            if (a2.Length >= 2)
+                return (float)(Math.Atan2(Resolve(a2[0].Trim(), containingSize, fontSize), Resolve(a2[1].Trim(), containingSize, fontSize)) * 180.0 / Math.PI);
+        }
+        if (StartsWithIgnoreCase(value, "sqrt(") && value[value.Length - 1] == ')')
+        {
+            float v = Resolve(value.Substring(5, value.Length - 6), containingSize, fontSize);
+            return v >= 0 ? (float)Math.Sqrt(v) : 0;
+        }
+        if (StartsWithIgnoreCase(value, "pow(") && value[value.Length - 1] == ')')
+        {
+            var pa = SplitArgs(value.Substring(4, value.Length - 5));
+            if (pa.Length >= 2)
+                return (float)Math.Pow(Resolve(pa[0].Trim(), containingSize, fontSize), Resolve(pa[1].Trim(), containingSize, fontSize));
+        }
+        if (StartsWithIgnoreCase(value, "hypot(") && value[value.Length - 1] == ')')
+        {
+            var ha = SplitArgs(value.Substring(6, value.Length - 7));
+            float sum = 0;
+            for (int i = 0; i < ha.Length; i++) { float hv = Resolve(ha[i].Trim(), containingSize, fontSize); sum += hv * hv; }
+            return (float)Math.Sqrt(sum);
+        }
+        if (StartsWithIgnoreCase(value, "abs(") && value[value.Length - 1] == ')')
+            return Math.Abs(Resolve(value.Substring(4, value.Length - 5), containingSize, fontSize));
+        if (StartsWithIgnoreCase(value, "sign(") && value[value.Length - 1] == ')')
+        {
+            float sv = Resolve(value.Substring(5, value.Length - 6), containingSize, fontSize);
+            return sv > 0 ? 1f : sv < 0 ? -1f : 0f;
+        }
+        if (StartsWithIgnoreCase(value, "round(") && value[value.Length - 1] == ')')
+        {
+            // round([strategy,] value, step)
+            var ra = SplitArgs(value.Substring(6, value.Length - 7));
+            int vi = 0;
+            string strategy = "nearest";
+            if (ra.Length >= 1 && !ra[0].Trim().EndsWith("px") && !char.IsDigit(ra[0].Trim()[0]))
+            { strategy = ra[0].Trim(); vi = 1; }
+            if (ra.Length >= vi + 2)
+            {
+                float rv = Resolve(ra[vi].Trim(), containingSize, fontSize);
+                float step = Resolve(ra[vi + 1].Trim(), containingSize, fontSize);
+                if (step == 0) return rv;
+                float n = rv / step;
+                float rounded = strategy == "up" ? (float)Math.Ceiling(n) :
+                                strategy == "down" ? (float)Math.Floor(n) :
+                                strategy == "to-zero" ? (float)Math.Truncate(n) :
+                                (float)Math.Round(n, MidpointRounding.AwayFromZero);
+                return rounded * step;
+            }
+        }
+        if (StartsWithIgnoreCase(value, "mod(") && value[value.Length - 1] == ')')
+        {
+            var ma = SplitArgs(value.Substring(4, value.Length - 5));
+            if (ma.Length >= 2)
+            {
+                float mv = Resolve(ma[0].Trim(), containingSize, fontSize);
+                float ms = Resolve(ma[1].Trim(), containingSize, fontSize);
+                if (ms == 0) return mv;
+                float r = mv % ms;
+                // mod() returns value with same sign as divisor (like Python %)
+                return (r < 0 && ms > 0) || (r > 0 && ms < 0) ? r + ms : r;
+            }
+        }
+        if (StartsWithIgnoreCase(value, "rem(") && value[value.Length - 1] == ')')
+        {
+            var rea = SplitArgs(value.Substring(4, value.Length - 5));
+            if (rea.Length >= 2)
+            {
+                float rev = Resolve(rea[0].Trim(), containingSize, fontSize);
+                float res = Resolve(rea[1].Trim(), containingSize, fontSize);
+                return res == 0 ? rev : rev % res; // rem() keeps dividend sign
+            }
+        }
+        if (StartsWithIgnoreCase(value, "log(") && value[value.Length - 1] == ')')
+        {
+            var la = SplitArgs(value.Substring(4, value.Length - 5));
+            float lv = Resolve(la[0].Trim(), containingSize, fontSize);
+            if (la.Length >= 2)
+            {
+                float lb = Resolve(la[1].Trim(), containingSize, fontSize);
+                return lb > 0 && lv > 0 ? (float)(Math.Log(lv) / Math.Log(lb)) : 0;
+            }
+            return lv > 0 ? (float)Math.Log(lv) : 0;
+        }
+        if (StartsWithIgnoreCase(value, "exp(") && value[value.Length - 1] == ')')
+            return (float)Math.Exp(Resolve(value.Substring(4, value.Length - 5), containingSize, fontSize));
 
         // Not a math function, try resolving as a single term
         return ResolveTerm(value, containingSize, fontSize);
@@ -310,17 +406,72 @@ public static class CalcResolver
         if (term.EndsWith("in", StringComparison.OrdinalIgnoreCase))
             return ParseFloat(term.Substring(0, term.Length - 2)) * 96f;
 
+        if (term.EndsWith("pc", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 2)) * 96f / 6f; // 1pc = 12pt = 16px
+
+        if (term.EndsWith("vw", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 2)) / 100f * BlockLayout.ViewportWidth;
+
+        if (term.EndsWith("vh", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 2)) / 100f * BlockLayout.ViewportHeight;
+
+        if (term.EndsWith("vmin", StringComparison.OrdinalIgnoreCase))
+        {
+            float vmin = BlockLayout.ViewportWidth > 0 && BlockLayout.ViewportHeight > 0
+                ? System.Math.Min(BlockLayout.ViewportWidth, BlockLayout.ViewportHeight) : containingSize;
+            return ParseFloat(term.Substring(0, term.Length - 4)) / 100f * vmin;
+        }
+
+        if (term.EndsWith("vmax", StringComparison.OrdinalIgnoreCase))
+        {
+            float vmax = BlockLayout.ViewportWidth > 0 && BlockLayout.ViewportHeight > 0
+                ? System.Math.Max(BlockLayout.ViewportWidth, BlockLayout.ViewportHeight) : containingSize;
+            return ParseFloat(term.Substring(0, term.Length - 4)) / 100f * vmax;
+        }
+
+        if (term.EndsWith("ch", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 2)) * fontSize * 0.5f;
+
+        if (term.EndsWith("lh", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 2)) * fontSize * 1.2f;
+
+        if (term.EndsWith("deg", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 3)); // return degrees as-is for trig
+
+        if (term.EndsWith("rad", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 3)) * 180f / (float)Math.PI; // convert to degrees
+
+        if (term.EndsWith("turn", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 4)) * 360f;
+
+        if (term.EndsWith("grad", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 4)) * 0.9f; // grad → degrees
+
         // Bare number (unitless, e.g. multiplier in calc)
         return ParseFloat(term);
     }
 
     private static bool IsNestedFunction(string expr, int pos)
     {
-        if (pos + 4 >= expr.Length) return false;
-        return StartsWithIgnoreCase(expr, pos, "calc(") ||
-               StartsWithIgnoreCase(expr, pos, "min(") ||
-               StartsWithIgnoreCase(expr, pos, "max(") ||
-               StartsWithIgnoreCase(expr, pos, "clamp(");
+        if (pos + 3 >= expr.Length) return false;
+        for (int f = 0; f < _mathFunctions.Length; f++)
+        {
+            if (StartsWithIgnoreCase(expr, pos, _mathFunctions[f])) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Convert a numeric value to radians, detecting deg/rad/turn/grad suffix in original string.</summary>
+    private static double ToRadians(float value, string originalExpr)
+    {
+        var t = originalExpr.Trim().ToLowerInvariant();
+        if (t.EndsWith("deg")) return value * Math.PI / 180.0;
+        if (t.EndsWith("turn")) return value * 2.0 * Math.PI;
+        if (t.EndsWith("grad")) return value * Math.PI / 200.0;
+        // rad or unitless: assume already radians if no deg suffix found in expression
+        if (t.EndsWith("rad")) return value;
+        // Default: treat as degrees (most common in CSS)
+        return value * Math.PI / 180.0;
     }
 
     private static int FindFunctionEnd(string expr, int pos)

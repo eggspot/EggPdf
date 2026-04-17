@@ -117,6 +117,56 @@ public static class GridLayout
                 if (c > item.ColumnStart) itemWidth += columnGap;
             }
 
+            // subgrid: if child has display:grid and grid-template-columns:subgrid,
+            // override its column template with the parent's resolved column sizes for its span.
+            var childStyle = item.Style;
+            if (childStyle.Display == "grid" || childStyle.Display == "inline-grid")
+            {
+                var childColTemplate = childStyle.Get("grid-template-columns");
+                var childRowTemplate = childStyle.Get("grid-template-rows");
+                bool colSubgrid = !string.IsNullOrEmpty(childColTemplate) &&
+                    childColTemplate.Trim().Equals("subgrid", StringComparison.OrdinalIgnoreCase);
+                bool rowSubgrid = !string.IsNullOrEmpty(childRowTemplate) &&
+                    childRowTemplate.Trim().Equals("subgrid", StringComparison.OrdinalIgnoreCase);
+
+                if (colSubgrid)
+                {
+                    // Build explicit column widths from parent's resolved sizes for this item's span
+                    var sb = new System.Text.StringBuilder();
+                    for (int c = item.ColumnStart; c < item.ColumnStart + item.ColumnSpan && c < numColumns; c++)
+                    {
+                        if (sb.Length > 0) sb.Append(' ');
+                        sb.Append(columnSizes[c].ToString("F2", CultureInfo.InvariantCulture));
+                        sb.Append("px");
+                    }
+                    // Clone style with overridden column template
+                    var overriddenStyle = new ComputedStyle();
+                    foreach (var kv in childStyle.All)
+                        overriddenStyle.Set(kv.Key, kv.Value);
+                    overriddenStyle.Set("grid-template-columns", sb.ToString());
+                    childStyle = overriddenStyle;
+                    item.Style = childStyle;
+                }
+
+                if (rowSubgrid)
+                {
+                    // Build explicit row heights from parent's resolved row sizes for this item's span
+                    var sb = new System.Text.StringBuilder();
+                    for (int r = item.RowStart; r < item.RowStart + item.RowSpan && r < numRows; r++)
+                    {
+                        if (sb.Length > 0) sb.Append(' ');
+                        sb.Append(rowSizes[r].ToString("F2", CultureInfo.InvariantCulture));
+                        sb.Append("px");
+                    }
+                    var overriddenStyle = new ComputedStyle();
+                    foreach (var kv in childStyle.All)
+                        overriddenStyle.Set(kv.Key, kv.Value);
+                    overriddenStyle.Set("grid-template-rows", sb.ToString());
+                    childStyle = overriddenStyle;
+                    item.Style = childStyle;
+                }
+            }
+
             // Create child box with the calculated width
             var childBox = BlockLayout.CreateBox(item.Element, item.Style, container, itemWidth, resolver, style);
 

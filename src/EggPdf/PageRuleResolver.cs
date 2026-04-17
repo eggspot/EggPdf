@@ -48,6 +48,20 @@ internal static class PageRuleResolver
                     var decl = rule.Declarations[d];
                     ApplyDeclaration(settings, decl);
                 }
+
+                // Collect margin-box content
+                for (int m = 0; m < rule.MarginBoxes.Count; m++)
+                {
+                    var mb = rule.MarginBoxes[m];
+                    string? content = null;
+                    for (int d = 0; d < mb.Declarations.Count; d++)
+                    {
+                        if (mb.Declarations[d].Property == "content")
+                            content = mb.Declarations[d].Value;
+                    }
+                    if (content != null)
+                        settings.MarginBoxContent[mb.Position] = content;
+                }
             }
         }
 
@@ -248,4 +262,11 @@ internal class PageSettings
 
     /// <summary>Content area height (page height minus vertical margins).</summary>
     public float ContentHeightPx => PageHeightPx - MarginTop - MarginBottom;
+
+    /// <summary>
+    /// CSS @page margin-box content values keyed by position name
+    /// (e.g. "bottom-center" → "counter(page)").
+    /// </summary>
+    public Dictionary<string, string> MarginBoxContent { get; } =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 }

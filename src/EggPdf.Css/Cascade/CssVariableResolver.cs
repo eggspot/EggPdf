@@ -3,7 +3,7 @@ using System;
 namespace EggPdf.Css.Cascade;
 
 /// <summary>
-/// Resolves CSS custom properties (var() references) in computed style values.
+/// Resolves CSS custom properties (var() references) and env() in computed style values.
 /// Handles nested var(), fallback values, and cycle detection.
 /// Infallible: returns original value on error.
 /// </summary>
@@ -11,19 +11,88 @@ public static class CssVariableResolver
 {
     private const int MaxDepth = 10;
     private const string VarPrefix = "var(";
+    private const string EnvPrefix = "env(";
 
     /// <summary>
-    /// Resolve all var() references in a CSS property value.
+    /// Resolve all var() and env() references in a CSS property value.
     /// </summary>
     public static string ResolveVariables(string value, ComputedStyle style)
     {
         if (string.IsNullOrEmpty(value))
             return value;
 
-        if (value.IndexOf(VarPrefix, StringComparison.OrdinalIgnoreCase) < 0)
+        bool hasVar = value.IndexOf(VarPrefix, StringComparison.OrdinalIgnoreCase) >= 0;
+        bool hasEnv = value.IndexOf(EnvPrefix, StringComparison.OrdinalIgnoreCase) >= 0;
+
+        if (!hasVar && !hasEnv)
             return value;
 
-        return ResolveVariablesRecursive(value, style, 0);
+        // Resolve env() first, then var()
+        string result = hasEnv ? ResolveEnv(value) : value;
+        if (result.IndexOf(VarPrefix, StringComparison.OrdinalIgnoreCase) >= 0)
+            result = ResolveVariablesRecursive(result, style, 0);
+
+        return result;
+    }
+
+    /// <summary>
+    /// Known safe-area-inset environment variables — all 0px for PDF rendering.
+    /// </summary>
+    private static readonly System.Collections.Generic.HashSet<string> SafeAreaVars =
+        new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "safe-area-inset-top", "safe-area-inset-right",
+            "safe-area-inset-bottom", "safe-area-inset-left"
+        };
+
+    /// <summary>
+    /// Resolve env() references in a value.
+    /// safe-area-inset-* -> 0px; unknown with fallback -> fallback; unknown without -> empty.
+    /// </summary>
+    private static string ResolveEnv(string value)
+    {
+        if (value.IndexOf(EnvPrefix, StringComparison.OrdinalIgnoreCase) < 0)
+            return value;
+
+        int pos = 0;
+        var result = new System.Text.StringBuilder(value.Length);
+
+        while (pos < value.Length)
+        {
+            int startIdx = value.IndexOf(EnvPrefix, pos, StringComparison.OrdinalIgnoreCase);
+            if (startIdx < 0)
+            {
+                result.Append(value, pos, value.Length - pos);
+                break;
+            }
+
+            result.Append(value, pos, startIdx - pos);
+
+            int openParen = startIdx + EnvPrefix.Length - 1; // position of '('
+            int closeParen = FindMatchingParen(value, openParen);
+            if (closeParen < 0)
+            {
+                result.Append(value, startIdx, value.Length - startIdx);
+                break;
+            }
+
+            string envContent = value.Substring(openParen + 1, closeParen - openParen - 1).Trim();
+
+            // Parse env name and optional fallback
+            string envName;
+            string? fallback;
+            ParseVarContent(envContent, out envName, out fallback);
+
+            if (SafeAreaVars.Contains(envName))
+                result.Append("0px");
+            else if (fallback != null)
+                result.Append(fallback.Trim());
+            // else: unknown, no fallback -> empty (per CSS spec)
+
+            pos = closeParen + 1;
+        }
+
+        return result.ToString();
     }
 
     private static string ResolveVariablesRecursive(string value, ComputedStyle style, int depth)

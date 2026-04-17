@@ -174,6 +174,88 @@ public class TransformE2ETests
         text.Should().StartWith("%PDF");
     }
 
+    // ── 3D transform functions ────────────────────────────────────────────────
+
+    [Fact]
+    public async Task RotateZ_SameAsRotate()
+    {
+        var html = "<div style='transform: rotateZ(45deg); background-color: red; width: 100px; height: 100px'>RZ</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("RZ");
+        text.Should().Contain(" cm", "rotateZ should emit a cm operator");
+    }
+
+    [Fact]
+    public async Task RotateX_FlattenedToPerspective()
+    {
+        var html = "<div style='transform: rotateX(60deg); background-color: blue; width: 100px; height: 100px'>RX</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("RX");
+        text.Should().Contain(" cm", "rotateX flattens to scaleY in 2D");
+    }
+
+    [Fact]
+    public async Task RotateY_FlattenedToPerspective()
+    {
+        var html = "<div style='transform: rotateY(60deg); background-color: green; width: 100px; height: 100px'>RY</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("RY");
+        text.Should().Contain(" cm", "rotateY flattens to scaleX in 2D");
+    }
+
+    [Fact]
+    public async Task TranslateZ_NoVisualEffect()
+    {
+        // translateZ only affects the Z axis; in 2D PDF it has no visual effect
+        var act = async () => await HtmlToPdf.RenderAsync(
+            "<div style='transform: translateZ(100px); width: 100px; height: 100px'>TZ</div>");
+        await act.Should().NotThrowAsync("translateZ should not crash");
+    }
+
+    [Fact]
+    public async Task Translate3d_AppliesXY()
+    {
+        var html = "<div style='transform: translate3d(30px, 20px, 0); background-color: teal; width: 100px; height: 100px'>T3D</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("T3D");
+        text.Should().Contain(" cm", "translate3d should emit a cm operator for X/Y components");
+    }
+
+    [Fact]
+    public async Task Scale3d_AppliesXY()
+    {
+        var html = "<div style='transform: scale3d(2, 0.5, 1); background-color: orange; width: 100px; height: 100px'>S3D</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("S3D");
+        text.Should().Contain(" cm", "scale3d should emit a cm operator");
+    }
+
+    [Fact]
+    public async Task Perspective_DoesNotCrash()
+    {
+        // perspective() in transform list is purely 3D; PDF ignores it
+        var act = async () => await HtmlToPdf.RenderAsync(
+            "<div style='transform: perspective(500px) rotateY(30deg); width: 100px; height: 100px'>P3D</div>");
+        await act.Should().NotThrowAsync("perspective() should not crash");
+    }
+
+    [Fact]
+    public async Task Matrix3d_ExtractsTopLeft2x2()
+    {
+        // matrix3d uses the 2D subset: m0,m1,m4,m5 = a,b,c,d; m12,m13 = e,f
+        // matrix3d(2,0,0,0, 0,3,0,0, 0,0,1,0, 10,20,0,1)  → scale(2,3)+translate(10,20)
+        var html = "<div style='transform: matrix3d(2,0,0,0,0,3,0,0,0,0,1,0,10,20,0,1); width: 50px; height: 50px'>M3D</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+        text.Should().Contain("M3D");
+        text.Should().Contain(" cm", "matrix3d should emit a cm operator");
+    }
+
     private static int CountSubstring(string text, string pattern)
     {
         int count = 0;

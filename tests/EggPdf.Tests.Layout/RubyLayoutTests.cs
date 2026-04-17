@@ -86,4 +86,65 @@ public class RubyLayoutTests
                                              b.Text?.Contains("Before") == true);
         baseTextBoxes.Should().NotBeEmpty();
     }
+
+    // ── ruby-position ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void RubyPosition_Under_PlacesAnnotationBelowBase()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div><ruby style='ruby-position: under'>Base<rt>Anno</rt></ruby></div>", 400, 600);
+        var baseBox = root.FindAll(b => b.Text?.Contains("Base") == true).FirstOrDefault();
+        var annoBox = root.FindAll(b => b.Text?.Contains("Anno") == true).FirstOrDefault();
+        if (baseBox == null || annoBox == null) return;
+
+        // With ruby-position:under, annotation should be BELOW (larger Y) than base
+        annoBox.Y.Should().BeGreaterOrEqualTo(baseBox.Y,
+            "ruby-position:under should place annotation below the base text");
+    }
+
+    [Fact]
+    public void RubyPosition_Over_IsDefault_PlacesAnnotationAbove()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div><ruby>Base<rt>Anno</rt></ruby></div>", 400, 600);
+        var baseBox = root.FindAll(b => b.Text?.Contains("Base") == true).FirstOrDefault();
+        var annoBox = root.FindAll(b => b.Text?.Contains("Anno") == true).FirstOrDefault();
+        if (baseBox == null || annoBox == null) return;
+
+        annoBox.Y.Should().BeLessOrEqualTo(baseBox.Y,
+            "default (over) should place annotation above the base text");
+    }
+
+    // ── ruby-align ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void RubyAlign_Start_PlacesAnnotationAtStart()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div><ruby style='ruby-align: start'>AB<rt>X</rt></ruby></div>", 400, 600);
+        var baseBox = root.FindAll(b => b.Text?.Contains("AB") == true).FirstOrDefault();
+        var annoBox = root.FindAll(b => b.Text?.Contains("X") == true).FirstOrDefault();
+        if (baseBox == null || annoBox == null) return;
+
+        // start alignment: annotation X should be at (or very near) the base start X
+        annoBox.X.Should().BeApproximately(baseBox.X, 2f,
+            "ruby-align:start should left-align annotation with base start");
+    }
+
+    [Fact]
+    public void RubyAlign_End_PlacesAnnotationAtEnd()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div><ruby style='ruby-align: end'>AB<rt>X</rt></ruby></div>", 400, 600);
+        var baseBox = root.FindAll(b => b.Text?.Contains("AB") == true).FirstOrDefault();
+        var annoBox = root.FindAll(b => b.Text?.Contains("X") == true).FirstOrDefault();
+        if (baseBox == null || annoBox == null) return;
+
+        // end alignment: annotation right edge should be at base right edge
+        float annoRight = annoBox.X + annoBox.Width;
+        float baseRight = baseBox.X + baseBox.Width;
+        annoRight.Should().BeApproximately(baseRight, 2f,
+            "ruby-align:end should right-align annotation with base end");
+    }
 }

@@ -109,4 +109,60 @@ public class PageRulesE2ETests
         // A5: 559.37px × 793.70px at 96dpi → ×0.75 = 419.53pt × 595.28pt
         text.Should().Contain("/MediaBox [0 0 419.53 595.28]");
     }
+
+    // ── @page margin boxes ────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task PageMarginBox_BottomCenter_DoesNotCrash()
+    {
+        // @bottom-center is the most common margin box for page numbers
+        var html = @"
+            <html><head><style>
+                @page {
+                    @bottom-center { content: ""Page "" counter(page); }
+                }
+            </style></head>
+            <body><p>Content</p></body></html>";
+        var act = async () => await HtmlToPdf.RenderAsync(html);
+        await act.Should().NotThrowAsync("@page margin boxes should not crash the renderer");
+    }
+
+    [Fact]
+    public async Task PageMarginBox_TopRight_DoesNotCrash()
+    {
+        var html = @"
+            <html><head><style>
+                @page {
+                    size: A4;
+                    margin: 25mm;
+                    @top-right { content: ""Chapter 1""; }
+                    @bottom-left { content: counter(page) "" of "" counter(pages); }
+                }
+            </style></head>
+            <body><p>Body text here</p></body></html>";
+        var act = async () => await HtmlToPdf.RenderAsync(html);
+        await act.Should().NotThrowAsync("multiple @page margin boxes should not crash");
+    }
+
+    [Fact]
+    public async Task PageMarginBox_WithPageSizeAndMargin_ParsesBoth()
+    {
+        // Ensure margin box coexists with regular @page declarations
+        var html = @"
+            <html><head><style>
+                @page {
+                    size: letter;
+                    margin: 1in;
+                    @bottom-center { content: counter(page); }
+                }
+            </style></head>
+            <body><p>Letter page</p></body></html>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+
+        var text = Encoding.ASCII.GetString(pdf);
+        // Letter: 612pt × 792pt
+        text.Should().Contain("/MediaBox [0 0 612.00 792.00]",
+            "regular @page declarations should still be parsed when margin boxes are present");
+    }
 }

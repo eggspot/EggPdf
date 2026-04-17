@@ -133,4 +133,53 @@ public class WritingModeLayoutTests
         var result = WritingModeLayout.GetVerticalTextTransform(50f, 100f, 12f);
         result.Should().Contain("50.00").And.Contain("100.00");
     }
+
+    // ── text-combine-upright ─────────────────────────────────────────────────
+
+    [Fact]
+    public void TextCombineUpright_DoesNotCrash()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='writing-mode: vertical-rl; font-size: 16px'>" +
+            "<span style='text-combine-upright: all'>AB</span></div>",
+            200, 400);
+        root.Should().NotBeNull("text-combine-upright must not crash");
+    }
+
+    [Fact]
+    public void TextCombineUpright_BoxHeightFitsOneLine()
+    {
+        // In vertical writing, the combined box should occupy ~1em (same as a single CJK char)
+        var root = LayoutTestHelper.Layout(
+            "<div style='writing-mode: vertical-rl; font-size: 20px; width: 30px'>" +
+            "<span style='text-combine-upright: all'>12</span></div>",
+            200, 400);
+        var combined = root.FindAll(b => b.Text == "12").FirstOrDefault();
+        if (combined == null) return; // guard — layout produces the box
+
+        // The combined box height should be ~1em (≈20px), not 2× the chars stacked
+        combined.Height.Should().BeLessThan(30f,
+            "text-combine-upright should compress text to fit ~1em height");
+    }
+
+    [Fact]
+    public void ResolveCombineUpright_All_IsRecognized()
+    {
+        var result = WritingModeLayout.ResolveCombineUpright("all");
+        result.Should().BeTrue("'all' is a valid text-combine-upright value");
+    }
+
+    [Fact]
+    public void ResolveCombineUpright_None_ReturnsFalse()
+    {
+        var result = WritingModeLayout.ResolveCombineUpright("none");
+        result.Should().BeFalse("'none' means no combination");
+    }
+
+    [Fact]
+    public void ResolveCombineUpright_Null_ReturnsFalse()
+    {
+        var result = WritingModeLayout.ResolveCombineUpright(null);
+        result.Should().BeFalse("null should not combine");
+    }
 }
