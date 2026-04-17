@@ -75,4 +75,41 @@ public class LineClampTests
         textBoxes[0].Text.Should().NotContain("\u2026",
             "short text within the clamp limit should not have ellipsis");
     }
+
+    // ── standard line-clamp (CSS Overflow Level 4, no -webkit- prefix) ───────
+
+    [Fact]
+    public void StandardLineClamp_LimitsLines()
+    {
+        const string longText = "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12";
+        var root = LayoutTestHelper.Layout(
+            $"<body style='margin:0'><p style='font-size:12px; width:120px; line-clamp:2'>" +
+            $"{longText}</p></body>", 400, 600);
+
+        var p = root.FindByTag("p");
+        p.Should().NotBeNull();
+
+        var textBoxes = p!.Children.FindAll(b => !string.IsNullOrEmpty(b.Text));
+        textBoxes.Should().HaveCountLessOrEqualTo(2,
+            "standard line-clamp:2 should limit output to at most 2 text lines");
+    }
+
+    [Fact]
+    public void StandardLineClamp_LastLineHasEllipsis()
+    {
+        const string longText = "alpha beta gamma delta epsilon zeta eta theta iota kappa";
+        var root = LayoutTestHelper.Layout(
+            $"<body style='margin:0'><p style='font-size:12px; width:100px; line-clamp:1'>" +
+            $"{longText}</p></body>", 400, 600);
+
+        var p = root.FindByTag("p");
+        p.Should().NotBeNull();
+
+        var textBoxes = p!.Children.FindAll(b => !string.IsNullOrEmpty(b.Text));
+        textBoxes.Should().NotBeEmpty();
+
+        var lastBox = textBoxes[textBoxes.Count - 1];
+        lastBox.Text.Should().Contain("\u2026",
+            "standard line-clamp last line should end with ellipsis");
+    }
 }

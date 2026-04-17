@@ -520,6 +520,15 @@ internal static class PdfRenderer
             }
         }
 
+        // CSS mix-blend-mode — set PDF blend mode for this element's painting
+        var mixBlendMode = box.Style.Get("mix-blend-mode");
+        bool hasBlendMode = !string.IsNullOrEmpty(mixBlendMode) && mixBlendMode != "normal";
+        if (hasBlendMode)
+        {
+            page.SaveState();
+            page.SetBlendMode(mixBlendMode!);
+        }
+
         // CSS filter effects — parse once and apply to colors throughout this box's painting
         var filterStr = box.Style.Get("filter");
         var filterParams = !string.IsNullOrEmpty(filterStr) && filterStr != "none"
@@ -582,6 +591,15 @@ internal static class PdfRenderer
         // Paint background
         if (!isAnonymousTextBox && !suppressEmptyCell)
         {
+            // background-blend-mode: apply blend mode around background painting
+            var bgBlendMode = box.Style.Get("background-blend-mode");
+            bool hasBgBlend = !string.IsNullOrEmpty(bgBlendMode) && bgBlendMode != "normal";
+            if (hasBgBlend)
+            {
+                page.SaveState();
+                page.SetBlendMode(bgBlendMode!);
+            }
+
             var bgColor = box.Style.BackgroundColor;
             if (!string.IsNullOrEmpty(bgColor) && bgColor != "transparent")
             {
@@ -609,12 +627,21 @@ internal static class PdfRenderer
                 }
             }
 
-            // Paint background-image
+            // Paint background-image (supports multiple comma-separated layers; last = bottom)
             var bgImage = box.Style.Get("background-image");
             if (!string.IsNullOrEmpty(bgImage) && bgImage != "none" && _currentPdfDoc != null)
             {
-                PaintBackgroundImage(page, box, bgImage, effectiveX, pageHeightPx, adjustedY);
+                var layers = SplitTopLevel(bgImage, ',');
+                for (int li = layers.Count - 1; li >= 0; li--)
+                {
+                    var layer = layers[li].Trim();
+                    if (!string.IsNullOrEmpty(layer) && layer != "none")
+                        PaintBackgroundImage(page, box, layer, effectiveX, pageHeightPx, adjustedY);
+                }
             }
+
+            if (hasBgBlend)
+                page.RestoreState();
 
             // Paint border (per-side with style support)
             // Suppressed for empty cells when empty-cells: hide
@@ -626,7 +653,7 @@ internal static class PdfRenderer
         var elemTagName = box.Element?.TagName;
         if (elemTagName == "progress" || elemTagName == "meter")
         {
-            PaintProgressOrMeter(page, box, elemTagName, effectiveX, pageHeightPx, adjustedY);
+            PaintProgressOrMeter(page, box, elemTagName, effectiveX, pageHeightPx, adjustedY, box.Style.Get("accent-color"));
         }
 
         // Paint outline (outside border, doesn't affect layout)
@@ -841,6 +868,29 @@ internal static class PdfRenderer
             // Justify: add inter-word spacing to fill the line
             wordSpacing += justifyExtraWordSpacing;
 
+            // text-combine-upright: all — horizontally compress text to fit 1em in vertical writing mode
+            bool hasCombineUpright = EggPdf.Layout.WritingModeLayout.ResolveCombineUpright(
+                box.Style.Get("text-combine-upright"));
+            if (hasCombineUpright)
+            {
+                float measuredW = TextMeasurer.MeasureWidth(paintText, fontSize,
+                    box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"))
+                    * PdfCoordinates.PxToPt;
+                float emPt = fontSize * PdfCoordinates.PxToPt;
+                if (measuredW > emPt && emPt > 0f)
+                {
+                    // Scale X: compress to emPt, keep Y, translate X so the text stays anchored at pdfX
+                    float sx = emPt / measuredW;
+                    float tx = pdfX * (1f - sx);
+                    page.SaveState();
+                    page.ConcatMatrix(sx, 0f, 0f, 1f, tx, 0f);
+                }
+                else
+                {
+                    hasCombineUpright = false; // no compression needed
+                }
+            }
+
             // Text shadow: render shadow text before the main text
             var textShadow = box.Style.Get("text-shadow");
             if (!string.IsNullOrEmpty(textShadow) && textShadow != "none")
@@ -913,6 +963,8 @@ internal static class PdfRenderer
                     db = decoColor.Value.B / 255f;
                 }
 
+                var decoStyle = box.Style.Get("text-decoration-style") ?? "solid";
+
                 if (textDecorationLine.IndexOf("underline", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     float underlineOffsetPx = 0f;
@@ -920,19 +972,26 @@ internal static class PdfRenderer
                     if (!string.IsNullOrEmpty(underlineOffsetVal) && underlineOffsetVal != "auto")
                         underlineOffsetPx = Layout.BlockLayout.ResolveLength(underlineOffsetVal, fontSize, fontSize);
                     lineY = pdfY - (fontSize * 0.15f + underlineOffsetPx) * PdfCoordinates.PxToPt;
-                    page.AddLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth);
+                    page.AddDecorationLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth, decoStyle);
                 }
                 if (textDecorationLine.IndexOf("line-through", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     lineY = pdfY + fontSize * 0.3f * PdfCoordinates.PxToPt;
-                    page.AddLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth);
+                    page.AddDecorationLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth, decoStyle);
                 }
                 if (textDecorationLine.IndexOf("overline", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     lineY = pdfY + fontSize * 0.85f * PdfCoordinates.PxToPt;
-                    page.AddLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth);
+                    page.AddDecorationLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth, decoStyle);
                 }
             }
+
+            // text-emphasis: draw emphasis marks above (default) or below each character
+            PaintTextEmphasis(page, box, paintText, pdfX, pdfY, fontSize, fontName, color);
+
+            // Restore text-combine-upright transform state
+            if (hasCombineUpright)
+                page.RestoreState();
         }
 
         // Paint image (with object-fit support)
@@ -1022,6 +1081,10 @@ internal static class PdfRenderer
             }
         }
 
+        // Restore mix-blend-mode state
+        if (hasBlendMode)
+            page.RestoreState();
+
         // Restore CSS clip-path state
         if (hasCssClipPath)
             page.RestoreState();
@@ -1072,6 +1135,84 @@ internal static class PdfRenderer
 
         float resolved = Layout.BlockLayout.ResolveLength(hValue, boxWidth, 16);
         return Math.Max(0, resolved);
+    }
+
+    /// <summary>
+    /// Paint CSS text-emphasis marks (dots, circles, etc.) above or below each character.
+    /// CSS spec: one mark is painted per character, centred over it.
+    /// </summary>
+    private static void PaintTextEmphasis(PdfPage page, LayoutBox box, string text,
+        float pdfX, float pdfY, float fontSize, string fontName, Core.Color? textColor)
+    {
+        var emphasisStyle = box.Style.Get("text-emphasis-style") ?? box.Style.Get("text-emphasis");
+        if (string.IsNullOrEmpty(emphasisStyle) || emphasisStyle == "none") return;
+
+        // Resolve the mark character
+        bool isFilled = emphasisStyle.IndexOf("open", StringComparison.OrdinalIgnoreCase) < 0;
+        string markChar;
+
+        if (emphasisStyle.IndexOf("dot", StringComparison.OrdinalIgnoreCase) >= 0)
+            markChar = isFilled ? "\u2022" : "\u25E6"; // • ◦
+        else if (emphasisStyle.IndexOf("double-circle", StringComparison.OrdinalIgnoreCase) >= 0)
+            markChar = isFilled ? "\u25C9" : "\u25CE"; // ◉ ◎
+        else if (emphasisStyle.IndexOf("circle", StringComparison.OrdinalIgnoreCase) >= 0)
+            markChar = isFilled ? "\u25CF" : "\u25CB"; // ● ○
+        else if (emphasisStyle.IndexOf("triangle", StringComparison.OrdinalIgnoreCase) >= 0)
+            markChar = isFilled ? "\u25B2" : "\u25B3"; // ▲ △
+        else if (emphasisStyle.IndexOf("sesame", StringComparison.OrdinalIgnoreCase) >= 0)
+            markChar = isFilled ? "\uFE45" : "\uFE46"; // ﹅ ﹆
+        else
+        {
+            // Custom string mark: extract quoted content
+            var trimmed = emphasisStyle.Trim();
+            if ((trimmed.StartsWith("\"") && trimmed.EndsWith("\"")) ||
+                (trimmed.StartsWith("'") && trimmed.EndsWith("'")))
+                markChar = trimmed.Length > 2 ? trimmed.Substring(1, trimmed.Length - 2) : "";
+            else
+                markChar = trimmed.Length > 0 ? trimmed.Substring(0, 1) : "";
+            if (string.IsNullOrEmpty(markChar)) return;
+        }
+
+        // Determine position: "over" (above, default) or "under" (below)
+        var emphasisPos = box.Style.Get("text-emphasis-position") ?? "over right";
+        bool isOver = emphasisPos.IndexOf("under", StringComparison.OrdinalIgnoreCase) < 0;
+
+        // Resolve emphasis color (defaults to text color)
+        float er = textColor?.R / 255f ?? 0f;
+        float eg = textColor?.G / 255f ?? 0f;
+        float eb = textColor?.B / 255f ?? 0f;
+        var emphasisColorStr = box.Style.Get("text-emphasis-color");
+        if (!string.IsNullOrEmpty(emphasisColorStr) && emphasisColorStr != "currentColor")
+        {
+            var ec = Core.Color.TryParse(emphasisColorStr);
+            if (ec.HasValue) { er = ec.Value.R / 255f; eg = ec.Value.G / 255f; eb = ec.Value.B / 255f; }
+        }
+
+        // Mark font size: typically ~50% of the text font size
+        float markFontSize = fontSize * 0.5f * PdfCoordinates.PxToPt;
+
+        // Paint one mark per character, centred above/below it
+        float charX = pdfX;
+        for (int i = 0; i < text.Length; i++)
+        {
+            string ch = text.Substring(i, 1);
+            float charWidthPt = TextMeasurer.MeasureWidth(ch, fontSize,
+                box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"))
+                * PdfCoordinates.PxToPt;
+
+            float markWidthPt = TextMeasurer.MeasureWidth(markChar, fontSize * 0.5f,
+                box.Style.FontFamily, box.Style.FontWeight, null)
+                * PdfCoordinates.PxToPt;
+
+            float markX = charX + (charWidthPt - markWidthPt) / 2f;
+            // Place mark: above = baseline + ascent + small gap; below = baseline - descent - gap
+            float markY = isOver
+                ? pdfY + fontSize * 0.8f * PdfCoordinates.PxToPt  // above the cap-height
+                : pdfY - fontSize * 0.3f * PdfCoordinates.PxToPt; // below the baseline
+
+            page.AddText(markChar, markX, markY, fontName, markFontSize, er, eg, eb, 0, 0);
+            charX += charWidthPt;
+        }
     }
 
     /// <summary>Paint a background-image: url(...) or gradient behind the element.</summary>
@@ -1290,6 +1431,22 @@ internal static class PdfRenderer
         float pageHeightPt, float pageHeightPx, float adjustedY,
         bool hasRadius, float tlrPt, float trrPt, float brrPt, float blrPt)
     {
+        // border-image: if a gradient source is set, render gradient across the full border area
+        // and skip the regular solid border painting.
+        var borderImageSrc = box.Style.Get("border-image-source");
+        if (!string.IsNullOrEmpty(borderImageSrc) && borderImageSrc != "none")
+        {
+            bool isGradient = borderImageSrc.IndexOf("gradient(", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (isGradient && _currentPdfDoc != null)
+            {
+                // Render the gradient over the full element rect (outer edge to outer edge)
+                // This creates a visible "border" frame effect.
+                PaintBackgroundImage(page, box, borderImageSrc, effectiveX, pageHeightPx, adjustedY);
+                return; // Replace normal border with border-image
+            }
+            // For URL-based border-image: fall through to normal border as fallback
+        }
+
         // Get common fallback values
         var fallbackStyle = box.Style.Get("border-style");
         var fallbackWidth = box.Style.Get("border-width");
@@ -1820,10 +1977,13 @@ internal static class PdfRenderer
 
     /// <summary>Paint the fill bar for &lt;progress&gt; and &lt;meter&gt; elements.</summary>
     private static void PaintProgressOrMeter(PdfPage page, LayoutBox box, string tagName,
-        float effectiveX, float pageHeightPx, float adjustedY)
+        float effectiveX, float pageHeightPx, float adjustedY, string? accentColorStr = null)
     {
         var elem = box.Element;
         if (elem == null) return;
+
+        // accent-color overrides the default fill color
+        Color? accentColor = !string.IsNullOrEmpty(accentColorStr) ? ParseColor(accentColorStr) : null;
 
         float fraction = 0f;
 
@@ -1845,8 +2005,10 @@ internal static class PdfRenderer
                 fraction = Math.Max(0f, Math.Min(1f, value / max));
             }
 
-            // Default progress bar color: medium blue
-            float r = 0.26f, g = 0.55f, b = 0.96f;
+            // Default progress bar color: medium blue; overridden by accent-color
+            float r = accentColor.HasValue ? accentColor.Value.R / 255f : 0.26f;
+            float g = accentColor.HasValue ? accentColor.Value.G / 255f : 0.55f;
+            float b = accentColor.HasValue ? accentColor.Value.B / 255f : 0.96f;
             PaintFillBar(page, box, effectiveX, pageHeightPx, adjustedY, fraction, r, g, b);
         }
         else // meter
@@ -1883,7 +2045,13 @@ internal static class PdfRenderer
                     System.Globalization.CultureInfo.InvariantCulture, out high);
 
             float r, g, b;
-            if (value >= low && value <= high)
+            if (accentColor.HasValue)
+            {
+                r = accentColor.Value.R / 255f;
+                g = accentColor.Value.G / 255f;
+                b = accentColor.Value.B / 255f;
+            }
+            else if (value >= low && value <= high)
             { r = 0.2f; g = 0.7f; b = 0.2f; } // green
             else if ((value < low && value >= min) || (value > high && value <= max))
             { r = 0.9f; g = 0.8f; b = 0.1f; } // yellow
@@ -1988,7 +2156,7 @@ internal static class PdfRenderer
         else if (a <= 0) a = 0.5f; // default opacity
     }
 
-    /// <summary>Paint box-shadow behind an element.</summary>
+    /// <summary>Paint box-shadow behind an element (supports inset and multiple shadows).</summary>
     private static void PaintBoxShadow(PdfPage page, LayoutBox box, float effectiveX,
         float pageHeightPx, float adjustedY)
     {
@@ -2003,8 +2171,20 @@ internal static class PdfRenderer
             if (resolved > 0) fontSize = resolved;
         }
 
-        // Parse: offsetX offsetY [blur] [spread] [color]
-        var parts = shadow.Trim().Split(SpaceSep, StringSplitOptions.RemoveEmptyEntries);
+        // Split into individual shadows on top-level commas (not commas inside rgba()/etc)
+        var shadowList = SplitTopLevel(shadow, ',');
+        foreach (var singleShadow in shadowList)
+        {
+            PaintSingleBoxShadow(page, box, effectiveX, pageHeightPx, adjustedY, singleShadow.Trim(), fontSize);
+        }
+    }
+
+    private static void PaintSingleBoxShadow(PdfPage page, LayoutBox box, float effectiveX,
+        float pageHeightPx, float adjustedY, string shadow, float fontSize)
+    {
+        // Parse: [inset] offsetX offsetY [blur] [spread] [color]
+        var parts = shadow.Split(SpaceSep, StringSplitOptions.RemoveEmptyEntries);
+        bool isInset = false;
         float sx = 0, sy = 0, blur = 0, spread = 0;
         string? colorStr = null;
         int numIdx = 0;
@@ -2012,7 +2192,11 @@ internal static class PdfRenderer
         for (int i = 0; i < parts.Length; i++)
         {
             var p = parts[i];
-            if (p.EndsWith("px") || p.EndsWith("em") ||
+            if (string.Equals(p, "inset", StringComparison.OrdinalIgnoreCase))
+            {
+                isInset = true;
+            }
+            else if (p.EndsWith("px") || p.EndsWith("em") ||
                 (p.Length > 0 && (char.IsDigit(p[0]) || p[0] == '-' || p[0] == '.')))
             {
                 float val = Layout.BlockLayout.ResolveLength(p, 0, fontSize);
@@ -2042,14 +2226,63 @@ internal static class PdfRenderer
             }
         }
 
-        float pdfX = (effectiveX + sx - spread) * PdfCoordinates.PxToPt;
-        float pdfY = (pageHeightPx - adjustedY - box.Height - sy - spread) * PdfCoordinates.PxToPt;
-        float pdfW = (box.Width + spread * 2) * PdfCoordinates.PxToPt;
-        float pdfH = (box.Height + spread * 2) * PdfCoordinates.PxToPt;
+        if (sa <= 0) return;
 
-        if (sa < 1f) page.SetOpacity(sa);
-        page.AddRectangle(pdfX, pdfY, pdfW, pdfH, sr, sg, sb);
-        if (sa < 1f) page.SetOpacity(1f);
+        if (isInset)
+        {
+            // Inset shadow: draw a filled rect inside the element clipped to the element bounds.
+            // Strategy: clip to element, then draw offset/spread rect, restore.
+            float elX = effectiveX * PdfCoordinates.PxToPt;
+            float elY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+            float elW = box.Width * PdfCoordinates.PxToPt;
+            float elH = box.Height * PdfCoordinates.PxToPt;
+
+            // Inset rect = shrunk by spread, shifted by offset
+            float inX = (effectiveX + sx + spread) * PdfCoordinates.PxToPt;
+            float inY = (pageHeightPx - adjustedY - box.Height + sy + spread) * PdfCoordinates.PxToPt;
+            float inW = (box.Width - spread * 2) * PdfCoordinates.PxToPt;
+            float inH = (box.Height - spread * 2) * PdfCoordinates.PxToPt;
+
+            if (inW <= 0 || inH <= 0) return;
+
+            page.SaveState();
+            page.AddClipRect(elX, elY, elW, elH);
+            if (sa < 1f) page.SetOpacity(sa);
+            page.AddRectangle(inX, inY, inW, inH, sr, sg, sb);
+            if (sa < 1f) page.SetOpacity(1f);
+            page.RestoreState();
+        }
+        else
+        {
+            float pdfX = (effectiveX + sx - spread) * PdfCoordinates.PxToPt;
+            float pdfY = (pageHeightPx - adjustedY - box.Height - sy - spread) * PdfCoordinates.PxToPt;
+            float pdfW = (box.Width + spread * 2) * PdfCoordinates.PxToPt;
+            float pdfH = (box.Height + spread * 2) * PdfCoordinates.PxToPt;
+
+            if (sa < 1f) page.SetOpacity(sa);
+            page.AddRectangle(pdfX, pdfY, pdfW, pdfH, sr, sg, sb);
+            if (sa < 1f) page.SetOpacity(1f);
+        }
+    }
+
+    /// <summary>Split string on a delimiter character, ignoring delimiters inside parentheses.</summary>
+    private static List<string> SplitTopLevel(string value, char delimiter)
+    {
+        var result = new List<string>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (value[i] == '(') depth++;
+            else if (value[i] == ')') depth--;
+            else if (value[i] == delimiter && depth == 0)
+            {
+                result.Add(value.Substring(start, i - start));
+                start = i + 1;
+            }
+        }
+        result.Add(value.Substring(start));
+        return result;
     }
 
     /// <summary>

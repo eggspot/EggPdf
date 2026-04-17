@@ -22,6 +22,9 @@ public static class CssStyleSheetParser
         var tokenizer = new CssTokenizer(css);
         var tokens = ConsumeAllTokens(tokenizer);
         int pos = 0;
+        // layerCounter[0] tracks the next layer index; rules in layers get this value.
+        // Unlayered rules keep int.MaxValue (assigned by CssStyleRule default).
+        var layerCounter = new int[1]; // shared mutable counter via array reference
 
         while (pos < tokens.Count)
         {
@@ -33,7 +36,7 @@ public static class CssStyleSheetParser
             // At-rule
             if (token.Type == CssTokenType.AtKeyword)
             {
-                ParseAtRule(sheet, tokens, ref pos);
+                ParseAtRule(sheet, tokens, ref pos, layerCounter);
                 continue;
             }
 
@@ -53,7 +56,8 @@ public static class CssStyleSheetParser
         return sheet;
     }
 
-    private static void ParseAtRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos)
+    private static void ParseAtRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos,
+        int[]? layerCounter = null)
     {
         var keyword = tokens[pos].Value?.ToLowerInvariant() ?? "";
         pos++;
@@ -77,8 +81,11 @@ public static class CssStyleSheetParser
                 ParseSupportsRule(sheet, tokens, ref pos);
                 break;
             case "layer":
-                // @layer: treat like a transparent block — include its rules unconditionally
-                ParseLayerRule(sheet, tokens, ref pos);
+                // @layer: include rules with layer priority ordering
+                ParseLayerRule(sheet, tokens, ref pos, layerCounter);
+                break;
+            case "container":
+                ParseContainerRule(sheet, tokens, ref pos);
                 break;
             case "counter-style":
                 ParseCounterStyleRule(sheet, tokens, ref pos);
@@ -621,19 +628,40 @@ public static class CssStyleSheetParser
         return value;
     }
 
-    private static void ParseLayerRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos)
+    private static void ParseContainerRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos)
     {
-        // Skip layer name/order declaration until { or ;
+        // @container [name] (condition) { rules }
+        // Collect everything before the opening { as the header
+        var headerSb = new StringBuilder();
         while (pos < tokens.Count &&
                tokens[pos].Type != CssTokenType.LeftCurly &&
                tokens[pos].Type != CssTokenType.Semicolon)
+        {
+            headerSb.Append(tokens[pos].Value ?? "");
+            if (tokens[pos].Type != CssTokenType.Whitespace) headerSb.Append(' ');
             pos++;
+        }
 
-        if (pos >= tokens.Count) return;
-        if (tokens[pos].Type == CssTokenType.Semicolon) { pos++; return; } // @layer name; declaration
+        if (pos >= tokens.Count || tokens[pos].Type == CssTokenType.Semicolon) { if (pos < tokens.Count) pos++; return; }
         pos++; // skip {
 
-        // Parse nested rules as if they were at top level
+        var header = headerSb.ToString().Trim();
+        var containerRule = new CssContainerRule();
+
+        // Parse header: may be "(condition)" or "name (condition)"
+        int parenStart = header.IndexOf('(');
+        int parenEnd = header.LastIndexOf(')');
+        if (parenStart >= 0 && parenEnd > parenStart)
+        {
+            containerRule.ContainerName = header.Substring(0, parenStart).Trim();
+            containerRule.Condition = header.Substring(parenStart, parenEnd - parenStart + 1).Trim();
+        }
+        else
+        {
+            containerRule.Condition = header;
+        }
+
+        // Parse nested rules
         while (pos < tokens.Count && tokens[pos].Type != CssTokenType.RightCurly)
         {
             SkipWhitespace(tokens, ref pos);
@@ -647,7 +675,50 @@ public static class CssStyleSheetParser
             else
             {
                 var rule = ParseSingleStyleRule(tokens, ref pos);
-                if (rule != null) sheet.Rules.Add(rule);
+                if (rule != null) containerRule.Rules.Add(rule);
+            }
+        }
+        if (pos < tokens.Count && tokens[pos].Type == CssTokenType.RightCurly) pos++;
+
+        sheet.ContainerRules.Add(containerRule);
+    }
+
+    private static void ParseLayerRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos,
+        int[]? layerCounter = null)
+    {
+        // Skip layer name/order declaration until { or ;
+        while (pos < tokens.Count &&
+               tokens[pos].Type != CssTokenType.LeftCurly &&
+               tokens[pos].Type != CssTokenType.Semicolon)
+            pos++;
+
+        if (pos >= tokens.Count) return;
+        if (tokens[pos].Type == CssTokenType.Semicolon) { pos++; return; } // @layer name; declaration
+        pos++; // skip {
+
+        // Assign a layer order index to all rules inside this layer.
+        // Unlayered rules default to int.MaxValue; layered rules get a smaller number.
+        int thisLayerOrder = layerCounter != null ? layerCounter[0]++ : 0;
+
+        // Parse nested rules and tag them with this layer's order
+        while (pos < tokens.Count && tokens[pos].Type != CssTokenType.RightCurly)
+        {
+            SkipWhitespace(tokens, ref pos);
+            if (pos >= tokens.Count || tokens[pos].Type == CssTokenType.RightCurly) break;
+
+            if (tokens[pos].Type == CssTokenType.Delim && tokens[pos].Value == "@")
+            {
+                pos++;
+                ParseAtRule(sheet, tokens, ref pos, layerCounter);
+            }
+            else
+            {
+                var rule = ParseSingleStyleRule(tokens, ref pos);
+                if (rule != null)
+                {
+                    rule.LayerOrder = thisLayerOrder;
+                    sheet.Rules.Add(rule);
+                }
             }
         }
         if (pos < tokens.Count && tokens[pos].Type == CssTokenType.RightCurly) pos++;

@@ -433,12 +433,99 @@ public static class SelectorMatcher
             }
 
             case "has":
-                // :has() — simplified: check if element has a descendant matching arg
-                return HasDescendantMatching(element, arg.Trim());
+                return MatchesHas(element, arg.Trim());
 
             default:
                 return true; // Unknown functional pseudo: don't reject
         }
+    }
+
+    private static bool MatchesHas(HtmlElement element, string arg)
+    {
+        // Support comma-separated list: :has(a, b) = :has(a) OR :has(b)
+        var branches = SplitTopLevelCommas(arg);
+        foreach (var branch in branches)
+        {
+            if (MatchesHasBranch(element, branch.Trim()))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool MatchesHasBranch(HtmlElement element, string selector)
+    {
+        var s = selector.TrimStart();
+        // Direct child combinator: :has(> sel)
+        if (s.Length > 0 && s[0] == '>')
+        {
+            var childSel = s.Substring(1).Trim();
+            foreach (var child in element.ChildNodes)
+            {
+                if (child is HtmlElement ce && Matches(childSel, ce))
+                    return true;
+            }
+            return false;
+        }
+        // Adjacent sibling: :has(+ sel)
+        if (s.Length > 0 && s[0] == '+')
+        {
+            var sibSel = s.Substring(1).Trim();
+            var parent = element.Parent as HtmlElement;
+            if (parent == null) return false;
+            bool foundSelf = false;
+            foreach (var child in parent.ChildNodes)
+            {
+                if (child is HtmlElement ce)
+                {
+                    if (foundSelf)
+                        return Matches(sibSel, ce);
+                    if (ce == element)
+                        foundSelf = true;
+                }
+            }
+            return false;
+        }
+        // General sibling: :has(~ sel)
+        if (s.Length > 0 && s[0] == '~')
+        {
+            var sibSel = s.Substring(1).Trim();
+            var parent = element.Parent as HtmlElement;
+            if (parent == null) return false;
+            bool foundSelf = false;
+            foreach (var child in parent.ChildNodes)
+            {
+                if (child is HtmlElement ce)
+                {
+                    if (foundSelf && Matches(sibSel, ce))
+                        return true;
+                    if (ce == element)
+                        foundSelf = true;
+                }
+            }
+            return false;
+        }
+        // Default: descendant
+        return HasDescendantMatching(element, s);
+    }
+
+    private static List<string> SplitTopLevelCommas(string value)
+    {
+        var result = new List<string>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            if (c == '(' || c == '[') depth++;
+            else if (c == ')' || c == ']') depth--;
+            else if (c == ',' && depth == 0)
+            {
+                result.Add(value.Substring(start, i - start));
+                start = i + 1;
+            }
+        }
+        result.Add(value.Substring(start));
+        return result;
     }
 
     private static bool HasDescendantMatching(HtmlElement element, string selector)
@@ -614,10 +701,61 @@ public static class SelectorMatcher
         var parent = element.Parent;
         if (parent == null) return false;
 
-        int index = GetElementIndex(parent, element, fromEnd);
-        if (index < 0) return false;
+        // CSS4: :nth-child(An+B of <selector>)
+        int ofIdx = -1;
+        // Find " of " (case-insensitive) at top level
+        for (int i = 0; i <= arg.Length - 4; i++)
+        {
+            if ((arg[i] == ' ' || i == 0) &&
+                (i + 4 <= arg.Length) &&
+                string.Compare(arg, i, " of ", 0, 4, StringComparison.OrdinalIgnoreCase) == 0)
+            {
+                ofIdx = i;
+                break;
+            }
+        }
 
-        return MatchNthFormula(arg, index + 1); // 1-based index
+        if (ofIdx >= 0)
+        {
+            var formula = arg.Substring(0, ofIdx).Trim();
+            var filterSelector = arg.Substring(ofIdx + 4).Trim();
+
+            // First check: element must match the filter selector
+            if (!Matches(filterSelector, element)) return false;
+
+            // Count matching siblings (those that match filterSelector)
+            int index = 0;
+            bool found = false;
+            if (fromEnd)
+            {
+                for (int i = parent.ChildNodes.Count - 1; i >= 0; i--)
+                {
+                    if (parent.ChildNodes[i] is HtmlElement e && Matches(filterSelector, e))
+                    {
+                        if (e == element) { found = true; break; }
+                        index++;
+                    }
+                }
+            }
+            else
+            {
+                for (int i = 0; i < parent.ChildNodes.Count; i++)
+                {
+                    if (parent.ChildNodes[i] is HtmlElement e && Matches(filterSelector, e))
+                    {
+                        if (e == element) { found = true; break; }
+                        index++;
+                    }
+                }
+            }
+            if (!found) return false;
+            return MatchNthFormula(formula, index + 1);
+        }
+
+        int simpleIndex = GetElementIndex(parent, element, fromEnd);
+        if (simpleIndex < 0) return false;
+
+        return MatchNthFormula(arg, simpleIndex + 1); // 1-based index
     }
 
     /// <summary>Match :nth-of-type(An+B) or :nth-last-of-type(An+B).</summary>

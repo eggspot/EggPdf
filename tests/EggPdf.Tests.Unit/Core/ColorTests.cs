@@ -599,4 +599,32 @@ public class ColorTests
         c.Should().NotBeNull();
         c!.Value.R.Should().BeGreaterThan(200);
     }
+
+    // ── light-dark() ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void LightDark_ReturnsLightColor_InPdfContext()
+    {
+        // PDF is always "light" context — light-dark(lightVal, darkVal) → lightVal
+        var c = Color.TryParse("light-dark(red, blue)");
+        c.Should().NotBeNull("light-dark() must parse");
+        c!.Value.R.Should().Be(255, "light mode → red");
+        c.Value.B.Should().Be(0, "light mode, not blue");
+    }
+
+    [Fact]
+    public void LightDark_WithComplexColors_Parsed()
+    {
+        var c = Color.TryParse("light-dark(rgb(0, 128, 0), #fff)");
+        c.Should().NotBeNull();
+        c!.Value.G.Should().Be(128);
+    }
+
+    [Fact]
+    public void LightDark_DoesNotCrashOnInvalid()
+    {
+        // Should not throw; returns null gracefully
+        var act = () => Color.TryParse("light-dark(invalid)");
+        act.Should().NotThrow();
+    }
 }

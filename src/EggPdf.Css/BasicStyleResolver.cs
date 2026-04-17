@@ -25,7 +25,8 @@ public class BasicStyleResolver
         "font-feature-settings", "font-synthesis", "font-size-adjust",
         "font-kerning", "font-optical-sizing", "font-variation-settings",
         "print-color-adjust",
-        "text-emphasis", "text-emphasis-style", "text-emphasis-color", "text-emphasis-position"
+        "text-emphasis", "text-emphasis-style", "text-emphasis-color", "text-emphasis-position",
+        "hanging-punctuation"
     };
 
     // UA defaults per element
@@ -81,17 +82,23 @@ public class BasicStyleResolver
         ["span"] = new() { ["display"] = "inline" },
         ["sub"] = new() { ["vertical-align"] = "sub", ["font-size"] = "smaller" },
         ["sup"] = new() { ["vertical-align"] = "super", ["font-size"] = "smaller" },
-        ["fieldset"] = new() { ["display"] = "block", ["border-top-width"] = "2px", ["border-right-width"] = "2px", ["border-bottom-width"] = "2px", ["border-left-width"] = "2px", ["border-top-style"] = "groove" },
+        ["fieldset"] = new() { ["display"] = "block", ["border-top-width"] = "2px", ["border-right-width"] = "2px", ["border-bottom-width"] = "2px", ["border-left-width"] = "2px", ["border-top-style"] = "groove", ["padding-top"] = "0.35em", ["padding-right"] = "0.75em", ["padding-bottom"] = "0.625em", ["padding-left"] = "0.75em" },
+        ["legend"] = new() { ["display"] = "block", ["padding-left"] = "2px", ["padding-right"] = "2px" },
         ["address"] = new() { ["display"] = "block", ["font-style"] = "italic" },
         ["center"] = new() { ["display"] = "block", ["text-align"] = "center" },
         ["figure"] = new() { ["display"] = "block", ["margin-top"] = "1em", ["margin-bottom"] = "1em", ["margin-left"] = "40px", ["margin-right"] = "40px" },
         ["figcaption"] = new() { ["display"] = "block" },
-        ["details"] = new() { ["display"] = "block" },
-        ["summary"] = new() { ["display"] = "list-item" },
         // Semantic / interactive
         ["dialog"] = new() { ["display"] = "block", ["position"] = "absolute", ["background-color"] = "white", ["border-top-width"] = "2px", ["border-right-width"] = "2px", ["border-bottom-width"] = "2px", ["border-left-width"] = "2px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid", ["padding-top"] = "1em", ["padding-right"] = "1em", ["padding-bottom"] = "1em", ["padding-left"] = "1em" },
         ["details"] = new() { ["display"] = "block" },
         ["summary"] = new() { ["display"] = "list-item", ["cursor"] = "default" },
+        // Inline semantic
+        ["q"] = new() { ["display"] = "inline" },
+        ["cite"] = new() { ["display"] = "inline", ["font-style"] = "italic" },
+        ["dfn"] = new() { ["display"] = "inline", ["font-style"] = "italic" },
+        ["abbr"] = new() { ["display"] = "inline" },
+        ["bdi"] = new() { ["display"] = "inline" },
+        ["ins"] = new() { ["display"] = "inline", ["text-decoration"] = "underline" },
         ["meter"] = new() { ["display"] = "inline-block", ["width"] = "5em", ["height"] = "1em", ["border-top-width"] = "1px", ["border-right-width"] = "1px", ["border-bottom-width"] = "1px", ["border-left-width"] = "1px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid" },
         ["progress"] = new() { ["display"] = "inline-block", ["width"] = "10em", ["height"] = "1em", ["border-top-width"] = "1px", ["border-right-width"] = "1px", ["border-bottom-width"] = "1px", ["border-left-width"] = "1px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid" },
         ["output"] = new() { ["display"] = "inline" },
@@ -176,6 +183,14 @@ public class BasicStyleResolver
         // 4. Handle hidden attribute
         if (element.HasAttribute("hidden"))
             style.Set("display", "none");
+
+        // 4b. <details> collapsed state: hide non-<summary> children unless <details open>
+        if (element.TagName != "summary" && element.Parent is HtmlElement parentElem
+            && parentElem.TagName == "details"
+            && !parentElem.HasAttribute("open"))
+        {
+            style.Set("display", "none");
+        }
 
         // 5. Resolve var() references in all non-custom property values
         ResolveCustomProperties(style);

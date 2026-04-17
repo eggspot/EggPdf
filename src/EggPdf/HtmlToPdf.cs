@@ -80,7 +80,7 @@ public static class HtmlToPdf
         float contentHeightPx = pageSettings.ContentHeightPx;
 
         // 4. Create CascadeResolver with parsed stylesheets (replaces BasicStyleResolver)
-        var cascadeResolver = new CascadeResolver(stylesheets, mediaType: "print");
+        var cascadeResolver = new CascadeResolver(stylesheets, mediaType: "print", pageWidth: pageWidthPx);
 
         // 5. Layout (uses cascade resolver for full CSS support)
         // Layout uses content area (page minus margins) for body width

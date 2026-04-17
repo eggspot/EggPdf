@@ -199,4 +199,36 @@ public class BasicStyleResolverTests
 
         style.BackgroundColor.Should().Be("yellow");
     }
+
+    [Fact]
+    public void Legend_HasBlockDisplay()
+    {
+        var elem = new HtmlElement("legend");
+        var style = _resolver.Resolve(elem, null);
+        style.Display.Should().Be("block");
+    }
+
+    [Fact]
+    public void Q_HasInlineDisplay()
+    {
+        var elem = new HtmlElement("q");
+        var style = _resolver.Resolve(elem, null);
+        style.Display.Should().Be("inline");
+    }
+
+    [Fact]
+    public void Cite_HasItalicFontStyle()
+    {
+        var elem = new HtmlElement("cite");
+        var style = _resolver.Resolve(elem, null);
+        style.Get("font-style").Should().Be("italic");
+    }
+
+    [Fact]
+    public void Ins_HasUnderlineDecoration()
+    {
+        var elem = new HtmlElement("ins");
+        var style = _resolver.Resolve(elem, null);
+        style.Get("text-decoration").Should().Be("underline");
+    }
 }

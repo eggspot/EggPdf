@@ -605,6 +605,70 @@ public class BoxModelTests
         div!.Style.Get("border-image-repeat").Should().Be("round");
     }
 
+    // ── contain ──────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Contain_Strict_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='contain: strict'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("contain").Should().Be("strict");
+    }
+
+    [Fact]
+    public void Contain_Layout_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='contain: layout'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("contain").Should().Be("layout");
+    }
+
+    [Fact]
+    public void Contain_DoesNotInherit()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='contain: strict'><span>child</span></div>", 400, 600);
+        var span = root.FindByTag("span");
+        span.Should().NotBeNull();
+        span!.Style.Get("contain").Should().BeNullOrEmpty("contain is not inherited");
+    }
+
+    // ── isolation ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Isolation_Isolate_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='isolation: isolate'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("isolation").Should().Be("isolate");
+    }
+
+    [Fact]
+    public void Isolation_Auto_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='isolation: auto'>X</div>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Style.Get("isolation").Should().Be("auto");
+    }
+
+    [Fact]
+    public void Isolation_DoesNotInherit()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='isolation: isolate'><span>child</span></div>", 400, 600);
+        var span = root.FindByTag("span");
+        span.Should().NotBeNull();
+        span!.Style.Get("isolation").Should().BeNullOrEmpty("isolation is not inherited");
+    }
+
     // ── background-clip ──────────────────────────────────────────────────────
 
     [Fact]
@@ -635,5 +699,131 @@ public class BoxModelTests
         var span = root.FindByTag("span");
         span.Should().NotBeNull();
         span!.Style.Get("background-clip").Should().BeNullOrEmpty();
+    }
+
+    // ── aspect-ratio ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void AspectRatio_WidthGiven_HeightComputed()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 200px; aspect-ratio: 2 / 1'></div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Height.Should().BeApproximately(100f, 1f,
+            "height = width(200) / ratio(2) = 100");
+    }
+
+    [Fact]
+    public void AspectRatio_Slash_Parsed()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 300px; aspect-ratio: 16 / 9'></div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Height.Should().BeApproximately(300f * 9f / 16f, 2f,
+            "height = 300 * 9/16 ≈ 168.75");
+    }
+
+    [Fact]
+    public void AspectRatio_NoSlash_Parsed()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 100px; aspect-ratio: 1'></div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Height.Should().BeApproximately(100f, 1f, "1:1 ratio → height = width");
+    }
+
+    [Fact]
+    public void AspectRatio_DoesNotOverrideExplicitHeight()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 200px; height: 50px; aspect-ratio: 2 / 1'></div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Height.Should().BeApproximately(50f, 1f,
+            "explicit height wins over aspect-ratio");
+    }
+
+    // ── details/summary collapsed state ────────────────────────────────────
+
+    [Fact]
+    public void Details_Closed_HidesContent()
+    {
+        // Without 'open', only <summary> should be visible; body content should be hidden
+        var root = LayoutTestHelper.Layout(
+            "<details><summary>Title</summary><p id='body'>Body content</p></details>", 400, 600);
+        var bodyBox = root.FindById("body");
+        // body content must be hidden (display:none → no box, or zero-size box)
+        if (bodyBox != null)
+        {
+            (bodyBox.Width == 0 && bodyBox.Height == 0).Should().BeTrue(
+                "closed <details> body content must have zero size (hidden)");
+        }
+        // summary should still be present
+        var summaryBoxes = root.FindAll(b => b.Text?.Contains("Title") == true);
+        summaryBoxes.Should().NotBeEmpty("summary text should always be visible");
+    }
+
+    [Fact]
+    public void Details_Open_ShowsContent()
+    {
+        // With 'open' attribute, body content should be visible
+        var root = LayoutTestHelper.Layout(
+            "<details open><summary>Title</summary><p id='body'>Body content</p></details>", 400, 600);
+        var bodyBoxes = root.FindAll(b => b.Text?.Contains("Body content") == true);
+        bodyBoxes.Should().NotBeEmpty("open <details> must show body content");
+    }
+
+    [Fact]
+    public void Details_Summary_AlwaysVisible()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<details><summary>Always shown</summary><p>Hidden</p></details>", 400, 600);
+        var summaryBoxes = root.FindAll(b => b.Text?.Contains("Always shown") == true);
+        summaryBoxes.Should().NotBeEmpty("summary should always render");
+    }
+
+    // ── fit-content / min-content / max-content ──────────────────────────────
+
+    [Fact]
+    public void FitContent_Width_DoesNotCrash()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: fit-content(200px); height: 50px'>Hello</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Width.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public void FitContent_Width_DoesNotExceedArgument()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: fit-content(150px); height: 50px'>Hello</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Width.Should().BeLessOrEqualTo(150);
+    }
+
+    [Fact]
+    public void MaxContent_Width_UsesAvailableWidth()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: max-content; height: 50px'>Hello</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Width.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public void MinContent_Width_IsPositive()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: min-content; height: 50px'>Hello</div>", 600, 800);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        div!.Width.Should().BeGreaterThan(0);
     }
 }

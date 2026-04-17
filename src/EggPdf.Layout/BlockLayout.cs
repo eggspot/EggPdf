@@ -675,6 +675,12 @@ public static class BlockLayout
                     inlineX += ibWidth;
                     if (childBox.Height > inlineLineHeight) inlineLineHeight = childBox.Height;
                 }
+                else if (childElem.TagName == "ruby")
+                {
+                    // Ruby: lay out base text with annotation (<rt>) above it
+                    LayoutRubyInline(childElem, childStyle, box, resolver, style, fontSize,
+                        ref inlineX, ref childY, ref inlineLineHeight, childContainingWidth);
+                }
                 else
                 {
                     // Inline elements: collect text runs with style info and lay out word-by-word
@@ -817,8 +823,8 @@ public static class BlockLayout
                     }
                 }
 
-                // Apply -webkit-line-clamp: limit to N lines, truncate last with ellipsis
-                var lineClampStr = style.Get("-webkit-line-clamp");
+                // Apply -webkit-line-clamp / line-clamp: limit to N lines, truncate last with ellipsis
+                var lineClampStr = style.Get("line-clamp") ?? style.Get("-webkit-line-clamp");
                 if (!string.IsNullOrEmpty(lineClampStr) && lineClampStr != "none" &&
                     int.TryParse(lineClampStr, System.Globalization.NumberStyles.Integer,
                         System.Globalization.CultureInfo.InvariantCulture, out int lineClampN) &&
@@ -845,12 +851,34 @@ public static class BlockLayout
                     lines[lines.Count - 1] = lastLine.TrimEnd() + ellipsis;
                 }
 
+                // hanging-punctuation: first — compute negative X offset for leading punctuation
+                float hangOffset = 0f;
+                var hangPunct = style.Get("hanging-punctuation");
+                if (!string.IsNullOrEmpty(hangPunct) &&
+                    hangPunct.IndexOf("first", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    !string.IsNullOrEmpty(textData))
+                {
+                    char firstChar = textData[0];
+                    // Leading punctuation that may hang: opening quotes, brackets, etc.
+                    if (firstChar == '\u0022' || firstChar == '\u0027' || // " '
+                        firstChar == '\u2018' || firstChar == '\u2019' || // ' '
+                        firstChar == '\u201C' || firstChar == '\u201D' || // " "
+                        firstChar == '\u00AB' || firstChar == '\u2039' || // « ‹
+                        firstChar == '(' || firstChar == '[' || firstChar == '{')
+                    {
+                        hangOffset = -TextMeasurer.MeasureWidth(
+                            firstChar.ToString(), fontSize, fontFamily, fontWeight, fontStyle);
+                    }
+                }
+
                 bool isFirstLine = true;
                 foreach (var line in lines)
                 {
                     float lineX = box.X + box.PaddingLeft;
                     if (isFirstLine && textIndent > 0)
                         lineX += textIndent;
+                    if (isFirstLine && hangOffset != 0f)
+                        lineX += hangOffset;
 
                     bool applyFirstLine = isFirstLine && !firstBlockLineEmitted && firstLineStyle != null;
                     var initialLetterStr = style.Get("initial-letter");
@@ -2016,6 +2044,193 @@ public static class BlockLayout
         }
     }
 
+    /// <summary>
+    /// Lay out a &lt;ruby&gt; element: base text flows inline at the parent font size,
+    /// the &lt;rt&gt; annotation is placed above it at 50% font size.
+    /// </summary>
+    private static void LayoutRubyInline(
+        HtmlElement rubyElem, ComputedStyle rubyStyle, LayoutBox parentBox,
+        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver,
+        ComputedStyle containerStyle, float containerFontSize,
+        ref float inlineX, ref float childY, ref float inlineLineHeight, float containerWidth)
+    {
+        float baseFontSize = ResolveFontSize(rubyStyle.FontSize, containerFontSize);
+        float baseLineHeight = TextMeasurer.GetLineHeight(baseFontSize, rubyStyle.Get("line-height"));
+
+        // Collect base text (non-rt, non-rp children)
+        var sb = new System.Text.StringBuilder();
+        string? rtText = null;
+        ComputedStyle? rtStyle = null;
+        foreach (var child in rubyElem.ChildNodes)
+        {
+            if (child is HtmlTextNode tn)
+            {
+                sb.Append(TrimHtmlText(tn.Data));
+            }
+            else if (child is HtmlElement ce)
+            {
+                if (ce.TagName == "rt")
+                {
+                    if (rtText == null)
+                    {
+                        rtStyle = resolver(ce, rubyStyle);
+                        rtText = CollectText(ce);
+                    }
+                }
+                else if (ce.TagName != "rp")
+                {
+                    var ceStyle = resolver(ce, rubyStyle);
+                    if (ceStyle.Display != "none")
+                        sb.Append(CollectText(ce));
+                }
+            }
+        }
+        string baseText = sb.ToString();
+
+        // Measure base and annotation
+        float baseWidth = string.IsNullOrEmpty(baseText) ? 0f :
+            TextMeasurer.MeasureWidth(baseText, baseFontSize, rubyStyle.FontFamily, rubyStyle.FontWeight, rubyStyle.Get("font-style"));
+
+        float rtFontSize = rtStyle != null ? ResolveFontSize(rtStyle.FontSize, baseFontSize) : baseFontSize * 0.5f;
+        float rtLineHeight = TextMeasurer.GetLineHeight(rtFontSize, rtStyle?.Get("line-height"));
+        float rtWidth = (!string.IsNullOrEmpty(rtText)) ?
+            TextMeasurer.MeasureWidth(rtText, rtFontSize, rubyStyle.FontFamily, rubyStyle.FontWeight, null) : 0f;
+
+        float totalWidth = Math.Max(baseWidth, rtWidth);
+
+        // Wrap to next line if needed
+        if (inlineX > 0 && inlineX + totalWidth > containerWidth)
+        {
+            childY += inlineLineHeight;
+            inlineX = 0;
+            inlineLineHeight = 0;
+        }
+
+        float startX = parentBox.X + parentBox.PaddingLeft + inlineX;
+        float startY = parentBox.Y + parentBox.PaddingTop + childY;
+
+        // ruby-position: over (default) = annotation above base; under = annotation below base
+        var rubyPosition = rubyStyle.Get("ruby-position") ?? "over";
+        bool annotationUnder = rubyPosition.IndexOf("under", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        // ruby-align: center (default), start, end, space-around, space-between
+        var rubyAlign = rubyStyle.Get("ruby-align") ?? "center";
+
+        float CalcAnnotationX()
+        {
+            switch (rubyAlign.ToLowerInvariant())
+            {
+                case "start":    return startX;
+                case "end":      return startX + totalWidth - rtWidth;
+                case "space-around":
+                {
+                    float spacing = rtWidth < totalWidth ? (totalWidth - rtWidth) / 2f : 0f;
+                    return startX + spacing;
+                }
+                case "space-between":
+                    return startX;
+                default: // center
+                    return startX + (totalWidth - rtWidth) / 2f;
+            }
+        }
+
+        if (!annotationUnder)
+        {
+            // over: rt sits at startY, base sits at startY + rtLineHeight
+            if (!string.IsNullOrEmpty(rtText))
+            {
+                float rtX = CalcAnnotationX();
+                var rtBox = new LayoutBox
+                {
+                    Element = null,
+                    Style = rtStyle ?? rubyStyle,
+                    X = rtX,
+                    Y = startY,
+                    Width = rtWidth,
+                    Height = rtLineHeight,
+                    ContentWidth = rtWidth,
+                    ContentHeight = rtLineHeight,
+                    Text = rtText
+                };
+                parentBox.Children.Add(rtBox);
+            }
+
+            float baseOffsetYOver = (!string.IsNullOrEmpty(rtText)) ? rtLineHeight : 0f;
+            if (!string.IsNullOrEmpty(baseText))
+            {
+                float baseX = startX + (totalWidth - baseWidth) / 2f;
+                var baseBoxOver = new LayoutBox
+                {
+                    Element = rubyElem,
+                    Style = rubyStyle,
+                    X = baseX,
+                    Y = startY + baseOffsetYOver,
+                    Width = baseWidth,
+                    Height = baseLineHeight,
+                    ContentWidth = baseWidth,
+                    ContentHeight = baseLineHeight,
+                    Text = baseText
+                };
+                parentBox.Children.Add(baseBoxOver);
+            }
+
+            float totalHeight = baseOffsetYOver + baseLineHeight;
+            inlineX += totalWidth;
+            if (totalHeight > inlineLineHeight) inlineLineHeight = totalHeight;
+            return;
+        }
+
+        // under: base sits at startY, rt sits at startY + baseLineHeight
+        if (!string.IsNullOrEmpty(baseText))
+        {
+            float baseX = startX + (totalWidth - baseWidth) / 2f;
+            var baseBox = new LayoutBox
+            {
+                Element = rubyElem,
+                Style = rubyStyle,
+                X = baseX,
+                Y = startY,
+                Width = baseWidth,
+                Height = baseLineHeight,
+                ContentWidth = baseWidth,
+                ContentHeight = baseLineHeight,
+                Text = baseText
+            };
+            parentBox.Children.Add(baseBox);
+        }
+
+        if (!string.IsNullOrEmpty(rtText))
+        {
+            float rtX = CalcAnnotationX();
+            var rtBox = new LayoutBox
+            {
+                Element = null,
+                Style = rtStyle ?? rubyStyle,
+                X = rtX,
+                Y = startY + baseLineHeight,
+                Width = rtWidth,
+                Height = rtLineHeight,
+                ContentWidth = rtWidth,
+                ContentHeight = rtLineHeight,
+                Text = rtText
+            };
+            parentBox.Children.Add(rtBox);
+        }
+
+        float baseOffsetY = (!string.IsNullOrEmpty(rtText)) ? rtLineHeight : 0f;
+        float totalHeightUnder = baseLineHeight + baseOffsetY;
+        inlineX += totalWidth;
+        if (totalHeightUnder > inlineLineHeight) inlineLineHeight = totalHeightUnder;
+    }
+
+    /// <summary>Collect all text content from an element (no whitespace trimming beyond basic collapse).</summary>
+    private static string CollectText(HtmlElement elem)
+    {
+        var sb = new System.Text.StringBuilder();
+        CollectTextRecursive(elem, sb);
+        return sb.ToString().Trim();
+    }
+
     /// <summary>Collect text runs from an inline element tree, preserving style per segment.</summary>
     private static void CollectInlineRuns(HtmlNode node, ComputedStyle parentStyle, float parentFontSize,
         Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, List<InlineRun> runs)
@@ -2044,6 +2259,9 @@ public static class BlockLayout
                 runs.Add(new InlineRun { Text = "\n", Style = parentStyle, Element = elem, FontSize = parentFontSize });
                 return;
             }
+
+            // <rt> and <rp> are handled by LayoutRubyInline — skip them in normal inline flow
+            if (elem.TagName == "rt" || elem.TagName == "rp") return;
 
             var style = resolver(elem, parentStyle);
             if (style.Display == "none") return;
@@ -2191,6 +2409,19 @@ public static class BlockLayout
         if (CalcResolver.IsMathFunction(value))
             return CalcResolver.Resolve(value, containingSize, fontSize);
 
+        // Intrinsic sizing keywords
+        var lower = value.Trim().ToLowerInvariant();
+        if (lower == "max-content")
+            return containingSize; // approximation: use all available space
+        if (lower == "min-content")
+            return fontSize * 10f; // approximation: ~10 chars wide (single word)
+        if (lower.StartsWith("fit-content(", StringComparison.Ordinal) && lower[lower.Length - 1] == ')')
+        {
+            var inner = value.Substring(12, value.Length - 13).Trim();
+            float maxArg = ResolveLengthValue(inner, containingSize, fontSize);
+            return System.Math.Min(containingSize, System.Math.Max(0f, maxArg));
+        }
+
         if (value.EndsWith("px"))
             return ParseFloat(value.Substring(0, value.Length - 2));
 
@@ -2324,10 +2555,16 @@ public static class BlockLayout
 
             if (inputType == "checkbox" || inputType == "radio")
             {
-                bool isChecked = element.HasAttribute("checked");
-                text = inputType == "checkbox"
-                    ? (isChecked ? "[x]" : "[ ]")
-                    : (isChecked ? "(o)" : "( )");
+                // appearance: none / -webkit-appearance: none — suppress native glyph
+                var appearanceVal = style.Get("appearance") ?? style.Get("-webkit-appearance");
+                bool suppressGlyph = appearanceVal == "none";
+                if (!suppressGlyph)
+                {
+                    bool isChecked = element.HasAttribute("checked");
+                    text = inputType == "checkbox"
+                        ? (isChecked ? "\u2611" : "\u2610")   // ☑ / ☐
+                        : (isChecked ? "\u25c9" : "\u25cb");  // ◉ / ○
+                }
             }
             else if (inputType == "submit" || inputType == "button" || inputType == "reset")
             {
@@ -2336,7 +2573,46 @@ public static class BlockLayout
             else if (inputType != "hidden" && inputType != "file" && inputType != "image")
             {
                 // text, password, email, number, tel, url, search, date, etc.
-                text = element.GetAttribute("value") ?? "";
+                var value = element.GetAttribute("value");
+                if (string.IsNullOrEmpty(value))
+                {
+                    // Show placeholder text when no value is set
+                    var placeholder = element.GetAttribute("placeholder");
+                    if (!string.IsNullOrEmpty(placeholder))
+                    {
+                        text = placeholder;
+                        // Build a placeholder style: inherit from input but override color to gray
+                        var phStyle = new ComputedStyle();
+                        foreach (var kv in style.All)
+                            phStyle.Set(kv.Key, kv.Value);
+                        phStyle.Set("color", "#9e9e9e"); // UA default placeholder gray
+                        phStyle.Set("font-style", "italic");
+                        float lh = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
+                        float tw = TextMeasurer.MeasureWidth(text, fontSize, style.FontFamily, style.FontWeight, "italic");
+                        var phBox = new LayoutBox
+                        {
+                            Style = phStyle,
+                            X = box.X + box.PaddingLeft,
+                            Y = box.Y + box.PaddingTop + childY,
+                            Width = contentWidth,
+                            Height = lh,
+                            ContentWidth = tw,
+                            ContentHeight = lh,
+                            Text = text
+                        };
+                        box.Children.Add(phBox);
+                        childY += lh;
+                        text = null; // handled
+                    }
+                    else
+                    {
+                        text = "";
+                    }
+                }
+                else
+                {
+                    text = value;
+                }
             }
 
             if (text != null)

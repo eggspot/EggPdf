@@ -19,6 +19,8 @@ public class ComputedStyle
 
     public bool Has(string property) => _properties.ContainsKey(property);
 
+    public void Remove(string property) => _properties.Remove(property);
+
     public IEnumerable<KeyValuePair<string, string>> All => _properties;
 
     // Common property shortcuts

@@ -232,17 +232,28 @@ public class PdfDocument
             }
         }
 
-        // Write ExtGState objects for opacity
+        // Write ExtGState objects for opacity and blend modes
         foreach (var kv in extGStateObjs)
         {
-            // Extract opacity from name: "GS50" -> 0.50
-            float opacity = 1.0f;
-            if (kv.Key.StartsWith("GS") && int.TryParse(kv.Key.Substring(2), out int pct))
-                opacity = pct / 100f;
-
             offsets[kv.Value] = writer.Position;
             writer.WriteLine($"{kv.Value} 0 obj");
-            writer.WriteLine($"<< /Type /ExtGState /ca {F(opacity)} /CA {F(opacity)} >>");
+
+            if (kv.Key.StartsWith("GSBM_"))
+            {
+                // Blend mode: extract CSS name from "GSBM_multiply" → "multiply"
+                var cssName = kv.Key.Substring(5).Replace('_', '-');
+                var pdfBm = PdfPage.CssBlendModeToPdf(cssName) ?? "Normal";
+                writer.WriteLine($"<< /Type /ExtGState /BM /{pdfBm} >>");
+            }
+            else
+            {
+                // Opacity: "GS50" -> 0.50
+                float opacity = 1.0f;
+                if (kv.Key.StartsWith("GS") && int.TryParse(kv.Key.Substring(2), out int pct))
+                    opacity = pct / 100f;
+                writer.WriteLine($"<< /Type /ExtGState /ca {F(opacity)} /CA {F(opacity)} >>");
+            }
+
             writer.WriteLine("endobj");
         }
 

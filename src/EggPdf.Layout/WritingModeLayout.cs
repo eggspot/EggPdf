@@ -67,5 +67,34 @@ public static class WritingModeLayout
         }
     }
 
+    /// <summary>
+    /// Returns true if text-combine-upright should be applied (value is "all" or "digits [N]").
+    /// text-combine-upright: all — combine all typographic characters into one unit (tate-chu-yoko).
+    /// </summary>
+    public static bool ResolveCombineUpright(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return false;
+        var v = value.Trim().ToLowerInvariant();
+        return v == "all" || v.StartsWith("digits", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Get the PDF transformation matrix to horizontally scale text to fit within one em.
+    /// Used with text-combine-upright: compresses multi-char text to occupy a single character slot.
+    /// Returns the cm operator string, or null if no scaling needed.
+    /// </summary>
+    public static string? GetCombineUprightTransform(float textWidth, float emSize, float x, float y)
+    {
+        if (emSize <= 0f || textWidth <= 0f || textWidth <= emSize)
+            return null;
+
+        // Horizontal scale factor: em / textWidth — squish to fit in 1em
+        float sx = emSize / textWidth;
+        // Scale matrix [sx 0 0 1 tx ty]: scale X, leave Y unchanged
+        // tx adjusted so text is centered: shift right by (textWidth - emSize)/2 * ... but simpler: just scale from current x
+        float tx = x * (1f - sx);
+        return $"{F(sx)} 0 0 1 {F(tx)} 0 cm";
+    }
+
     private static string F(float v) => v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
 }

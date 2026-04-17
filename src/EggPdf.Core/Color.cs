@@ -121,6 +121,10 @@ public readonly struct Color : IEquatable<Color>
         if (value.StartsWith("color-mix(", StringComparison.OrdinalIgnoreCase))
             return TryParseColorMix(value);
 
+        // light-dark(): PDF is always light context — return the first argument
+        if (value.StartsWith("light-dark(", StringComparison.OrdinalIgnoreCase))
+            return TryParseLightDark(value);
+
         // hwb()
         if (value.StartsWith("hwb(", StringComparison.OrdinalIgnoreCase))
             return TryParseHwb(value);
@@ -293,6 +297,30 @@ public readonly struct Color : IEquatable<Color>
         byte b = ClampByte(c1.Value.B * w1 + c2.Value.B * w2);
         byte a = ClampByte(c1.Value.A * w1 + c2.Value.A * w2);
         return FromRgba(r, g, b, a);
+    }
+
+    private static Color? TryParseLightDark(string value)
+    {
+        // light-dark(lightColor, darkColor) — PDF context is always light, return first arg.
+        int openParen = value.IndexOf('(');
+        int closeParen = value.LastIndexOf(')');
+        if (openParen < 0 || closeParen < 0) return null;
+
+        var inner = value.Substring(openParen + 1, closeParen - openParen - 1).Trim();
+
+        // Split on first top-level comma, respecting nested parens
+        int commaPos = -1;
+        int depth = 0;
+        for (int i = 0; i < inner.Length; i++)
+        {
+            if (inner[i] == '(') depth++;
+            else if (inner[i] == ')') depth--;
+            else if (inner[i] == ',' && depth == 0) { commaPos = i; break; }
+        }
+        if (commaPos < 0) return null;
+
+        var lightPart = inner.Substring(0, commaPos).Trim();
+        return TryParse(lightPart);
     }
 
     // ── hwb() ────────────────────────────────────────────────────────────────

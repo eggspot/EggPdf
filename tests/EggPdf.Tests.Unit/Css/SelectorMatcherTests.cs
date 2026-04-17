@@ -550,6 +550,95 @@ public class SelectorMatcherTests
 
         SelectorMatcher.Matches("div > h1 + p", p).Should().BeTrue();
     }
+
+    [Fact]
+    public void Has_DescendantSelector_Matches()
+    {
+        var doc = Doc("<div><p><span>text</span></p></div>");
+        var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
+
+        SelectorMatcher.Matches("div:has(span)", div).Should().BeTrue();
+        SelectorMatcher.Matches("div:has(em)", div).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Has_DirectChildCombinator_Matches()
+    {
+        var doc = Doc("<div><p>text</p></div>");
+        var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
+
+        SelectorMatcher.Matches("div:has(> p)", div).Should().BeTrue();
+        SelectorMatcher.Matches("div:has(> span)", div).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Has_DirectChildCombinator_DoesNotMatchDeepDescendant()
+    {
+        var doc = Doc("<div><p><span>text</span></p></div>");
+        var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
+
+        SelectorMatcher.Matches("div:has(> span)", div).Should().BeFalse();
+        SelectorMatcher.Matches("div:has(> p)", div).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Has_AdjacentSiblingCombinator_Matches()
+    {
+        var doc = Doc("<div><p></p><span></span></div>");
+        var p = doc.Body!.ChildNodes.OfType<HtmlElement>()
+            .First(e => e.TagName == "div")
+            .ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
+
+        SelectorMatcher.Matches("p:has(+ span)", p).Should().BeTrue();
+        SelectorMatcher.Matches("p:has(+ em)", p).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Has_GeneralSiblingCombinator_Matches()
+    {
+        var doc = Doc("<div><p></p><em></em><span></span></div>");
+        var p = doc.Body!.ChildNodes.OfType<HtmlElement>()
+            .First(e => e.TagName == "div")
+            .ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
+
+        SelectorMatcher.Matches("p:has(~ span)", p).Should().BeTrue();
+        SelectorMatcher.Matches("p:has(~ strong)", p).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Has_CommaList_MatchesIfAnyBranchMatches()
+    {
+        var doc = Doc("<div><span>text</span></div>");
+        var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
+
+        SelectorMatcher.Matches("div:has(em, span)", div).Should().BeTrue();
+        SelectorMatcher.Matches("div:has(em, strong)", div).Should().BeFalse();
+    }
+
+    [Fact]
+    public void NthChild_OfSelector_OnlyCountsMatchingElements()
+    {
+        var doc = Doc("<div><p>one</p><p class='highlight'>two</p><p class='highlight'>three</p></div>");
+        var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
+        var children = div.ChildNodes.OfType<HtmlElement>().ToList();
+        var p1 = children[0]; // non-highlight
+        var p2 = children[1]; // first highlight
+        var p3 = children[2]; // second highlight
+
+        SelectorMatcher.Matches("p:nth-child(1 of .highlight)", p2).Should().BeTrue("p2 is first .highlight child");
+        SelectorMatcher.Matches("p:nth-child(1 of .highlight)", p1).Should().BeFalse("p1 is not .highlight");
+        SelectorMatcher.Matches("p:nth-child(2 of .highlight)", p3).Should().BeTrue("p3 is second .highlight child");
+    }
+
+    [Fact]
+    public void NthChild_OfSelector_DoesNotCrashOnUnrecognizedSelector()
+    {
+        var doc = Doc("<ul><li class='a'>1</li><li>2</li><li class='a'>3</li></ul>");
+        var ul = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "ul");
+        var li1 = ul.ChildNodes.OfType<HtmlElement>().First();
+        var act = () => SelectorMatcher.Matches("li:nth-child(odd of .a)", li1);
+        act.Should().NotThrow();
+    }
 }
 
 // Helper extension for tests

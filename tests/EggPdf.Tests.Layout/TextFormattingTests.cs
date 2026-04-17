@@ -457,4 +457,58 @@ public class TextFormattingTests
         span!.Style.Get("text-emphasis-color").Should().Be("blue",
             "text-emphasis-color is an inherited property");
     }
+
+    // ── hanging-punctuation ──────────────────────────────────────────────────
+
+    [Fact]
+    public void HangingPunctuation_StylePreserved()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<p style='hanging-punctuation: first'>\"Quote text\"</p>", 400, 600);
+        var p = root.FindByTag("p");
+        p.Should().NotBeNull();
+        p!.Style.Get("hanging-punctuation").Should().Be("first");
+    }
+
+    [Fact]
+    public void HangingPunctuation_IsInherited()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='hanging-punctuation: first last'><p>text</p></div>", 400, 600);
+        var p = root.FindByTag("p");
+        p.Should().NotBeNull();
+        p!.Style.Get("hanging-punctuation").Should().Be("first last",
+            "hanging-punctuation is an inherited property");
+    }
+
+    [Fact]
+    public void HangingPunctuation_None_IsDefault()
+    {
+        // Default value is none — no special handling
+        var root = LayoutTestHelper.Layout(
+            "<p>Normal text</p>", 400, 600);
+        var p = root.FindByTag("p");
+        p.Should().NotBeNull();
+        var val = p!.Style.Get("hanging-punctuation");
+        // Default is null/empty or "none" — either is acceptable
+        (val == null || val == "" || val == "none").Should().BeTrue(
+            "default hanging-punctuation should be none or unset");
+    }
+
+    [Fact]
+    public void HangingPunctuation_First_InlineBoxStartsBeforeContentEdge()
+    {
+        // When hanging-punctuation: first and text starts with an opening quote,
+        // the first inline text box X should be less than the paragraph's content edge (p.X + p.PaddingLeft)
+        var root = LayoutTestHelper.Layout(
+            "<p style='hanging-punctuation: first; margin: 0; padding: 0'>\"Quoted text goes here\"</p>",
+            400, 600);
+        var p = root.FindByTag("p");
+        p.Should().NotBeNull();
+        p!.Children.Count.Should().BeGreaterThan(0, "paragraph should have child text boxes");
+        var firstTextBox = p.Children[0];
+        float contentEdge = p.X + p.PaddingLeft;
+        firstTextBox.X.Should().BeLessThan(contentEdge,
+            "hanging-punctuation: first should shift the first text box left of the content edge");
+    }
 }
