@@ -236,10 +236,10 @@ public class VisualEffectsTests
     {
         var html = "<p style='text-decoration: underline; text-decoration-style: wavy; text-decoration-color: red'>Wavy</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
+        var text = System.Text.Encoding.Latin1.GetString(pdf).Replace("\r\n", "\n");
         text.Should().Contain("Wavy");
         // Wavy uses Bezier curves; verify 'c' operator (curveto) is present
-        text.Should().Contain(" c\r\n", "wavy line should emit Bezier curveto operators");
+        text.Should().Contain(" c\n", "wavy line should emit Bezier curveto operators");
     }
 
     [Fact]
