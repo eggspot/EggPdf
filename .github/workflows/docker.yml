@@ -68,4 +68,4 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: eggspot/eggpdf
-          readme-filepath: ./README.md
+          readme-filepath: ./docker/README.md
