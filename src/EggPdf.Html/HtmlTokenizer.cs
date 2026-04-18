@@ -527,7 +527,7 @@ public class HtmlTokenizer
         {
             var name = entities[i]!;
             if (_pos + name.Length <= _input.Length &&
-                _input.Substring(_pos, name.Length).Equals(name, StringComparison.Ordinal))
+                string.Compare(_input, _pos, name, 0, name.Length, StringComparison.Ordinal) == 0)
             {
                 _pos += name.Length;
                 if (_pos < _input.Length && _input[_pos] == ';')

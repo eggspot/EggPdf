@@ -151,27 +151,22 @@ public static class TextMeasurer
             return lines;
         }
 
-        // Split into words
+        // Split into words — preserveSpaces path uses a dedicated helper.
         string[] words;
         if (preserveSpaces)
-        {
             words = SplitPreservingSpaces(text);
-        }
         else
-        {
             words = text.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-        }
 
-        if (words.Length == 0)
-        {
-            lines.Add("");
-            return lines;
-        }
+        if (words.Length == 0) { lines.Add(""); return lines; }
 
         var currentLine = words[0];
+        float currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
+        // Measure separator width once; reused every iteration to avoid per-word allocation checks.
+        float spaceWidth = preserveSpaces ? 0f : MeasureWidth(" ", fontSize, fontFamily, fontWeight, fontStyle);
 
         // If first word is too wide, try hyphenation then character-breaking
-        if (MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle) > maxWidth)
+        if (currentLineWidth > maxWidth)
         {
             if (enableHyphenation)
             {
@@ -180,45 +175,49 @@ public static class TextMeasurer
                 {
                     lines.Add(hyphenated.Item1);
                     currentLine = hyphenated.Item2;
+                    currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
                 }
                 else if (breakWord)
                 {
                     var broken = BreakWordByCharacter(currentLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth);
-                    for (int bi = 0; bi < broken.Count - 1; bi++)
-                        lines.Add(broken[bi]);
+                    for (int bi = 0; bi < broken.Count - 1; bi++) lines.Add(broken[bi]);
                     currentLine = broken.Count > 0 ? broken[broken.Count - 1] : "";
+                    currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
                 }
             }
             else if (breakWord)
             {
                 var broken = BreakWordByCharacter(currentLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth);
-                for (int bi = 0; bi < broken.Count - 1; bi++)
-                    lines.Add(broken[bi]);
+                for (int bi = 0; bi < broken.Count - 1; bi++) lines.Add(broken[bi]);
                 currentLine = broken.Count > 0 ? broken[broken.Count - 1] : "";
+                currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
             }
         }
 
         for (int i = 1; i < words.Length; i++)
         {
-            string separator = preserveSpaces ? "" : " ";
-            var candidate = currentLine + separator + words[i];
-            float width = MeasureWidth(candidate, fontSize, fontFamily, fontWeight, fontStyle);
+            string word = words[i];
+            float wordWidth = MeasureWidth(word, fontSize, fontFamily, fontWeight, fontStyle);
+            // Check width without building candidate string — only concat when it fits.
+            float candidateWidth = currentLineWidth + spaceWidth + wordWidth;
 
-            if (width <= maxWidth)
+            if (candidateWidth <= maxWidth)
             {
-                currentLine = candidate;
+                currentLine = preserveSpaces ? currentLine + word : currentLine + " " + word;
+                currentLineWidth = candidateWidth;
             }
             else
             {
-                // Try hyphenating the next word so part of it fits on the current line
+                string separator = preserveSpaces ? "" : " ";
                 bool hyphenUsed = false;
                 if (enableHyphenation)
                 {
-                    var hyphenated = HyphenateWordToFit(words[i], currentLine + separator, fontSize, fontFamily, fontWeight, fontStyle, maxWidth);
+                    var hyphenated = HyphenateWordToFit(word, currentLine + separator, fontSize, fontFamily, fontWeight, fontStyle, maxWidth);
                     if (hyphenated != null)
                     {
                         lines.Add(hyphenated.Item1);
                         currentLine = hyphenated.Item2;
+                        currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
                         hyphenUsed = true;
                     }
                 }
@@ -226,10 +225,11 @@ public static class TextMeasurer
                 if (!hyphenUsed)
                 {
                     lines.Add(currentLine);
-                    currentLine = words[i];
+                    currentLine = word;
+                    currentLineWidth = wordWidth;
 
                     // If this word alone exceeds maxWidth, try hyphenation then character-breaking
-                    if (MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle) > maxWidth)
+                    if (currentLineWidth > maxWidth)
                     {
                         if (enableHyphenation)
                         {
@@ -238,21 +238,22 @@ public static class TextMeasurer
                             {
                                 lines.Add(hyphenated.Item1);
                                 currentLine = hyphenated.Item2;
+                                currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
                             }
                             else if (breakWord)
                             {
                                 var broken = BreakWordByCharacter(currentLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth);
-                                for (int bi = 0; bi < broken.Count - 1; bi++)
-                                    lines.Add(broken[bi]);
+                                for (int bi = 0; bi < broken.Count - 1; bi++) lines.Add(broken[bi]);
                                 currentLine = broken.Count > 0 ? broken[broken.Count - 1] : "";
+                                currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
                             }
                         }
                         else if (breakWord)
                         {
                             var broken = BreakWordByCharacter(currentLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth);
-                            for (int bi = 0; bi < broken.Count - 1; bi++)
-                                lines.Add(broken[bi]);
+                            for (int bi = 0; bi < broken.Count - 1; bi++) lines.Add(broken[bi]);
                             currentLine = broken.Count > 0 ? broken[broken.Count - 1] : "";
+                            currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
                         }
                     }
                 }

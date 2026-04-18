@@ -1197,17 +1197,18 @@ internal static class PdfRenderer
         // Mark font size: typically ~50% of the text font size
         float markFontSize = fontSize * 0.5f * PdfCoordinates.PxToPt;
 
-        // Paint one mark per character, centred above/below it
+        // Hoist invariant lookups out of the per-character loop.
+        string emphFontStyle = box.Style.Get("font-style") ?? "";
+        string emphPdfFont = StandardFontMetrics.ResolvePdfFontName(box.Style.FontFamily, box.Style.FontWeight, emphFontStyle);
+        float markWidthPt = TextMeasurer.MeasureWidth(markChar, fontSize * 0.5f,
+            box.Style.FontFamily, box.Style.FontWeight, null)
+            * PdfCoordinates.PxToPt;
+
+        // Paint one mark per character, centred above/below it.
         float charX = pdfX;
         for (int i = 0; i < text.Length; i++)
         {
-            string ch = text.Substring(i, 1);
-            float charWidthPt = TextMeasurer.MeasureWidth(ch, fontSize,
-                box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"))
-                * PdfCoordinates.PxToPt;
-
-            float markWidthPt = TextMeasurer.MeasureWidth(markChar, fontSize * 0.5f,
-                box.Style.FontFamily, box.Style.FontWeight, null)
+            float charWidthPt = StandardFontMetrics.MeasureCharWidth(text[i], fontSize, emphPdfFont)
                 * PdfCoordinates.PxToPt;
 
             float markX = charX + (charWidthPt - markWidthPt) / 2f;

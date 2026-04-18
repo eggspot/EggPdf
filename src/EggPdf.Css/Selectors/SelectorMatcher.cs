@@ -804,14 +804,23 @@ public static class SelectorMatcher
             else if (aPart == "-") a = -1;
             else if (int.TryParse(aPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out int aVal)) a = aVal;
 
-            // Part after 'n' is +B or -B
+            // Part after 'n' is +B or -B — skip spaces without allocating via Replace().
             string bPart = arg.Substring(nPos + 1).Trim();
             if (!string.IsNullOrEmpty(bPart))
             {
-                // Remove spaces around + or -
-                bPart = bPart.Replace(" ", "");
-                if (int.TryParse(bPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out int bVal))
-                    b = bVal;
+                int bStart = 0;
+                while (bStart < bPart.Length && bPart[bStart] == ' ') bStart++;
+                // Collect sign then digits, skipping any interior spaces
+                int bSign = 1;
+                if (bStart < bPart.Length && (bPart[bStart] == '+' || bPart[bStart] == '-'))
+                {
+                    if (bPart[bStart] == '-') bSign = -1;
+                    bStart++;
+                }
+                while (bStart < bPart.Length && bPart[bStart] == ' ') bStart++;
+                if (bStart < bPart.Length &&
+                    int.TryParse(bPart.Substring(bStart), NumberStyles.Integer, CultureInfo.InvariantCulture, out int bAbs))
+                    b = bSign * bAbs;
             }
         }
 
