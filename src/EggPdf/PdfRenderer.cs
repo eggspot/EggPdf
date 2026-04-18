@@ -19,6 +19,11 @@ internal static class PdfRenderer
     private static readonly char[] SpaceSep = { ' ' };
     private static readonly char[] CommaSpaceSep = { ',', ' ' };
 
+    // Pre-built border property keys indexed by side (0=top,1=right,2=bottom,3=left)
+    private static readonly string[] BorderStyleKeys = { "border-top-style", "border-right-style", "border-bottom-style", "border-left-style" };
+    private static readonly string[] BorderWidthKeys = { "border-top-width", "border-right-width", "border-bottom-width", "border-left-width" };
+    private static readonly string[] BorderColorKeys = { "border-top-color", "border-right-color", "border-bottom-color", "border-left-color" };
+
     /// <summary>Page margin offsets in CSS pixels, applied when painting boxes.</summary>
     [ThreadStatic]
     private static float _marginLeftPx;
@@ -309,9 +314,9 @@ internal static class PdfRenderer
         // A box is paintable if it has text, background, image, border, or is a link
         bool hasBorder = false;
         var borderStyleFallback = box.Style.Get("border-style");
-        foreach (var side in BorderSides)
+        for (int bsi = 0; bsi < 4; bsi++)
         {
-            var sideStyle = box.Style.Get($"border-{side}-style") ?? borderStyleFallback;
+            var sideStyle = box.Style.Get(BorderStyleKeys[bsi]) ?? borderStyleFallback;
             if (!string.IsNullOrEmpty(sideStyle) && sideStyle != "none" && sideStyle != "hidden")
             { hasBorder = true; break; }
         }
@@ -1463,8 +1468,7 @@ internal static class PdfRenderer
 
         for (int s = 0; s < 4; s++)
         {
-            string side = sides[s];
-            sideStyles[s] = box.Style.Get($"border-{side}-style") ?? fallbackStyle ?? "";
+            sideStyles[s] = box.Style.Get(BorderStyleKeys[s]) ?? fallbackStyle ?? "";
             if (string.IsNullOrEmpty(sideStyles[s]) || sideStyles[s] == "none" || sideStyles[s] == "hidden")
             {
                 sideWidths[s] = 0;
@@ -1474,7 +1478,7 @@ internal static class PdfRenderer
             anyBorder = true;
             if (sideStyles[s] != "solid") allSolid = false;
 
-            var widthStr = box.Style.Get($"border-{side}-width") ?? fallbackWidth;
+            var widthStr = box.Style.Get(BorderWidthKeys[s]) ?? fallbackWidth;
             sideWidths[s] = 1;
             if (!string.IsNullOrEmpty(widthStr))
             {
@@ -1483,7 +1487,7 @@ internal static class PdfRenderer
                 if (sideWidths[s] <= 0) { sideWidths[s] = 0; continue; }
             }
 
-            var colorStr = box.Style.Get($"border-{side}-color") ?? fallbackColor;
+            var colorStr = box.Style.Get(BorderColorKeys[s]) ?? fallbackColor;
             if (!string.IsNullOrEmpty(colorStr))
             {
                 var bc = ParseColor(colorStr);

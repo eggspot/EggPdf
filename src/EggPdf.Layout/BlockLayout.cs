@@ -848,19 +848,21 @@ public static class BlockLayout
                     var lastLine = lines[lines.Count - 1];
                     float ellipsisWidth = TextMeasurer.MeasureWidth(ellipsis, fontSize, fontFamily, fontWeight, fontStyle);
                     float maxLastLineWidth = childContainingWidth - ellipsisWidth;
+                    // Track trim length to avoid Substring allocations inside the loop.
+                    int trimLen = lastLine.Length;
                     if (maxLastLineWidth > 0)
                     {
-                        // Trim words from end of last line until it fits
-                        while (lastLine.Length > 0)
+                        while (trimLen > 0)
                         {
-                            float w = TextMeasurer.MeasureWidth(lastLine, fontSize, fontFamily, fontWeight, fontStyle);
+                            float w = TextMeasurer.MeasureWidth(lastLine.Substring(0, trimLen), fontSize, fontFamily, fontWeight, fontStyle);
                             if (w <= maxLastLineWidth) break;
-                            // Remove last word (or char if single word)
-                            int lastSpace = lastLine.LastIndexOf(' ');
-                            lastLine = lastSpace > 0 ? lastLine.Substring(0, lastSpace) : lastLine.Substring(0, lastLine.Length - 1);
+                            int lastSpace = lastLine.LastIndexOf(' ', trimLen - 1);
+                            trimLen = lastSpace > 0 ? lastSpace : trimLen - 1;
                         }
                     }
-                    lines[lines.Count - 1] = lastLine.TrimEnd() + ellipsis;
+                    // Trim trailing spaces then append ellipsis — single allocation.
+                    while (trimLen > 0 && lastLine[trimLen - 1] == ' ') trimLen--;
+                    lines[lines.Count - 1] = lastLine.Substring(0, trimLen) + ellipsis;
                 }
 
                 // hanging-punctuation: first — compute negative X offset for leading punctuation
@@ -1966,7 +1968,7 @@ public static class BlockLayout
             if (descriptor.EndsWith("x"))
             {
                 // Density descriptor: prefer 1x
-                float.TryParse(descriptor.TrimEnd('x'), System.Globalization.NumberStyles.Float,
+                float.TryParse(descriptor.Substring(0, descriptor.Length - 1), System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out float density);
                 if (!foundDensity || Math.Abs(density - 1f) < Math.Abs(bestWidth - 1f))
                 {
@@ -1977,7 +1979,7 @@ public static class BlockLayout
             else if (descriptor.EndsWith("w"))
             {
                 // Width descriptor: pick closest to element width from below, or smallest
-                float.TryParse(descriptor.TrimEnd('w'), System.Globalization.NumberStyles.Float,
+                float.TryParse(descriptor.Substring(0, descriptor.Length - 1), System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out float w);
                 if (!foundDensity && w < bestWidth)
                 { bestUrl = url; bestWidth = w; }
@@ -2354,12 +2356,20 @@ public static class BlockLayout
             var fontStyle = run.Style.Get("font-style");
             float lhRun = TextMeasurer.GetLineHeight(run.FontSize, run.Style.Get("line-height"));
 
-            var words = text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-
-            for (int wi = 0; wi < words.Length; wi++)
+            // Iterate words inline — avoids allocating a string[] upfront.
+            int wPos = 0;
+            bool firstWord = true;
+            while (wPos < text.Length)
             {
-                bool needSpace = inlineX > 0 && (wi > 0 || run.HasLeadingSpace);
-                var wordText = (needSpace ? " " : "") + words[wi];
+                while (wPos < text.Length && text[wPos] == ' ') wPos++;
+                if (wPos >= text.Length) break;
+                int wEnd = text.IndexOf(' ', wPos);
+                if (wEnd < 0) wEnd = text.Length;
+                string word = text.Substring(wPos, wEnd - wPos);
+                wPos = wEnd;
+
+                bool needSpace = inlineX > 0 && (!firstWord || run.HasLeadingSpace);
+                var wordText = needSpace ? " " + word : word;
                 float wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle);
 
                 // Wrap to next line if doesn't fit
@@ -2368,7 +2378,7 @@ public static class BlockLayout
                     childY += inlineLineHeight;
                     inlineX = 0;
                     inlineLineHeight = 0;
-                    wordText = words[wi]; // no space prefix after wrap
+                    wordText = word; // no space prefix after wrap
                     wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle);
                 }
 
@@ -2380,7 +2390,7 @@ public static class BlockLayout
                     Y = box.Y + box.PaddingTop + childY,
                     Width = wordWidth,
                     Height = lhRun,
-                    ContentWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle),
+                    ContentWidth = wordWidth,
                     ContentHeight = lhRun,
                     Text = wordText
                 };
@@ -2392,6 +2402,7 @@ public static class BlockLayout
                 inlineX += wordWidth;
                 if (lhRun > inlineLineHeight)
                     inlineLineHeight = lhRun;
+                firstWord = false;
             }
         }
     }
@@ -2432,63 +2443,63 @@ public static class BlockLayout
         }
 
         if (value.EndsWith("px"))
-            return ParseFloat(value.Substring(0, value.Length - 2));
+            return ParseFloatN(value, value.Length - 2);
 
         if (value.EndsWith("em"))
-            return ParseFloat(value.Substring(0, value.Length - 2)) * fontSize;
+            return ParseFloatN(value, value.Length - 2) * fontSize;
 
         if (value.EndsWith("rem"))
-            return ParseFloat(value.Substring(0, value.Length - 3)) * DefaultFontSize;
+            return ParseFloatN(value, value.Length - 3) * DefaultFontSize;
 
         if (value.EndsWith("%"))
-            return ParseFloat(value.Substring(0, value.Length - 1)) / 100f * containingSize;
+            return ParseFloatN(value, value.Length - 1) / 100f * containingSize;
 
         if (value.EndsWith("pt"))
-            return ParseFloat(value.Substring(0, value.Length - 2)) * 96f / 72f;
+            return ParseFloatN(value, value.Length - 2) * 96f / 72f;
 
         if (value.EndsWith("pc"))
-            return ParseFloat(value.Substring(0, value.Length - 2)) * 96f / 6f; // 1pc = 12pt = 16px
+            return ParseFloatN(value, value.Length - 2) * 96f / 6f; // 1pc = 12pt = 16px
 
         if (value.EndsWith("cm"))
-            return ParseFloat(value.Substring(0, value.Length - 2)) * 96f / 2.54f;
+            return ParseFloatN(value, value.Length - 2) * 96f / 2.54f;
 
         if (value.EndsWith("mm"))
-            return ParseFloat(value.Substring(0, value.Length - 2)) * 96f / 25.4f;
+            return ParseFloatN(value, value.Length - 2) * 96f / 25.4f;
 
         if (value.EndsWith("in"))
-            return ParseFloat(value.Substring(0, value.Length - 2)) * 96f;
+            return ParseFloatN(value, value.Length - 2) * 96f;
 
         // Viewport-relative units
         if (value.EndsWith("vw"))
         {
             float vw = _viewportWidth > 0 ? _viewportWidth : containingSize;
-            return ParseFloat(value.Substring(0, value.Length - 2)) / 100f * vw;
+            return ParseFloatN(value, value.Length - 2) / 100f * vw;
         }
         if (value.EndsWith("vh"))
         {
             float vh = _viewportHeight > 0 ? _viewportHeight : containingSize;
-            return ParseFloat(value.Substring(0, value.Length - 2)) / 100f * vh;
+            return ParseFloatN(value, value.Length - 2) / 100f * vh;
         }
         if (value.EndsWith("vmin"))
         {
             float vmin = _viewportWidth > 0 && _viewportHeight > 0
                 ? System.Math.Min(_viewportWidth, _viewportHeight) : containingSize;
-            return ParseFloat(value.Substring(0, value.Length - 4)) / 100f * vmin;
+            return ParseFloatN(value, value.Length - 4) / 100f * vmin;
         }
         if (value.EndsWith("vmax"))
         {
             float vmax = _viewportWidth > 0 && _viewportHeight > 0
                 ? System.Math.Max(_viewportWidth, _viewportHeight) : containingSize;
-            return ParseFloat(value.Substring(0, value.Length - 4)) / 100f * vmax;
+            return ParseFloatN(value, value.Length - 4) / 100f * vmax;
         }
 
         // ch: width of the '0' glyph (approximated as 0.5em)
         if (value.EndsWith("ch"))
-            return ParseFloat(value.Substring(0, value.Length - 2)) * fontSize * 0.5f;
+            return ParseFloatN(value, value.Length - 2) * fontSize * 0.5f;
 
         // lh: line height relative unit (1lh = line-height of the element, approximated as 1.2em)
         if (value.EndsWith("lh"))
-            return ParseFloat(value.Substring(0, value.Length - 2)) * fontSize * 1.2f;
+            return ParseFloatN(value, value.Length - 2) * fontSize * 1.2f;
 
         // Try bare number (treat as px)
         if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float bare))
@@ -2513,6 +2524,20 @@ public static class BlockLayout
         if (float.TryParse(s.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float result))
             return result;
         return 0;
+    }
+
+    // Parse the first `length` characters of `s` as a float without allocating a Substring.
+    private static float ParseFloatN(string s, int length)
+    {
+#if NETSTANDARD2_0
+        if (float.TryParse(s.Substring(0, length), NumberStyles.Float, CultureInfo.InvariantCulture, out float r))
+            return r;
+        return 0;
+#else
+        if (float.TryParse(s.AsSpan(0, length), NumberStyles.Float, CultureInfo.InvariantCulture, out float r))
+            return r;
+        return 0;
+#endif
     }
 
     private static bool TryParseFirstToken(string s, out float value)

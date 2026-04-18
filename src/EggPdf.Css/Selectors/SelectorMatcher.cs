@@ -21,6 +21,13 @@ public static class SelectorMatcher
 
         selector = selector.Trim();
 
+        // Fast path: no comma means single selector — skip List<string> allocation entirely.
+        if (selector.IndexOf(',') < 0)
+        {
+            if (HasPseudoElement(selector)) return false;
+            return MatchesComplex(selector, element);
+        }
+
         // Split selector list (comma-separated) - any match succeeds
         var selectorList = SplitSelectorList(selector);
         for (int s = 0; s < selectorList.Count; s++)
