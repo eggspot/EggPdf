@@ -15,7 +15,7 @@ jobs:
   deploy:
     name: Deploy to Hugging Face Spaces
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 75
 
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +29,22 @@ jobs:
           else
             echo "tag=$VERSION" >> $GITHUB_OUTPUT
           fi
+
+      - name: Wait for Docker Hub image to be available
+        run: |
+          TAG="${{ steps.image.outputs.tag }}"
+          echo "Polling Docker Hub for eggspot/eggpdf:$TAG (timeout 60 min)..."
+          for i in $(seq 1 72); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              "https://hub.docker.com/v2/repositories/eggspot/eggpdf/tags/$TAG/")
+            if [ "$STATUS" = "200" ]; then
+              echo "Image eggspot/eggpdf:$TAG is available after $((i * 50))s."
+              exit 0
+            fi
+            echo "Attempt $i/72: not ready yet (HTTP $STATUS), retrying in 50s..."
+            sleep 50
+          done
+          echo "Timed out waiting for Docker Hub image." && exit 1
 
       - name: Push to Hugging Face Space
         run: |
