@@ -69,6 +69,11 @@ public static class HtmlToPdf
         // 1. Parse HTML -> DOM
         var document = HtmlParser.Parse(html);
 
+        // 1b. Decode Cloudflare email obfuscation (browsers do this via script,
+        // which a PDF engine does not run).
+        if (document.Body != null)
+            DecodeCloudflareEmails(document.Body);
+
         // 2. Extract <style> tags, <link> stylesheets, and resolve @imports
         var stylesheets = ExtractStyleSheets(document, basePath);
 
@@ -128,6 +133,49 @@ public static class HtmlToPdf
         finally
         {
             TextMeasurer.FontDataProvider = null;
+        }
+    }
+
+    /// <summary>
+    /// Decode Cloudflare-obfuscated emails: data-cfemail holds hex bytes where
+    /// the first byte is an XOR key for the rest. The placeholder child text
+    /// ("[email protected]") is replaced with the decoded address.
+    /// </summary>
+    private static void DecodeCloudflareEmails(HtmlElement element)
+    {
+        var cf = element.GetAttribute("data-cfemail");
+        if (!string.IsNullOrEmpty(cf) && cf!.Length >= 4 && cf.Length % 2 == 0)
+        {
+            var email = TryDecodeCfEmail(cf);
+            if (email != null)
+            {
+                element.ChildNodes.Clear();
+                element.ChildNodes.Add(new HtmlTextNode(email));
+                return;
+            }
+        }
+
+        foreach (var child in element.ChildNodes)
+        {
+            if (child is HtmlElement childElem)
+                DecodeCloudflareEmails(childElem);
+        }
+    }
+
+    private static string? TryDecodeCfEmail(string hex)
+    {
+        try
+        {
+            int key = Convert.ToInt32(hex.Substring(0, 2), 16);
+            var sb = new StringBuilder((hex.Length - 2) / 2);
+            for (int i = 2; i < hex.Length; i += 2)
+                sb.Append((char)(Convert.ToInt32(hex.Substring(i, 2), 16) ^ key));
+            var email = sb.ToString();
+            return email.IndexOf('@') > 0 ? email : null;
+        }
+        catch
+        {
+            return null; // malformed hex — leave the placeholder text as-is
         }
     }
 
@@ -550,6 +598,57 @@ public static class HtmlToPdf
                 fontData.UnitsPerEm,
                 fontData.Ascent,
                 fontData.Descent);
+
+            // Codepoints the chosen font cannot shape (e.g. ⚠ in text fonts):
+            // embed a symbol-capable fallback the renderer can switch to mid-run.
+            HashSet<int>? missing = null;
+            foreach (var cp in codepoints)
+            {
+                if (cp > 0x20 && fontData.GetGlyphId(cp) == 0)
+                    (missing ?? (missing = new HashSet<int>())).Add(cp);
+            }
+            if (missing != null)
+                EmbedFallbackFont(pdfDoc, pdfFontName, missing, fontResolver);
+        }
+    }
+
+    /// <summary>
+    /// Embed a symbol-capable system font covering codepoints the main font
+    /// lacks, registered as "&lt;fontName&gt;-FB" for mid-run font switching.
+    /// </summary>
+    private static void EmbedFallbackFont(PdfDocument pdfDoc, string pdfFontName,
+        HashSet<int> missing, Text.FontResolver fontResolver)
+    {
+        string[] symbolFonts =
+        {
+            "Segoe UI Symbol", "seguisym", "Apple Symbols", "DejaVuSans",
+            "NotoSansSymbols2", "NotoSansSymbols", "Segoe UI Emoji", "seguiemj"
+        };
+
+        foreach (var candidate in symbolFonts)
+        {
+            var fb = fontResolver.Resolve(candidate);
+            if (fb == null || fb.RawData == null || fb.RawData.Length == 0) continue;
+
+            bool covers = false;
+            foreach (var cp in missing)
+            {
+                if (fb.GetGlyphId(cp) > 0) { covers = true; break; }
+            }
+            if (!covers) continue;
+
+            var fbSubset = Text.TrueType.TtfSubsetter.Subset(fb, missing);
+            if (fbSubset == null || fbSubset.FontData.Length == 0) continue;
+
+            pdfDoc.AddEmbeddedFont(
+                pdfFontName + "-FB",
+                fbSubset.FontData,
+                fbSubset.CodepointToNewGlyphId,
+                fbSubset.AdvanceWidths,
+                fb.UnitsPerEm,
+                fb.Ascent,
+                fb.Descent);
+            return;
         }
     }
 

@@ -927,9 +927,26 @@ internal static class PdfRenderer
                 var glyphIds = _currentPdfDoc.GetGlyphIds(fontName, paintText);
                 if (glyphIds != null && glyphIds.Length > 0)
                 {
-                    page.AddTextCID(glyphIds, pdfX, pdfY, fontName, pdfFontSize,
-                        color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
-                        letterSpacing, wordSpacing);
+                    // Glyphs missing from the main font route to the embedded
+                    // "-FB" fallback font mid-run instead of painting .notdef.
+                    string fallbackName = fontName + "-FB";
+                    bool hasNotdef = false;
+                    for (int gi = 0; gi < glyphIds.Length; gi++)
+                        if (glyphIds[gi] == 0) { hasNotdef = true; break; }
+
+                    if (hasNotdef && _currentPdfDoc.IsEmbeddedFont(fallbackName))
+                    {
+                        var runs = BuildFontFallbackRuns(paintText, fontName, fallbackName);
+                        page.AddTextRunsCID(runs, pdfX, pdfY, pdfFontSize,
+                            color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
+                            letterSpacing, wordSpacing);
+                    }
+                    else
+                    {
+                        page.AddTextCID(glyphIds, pdfX, pdfY, fontName, pdfFontSize,
+                            color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
+                            letterSpacing, wordSpacing);
+                    }
                 }
                 else
                 {
@@ -1118,6 +1135,56 @@ internal static class PdfRenderer
         // Restore transform state
         if (hasTransform)
             page.RestoreState();
+    }
+
+    /// <summary>
+    /// Split text into consecutive runs of (fontName, glyphIds): codepoints the
+    /// main font covers stay in it; missing ones use the fallback font (or stay
+    /// as .notdef in the main font when the fallback lacks them too).
+    /// </summary>
+    private static List<(string fontName, ushort[] glyphIds)> BuildFontFallbackRuns(
+        string text, string mainFont, string fallbackFont)
+    {
+        var runs = new List<(string fontName, ushort[] glyphIds)>();
+        var current = new List<ushort>();
+        string currentFont = mainFont;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            int cp = text[i];
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                cp = char.ConvertToUtf32(text[i], text[i + 1]);
+                i++;
+            }
+
+            string font = mainFont;
+            if (!_currentPdfDoc!.TryGetGlyphId(mainFont, cp, out var gid) || gid == 0)
+            {
+                if (_currentPdfDoc.TryGetGlyphId(fallbackFont, cp, out var fbGid) && fbGid > 0)
+                {
+                    font = fallbackFont;
+                    gid = fbGid;
+                }
+                else
+                {
+                    gid = 0; // .notdef in the main font
+                }
+            }
+
+            if (font != currentFont && current.Count > 0)
+            {
+                runs.Add((currentFont, current.ToArray()));
+                current.Clear();
+            }
+            currentFont = font;
+            current.Add(gid);
+        }
+
+        if (current.Count > 0)
+            runs.Add((currentFont, current.ToArray()));
+
+        return runs;
     }
 
     private static string CapitalizeText(string text)

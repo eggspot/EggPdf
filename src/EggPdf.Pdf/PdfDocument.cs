@@ -44,6 +44,14 @@ public class PdfDocument
     public bool IsEmbeddedFont(string fontName) => _embeddedFonts.ContainsKey(fontName);
 
     /// <summary>Convert text to glyph IDs for an embedded CIDFont.</summary>
+    /// <summary>Look up a single codepoint's glyph ID in an embedded font.</summary>
+    public bool TryGetGlyphId(string fontName, int codepoint, out ushort gid)
+    {
+        gid = 0;
+        return _embeddedFonts.TryGetValue(fontName, out var fontData) &&
+               fontData.CodepointToGlyphId.TryGetValue(codepoint, out gid);
+    }
+
     public ushort[]? GetGlyphIds(string fontName, string text)
     {
         if (!_embeddedFonts.TryGetValue(fontName, out var fontData))
