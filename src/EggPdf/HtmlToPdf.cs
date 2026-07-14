@@ -82,26 +82,53 @@ public static class HtmlToPdf
         // 4. Create CascadeResolver with parsed stylesheets (replaces BasicStyleResolver)
         var cascadeResolver = new CascadeResolver(stylesheets, mediaType: "print", pageWidth: pageWidthPx);
 
-        // 5. Layout (uses cascade resolver for full CSS support)
-        // Layout uses content area (page minus margins) for body width
-        var layoutRoot = BlockLayout.LayoutDocument(document, contentWidthPx, contentHeightPx, cascadeResolver);
+        // 4b. When @font-face webfonts are declared, measure text with the real
+        // font metrics so layout matches the glyphs the PDF paints.
+        var fontFaces = BuildFontFaceMap(stylesheets);
+        if (fontFaces.Count > 0)
+        {
+            var measureResolver = new Text.FontResolver();
+            var measureCache = new Dictionary<string, Text.TrueType.FontData?>(StringComparer.Ordinal);
+            TextMeasurer.FontDataProvider = (family, weight, fontStyle) =>
+            {
+                if (string.IsNullOrEmpty(family)) return null;
+                var key = family + "|" + weight + "|" + fontStyle;
+                if (measureCache.TryGetValue(key, out var cached)) return cached;
 
-        // 6. Resolve images (load data from src attributes)
-        var pdfDoc = new PdfDocument();
-        ResolveImages(layoutRoot, pdfDoc);
+                bool bold = weight == "bold" || weight == "700" || weight == "800" || weight == "900";
+                bool italic = fontStyle == "italic" || fontStyle == "oblique";
+                var data = TryResolveFontFace(family, fontFaces, bold, italic, measureResolver);
+                measureCache[key] = data;
+                return data;
+            };
+        }
 
-        // 6b. Subset and embed TrueType fonts for non-standard fonts
-        // Pass stylesheets so @font-face src URLs are tried before system font lookup.
-        SubsetAndEmbedFonts(layoutRoot, pdfDoc, stylesheets);
+        try
+        {
+            // 5. Layout (uses cascade resolver for full CSS support)
+            // Layout uses content area (page minus margins) for body width
+            var layoutRoot = BlockLayout.LayoutDocument(document, contentWidthPx, contentHeightPx, cascadeResolver);
 
-        // 7. Render to PDF
-        float pageWidthPt = pageWidthPx * PdfCoordinates.PxToPt;
-        float pageHeightPt = pageHeightPx * PdfCoordinates.PxToPt;
+            // 6. Resolve images (load data from src attributes)
+            var pdfDoc = new PdfDocument();
+            ResolveImages(layoutRoot, pdfDoc);
 
-        PdfRenderer.Render(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx,
-            pageSettings.MarginLeft, pageSettings.MarginTop);
+            // 6b. Subset and embed TrueType fonts for non-standard fonts
+            SubsetAndEmbedFonts(layoutRoot, pdfDoc, fontFaces);
 
-        return pdfDoc.ToByteArray();
+            // 7. Render to PDF
+            float pageWidthPt = pageWidthPx * PdfCoordinates.PxToPt;
+            float pageHeightPt = pageHeightPx * PdfCoordinates.PxToPt;
+
+            PdfRenderer.Render(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx,
+                pageSettings.MarginLeft, pageSettings.MarginTop);
+
+            return pdfDoc.ToByteArray();
+        }
+        finally
+        {
+            TextMeasurer.FontDataProvider = null;
+        }
     }
 
     /// <summary>
@@ -460,7 +487,7 @@ public static class HtmlToPdf
     /// (e.g. Vietnamese) so the non-embedded Type1 built-ins cannot encode them.
     /// </summary>
     private static void SubsetAndEmbedFonts(LayoutBox root, PdfDocument pdfDoc,
-        List<CssStyleSheet>? stylesheets = null)
+        Dictionary<string, List<FontFaceCandidate>> fontFaces)
     {
         // Collect (fontName, codepoints) plus the raw font-family list per font name
         var fontCodepoints = new Dictionary<string, HashSet<int>>();
@@ -468,9 +495,6 @@ public static class HtmlToPdf
         CollectTextCodepoints(root, fontCodepoints, fontFamilyLists);
 
         if (fontCodepoints.Count == 0) return;
-
-        // Build lookup: @font-face family (lowercase) -> declared face variants
-        var fontFaces = BuildFontFaceMap(stylesheets);
 
         var fontResolver = new Text.FontResolver();
 

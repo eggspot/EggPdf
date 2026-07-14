@@ -783,16 +783,21 @@ public static class BlockLayout
                     var ilFontFamily = style.FontFamily;
                     var ilFontWeight = style.FontWeight;
                     var ilFontStyle = style.Get("font-style");
+                    float ilLetterSpacing = ResolveLength(style.Get("letter-spacing"), 0, fontSize);
                     float ilLineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
                     var ilTextData = TrimHtmlText(textNode.Data);
                     if (string.IsNullOrEmpty(ilTextData)) continue;
+
+                    // Measure the transformed text (uppercase is wider); paint-time
+                    // transform is idempotent so the box text may carry it too.
+                    ilTextData = ApplyTextTransformForMeasure(ilTextData, style);
 
                     // Split into words and lay them out inline
                     var words = ilTextData.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
                     foreach (var word in words)
                     {
                         var wordWithSpace = (inlineX > 0 ? " " : "") + word;
-                        float wordWidth = TextMeasurer.MeasureWidth(wordWithSpace, fontSize, ilFontFamily, ilFontWeight, ilFontStyle);
+                        float wordWidth = TextMeasurer.MeasureWidth(wordWithSpace, fontSize, ilFontFamily, ilFontWeight, ilFontStyle, ilLetterSpacing);
 
                         // Wrap to next line if word doesn't fit
                         if (inlineX > 0 && inlineX + wordWidth > childContainingWidth)
@@ -801,7 +806,7 @@ public static class BlockLayout
                             inlineX = 0;
                             inlineLineHeight = 0;
                             wordWithSpace = word;
-                            wordWidth = TextMeasurer.MeasureWidth(word, fontSize, ilFontFamily, ilFontWeight, ilFontStyle);
+                            wordWidth = TextMeasurer.MeasureWidth(word, fontSize, ilFontFamily, ilFontWeight, ilFontStyle, ilLetterSpacing);
                         }
 
                         var textBox = new LayoutBox
@@ -852,6 +857,11 @@ public static class BlockLayout
                 bool breakWord = overflowWrap == "break-word" || overflowWrap == "anywhere" ||
                                  wordBreak == "break-all" || wordBreak == "break-word";
                 bool enableHyphenation = style.Get("hyphens") == "auto";
+                float blockLetterSpacing = ResolveLength(style.Get("letter-spacing"), 0, fontSize);
+
+                // Wrap and measure the transformed text (uppercase is wider); the
+                // paint-time transform is idempotent, so storing it in the box is safe.
+                textData = ApplyTextTransformForMeasure(textData, style);
 
                 // text-wrap: balance — compute an optimal balanced width before wrapping
                 float balanceWidth = childContainingWidth;
@@ -869,7 +879,7 @@ public static class BlockLayout
                 // For text-indent, reduce first line's available width
                 float firstLineWidth = textIndent > 0 ? balanceWidth - textIndent : balanceWidth;
                 var lines = TextMeasurer.WrapText(textData, fontSize, fontFamily, fontWeight, fontStyle,
-                    firstLineWidth > 0 ? firstLineWidth : balanceWidth, whiteSpaceProp, breakWord, enableHyphenation);
+                    firstLineWidth > 0 ? firstLineWidth : balanceWidth, whiteSpaceProp, breakWord, enableHyphenation, blockLetterSpacing);
 
                 // If indent caused wrapping and there are remaining lines, re-wrap with full width
                 if (textIndent > 0 && lines.Count > 1)
@@ -879,7 +889,7 @@ public static class BlockLayout
                     lines = new System.Collections.Generic.List<string> { firstLine };
                     if (!string.IsNullOrEmpty(remaining))
                     {
-                        var moreLines = TextMeasurer.WrapText(remaining, fontSize, fontFamily, fontWeight, fontStyle, childContainingWidth, whiteSpaceProp, breakWord, enableHyphenation);
+                        var moreLines = TextMeasurer.WrapText(remaining, fontSize, fontFamily, fontWeight, fontStyle, childContainingWidth, whiteSpaceProp, breakWord, enableHyphenation, blockLetterSpacing);
                         lines.AddRange(moreLines);
                     }
                 }
@@ -1025,7 +1035,7 @@ public static class BlockLayout
                             Y = box.Y + box.PaddingTop + childY,
                             Width = childContainingWidth,
                             Height = lineHeight,
-                            ContentWidth = TextMeasurer.MeasureWidth(line, fontSize, fontFamily, fontWeight, fontStyle),
+                            ContentWidth = TextMeasurer.MeasureWidth(line, fontSize, fontFamily, fontWeight, fontStyle, blockLetterSpacing),
                             ContentHeight = lineHeight,
                             Text = line
                         };
@@ -1308,6 +1318,20 @@ public static class BlockLayout
         }
 
         return box;
+    }
+
+    /// <summary>
+    /// Apply text-transform for width measurement (uppercase glyphs are wider).
+    /// The painted text is transformed by the renderer; measuring the transformed
+    /// text keeps layout and paint in agreement. Box text stays untransformed.
+    /// </summary>
+    private static string ApplyTextTransformForMeasure(string text, ComputedStyle style)
+    {
+        var tt = style.Get("text-transform");
+        if (string.IsNullOrEmpty(tt) || tt == "none") return text;
+        if (tt == "uppercase") return text.ToUpperInvariant();
+        if (tt == "lowercase") return text.ToLowerInvariant();
+        return text; // capitalize changes width negligibly
     }
 
     /// <summary>Walk up parent chain to find page height.</summary>
@@ -2447,9 +2471,14 @@ public static class BlockLayout
 
             if (string.IsNullOrEmpty(text)) continue;
 
+            // Measure the transformed text (uppercase is wider); the paint-time
+            // transform is idempotent so word boxes may carry it too.
+            text = ApplyTextTransformForMeasure(text, run.Style);
+
             var fontFamily = run.Style.FontFamily;
             var fontWeight = run.Style.FontWeight;
             var fontStyle = run.Style.Get("font-style");
+            float runLetterSpacing = ResolveLength(run.Style.Get("letter-spacing"), 0, run.FontSize);
             float lhRun = TextMeasurer.GetLineHeight(run.FontSize, run.Style.Get("line-height"));
 
             // Iterate words inline — avoids allocating a string[] upfront.
@@ -2469,7 +2498,7 @@ public static class BlockLayout
                 // text run, not the strong run).
                 bool needSpace = inlineX > 0 && (!firstWord || run.HasLeadingSpace || prevRunTrailingSpace);
                 var wordText = needSpace ? " " + word : word;
-                float wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle);
+                float wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
 
                 // Wrap to next line if doesn't fit
                 if (inlineX > 0 && inlineX + wordWidth > containerWidth)
@@ -2478,7 +2507,7 @@ public static class BlockLayout
                     inlineX = 0;
                     inlineLineHeight = 0;
                     wordText = word; // no space prefix after wrap
-                    wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle);
+                    wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                 }
 
                 var textBox = new LayoutBox

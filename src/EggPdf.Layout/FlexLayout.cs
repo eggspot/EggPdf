@@ -909,6 +909,9 @@ public static class FlexLayout
         Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, float fontSize)
     {
         float maxWidth = 0;
+        float inlineRun = 0; // consecutive inline content shares one line (max-content)
+        float letterSpacing = BlockLayout.ResolveLength(style.Get("letter-spacing"), 0, fontSize);
+        var textTransform = style.Get("text-transform");
 
         for (int i = 0; i < element.ChildNodes.Count; i++)
         {
@@ -917,30 +920,49 @@ public static class FlexLayout
             {
                 var text = textNode.Data.Trim();
                 if (string.IsNullOrEmpty(text)) continue;
-                float textWidth = TextMeasurer.MeasureWidth(text, fontSize,
-                    style.FontFamily, style.FontWeight, style.Get("font-style"));
-                if (textWidth > maxWidth) maxWidth = textWidth;
+                if (textTransform == "uppercase") text = text.ToUpperInvariant();
+                else if (textTransform == "lowercase") text = text.ToLowerInvariant();
+                if (inlineRun > 0)
+                    inlineRun += TextMeasurer.MeasureWidth(" ", fontSize,
+                        style.FontFamily, style.FontWeight, style.Get("font-style"), letterSpacing);
+                inlineRun += TextMeasurer.MeasureWidth(text, fontSize,
+                    style.FontFamily, style.FontWeight, style.Get("font-style"), letterSpacing);
             }
             else if (child is HtmlElement childElem)
             {
                 var childStyle = resolver(childElem, style);
                 if (childStyle.Display == "none") continue;
 
-                // Check for explicit width
+                float childWidth;
                 var explicitWidth = BlockLayout.ResolveOptionalLength(childStyle.Width, 0, fontSize);
                 if (explicitWidth.HasValue)
                 {
-                    if (explicitWidth.Value > maxWidth) maxWidth = explicitWidth.Value;
+                    childWidth = explicitWidth.Value;
                 }
                 else
                 {
                     float childFontSize = BlockLayout.ResolveFontSize(childStyle.FontSize, fontSize);
-                    float childContentWidth = MeasureContentWidth(childElem, childStyle, resolver, childFontSize);
-                    if (childContentWidth > maxWidth) maxWidth = childContentWidth;
+                    childWidth = MeasureContentWidth(childElem, childStyle, resolver, childFontSize);
+                }
+
+                bool isInline = childStyle.Display == "inline" || childStyle.Display == "inline-block";
+                if (isInline)
+                {
+                    if (inlineRun > 0)
+                        inlineRun += TextMeasurer.MeasureWidth(" ", fontSize,
+                            style.FontFamily, style.FontWeight, style.Get("font-style"), letterSpacing);
+                    inlineRun += childWidth;
+                }
+                else
+                {
+                    if (inlineRun > maxWidth) maxWidth = inlineRun;
+                    inlineRun = 0;
+                    if (childWidth > maxWidth) maxWidth = childWidth;
                 }
             }
         }
 
+        if (inlineRun > maxWidth) maxWidth = inlineRun;
         return maxWidth;
     }
 
