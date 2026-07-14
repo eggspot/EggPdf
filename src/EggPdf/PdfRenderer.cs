@@ -630,6 +630,10 @@ internal static class PdfRenderer
                             tlrPt, trrPt, brrPt, blrPt);
                     else
                         page.AddRectangle(pdfX, pdfY, pdfW, pdfH, bgR, bgG, bgB);
+
+                    // Reset opacity so it does not leak into subsequent content
+                    if (bgAlpha < 1f)
+                        page.SetOpacity(1f);
                 }
             }
 
@@ -912,6 +916,11 @@ internal static class PdfRenderer
                 }
             }
 
+            // Text alpha: rgba() color alpha combined with the element's css opacity
+            float textAlpha = (color?.A / 255f ?? 1f) * cssOpacity;
+            if (textAlpha < 1f)
+                page.SetOpacity(textAlpha);
+
             // Use CIDFont glyph IDs for embedded fonts, or WinAnsi for built-in fonts
             if (_currentPdfDoc != null && _currentPdfDoc.IsEmbeddedFont(fontName))
             {
@@ -935,6 +944,9 @@ internal static class PdfRenderer
                     color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
                     letterSpacing, wordSpacing);
             }
+
+            if (textAlpha < 1f)
+                page.SetOpacity(1f);
 
             // Text decoration (underline, line-through, overline)
             // Honour text-decoration-line, text-decoration-color, text-decoration-thickness longhands.

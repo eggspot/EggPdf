@@ -233,13 +233,22 @@ public static class HtmlToPdf
         sheet.ImportRules.Clear();
     }
 
-    /// <summary>Load CSS text from a URL (data: URI or file path).</summary>
+    /// <summary>Load CSS text from a URL (data: URI, http(s) URL, or file path).</summary>
     internal static string? LoadCssText(string url, string? basePath)
     {
         // Data URI: data:text/css;base64,...  or  data:text/css,...
         if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
         {
             return DecodeDataUri(url);
+        }
+
+        // Remote stylesheet (e.g. Google Fonts <link>): fetch over HTTP(S) so
+        // @font-face webfont declarations are available for embedding.
+        if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            var bytes = Text.FontUrlFetcher.Fetch(url);
+            return bytes != null && bytes.Length > 0 ? Encoding.UTF8.GetString(bytes) : null;
         }
 
         // Resolve relative path against basePath
@@ -444,20 +453,24 @@ public static class HtmlToPdf
     }
 
     /// <summary>
-    /// Walk the layout tree, find text using TrueType system fonts, subset them,
+    /// Walk the layout tree, find text needing a real font program, subset it,
     /// and register as CIDFont Type 2 in the PDF document.
+    /// A font is embedded when the text's font-family list references a declared
+    /// @font-face (webfont), or when its codepoints exceed WinAnsiEncoding
+    /// (e.g. Vietnamese) so the non-embedded Type1 built-ins cannot encode them.
     /// </summary>
     private static void SubsetAndEmbedFonts(LayoutBox root, PdfDocument pdfDoc,
         List<CssStyleSheet>? stylesheets = null)
     {
-        // Collect all (fontName, codepoints) used in the document
+        // Collect (fontName, codepoints) plus the raw font-family list per font name
         var fontCodepoints = new Dictionary<string, HashSet<int>>();
-        CollectTextCodepoints(root, fontCodepoints);
+        var fontFamilyLists = new Dictionary<string, string>();
+        CollectTextCodepoints(root, fontCodepoints, fontFamilyLists);
 
         if (fontCodepoints.Count == 0) return;
 
-        // Build lookup: normalized PDF font name -> @font-face src value
-        var fontFaceSrcs = BuildFontFaceMap(stylesheets);
+        // Build lookup: @font-face family (lowercase) -> declared face variants
+        var fontFaces = BuildFontFaceMap(stylesheets);
 
         var fontResolver = new Text.FontResolver();
 
@@ -466,44 +479,35 @@ public static class HtmlToPdf
             var pdfFontName = kv.Key;
             var codepoints = kv.Value;
 
-            // Only embed if this is NOT a standard PDF built-in font
-            if (IsStandardPdfFont(pdfFontName)) continue;
+            bool bold = pdfFontName.IndexOf("Bold", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool italic = pdfFontName.IndexOf("Italic", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                          pdfFontName.IndexOf("Oblique", StringComparison.OrdinalIgnoreCase) >= 0;
+            fontFamilyLists.TryGetValue(pdfFontName, out var familyList);
 
-            // Try @font-face src first, then fall back to system font resolver
-            Text.TrueType.FontData? fontData = null;
+            // 1. Webfont: first family in the list with a declared @font-face wins,
+            //    mirroring the browser's font selection.
+            Text.TrueType.FontData? fontData =
+                TryResolveFontFace(familyList, fontFaces, bold, italic, fontResolver);
 
-            if (fontFaceSrcs.TryGetValue(pdfFontName, out var srcValue))
+            // 2. Standard built-in Type1 fonts (WinAnsiEncoding) stay non-embedded
+            //    while every codepoint is WinAnsi-encodable and no webfont applies.
+            bool isStandard = IsStandardPdfFont(pdfFontName);
+            if (fontData == null && isStandard && AllWinAnsiEncodable(codepoints))
+                continue;
+
+            // 3. System fonts: real families from the list, then metric-compatible
+            //    substitutes for the standard font class.
+            if (fontData == null)
+                fontData = TryResolveSystemFont(familyList, fontResolver, bold, italic);
+
+            if (fontData == null)
             {
-                // Parse src: may be comma-separated list of url() or local()
-                var srcParts = srcValue.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (var srcPart in srcParts)
+                foreach (var candidate in GetSystemFontCandidates(pdfFontName))
                 {
-                    var url = Text.FontUrlFetcher.ParseFontSrcUrl(srcPart.Trim());
-                    if (url == null) continue;
-
-                    if (url.StartsWith("local:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        // local("FontName") — resolve via system
-                        var localName = url.Substring(6);
-                        fontData = fontResolver.Resolve(localName);
-                    }
-                    else
-                    {
-                        var rawBytes = Text.FontUrlFetcher.Fetch(url);
-                        if (rawBytes != null && rawBytes.Length > 0)
-                        {
-                            try { fontData = Text.TrueType.TtfParser.Parse(rawBytes); }
-                            catch { fontData = null; }
-                        }
-                    }
-
+                    fontData = fontResolver.Resolve(candidate, bold, italic);
                     if (fontData != null) break;
                 }
             }
-
-            // Fall back to system font resolver
-            if (fontData == null)
-                fontData = fontResolver.Resolve(pdfFontName);
 
             if (fontData == null || fontData.RawData == null || fontData.RawData.Length == 0)
                 continue;
@@ -526,12 +530,153 @@ public static class HtmlToPdf
     }
 
     /// <summary>
-    /// Build a map from normalized PDF font name to @font-face src value.
-    /// Scans all font-face rules in all stylesheets.
+    /// Walk a CSS font-family list and load the first family that has a declared
+    /// @font-face, picking the variant closest to the requested weight/style.
     /// </summary>
-    private static Dictionary<string, string> BuildFontFaceMap(List<CssStyleSheet>? stylesheets)
+    private static Text.TrueType.FontData? TryResolveFontFace(string? familyList,
+        Dictionary<string, List<FontFaceCandidate>> fontFaces, bool bold, bool italic,
+        Text.FontResolver fontResolver)
     {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrEmpty(familyList) || fontFaces.Count == 0) return null;
+
+        var families = familyList!.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var rawFamily in families)
+        {
+            var family = rawFamily.Trim().Trim('"', '\'').ToLowerInvariant();
+            if (family.Length == 0) continue;
+            if (!fontFaces.TryGetValue(family, out var candidates)) continue;
+
+            var face = SelectFontFace(candidates, bold, italic);
+            if (face == null) continue;
+
+            // src may list alternatives: url(...) format(...), local(...), ...
+            var srcParts = face.Src.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var srcPart in srcParts)
+            {
+                var url = Text.FontUrlFetcher.ParseFontSrcUrl(srcPart.Trim());
+                if (url == null) continue;
+
+                Text.TrueType.FontData? fontData = null;
+                if (url.StartsWith("local:", StringComparison.OrdinalIgnoreCase))
+                {
+                    fontData = fontResolver.Resolve(url.Substring(6), bold, italic);
+                }
+                else
+                {
+                    var rawBytes = Text.FontUrlFetcher.Fetch(url);
+                    if (rawBytes != null && rawBytes.Length > 0)
+                    {
+                        try { fontData = Text.TrueType.TtfParser.Parse(rawBytes); }
+                        catch { fontData = null; }
+                    }
+                }
+
+                if (fontData != null) return fontData;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Pick the @font-face variant best matching the requested weight/style.</summary>
+    private static FontFaceCandidate? SelectFontFace(List<FontFaceCandidate> candidates, bool bold, bool italic)
+    {
+        if (candidates.Count == 0) return null;
+
+        int targetWeight = bold ? 700 : 400;
+        FontFaceCandidate? best = null;
+        int bestScore = int.MaxValue;
+
+        foreach (var c in candidates)
+        {
+            // Style mismatch is worse than any weight distance
+            int score = Math.Abs(c.Weight - targetWeight) + (c.Italic != italic ? 10000 : 0);
+            if (score < bestScore)
+            {
+                bestScore = score;
+                best = c;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>Resolve the first family in a CSS font-family list to an installed system font.</summary>
+    private static Text.TrueType.FontData? TryResolveSystemFont(string? familyList,
+        Text.FontResolver fontResolver, bool bold, bool italic)
+    {
+        if (string.IsNullOrEmpty(familyList)) return null;
+
+        var families = familyList!.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var rawFamily in families)
+        {
+            var family = rawFamily.Trim().Trim('"', '\'');
+            if (family.Length == 0) continue;
+
+            var fontData = fontResolver.Resolve(family, bold, italic);
+            if (fontData != null) return fontData;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Metric-compatible system font candidates for a standard PDF font name,
+    /// covering Windows, macOS, and Linux (Liberation/DejaVu/Noto) installs.
+    /// </summary>
+    private static string[] GetSystemFontCandidates(string pdfFontName)
+    {
+        if (pdfFontName.StartsWith("Times", StringComparison.OrdinalIgnoreCase))
+            return new[] { "Times New Roman", "Times", "LiberationSerif", "DejaVuSerif", "NotoSerif" };
+        if (pdfFontName.StartsWith("Courier", StringComparison.OrdinalIgnoreCase))
+            return new[] { "Courier New", "Courier", "LiberationMono", "DejaVuSansMono", "NotoSansMono" };
+        if (pdfFontName.StartsWith("Symbol", StringComparison.OrdinalIgnoreCase) ||
+            pdfFontName.StartsWith("ZapfDingbats", StringComparison.OrdinalIgnoreCase))
+            return Array.Empty<string>();
+        // Helvetica / Arial / anything else sans-like
+        return new[] { "Arial", "Helvetica", "LiberationSans", "DejaVuSans", "NotoSans" };
+    }
+
+    /// <summary>True when every codepoint can be encoded in WinAnsiEncoding.</summary>
+    private static bool AllWinAnsiEncodable(HashSet<int> codepoints)
+    {
+        foreach (var cp in codepoints)
+            if (!IsWinAnsiEncodable(cp)) return false;
+        return true;
+    }
+
+    /// <summary>Mirror of PdfPage.MapToWinAnsi: codepoints representable in WinAnsiEncoding.</summary>
+    private static bool IsWinAnsiEncodable(int cp)
+    {
+        if (cp < 0x80) return true;               // ASCII
+        if (cp >= 0xA0 && cp <= 0xFF) return true; // Latin-1 Supplement
+        switch (cp)
+        {
+            case 0x2022: case 0x2013: case 0x2014: case 0x2018: case 0x2019:
+            case 0x201C: case 0x201D: case 0x2026: case 0x2020: case 0x2021:
+            case 0x2030: case 0x2039: case 0x203A: case 0x0152: case 0x0153:
+            case 0x0160: case 0x0161: case 0x0178: case 0x0192: case 0x02C6:
+            case 0x02DC: case 0x2122:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private class FontFaceCandidate
+    {
+        public int Weight;
+        public bool Italic;
+        public string Src = "";
+    }
+
+    /// <summary>
+    /// Build a map from @font-face family name (lowercase) to its declared face
+    /// variants (weight, style, src). Scans all font-face rules in all stylesheets.
+    /// </summary>
+    private static Dictionary<string, List<FontFaceCandidate>> BuildFontFaceMap(List<CssStyleSheet>? stylesheets)
+    {
+        var result = new Dictionary<string, List<FontFaceCandidate>>(StringComparer.Ordinal);
         if (stylesheets == null) return result;
 
         foreach (var sheet in stylesheets)
@@ -552,17 +697,46 @@ public static class HtmlToPdf
 
                 if (string.IsNullOrEmpty(family) || string.IsNullOrEmpty(src)) continue;
 
-                // Map to the same PDF font name the renderer will use
-                var pdfName = Layout.StandardFontMetrics.ResolvePdfFontName(family, weight, fontStyle);
-                if (!result.ContainsKey(pdfName))
-                    result[pdfName] = src;
+                var key = family!.ToLowerInvariant();
+                if (!result.TryGetValue(key, out var list))
+                {
+                    list = new List<FontFaceCandidate>();
+                    result[key] = list;
+                }
+
+                list.Add(new FontFaceCandidate
+                {
+                    Weight = ParseFontWeight(weight),
+                    Italic = fontStyle != null &&
+                             (fontStyle.IndexOf("italic", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                              fontStyle.IndexOf("oblique", StringComparison.OrdinalIgnoreCase) >= 0),
+                    Src = src!
+                });
             }
         }
 
         return result;
     }
 
-    private static void CollectTextCodepoints(LayoutBox box, Dictionary<string, HashSet<int>> fontCodepoints)
+    /// <summary>Parse a font-weight declaration ("400", "bold", "300 700") to a numeric weight.</summary>
+    private static int ParseFontWeight(string? weight)
+    {
+        if (string.IsNullOrEmpty(weight)) return 400;
+        var w = weight!.Trim();
+
+        if (w.Equals("bold", StringComparison.OrdinalIgnoreCase)) return 700;
+        if (w.Equals("normal", StringComparison.OrdinalIgnoreCase)) return 400;
+
+        // Range like "300 700" — use the first bound
+        int space = w.IndexOf(' ');
+        if (space > 0) w = w.Substring(0, space);
+
+        return int.TryParse(w, System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out int value) ? value : 400;
+    }
+
+    private static void CollectTextCodepoints(LayoutBox box, Dictionary<string, HashSet<int>> fontCodepoints,
+        Dictionary<string, string> fontFamilyLists)
     {
         if (!string.IsNullOrEmpty(box.Text))
         {
@@ -575,23 +749,51 @@ public static class HtmlToPdf
                 fontCodepoints[fontName] = codepoints;
             }
 
-            for (int i = 0; i < box.Text.Length; i++)
+            // Remember the raw font-family list so embedding can honor @font-face
+            // webfonts and real system families, not just the standard mapping.
+            var familyList = box.Style?.FontFamily;
+            if (!string.IsNullOrEmpty(familyList) && !fontFamilyLists.ContainsKey(fontName))
+                fontFamilyLists[fontName] = familyList!;
+
+            AddCodepoints(codepoints, box.Text!);
+
+            // The renderer applies text-transform / small-caps at paint time, so the
+            // subset must also cover the transformed characters.
+            var textTransform = box.Style?.Get("text-transform");
+            var fontVariant = box.Style?.Get("font-variant");
+            bool transforms = (!string.IsNullOrEmpty(textTransform) && textTransform != "none") ||
+                              (fontVariant != null && fontVariant.IndexOf("small-caps", StringComparison.OrdinalIgnoreCase) >= 0);
+            if (transforms)
             {
-                char c = box.Text[i];
-                if (char.IsHighSurrogate(c) && i + 1 < box.Text.Length && char.IsLowSurrogate(box.Text[i + 1]))
-                {
-                    codepoints.Add(char.ConvertToUtf32(c, box.Text[i + 1]));
-                    i++;
-                }
-                else
-                {
-                    codepoints.Add(c);
-                }
+                AddCodepoints(codepoints, box.Text!.ToUpperInvariant());
+                AddCodepoints(codepoints, box.Text!.ToLowerInvariant());
             }
+
+            // text-overflow: ellipsis may append "..." at paint time
+            if (box.Style?.Get("text-overflow") == "ellipsis")
+                codepoints.Add('.');
         }
 
         foreach (var child in box.Children)
-            CollectTextCodepoints(child, fontCodepoints);
+            CollectTextCodepoints(child, fontCodepoints, fontFamilyLists);
+    }
+
+    /// <summary>Add every codepoint of a string (surrogate-pair aware) to the set.</summary>
+    private static void AddCodepoints(HashSet<int> codepoints, string text)
+    {
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                codepoints.Add(char.ConvertToUtf32(c, text[i + 1]));
+                i++;
+            }
+            else
+            {
+                codepoints.Add(c);
+            }
+        }
     }
 
     private static bool IsStandardPdfFont(string fontName)

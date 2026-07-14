@@ -23,6 +23,83 @@ public class HtmlTokenizerTests
         tokens.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData("&middot;", "·")]
+    [InlineData("&hellip;", "…")]
+    [InlineData("&copy;", "©")]
+    [InlineData("&reg;", "®")]
+    [InlineData("&trade;", "™")]
+    [InlineData("&ndash;", "–")]
+    [InlineData("&mdash;", "—")]
+    [InlineData("&bull;", "•")]
+    [InlineData("&lsquo;", "‘")]
+    [InlineData("&rsquo;", "’")]
+    [InlineData("&ldquo;", "“")]
+    [InlineData("&rdquo;", "”")]
+    [InlineData("&deg;", "°")]
+    [InlineData("&plusmn;", "±")]
+    [InlineData("&laquo;", "«")]
+    [InlineData("&raquo;", "»")]
+    [InlineData("&sect;", "§")]
+    [InlineData("&para;", "¶")]
+    [InlineData("&euro;", "€")]
+    [InlineData("&pound;", "£")]
+    [InlineData("&yen;", "¥")]
+    [InlineData("&cent;", "¢")]
+    [InlineData("&eacute;", "é")]
+    [InlineData("&egrave;", "è")]
+    [InlineData("&agrave;", "à")]
+    [InlineData("&uuml;", "ü")]
+    [InlineData("&ouml;", "ö")]
+    [InlineData("&ntilde;", "ñ")]
+    [InlineData("&ccedil;", "ç")]
+    [InlineData("&szlig;", "ß")]
+    [InlineData("&times;", "×")]
+    [InlineData("&divide;", "÷")]
+    [InlineData("&frac12;", "½")]
+    [InlineData("&iexcl;", "¡")]
+    [InlineData("&iquest;", "¿")]
+    [InlineData("&dagger;", "†")]
+    [InlineData("&Dagger;", "‡")]
+    [InlineData("&permil;", "‰")]
+    [InlineData("&lsaquo;", "‹")]
+    [InlineData("&rsaquo;", "›")]
+    [InlineData("&oelig;", "œ")]
+    [InlineData("&OElig;", "Œ")]
+    [InlineData("&larr;", "←")]
+    [InlineData("&rarr;", "→")]
+    [InlineData("&uarr;", "↑")]
+    [InlineData("&darr;", "↓")]
+    [InlineData("&infin;", "∞")]
+    [InlineData("&ne;", "≠")]
+    [InlineData("&le;", "≤")]
+    [InlineData("&ge;", "≥")]
+    [InlineData("&minus;", "−")]
+    [InlineData("&shy;", "­")]
+    public void NamedEntity_DecodesToUnicodeCharacter(string entity, string expected)
+    {
+        var tokens = Tokenize($"a{entity}b");
+        tokens.Should().HaveCount(1);
+        tokens[0].Data.Should().Be($"a{expected}b");
+    }
+
+    [Fact]
+    public void NamedEntity_LongestMatchWins()
+    {
+        // "&not" is a valid entity (¬), but "&notin;" must match the longer name (∉)
+        var tokens = Tokenize("a&notin;b");
+        tokens.Should().HaveCount(1);
+        tokens[0].Data.Should().Be("a∉b");
+    }
+
+    [Fact]
+    public void UnknownNamedEntity_EmitsAmpersandLiterally()
+    {
+        var tokens = Tokenize("a&bogusentity;b");
+        tokens.Should().HaveCount(1);
+        tokens[0].Data.Should().StartWith("a&");
+    }
+
     [Fact]
     public void PlainText_ReturnsCharacterToken()
     {

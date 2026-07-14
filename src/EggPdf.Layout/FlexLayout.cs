@@ -42,7 +42,7 @@ public static class FlexLayout
         float mainGap = ResolveGap(style, isRow, container.ContentWidth, fontSize);
         float crossGap = ResolveGap(style, !isRow, container.ContentWidth, fontSize);
 
-        float mainSize = isRow ? container.ContentWidth : GetContainerCrossSize(container, style, isRow, fontSize);
+        float mainSize = isRow ? container.ContentWidth : GetColumnMainSize(container, style, fontSize);
         float crossSize = isRow ? GetContainerCrossSize(container, style, isRow, fontSize) : container.ContentWidth;
 
         // Collect flex items
@@ -53,13 +53,18 @@ public static class FlexLayout
         // Sort by order property
         SortByOrder(items);
 
+        // An auto-height column container has an indefinite main size: items keep
+        // their hypothetical sizes (no grow/shrink, no justify free space).
+        bool mainIndefinite = !isRow && mainSize <= 0;
+
         // Collect items into flex lines
-        var lines = CollectFlexLines(items, mainSize, mainGap, isWrap, isRow);
+        var lines = CollectFlexLines(items, mainIndefinite ? float.MaxValue : mainSize, mainGap, isWrap, isRow);
 
         // Resolve flexible lengths for each line
         for (int li = 0; li < lines.Count; li++)
         {
-            ResolveFlexibleLengths(lines[li], mainSize, mainGap, isRow);
+            float lineMain = mainIndefinite ? SumLineBaseMain(lines[li], mainGap, isRow) : mainSize;
+            ResolveFlexibleLengths(lines[li], lineMain, mainGap, isRow);
         }
 
         // Re-layout items whose width changed from the initial CreateBox pass.
@@ -94,7 +99,8 @@ public static class FlexLayout
             float lineCrossOffset = lineOffsets[lineIdx];
 
             // Main axis alignment
-            PositionMainAxis(line, mainSize, mainGap, justifyContent, isRow, isReverse, container);
+            float positionMain = mainIndefinite ? SumLineBaseMain(line, mainGap, isRow) : mainSize;
+            PositionMainAxis(line, positionMain, mainGap, justifyContent, isRow, isReverse, container);
 
             // Cross axis alignment
             PositionCrossAxis(line, lineCrossOffset, line.CrossSize, alignItems, isRow, container);
@@ -139,6 +145,41 @@ public static class FlexLayout
         return BlockLayout.ResolveLength(gapValue, containingWidth, fontSize);
     }
 
+    /// <summary>
+    /// Main size of a column flex container: its definite height, else min-height,
+    /// else 0 (auto — content-driven, no free space to distribute).
+    /// </summary>
+    private static float GetColumnMainSize(LayoutBox container, ComputedStyle style, float fontSize)
+    {
+        var h = BlockLayout.ResolveOptionalLength(style.Height, 0, fontSize)
+             ?? BlockLayout.ResolveOptionalLength(style.Get("min-height"), 0, fontSize);
+        if (!h.HasValue) return 0;
+
+        // Items are laid out inside the padding, so a border-box height must be
+        // reduced to the content height.
+        if (style.Get("box-sizing") == "border-box")
+        {
+            float content = h.Value - container.PaddingTop - container.PaddingBottom;
+            return content > 0 ? content : 0;
+        }
+        return h.Value;
+    }
+
+    /// <summary>Sum of a line's hypothetical item sizes, margins, and gaps along the main axis.</summary>
+    private static float SumLineBaseMain(FlexLine line, float mainGap, bool isRow)
+    {
+        float total = line.Items.Count > 1 ? mainGap * (line.Items.Count - 1) : 0;
+        for (int i = 0; i < line.Items.Count; i++)
+        {
+            var item = line.Items[i];
+            total += item.HypotheticalMainSize;
+            total += isRow
+                ? item.Box.MarginLeft + item.Box.MarginRight
+                : item.Box.MarginTop + item.Box.MarginBottom;
+        }
+        return total;
+    }
+
     /// <summary>Get container's cross size (height for row, width for column).</summary>
     private static float GetContainerCrossSize(LayoutBox container, ComputedStyle style, bool isRow, float fontSize)
     {
@@ -172,6 +213,13 @@ public static class FlexLayout
             if (childStyle.Display == "none")
                 continue;
 
+            // Absolutely/fixed positioned children are out-of-flow: they are not
+            // flex items and must not consume flex space. The container's CreateBox
+            // branch positions them after the flex layout completes.
+            var childPosition = childStyle.Get("position");
+            if (childPosition == "absolute" || childPosition == "fixed")
+                continue;
+
             // Read flex item properties
             float flexGrow = ParseFloatSafe(childStyle.Get("flex-grow"), 0);
             float flexShrink = ParseFloatSafe(childStyle.Get("flex-shrink"), 1);
@@ -194,9 +242,10 @@ public static class FlexLayout
                 hasExplicitMainSize = !string.IsNullOrEmpty(childStyle.Height) && childStyle.Height != "auto";
             }
 
-            // Create child box using BlockLayout
+            // Create child box using BlockLayout. Items resolve their widths against
+            // the flex container's content box, not the container's own containing block.
             var childBox = BlockLayout.CreateBox(childElem, childStyle, container,
-                containingWidth, resolver, containerStyle);
+                container.ContentWidth, resolver, containerStyle);
 
             // Determine base size
             float baseSize;
@@ -227,7 +276,12 @@ public static class FlexLayout
                 // the baseSize incorrectly. Leaf text runs have ContentWidth = measured text width.
                 if (isRow)
                 {
-                    baseSize = GetMaxLeafContentWidth(childBox);
+                    // Max-content sizing: leaf runs are word-level after wrapping, so
+                    // also measure the unwrapped text width (flex-shrink recovers
+                    // overflow when the sum exceeds the line).
+                    baseSize = Math.Max(GetMaxLeafContentWidth(childBox),
+                        MeasureContentWidth(childElem, childStyle, resolver,
+                            BlockLayout.ResolveFontSize(childStyle.FontSize, fontSize)));
                 }
                 else
                 {
@@ -669,11 +723,9 @@ public static class FlexLayout
             else
             {
                 pos += item.Box.MarginTop;
-                float newY = container.Y + container.PaddingTop + pos;
-                float deltaY = newY - item.Box.Y;
-                item.Box.Y = newY;
-                if (Math.Abs(deltaY) > 0.01f)
-                    OffsetChildren(item.Box, 0, deltaY);
+                // Child Y coordinates are parent-relative (the post-layout pass in
+                // BlockLayout adds each ancestor's Y), so only the box moves here.
+                item.Box.Y = container.Y + container.PaddingTop + pos;
                 pos += item.MainSize + item.Box.MarginBottom;
             }
 
@@ -825,11 +877,9 @@ public static class FlexLayout
 
             if (isRow)
             {
-                float newY = container.Y + container.PaddingTop + crossPos;
-                float deltaY = newY - item.Box.Y;
-                item.Box.Y = newY;
-                if (Math.Abs(deltaY) > 0.01f)
-                    OffsetChildren(item.Box, 0, deltaY);
+                // Child Y coordinates are parent-relative (resolved in a post-layout
+                // pass), so only the box itself moves vertically.
+                item.Box.Y = container.Y + container.PaddingTop + crossPos;
             }
             else
             {
@@ -843,7 +893,7 @@ public static class FlexLayout
     }
 
     /// <summary>Recursively offset all children by delta X/Y when parent is repositioned.</summary>
-    private static void OffsetChildren(LayoutBox box, float dx, float dy)
+    internal static void OffsetChildren(LayoutBox box, float dx, float dy)
     {
         for (int i = 0; i < box.Children.Count; i++)
         {

@@ -79,6 +79,35 @@ public class PngImageE2ETests
     }
 
     [Fact]
+    public async Task PngImage_OneBitGrayscale_RendersInPdf()
+    {
+        // QR code generators commonly emit 1-bit grayscale PNGs (color type 0, bit depth 1)
+        var html = $"<img src='data:image/png;base64,{CreateOneBitGrayscalePngBase64()}' width='100' height='100'>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+
+        text.Should().StartWith("%PDF");
+        text.Should().Contain("/XObject"); // image XObject present
+        text.Should().Contain("Do");       // image draw operator
+    }
+
+    [Fact]
+    public async Task PngImage_DisplayBlock_RendersInPdf()
+    {
+        // display:block on an <img> (common in CSS resets and QR frames) must not
+        // route it into the generic block path where ImageSource is lost.
+        var html = "<style>.fr { display:inline-block; padding:8px; } .fr img { display:block; width:100px; height:100px; }</style>" +
+                   $"<div class='fr'><img src='data:image/png;base64,{RedPngBase64}' alt='qr'></div>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+
+        text.Should().Contain("/XObject");
+        text.Should().Contain("Do");
+    }
+
+    [Fact]
     public async Task PngImage_InvalidBase64_DoesNotCrash()
     {
         var html = "<img src='data:image/png;base64,NOT_VALID_PNG_DATA' width='50' height='50'>";
@@ -157,6 +186,53 @@ public class PngImageE2ETests
         WriteChunk(bw, "IDAT", compressed);
 
         // IEND chunk
+        WriteChunk(bw, "IEND", Array.Empty<byte>());
+
+        return Convert.ToBase64String(ms.ToArray());
+    }
+
+    /// <summary>Create an 8x8 checkerboard 1-bit grayscale PNG (color type 0, bit depth 1) as base64.</summary>
+    private static string CreateOneBitGrayscalePngBase64()
+    {
+        using var ms = new MemoryStream();
+        var bw = new BinaryWriter(ms);
+
+        bw.Write(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
+
+        // IHDR: 8x8, 1-bit, grayscale (color type 0)
+        WriteChunk(bw, "IHDR", new byte[] {
+            0, 0, 0, 8,  // width
+            0, 0, 0, 8,  // height
+            1,            // bit depth
+            0,            // color type (grayscale)
+            0, 0, 0       // compression, filter, interlace
+        });
+
+        // 8 scanlines: filter byte 0 + 1 packed byte (8 pixels), alternating rows
+        var raw = new byte[16];
+        for (int y = 0; y < 8; y++)
+        {
+            raw[y * 2] = 0; // filter: none
+            raw[y * 2 + 1] = (byte)(y % 2 == 0 ? 0xAA : 0x55);
+        }
+
+        byte[] compressed;
+        using (var cms = new MemoryStream())
+        {
+            cms.WriteByte(0x78);
+            cms.WriteByte(0x01);
+            using (var deflate = new DeflateStream(cms, CompressionLevel.Fastest, true))
+            {
+                deflate.Write(raw, 0, raw.Length);
+            }
+            uint adler = Adler32(raw);
+            cms.WriteByte((byte)(adler >> 24));
+            cms.WriteByte((byte)(adler >> 16));
+            cms.WriteByte((byte)(adler >> 8));
+            cms.WriteByte((byte)(adler));
+            compressed = cms.ToArray();
+        }
+        WriteChunk(bw, "IDAT", compressed);
         WriteChunk(bw, "IEND", Array.Empty<byte>());
 
         return Convert.ToBase64String(ms.ToArray());

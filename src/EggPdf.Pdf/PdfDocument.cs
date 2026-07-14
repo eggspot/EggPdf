@@ -263,14 +263,7 @@ public class PdfDocument
             var img = _images[kv.Key];
             var smaskData = img.SMaskData!;
 
-            // Compress with Deflate
-            byte[] compressedSmask;
-            using (var sms = new MemoryStream())
-            {
-                using (var ds = new DeflateStream(sms, CompressionLevel.Fastest, true))
-                    ds.Write(smaskData, 0, smaskData.Length);
-                compressedSmask = sms.ToArray();
-            }
+            byte[] compressedSmask = CompressZlib(smaskData);
 
             offsets[kv.Value] = writer.Position;
             writer.WriteLine($"{kv.Value} 0 obj");
@@ -307,14 +300,8 @@ public class PdfDocument
             }
             else
             {
-                // Raw RGB: compress with Deflate
-                byte[] compressed;
-                using (var ims = new MemoryStream())
-                {
-                    using (var ds = new DeflateStream(ims, CompressionLevel.Fastest, true))
-                        ds.Write(img.Data, 0, img.Data.Length);
-                    compressed = ims.ToArray();
-                }
+                // Raw RGB: compress with zlib (FlateDecode)
+                byte[] compressed = CompressZlib(img.Data);
 
                 var imgDict = new StringBuilder();
                 imgDict.Append($"<< /Type /XObject /Subtype /Image /Width {img.Width} /Height {img.Height}");
@@ -662,19 +649,42 @@ public class PdfDocument
         return total;
     }
 
+    /// <summary>
+    /// Compress data as a zlib stream (RFC 1950) for /FlateDecode: 2-byte header,
+    /// raw deflate body, Adler-32 checksum. DeflateStream alone emits raw deflate
+    /// (RFC 1951), which strict PDF viewers reject.
+    /// </summary>
+    private static byte[] CompressZlib(byte[] data)
+    {
+        using var ms = new MemoryStream();
+        ms.WriteByte(0x78); // CMF: deflate, 32K window
+        ms.WriteByte(0x9C); // FLG: default compression, FCHECK valid
+        using (var ds = new DeflateStream(ms, CompressionLevel.Fastest, true))
+            ds.Write(data, 0, data.Length);
+
+        // Adler-32 of the uncompressed data (big-endian)
+        uint a = 1, b = 0;
+        for (int i = 0; i < data.Length; i++)
+        {
+            a = (a + data[i]) % 65521;
+            b = (b + a) % 65521;
+        }
+        uint adler = (b << 16) | a;
+        ms.WriteByte((byte)(adler >> 24));
+        ms.WriteByte((byte)(adler >> 16));
+        ms.WriteByte((byte)(adler >> 8));
+        ms.WriteByte((byte)adler);
+
+        return ms.ToArray();
+    }
+
     /// <summary>Write a CIDFont Type 2 (embedded TrueType) with all required objects.</summary>
     private void WriteCIDFont(PdfStreamWriter writer, Dictionary<int, long> offsets,
         string fontName, (int type0, int cidFont, int descriptor, int stream, int toUnicode) objs,
         EmbeddedFontData fontData)
     {
         // 1. Compress the subset font data
-        byte[] compressed;
-        using (var ms = new MemoryStream())
-        {
-            using (var ds = new DeflateStream(ms, CompressionLevel.Fastest, true))
-                ds.Write(fontData.SubsetData, 0, fontData.SubsetData.Length);
-            compressed = ms.ToArray();
-        }
+        byte[] compressed = CompressZlib(fontData.SubsetData);
 
         // 2. Build W (widths) array: /W [0 [w0 w1 w2 ...]]
         var wArray = new StringBuilder();
@@ -691,13 +701,7 @@ public class PdfDocument
         // 3. Build ToUnicode CMap
         byte[] toUnicodeData = BuildToUnicodeCMap(fontData.CodepointToGlyphId);
 
-        byte[] toUnicodeCompressed;
-        using (var ms = new MemoryStream())
-        {
-            using (var ds = new DeflateStream(ms, CompressionLevel.Fastest, true))
-                ds.Write(toUnicodeData, 0, toUnicodeData.Length);
-            toUnicodeCompressed = ms.ToArray();
-        }
+        byte[] toUnicodeCompressed = CompressZlib(toUnicodeData);
 
         // 4. Write font stream (subset TrueType data)
         offsets[objs.stream] = writer.Position;

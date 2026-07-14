@@ -273,6 +273,12 @@ public static class BlockLayout
                 box.Y += offsetTopFlex;
             }
 
+            // Absolutely positioned children are out-of-flow (excluded from flex
+            // items); place them now that the container's final size is known.
+            var flexAbsChildren = CollectAbsoluteChildren(element, style, resolver);
+            if (flexAbsChildren.Count > 0)
+                LayoutAbsoluteChildren(flexAbsChildren, box, position, containingWidth, parent, fontSize, resolver, style);
+
             return box;
         }
 
@@ -326,6 +332,12 @@ public static class BlockLayout
                 float offsetTopGrid = ResolveLength(style.Get("top"), 0, fontSize);
                 box.Y += offsetTopGrid;
             }
+
+            // Absolutely positioned children are out-of-flow (excluded from grid
+            // items); place them now that the container's final size is known.
+            var gridAbsChildren = CollectAbsoluteChildren(element, style, resolver);
+            if (gridAbsChildren.Count > 0)
+                LayoutAbsoluteChildren(gridAbsChildren, box, position, containingWidth, parent, fontSize, resolver, style);
 
             return box;
         }
@@ -405,6 +417,10 @@ public static class BlockLayout
         // Form element special rendering: inject value/content text for void/custom form elements
         childY = InjectFormElementContent(element, style, box, fontSize, childContainingWidth, childY);
 
+        // Tracks a collapsed boundary space owned by the preceding text node
+        // ("Căn cứ <strong>Luật</strong>": the space precedes the inline element).
+        bool prevTextEndedWithSpace = false;
+
         foreach (var childNode in element.ChildNodes)
         {
             if (childNode is HtmlElement childElem)
@@ -422,7 +438,11 @@ public static class BlockLayout
                     continue;
                 }
 
-                if (IsBlockLevel(childStyle.Display))
+                // Images must keep their dedicated branch even when display:block
+                // (the generic block path would lose ImageSource entirely).
+                bool isImageElement = childElem.TagName == "img" || childElem.TagName == "picture";
+
+                if (IsBlockLevel(childStyle.Display) && !isImageElement)
                 {
                     // Flush any pending inline content
                     if (inlineX > 0)
@@ -606,8 +626,11 @@ public static class BlockLayout
                     float imgWidth = ResolveImgDimension(childStyle.Width, childElem.GetAttribute("width"), childContainingWidth, fontSize, 150);
                     float imgHeight = ResolveImgDimension(childStyle.Height, childElem.GetAttribute("height"), 0, fontSize, 150);
 
+                    // display:block images occupy their own line
+                    bool imgIsBlock = IsBlockLevel(childStyle.Display);
+
                     // Check if image fits on current inline line
-                    if (inlineX > 0 && inlineX + imgWidth > childContainingWidth)
+                    if (inlineX > 0 && (imgIsBlock || inlineX + imgWidth > childContainingWidth))
                     {
                         childY += inlineLineHeight;
                         inlineX = 0;
@@ -631,9 +654,20 @@ public static class BlockLayout
                         ImageSource = imgSrc
                     };
                     box.Children.Add(childBox);
-                    inlineX += imgWidth;
-                    if (imgHeight > inlineLineHeight)
-                        inlineLineHeight = imgHeight;
+
+                    if (imgIsBlock)
+                    {
+                        childY += imgHeight;
+                        inlineX = 0;
+                        inlineLineHeight = 0;
+                        hasBlockChild = true;
+                    }
+                    else
+                    {
+                        inlineX += imgWidth;
+                        if (imgHeight > inlineLineHeight)
+                            inlineLineHeight = imgHeight;
+                    }
                 }
                 else if (childElem.TagName == "picture")
                 {
@@ -681,8 +715,13 @@ public static class BlockLayout
                         inlineX = 0;
                         inlineLineHeight = 0;
                     }
-                    childBox.X = box.X + box.PaddingLeft + inlineX;
+                    // X is absolute (shift descendants); Y is parent-relative and
+                    // resolved in the post-layout pass.
+                    float ibDeltaX = box.X + box.PaddingLeft + inlineX - childBox.X;
+                    childBox.X += ibDeltaX;
                     childBox.Y = box.Y + box.PaddingTop + childY;
+                    if (Math.Abs(ibDeltaX) > 0.01f)
+                        FlexLayout.OffsetChildren(childBox, ibDeltaX, 0);
                     box.Children.Add(childBox);
                     inlineX += ibWidth;
                     if (childBox.Height > inlineLineHeight) inlineLineHeight = childBox.Height;
@@ -698,6 +737,13 @@ public static class BlockLayout
                     // Inline elements: collect text runs with style info and lay out word-by-word
                     var runs = new System.Collections.Generic.List<InlineRun>();
                     CollectInlineRuns(childElem, childStyle, ResolveFontSize(childStyle.FontSize, fontSize), resolver, runs);
+                    if (runs.Count > 0 && prevTextEndedWithSpace)
+                    {
+                        var firstRun = runs[0];
+                        firstRun.HasLeadingSpace = true;
+                        runs[0] = firstRun;
+                    }
+                    prevTextEndedWithSpace = false;
                     if (runs.Count > 0)
                     {
                         LayoutInlineRuns(runs, box, childElem, ref inlineX, ref childY, ref inlineLineHeight,
@@ -774,6 +820,9 @@ public static class BlockLayout
                         if (ilLineHeight > inlineLineHeight)
                             inlineLineHeight = ilLineHeight;
                     }
+
+                    prevTextEndedWithSpace = textNode.Data.Length > 0 &&
+                        char.IsWhiteSpace(textNode.Data[textNode.Data.Length - 1]);
                     continue;
                 }
 
@@ -1249,6 +1298,60 @@ public static class BlockLayout
             box.Height = maxHeight.Value;
 
         // Layout absolutely/fixed positioned children (deferred from normal flow)
+        LayoutAbsoluteChildren(absChildren, box, position, containingWidth, parent, fontSize, resolver, style);
+
+        // Apply relative/sticky position Y offset (sticky behaves like relative in PDF — no scrolling)
+        if (position == "relative" || position == "sticky")
+        {
+            float offsetTop = ResolveLength(style.Get("top"), 0, fontSize);
+            box.Y += offsetTop;
+        }
+
+        return box;
+    }
+
+    /// <summary>Walk up parent chain to find page height.</summary>
+    private static float FindPageHeight(LayoutBox parent)
+    {
+        // The root box has Height set to page height and no Element
+        if (parent.Element == null && parent.Height > 0)
+            return parent.Height;
+        // Default A4 page height in CSS px
+        return parent.Height > 0 ? parent.Height : 841.89f;
+    }
+
+    /// <summary>
+    /// Collect absolutely/fixed positioned element children (out-of-flow).
+    /// Used by flex and grid containers, whose item collectors skip them.
+    /// </summary>
+    private static System.Collections.Generic.List<(HtmlElement elem, ComputedStyle style, string pos)> CollectAbsoluteChildren(
+        HtmlElement element, ComputedStyle style, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver)
+    {
+        var result = new System.Collections.Generic.List<(HtmlElement elem, ComputedStyle style, string pos)>();
+        foreach (var childNode in element.ChildNodes)
+        {
+            if (!(childNode is HtmlElement childElem))
+                continue;
+            var childStyle = resolver(childElem, style);
+            if (childStyle.Display == "none")
+                continue;
+            var childPosition = childStyle.Get("position");
+            if (childPosition == "absolute" || childPosition == "fixed")
+                result.Add((childElem, childStyle, childPosition!));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Position absolutely/fixed positioned children relative to their containing
+    /// block (this box when positioned, else the page root). Must run after the
+    /// container's final size is known. Appends the boxes to box.Children.
+    /// </summary>
+    private static void LayoutAbsoluteChildren(
+        System.Collections.Generic.List<(HtmlElement elem, ComputedStyle style, string pos)> absChildren,
+        LayoutBox box, string? position, float containingWidth, LayoutBox parent, float fontSize,
+        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle style)
+    {
         for (int ai = 0; ai < absChildren.Count; ai++)
         {
             var absEntry = absChildren[ai];
@@ -1324,43 +1427,34 @@ public static class BlockLayout
                 }
             }
 
-            // Position X
+            // Position X: offsets move the box AND its already-laid-out descendants
+            float targetX;
             if (leftVal.HasValue)
-                absBox.X = cbX + leftVal.Value + absBox.MarginLeft;
+                targetX = cbX + leftVal.Value + absBox.MarginLeft;
             else if (rightVal.HasValue)
-                absBox.X = cbX + cbWidth - rightVal.Value - absBox.Width - absBox.MarginRight;
+                targetX = cbX + cbWidth - rightVal.Value - absBox.Width - absBox.MarginRight;
             else
-                absBox.X = cbX + absBox.MarginLeft; // default: top-left of containing block
+                targetX = cbX + absBox.MarginLeft; // default: top-left of containing block
 
             // Position Y
+            float targetY;
             if (topVal.HasValue)
-                absBox.Y = cbY + topVal.Value + absBox.MarginTop;
+                targetY = cbY + topVal.Value + absBox.MarginTop;
             else if (bottomVal.HasValue)
-                absBox.Y = cbY + cbHeight - bottomVal.Value - absBox.Height - absBox.MarginBottom;
+                targetY = cbY + cbHeight - bottomVal.Value - absBox.Height - absBox.MarginBottom;
             else
-                absBox.Y = cbY + absBox.MarginTop; // default: top-left of containing block
+                targetY = cbY + absBox.MarginTop; // default: top-left of containing block
+
+            // X is absolute (shift descendants); Y is parent-relative and resolved
+            // in the post-layout pass.
+            float absDeltaX = targetX - absBox.X;
+            absBox.X = targetX;
+            absBox.Y = targetY;
+            if (Math.Abs(absDeltaX) > 0.01f)
+                FlexLayout.OffsetChildren(absBox, absDeltaX, 0);
 
             box.Children.Add(absBox);
         }
-
-        // Apply relative/sticky position Y offset (sticky behaves like relative in PDF — no scrolling)
-        if (position == "relative" || position == "sticky")
-        {
-            float offsetTop = ResolveLength(style.Get("top"), 0, fontSize);
-            box.Y += offsetTop;
-        }
-
-        return box;
-    }
-
-    /// <summary>Walk up parent chain to find page height.</summary>
-    private static float FindPageHeight(LayoutBox parent)
-    {
-        // The root box has Height set to page height and no Element
-        if (parent.Element == null && parent.Height > 0)
-            return parent.Height;
-        // Default A4 page height in CSS px
-        return parent.Height > 0 ? parent.Height : 841.89f;
     }
 
     private static bool IsTableRow(string display)
@@ -2321,6 +2415,7 @@ public static class BlockLayout
         ComputedStyle parentStyle, float parentFontSize)
     {
         bool elementAssigned = false;
+        bool prevRunTrailingSpace = false;
 
         for (int ri = 0; ri < runs.Count; ri++)
         {
@@ -2339,6 +2434,7 @@ public static class BlockLayout
                 {
                     childY += lh;
                 }
+                prevRunTrailingSpace = false;
                 continue;
             }
 
@@ -2368,7 +2464,10 @@ public static class BlockLayout
                 string word = text.Substring(wPos, wEnd - wPos);
                 wPos = wEnd;
 
-                bool needSpace = inlineX > 0 && (!firstWord || run.HasLeadingSpace);
+                // A boundary space also comes from the PREVIOUS run's trailing
+                // whitespace ("đến <strong>bản</strong>": the space belongs to the
+                // text run, not the strong run).
+                bool needSpace = inlineX > 0 && (!firstWord || run.HasLeadingSpace || prevRunTrailingSpace);
                 var wordText = needSpace ? " " + word : word;
                 float wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle);
 
@@ -2404,6 +2503,9 @@ public static class BlockLayout
                     inlineLineHeight = lhRun;
                 firstWord = false;
             }
+
+            prevRunTrailingSpace = run.Text.Length > 0 &&
+                char.IsWhiteSpace(run.Text[run.Text.Length - 1]);
         }
     }
 

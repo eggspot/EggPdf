@@ -86,11 +86,11 @@ public static class FontUrlFetcher
 
         var trimmed = srcValue.Trim();
 
-        // url("...") or url('...') or url(...)
+        // url("...") or url('...') or url(...), possibly followed by format(...)
         if (trimmed.StartsWith("url(", StringComparison.OrdinalIgnoreCase))
         {
             int start = 4;
-            int end = trimmed.Length - 1;
+            int end = trimmed.IndexOf(')', start); // stop at the url() token, not the string end
             if (end <= start) return null;
 
             var url = trimmed.Substring(start, end - start).Trim();
@@ -99,17 +99,17 @@ public static class FontUrlFetcher
                 (url[0] == '\'' && url[url.Length - 1] == '\'')))
                 url = url.Substring(1, url.Length - 2);
 
-            return url;
+            return url.Length > 0 ? url : null;
         }
 
         // local("FontName") — return as-is for system font resolution
         if (trimmed.StartsWith("local(", StringComparison.OrdinalIgnoreCase))
         {
             int start = 6;
-            int end = trimmed.Length - 1;
+            int end = trimmed.IndexOf(')', start);
             if (end <= start) return null;
             var name = trimmed.Substring(start, end - start).Trim().Trim('"', '\'');
-            return "local:" + name;
+            return name.Length > 0 ? "local:" + name : null;
         }
 
         return null;
