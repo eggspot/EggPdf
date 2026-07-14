@@ -203,11 +203,104 @@ public static class FlexLayout
     {
         var items = new List<FlexItem>();
 
+        // Direct text (and <br>) children form an anonymous flex item (CSS Flexbox §4)
+        var anonLines = new List<string>();
+        var anonCurrent = new System.Text.StringBuilder();
+
+        void FlushAnonymousItem()
+        {
+            if (anonCurrent.Length > 0)
+            {
+                anonLines.Add(anonCurrent.ToString());
+                anonCurrent.Clear();
+            }
+            bool hasContent = false;
+            for (int li = 0; li < anonLines.Count; li++)
+                if (anonLines[li].Length > 0) { hasContent = true; break; }
+            if (!hasContent) { anonLines.Clear(); return; }
+
+            var fam = containerStyle.FontFamily;
+            var wt = containerStyle.FontWeight;
+            var fs = containerStyle.Get("font-style");
+            float ls = BlockLayout.ResolveLength(containerStyle.Get("letter-spacing"), 0, fontSize);
+            float lineH = TextMeasurer.GetLineHeight(fontSize, containerStyle.Get("line-height"));
+            bool centerLines = containerStyle.Get("text-align") == "center";
+
+            float maxW = 0;
+            for (int li = 0; li < anonLines.Count; li++)
+            {
+                float w = anonLines[li].Length > 0
+                    ? TextMeasurer.MeasureWidth(anonLines[li], fontSize, fam, wt, fs, ls) : 0;
+                if (w > maxW) maxW = w;
+            }
+
+            var anonBox = new LayoutBox { Style = containerStyle };
+            float y = 0;
+            for (int li = 0; li < anonLines.Count; li++)
+            {
+                var line = anonLines[li];
+                float w = line.Length > 0 ? TextMeasurer.MeasureWidth(line, fontSize, fam, wt, fs, ls) : 0;
+                anonBox.Children.Add(new LayoutBox
+                {
+                    Style = containerStyle,
+                    Text = line.Length > 0 ? line : null,
+                    X = centerLines ? (maxW - w) / 2 : 0,
+                    Y = y,
+                    Width = w,
+                    Height = lineH,
+                    ContentWidth = w,
+                    ContentHeight = lineH
+                });
+                y += lineH;
+            }
+            anonBox.Width = maxW;
+            anonBox.ContentWidth = maxW;
+            anonBox.Height = y;
+            anonBox.ContentHeight = y;
+
+            items.Add(new FlexItem
+            {
+                Box = anonBox,
+                Element = null!,
+                Style = containerStyle,
+                FlexGrow = 0,
+                FlexShrink = 1,
+                BaseSize = isRow ? maxW : y,
+                HypotheticalMainSize = isRow ? maxW : y,
+                Order = 0,
+                AlignSelf = null,
+                MinMain = 0,
+                MaxMain = float.MaxValue,
+                SourceIndex = items.Count,
+                InitialBoxWidth = maxW
+            });
+            anonLines.Clear();
+        }
+
         for (int i = 0; i < element.ChildNodes.Count; i++)
         {
             var childNode = element.ChildNodes[i];
+
+            if (childNode is HtmlTextNode textNode)
+            {
+                var t = textNode.Data.Trim();
+                if (t.Length > 0)
+                {
+                    if (anonCurrent.Length > 0) anonCurrent.Append(' ');
+                    anonCurrent.Append(t);
+                }
+                continue;
+            }
+
             if (!(childNode is HtmlElement childElem))
                 continue;
+
+            if (childElem.TagName == "br")
+            {
+                anonLines.Add(anonCurrent.ToString());
+                anonCurrent.Clear();
+                continue;
+            }
 
             var childStyle = resolver(childElem, containerStyle);
             if (childStyle.Display == "none")
@@ -219,6 +312,9 @@ public static class FlexLayout
             var childPosition = childStyle.Get("position");
             if (childPosition == "absolute" || childPosition == "fixed")
                 continue;
+
+            // An element child ends any pending anonymous text item
+            FlushAnonymousItem();
 
             // Read flex item properties
             float flexGrow = ParseFloatSafe(childStyle.Get("flex-grow"), 0);
@@ -325,6 +421,9 @@ public static class FlexLayout
                 InitialBoxWidth = childBox.Width
             });
         }
+
+        // Trailing text content also forms an anonymous item
+        FlushAnonymousItem();
 
         return items;
     }
@@ -652,6 +751,8 @@ public static class FlexLayout
         for (int i = 0; i < line.Items.Count; i++)
         {
             var item = line.Items[i];
+            // Anonymous text items have no element to re-lay-out
+            if (item.Element == null) continue;
             // Skip items whose width didn't change (explicit-width items that kept their size)
             if (Math.Abs(item.Box.Width - item.InitialBoxWidth) < 0.5f) continue;
 
