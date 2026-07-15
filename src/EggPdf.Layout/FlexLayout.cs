@@ -820,6 +820,30 @@ public static class FlexLayout
         float freeSpace = mainSize - totalItemMain - totalGap;
         if (freeSpace < 0) freeSpace = 0;
 
+        // Auto margins absorb positive free space before justify-content
+        // (CSS Flexbox §8.1) — margin-top:auto pushes a footer to the bottom.
+        int autoMarginCount = 0;
+        for (int i = 0; i < line.Items.Count; i++)
+        {
+            var st = line.Items[i].Style;
+            if (isRow)
+            {
+                if (st.Get("margin-left") == "auto") autoMarginCount++;
+                if (st.Get("margin-right") == "auto") autoMarginCount++;
+            }
+            else
+            {
+                if (st.Get("margin-top") == "auto") autoMarginCount++;
+                if (st.Get("margin-bottom") == "auto") autoMarginCount++;
+            }
+        }
+        float autoMarginShare = 0;
+        if (autoMarginCount > 0 && freeSpace > 0)
+        {
+            autoMarginShare = freeSpace / autoMarginCount;
+            freeSpace = 0;
+        }
+
         // Compute initial offset and spacing based on justify-content
         float mainOffset;
         float extraGap;
@@ -835,6 +859,8 @@ public static class FlexLayout
 
             if (isRow)
             {
+                if (autoMarginShare > 0 && item.Style.Get("margin-left") == "auto")
+                    pos += autoMarginShare;
                 pos += item.Box.MarginLeft;
                 float newX = container.X + container.PaddingLeft + pos;
                 float deltaX = newX - item.Box.X;
@@ -843,14 +869,20 @@ public static class FlexLayout
                 if (Math.Abs(deltaX) > 0.01f)
                     OffsetChildren(item.Box, deltaX, 0);
                 pos += item.MainSize + item.Box.MarginRight;
+                if (autoMarginShare > 0 && item.Style.Get("margin-right") == "auto")
+                    pos += autoMarginShare;
             }
             else
             {
+                if (autoMarginShare > 0 && item.Style.Get("margin-top") == "auto")
+                    pos += autoMarginShare;
                 pos += item.Box.MarginTop;
                 // Child Y coordinates are parent-relative (the post-layout pass in
                 // BlockLayout adds each ancestor's Y), so only the box moves here.
                 item.Box.Y = container.Y + container.PaddingTop + pos;
                 pos += item.MainSize + item.Box.MarginBottom;
+                if (autoMarginShare > 0 && item.Style.Get("margin-bottom") == "auto")
+                    pos += autoMarginShare;
             }
 
             // Add gap between items (not after last)
