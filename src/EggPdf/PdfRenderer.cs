@@ -845,13 +845,12 @@ internal static class PdfRenderer
             float pdfX = textX * PdfCoordinates.PxToPt;
 
             // Baseline placement like browsers: half-leading above the ascent
-            // (≈0.86em) instead of a full em below the line top — otherwise large
-            // fonts with tight line-height overlap the following line with their
-            // descenders.
+            // (real font metrics when available) instead of a full em below the
+            // line top — otherwise large fonts with tight line-height overlap the
+            // following line with their descenders.
             float lineBoxHeight = box.Height > 0 ? box.Height : fontSize * 1.2f;
-            float halfLeading = (lineBoxHeight - fontSize) / 2f;
-            if (halfLeading < 0) halfLeading = 0;
-            float baselineOffset = halfLeading + fontSize * 0.86f;
+            float baselineOffset = TextMeasurer.GetBaselineOffset(fontSize, lineBoxHeight,
+                box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"));
             float pdfY = (pageHeightPx - adjustedY - box.PaddingTop - baselineOffset) * PdfCoordinates.PxToPt;
 
             // Vertical-align baseline shift (sup/sub/super/sub)

@@ -1439,11 +1439,16 @@ public static class BlockLayout
                 // Absolute: relative to nearest positioned ancestor or this box if positioned
                 if (position == "relative" || position == "absolute" || position == "fixed" || position == "sticky")
                 {
-                    // This box is the containing block
-                    cbX = box.X;
-                    cbY = box.Y;
-                    cbWidth = box.Width;
-                    cbHeight = box.Height;
+                    // This box is the containing block — its PADDING box (CSS 2.1
+                    // §10.1), so offsets count from inside the border.
+                    float cbBorderLeft = ResolveLength(style.Get("border-left-width"), 0, fontSize);
+                    float cbBorderRight = ResolveLength(style.Get("border-right-width"), 0, fontSize);
+                    float cbBorderTop = ResolveLength(style.Get("border-top-width"), 0, fontSize);
+                    float cbBorderBottom = ResolveLength(style.Get("border-bottom-width"), 0, fontSize);
+                    cbX = box.X + cbBorderLeft;
+                    cbY = box.Y + cbBorderTop;
+                    cbWidth = box.Width - cbBorderLeft - cbBorderRight;
+                    cbHeight = box.Height - cbBorderTop - cbBorderBottom;
                 }
                 else
                 {

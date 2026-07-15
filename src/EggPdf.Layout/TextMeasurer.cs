@@ -90,6 +90,30 @@ public static class TextMeasurer
         return width;
     }
 
+    /// <summary>
+    /// Baseline offset from the line-box top: half-leading plus ascent, using the
+    /// real font's metrics when a webfont provider is active (falls back to the
+    /// 0.86em/0.14em approximation for built-in fonts).
+    /// </summary>
+    public static float GetBaselineOffset(float fontSize, float lineBoxHeight,
+        string? fontFamily, string? fontWeight, string? fontStyle)
+    {
+        float asc = 0.86f, desc = 0.14f;
+        var fd = FontDataProvider?.Invoke(fontFamily, fontWeight, fontStyle);
+        if (fd != null && fd.UnitsPerEm > 0 && fd.Ascent > 0)
+        {
+            float a = (float)fd.Ascent / fd.UnitsPerEm;
+            float d = Math.Abs((float)fd.Descent) / fd.UnitsPerEm;
+            if (a >= 0.5f && a <= 1.2f && d <= 0.6f)
+            {
+                asc = a;
+                desc = d;
+            }
+        }
+        float halfLeading = (lineBoxHeight - (asc + desc) * fontSize) / 2f;
+        return halfLeading + asc * fontSize;
+    }
+
     /// <summary>Count glyphs (surrogate pairs form one glyph).</summary>
     private static int CountGlyphs(string text)
     {

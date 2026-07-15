@@ -45,6 +45,28 @@ public class FlexAbsolutePositionTests
     }
 
     [Fact]
+    public async Task AbsoluteChild_ContainingBlockIsPaddingBox_InsideBorder()
+    {
+        // CSS 2.1 §10.1: the containing block of an absolutely positioned element
+        // is the ancestor's PADDING box — offsets count from inside the border.
+        var pdf = await HtmlToPdf.RenderAsync(
+            "<html><body style=\"margin:0;padding:0\">" +
+            "<div style=\"position:relative;border:10px solid #000;width:100px;height:100px\">" +
+            "<div style=\"position:absolute;left:0;top:0;width:20px;height:20px;background:#ff0000\"></div>" +
+            "</div></body></html>");
+
+        var content = Encoding.ASCII.GetString(pdf);
+        var m = Regex.Match(content,
+            @"1\.00 0\.00 0\.00 rg\s+(-?\d+\.\d+) (-?\d+\.\d+) (-?\d+\.\d+) (-?\d+\.\d+) re f");
+        m.Success.Should().BeTrue("the absolute child's red background must be painted");
+
+        float x = float.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        // left:0 lands at the padding edge: 10px border = 7.5pt from the box origin
+        x.Should().BeApproximately(7.5f, 1f,
+            "left:0 must offset from inside the parent's border, not its border-box edge");
+    }
+
+    [Fact]
     public async Task FlexContainer_AbsoluteChild_HonorsTopRightOffsets()
     {
         var pdf = await HtmlToPdf.RenderAsync(
