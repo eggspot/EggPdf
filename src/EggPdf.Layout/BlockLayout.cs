@@ -711,6 +711,26 @@ public static class BlockLayout
                 {
                     // Inline-block: create a box that flows inline but has block internals
                     var childBox = CreateBox(childElem, childStyle, box, childContainingWidth, resolver, style);
+
+                    // Shrink-to-fit: an auto-width inline-block wraps its content
+                    // (CSS 2.1 §10.3.9) instead of filling the containing block.
+                    if (string.IsNullOrEmpty(childStyle.Width) || childStyle.Width == "auto")
+                    {
+                        float contentRight = childBox.X + childBox.PaddingLeft;
+                        for (int ci = 0; ci < childBox.Children.Count; ci++)
+                        {
+                            float r = childBox.Children[ci].X + childBox.Children[ci].Width;
+                            if (r > contentRight) contentRight = r;
+                        }
+                        float shrunk = contentRight - childBox.X + childBox.PaddingRight;
+                        if (shrunk > 0 && shrunk < childBox.Width)
+                        {
+                            childBox.Width = shrunk;
+                            childBox.ContentWidth = shrunk - childBox.PaddingLeft - childBox.PaddingRight;
+                            if (childBox.ContentWidth < 0) childBox.ContentWidth = 0;
+                        }
+                    }
+
                     float ibWidth = childBox.Width;
                     if (inlineX > 0 && inlineX + ibWidth > childContainingWidth)
                     {
@@ -718,9 +738,21 @@ public static class BlockLayout
                         inlineX = 0;
                         inlineLineHeight = 0;
                     }
+
+                    // text-align on the parent positions the inline-block within the line
+                    float ibAlignOffset = 0;
+                    if (inlineX == 0 && ibWidth < childContainingWidth)
+                    {
+                        var parentTextAlign = style.Get("text-align");
+                        if (parentTextAlign == "center")
+                            ibAlignOffset = (childContainingWidth - ibWidth) / 2;
+                        else if (parentTextAlign == "right")
+                            ibAlignOffset = childContainingWidth - ibWidth;
+                    }
+
                     // X is absolute (shift descendants); Y is parent-relative and
                     // resolved in the post-layout pass.
-                    float ibDeltaX = box.X + box.PaddingLeft + inlineX - childBox.X;
+                    float ibDeltaX = box.X + box.PaddingLeft + inlineX + ibAlignOffset - childBox.X;
                     childBox.X += ibDeltaX;
                     childBox.Y = box.Y + box.PaddingTop + childY;
                     if (Math.Abs(ibDeltaX) > 0.01f)
