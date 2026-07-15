@@ -226,6 +226,21 @@ public static class FlexLayout
             float lineH = TextMeasurer.GetLineHeight(fontSize, containerStyle.Get("line-height"));
             bool centerLines = containerStyle.Get("text-align") == "center";
 
+            // Anonymous boxes carry only inherited text properties — copying the
+            // container's borders/backgrounds would paint its decorations twice
+            // (e.g. a second circle inside a round stamp).
+            var anonStyle = new ComputedStyle();
+            foreach (var kv in containerStyle.All)
+            {
+                if (kv.Key.StartsWith("border", StringComparison.Ordinal) ||
+                    kv.Key.StartsWith("background", StringComparison.Ordinal) ||
+                    kv.Key.StartsWith("box-shadow", StringComparison.Ordinal) ||
+                    kv.Key.StartsWith("outline", StringComparison.Ordinal) ||
+                    kv.Key.StartsWith("padding", StringComparison.Ordinal))
+                    continue;
+                anonStyle.Set(kv.Key, kv.Value);
+            }
+
             float maxW = 0;
             for (int li = 0; li < anonLines.Count; li++)
             {
@@ -234,7 +249,7 @@ public static class FlexLayout
                 if (w > maxW) maxW = w;
             }
 
-            var anonBox = new LayoutBox { Style = containerStyle };
+            var anonBox = new LayoutBox { Style = anonStyle };
             float y = 0;
             for (int li = 0; li < anonLines.Count; li++)
             {
@@ -242,7 +257,7 @@ public static class FlexLayout
                 float w = line.Length > 0 ? TextMeasurer.MeasureWidth(line, fontSize, fam, wt, fs, ls) : 0;
                 anonBox.Children.Add(new LayoutBox
                 {
-                    Style = containerStyle,
+                    Style = anonStyle,
                     Text = line.Length > 0 ? line : null,
                     X = centerLines ? (maxW - w) / 2 : 0,
                     Y = y,
@@ -262,7 +277,7 @@ public static class FlexLayout
             {
                 Box = anonBox,
                 Element = null!,
-                Style = containerStyle,
+                Style = anonStyle,
                 FlexGrow = 0,
                 FlexShrink = 1,
                 BaseSize = isRow ? maxW : y,
