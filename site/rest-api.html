@@ -169,6 +169,32 @@
   <span class="str">"version"</span><span class="pun">:</span> <span class="str">"0.3.0"</span>
 <span class="pun">}</span></code></pre></div>
 
+      <h2 id="post-encrypt">POST /api/encrypt</h2>
+      <p>Render HTML and encrypt the resulting PDF (RC4 128-bit) with owner/user passwords and permission flags. Permissions default to view-and-print without modification. Note: PDF permission flags are advisory — compliant viewers enforce them, but they are not cryptographic protection. For tamper evidence, use signing.</p>
+      <h3>Request</h3>
+      <div class="code-block"><pre><code><span class="pun">{</span>
+  <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;h1&gt;Confidential&lt;/h1&gt;"</span><span class="pun">,</span>
+  <span class="str">"userPassword"</span><span class="pun">:</span> <span class="str">""</span><span class="pun">,</span>            <span class="com">// empty = anyone can open</span>
+  <span class="str">"ownerPassword"</span><span class="pun">:</span> <span class="str">"owner-secret"</span><span class="pun">,</span>
+  <span class="str">"allowPrinting"</span><span class="pun">:</span> <span class="kw">true</span><span class="pun">,</span>
+  <span class="str">"allowCopying"</span><span class="pun">:</span> <span class="kw">false</span><span class="pun">,</span>
+  <span class="str">"allowModifying"</span><span class="pun">:</span> <span class="kw">false</span>
+<span class="pun">}</span></code></pre></div>
+      <h3>Response</h3>
+      <p><code>200 OK</code> with <code>application/pdf</code> body (the encrypted document).</p>
+
+      <h2 id="post-sign">POST /api/sign</h2>
+      <p>Add a digital-signature placeholder (<code>adbe.pkcs7.detached</code>) to an existing PDF. The endpoint does not hold private keys: compute the CMS signature with your certificate and embed it via the library (<code>PdfSigner.SignWithCmsData</code>), or sign fully in-process with <code>PdfSigner.Sign(pdfBytes, x509Certificate)</code> when you control the key material.</p>
+      <h3>Request</h3>
+      <div class="code-block"><pre><code><span class="pun">{</span>
+  <span class="str">"pdf"</span><span class="pun">:</span> <span class="str">"&lt;base64-encoded PDF&gt;"</span><span class="pun">,</span>
+  <span class="str">"name"</span><span class="pun">:</span> <span class="str">"Jane Smith"</span><span class="pun">,</span>
+  <span class="str">"reason"</span><span class="pun">:</span> <span class="str">"Approval"</span><span class="pun">,</span>
+  <span class="str">"location"</span><span class="pun">:</span> <span class="str">"Hanoi"</span>
+<span class="pun">}</span></code></pre></div>
+      <h3>Response</h3>
+      <p><code>200 OK</code> with <code>application/pdf</code> body containing the signature placeholder.</p>
+
       <h2 id="curl-examples">curl Examples</h2>
 
       <h3>Minimal — save to file</h3>

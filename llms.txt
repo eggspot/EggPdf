@@ -175,21 +175,53 @@ netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0
 ## Key features
 
 - Full HTML5 (WHATWG spec)
-- CSS 2.1 + Flexbox, Grid, Multi-column, Custom Properties
+- CSS 2.1 + Flexbox (incl. auto margins, align-items:baseline), Grid, Multi-column, Custom Properties
 - @media print, @page rules
-- @font-face (WOFF/WOFF2)
+- Webfonts: remote <link> stylesheets (Google Fonts) and @font-face over http(s)/data:/file, weight-accurate faces 300–900
+- Full Unicode text: Vietnamese and extended Latin, per-codepoint symbol-font fallback (⚠ ✔ …)
+- Browser-parity text layout: real font metrics for measurement, baseline placement, letter-spacing, word-break:break-all
 - SVG (vector, not rasterized)
-- All image formats (JPEG, PNG, GIF, WebP, Base64)
+- Image formats: JPEG, PNG (incl. 1/2/4-bit grayscale QR codes), GIF, WebP, BMP, Base64
 - Bookmarks, links, TOC
-- Running headers/footers, page numbers
 - Repeating table headers
 - TrueType/OpenType embedding with subsetting
-- CJK, Arabic, Hebrew, emoji
-- PDF/A (1b, 2b, 3b), PDF/UA, tagged PDF
-- Digital signatures (PAdES)
-- AES-256 encryption
+- Digital signatures: one-call X.509 signing (detached CMS/PKCS#7, adbe.pkcs7.detached) or external-CMS two-step flow
+- Encryption: RC4 40/128-bit with owner/user passwords and permission flags (via REST /api/encrypt)
+- Cloudflare email obfuscation (data-cfemail) decoded automatically
 - PDF merging
-- File attachments (ZUGFeRD/Factur-X)
+
+## Security: signing and encryption
+
+```csharp
+using EggPdf;
+using EggPdf.Pdf;
+using System.Security.Cryptography.X509Certificates;
+
+// One-call PKI signing — embeds a detached CMS/PKCS#7 signature
+// (adbe.pkcs7.detached) with a valid /ByteRange. Zero extra packages.
+byte[] pdf = await HtmlToPdf.RenderAsync(html);
+byte[] signed = PdfSigner.Sign(pdf, x509CertificateWithPrivateKey,
+    new PdfSigner.SignOptions { Name = "Jane Smith", Reason = "Approval", Location = "Hanoi" });
+
+// Two-step flow when the private key lives elsewhere (HSM, signing service):
+byte[] withPlaceholder = PdfSigner.AddSignaturePlaceholder(pdf, options);
+// ... compute CMS bytes externally over the ByteRange content ...
+byte[] done = PdfSigner.SignWithCmsData(withPlaceholder, cmsBytes);
+```
+
+View-only protection (RC4 40/128-bit, owner/user passwords, permission flags —
+printing/copying/modifying) is available through the REST service:
+
+```bash
+curl -X POST http://localhost:8080/api/encrypt \
+  -H "Content-Type: application/json" \
+  -d '{"html":"<h1>Confidential</h1>","ownerPassword":"secret","allowCopying":false,"allowModifying":false}' \
+  -o protected.pdf
+```
+
+Note: PDF permission flags are advisory (enforced by compliant viewers, not
+cryptography). For tamper evidence, prefer digital signatures — any change to
+a signed PDF invalidates the signature.
 
 ## Architecture
 
