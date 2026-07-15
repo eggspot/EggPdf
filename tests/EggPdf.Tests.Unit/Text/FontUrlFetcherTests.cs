@@ -40,4 +40,19 @@ public class FontUrlFetcherTests
     {
         FontUrlFetcher.ParseFontSrcUrl("format('truetype')").Should().BeNull();
     }
+
+    [Fact]
+    public void ParseFontSrcUrl_BareUrlWithFormat_ReturnsUrl()
+    {
+        // The CSS parser unwraps url(...), leaving a bare URL + format(...)
+        FontUrlFetcher.ParseFontSrcUrl("https://fonts.gstatic.com/s/x.ttf format('truetype')")
+            .Should().Be("https://fonts.gstatic.com/s/x.ttf");
+    }
+
+    [Fact]
+    public void ParseFontSrcUrl_BareUrlAlone_ReturnsUrl()
+    {
+        FontUrlFetcher.ParseFontSrcUrl("https://example.com/font.ttf")
+            .Should().Be("https://example.com/font.ttf");
+    }
 }

@@ -950,14 +950,16 @@ internal static class PdfRenderer
                 }
                 else
                 {
-                    page.AddText(paintText, pdfX, pdfY, fontName, pdfFontSize,
+                    page.AddText(paintText, pdfX, pdfY, StripWeightSuffix(fontName), pdfFontSize,
                         color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
                         letterSpacing, wordSpacing);
                 }
             }
             else
             {
-                page.AddText(paintText, pdfX, pdfY, fontName, pdfFontSize,
+                // Non-embedded fallback: weight-suffixed names ("Arial-W600") are
+                // not valid built-in fonts — degrade to the bucketed name.
+                page.AddText(paintText, pdfX, pdfY, StripWeightSuffix(fontName), pdfFontSize,
                     color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
                     letterSpacing, wordSpacing);
             }
@@ -1135,6 +1137,16 @@ internal static class PdfRenderer
         // Restore transform state
         if (hasTransform)
             page.RestoreState();
+    }
+
+    /// <summary>Strip a "-W###" weight suffix so built-in font fallbacks stay valid.</summary>
+    private static string StripWeightSuffix(string fontName)
+    {
+        int idx = fontName.LastIndexOf("-W", StringComparison.Ordinal);
+        if (idx <= 0 || idx + 2 >= fontName.Length) return fontName;
+        for (int i = idx + 2; i < fontName.Length; i++)
+            if (!char.IsDigit(fontName[i])) return fontName;
+        return fontName.Substring(0, idx);
     }
 
     /// <summary>

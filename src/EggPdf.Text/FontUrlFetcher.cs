@@ -112,6 +112,15 @@ public static class FontUrlFetcher
             return name.Length > 0 ? "local:" + name : null;
         }
 
+        // Bare URL: CSS parsers may already unwrap url(...), leaving
+        // "https://... format('truetype')" — take the first token.
+        int ws = trimmed.IndexOfAny(new[] { ' ', '\t' });
+        var bare = (ws > 0 ? trimmed.Substring(0, ws) : trimmed).Trim('"', '\'');
+        if (bare.Length > 0 &&
+            !bare.StartsWith("format(", StringComparison.OrdinalIgnoreCase) &&
+            !bare.StartsWith("tech(", StringComparison.OrdinalIgnoreCase))
+            return bare;
+
         return null;
     }
 

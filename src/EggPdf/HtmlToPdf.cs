@@ -100,9 +100,8 @@ public static class HtmlToPdf
                 var key = family + "|" + weight + "|" + fontStyle;
                 if (measureCache.TryGetValue(key, out var cached)) return cached;
 
-                bool bold = weight == "bold" || weight == "700" || weight == "800" || weight == "900";
                 bool italic = fontStyle == "italic" || fontStyle == "oblique";
-                var data = TryResolveFontFace(family, fontFaces, bold, italic, measureResolver);
+                var data = TryResolveFontFace(family, fontFaces, ParseFontWeight(weight), italic, measureResolver);
                 measureCache[key] = data;
                 return data;
             };
@@ -554,12 +553,14 @@ public static class HtmlToPdf
             bool bold = pdfFontName.IndexOf("Bold", StringComparison.OrdinalIgnoreCase) >= 0;
             bool italic = pdfFontName.IndexOf("Italic", StringComparison.OrdinalIgnoreCase) >= 0 ||
                           pdfFontName.IndexOf("Oblique", StringComparison.OrdinalIgnoreCase) >= 0;
+            int targetWeight = ParseWeightSuffix(pdfFontName) ?? (bold ? 700 : 400);
+            if (targetWeight >= 600) bold = true;
             fontFamilyLists.TryGetValue(pdfFontName, out var familyList);
 
             // 1. Webfont: first family in the list with a declared @font-face wins,
             //    mirroring the browser's font selection.
             Text.TrueType.FontData? fontData =
-                TryResolveFontFace(familyList, fontFaces, bold, italic, fontResolver);
+                TryResolveFontFace(familyList, fontFaces, targetWeight, italic, fontResolver);
 
             // 2. Standard built-in Type1 fonts (WinAnsiEncoding) stay non-embedded
             //    while every codepoint is WinAnsi-encodable and no webfont applies.
@@ -657,7 +658,7 @@ public static class HtmlToPdf
     /// @font-face, picking the variant closest to the requested weight/style.
     /// </summary>
     private static Text.TrueType.FontData? TryResolveFontFace(string? familyList,
-        Dictionary<string, List<FontFaceCandidate>> fontFaces, bool bold, bool italic,
+        Dictionary<string, List<FontFaceCandidate>> fontFaces, int targetWeight, bool italic,
         Text.FontResolver fontResolver)
     {
         if (string.IsNullOrEmpty(familyList) || fontFaces.Count == 0) return null;
@@ -669,7 +670,7 @@ public static class HtmlToPdf
             if (family.Length == 0) continue;
             if (!fontFaces.TryGetValue(family, out var candidates)) continue;
 
-            var face = SelectFontFace(candidates, bold, italic);
+            var face = SelectFontFace(candidates, targetWeight, italic);
             if (face == null) continue;
 
             // src may list alternatives: url(...) format(...), local(...), ...
@@ -682,7 +683,7 @@ public static class HtmlToPdf
                 Text.TrueType.FontData? fontData = null;
                 if (url.StartsWith("local:", StringComparison.OrdinalIgnoreCase))
                 {
-                    fontData = fontResolver.Resolve(url.Substring(6), bold, italic);
+                    fontData = fontResolver.Resolve(url.Substring(6), targetWeight >= 600, italic);
                 }
                 else
                 {
@@ -702,11 +703,10 @@ public static class HtmlToPdf
     }
 
     /// <summary>Pick the @font-face variant best matching the requested weight/style.</summary>
-    private static FontFaceCandidate? SelectFontFace(List<FontFaceCandidate> candidates, bool bold, bool italic)
+    private static FontFaceCandidate? SelectFontFace(List<FontFaceCandidate> candidates, int targetWeight, bool italic)
     {
         if (candidates.Count == 0) return null;
 
-        int targetWeight = bold ? 700 : 400;
         FontFaceCandidate? best = null;
         int bestScore = int.MaxValue;
 
@@ -839,6 +839,17 @@ public static class HtmlToPdf
         }
 
         return result;
+    }
+
+    /// <summary>Extract the numeric weight from a "-W###" PDF font name suffix, if present.</summary>
+    private static int? ParseWeightSuffix(string pdfFontName)
+    {
+        int idx = pdfFontName.LastIndexOf("-W", StringComparison.Ordinal);
+        if (idx <= 0 || idx + 2 >= pdfFontName.Length) return null;
+        for (int i = idx + 2; i < pdfFontName.Length; i++)
+            if (!char.IsDigit(pdfFontName[i])) return null;
+        return int.Parse(pdfFontName.Substring(idx + 2),
+            System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>Parse a font-weight declaration ("400", "bold", "300 700") to a numeric weight.</summary>
