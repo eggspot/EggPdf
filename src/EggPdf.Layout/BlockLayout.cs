@@ -2486,6 +2486,11 @@ public static class BlockLayout
             bool runBreakWord = runOverflowWrap == "break-word" || runOverflowWrap == "anywhere" ||
                                 runWordBreak == "break-all" || runWordBreak == "break-word";
 
+            // vertical-align: baseline (default) — smaller runs sit on the parent
+            // line's baseline, not the line top (ascent approximated at 0.8em)
+            float baselineShift = run.FontSize < parentFontSize
+                ? (parentFontSize - run.FontSize) * 0.8f : 0f;
+
             // Iterate words inline — avoids allocating a string[] upfront.
             int wPos = 0;
             bool firstWord = true;
@@ -2539,7 +2544,7 @@ public static class BlockLayout
                             Element = (!elementAssigned && wrapperElement != null) ? wrapperElement : null,
                             Style = run.Style,
                             X = box.X + box.PaddingLeft + inlineX,
-                            Y = box.Y + box.PaddingTop + childY,
+                            Y = box.Y + box.PaddingTop + childY + baselineShift,
                             Width = chunkWidth,
                             Height = lhRun,
                             ContentWidth = chunkWidth,
@@ -2570,7 +2575,7 @@ public static class BlockLayout
                     Element = (!elementAssigned && wrapperElement != null) ? wrapperElement : null,
                     Style = run.Style,
                     X = box.X + box.PaddingLeft + inlineX,
-                    Y = box.Y + box.PaddingTop + childY,
+                    Y = box.Y + box.PaddingTop + childY + baselineShift,
                     Width = wordWidth,
                     Height = lhRun,
                     ContentWidth = wordWidth,

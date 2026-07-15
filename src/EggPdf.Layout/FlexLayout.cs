@@ -943,8 +943,26 @@ public static class FlexLayout
                     break;
 
                 case "baseline":
-                    // Simplified baseline: treat as flex-start
-                    crossPos = lineCrossOffset + itemMarginBefore;
+                    if (isRow)
+                    {
+                        // Align first baselines (ascent approximated at 0.8em of
+                        // each item's font size)
+                        float maxAscent = 0;
+                        for (int bi = 0; bi < line.Items.Count; bi++)
+                        {
+                            float fs = BlockLayout.ResolveFontSize(line.Items[bi].Style.FontSize, DefaultFontSize);
+                            float asc = fs * 0.8f + line.Items[bi].Box.MarginTop;
+                            if (asc > maxAscent) maxAscent = asc;
+                        }
+                        float itemAscent = BlockLayout.ResolveFontSize(item.Style.FontSize, DefaultFontSize) * 0.8f
+                            + itemMarginBefore;
+                        crossPos = lineCrossOffset + itemMarginBefore + (maxAscent - itemAscent);
+                    }
+                    else
+                    {
+                        // Column direction: baseline falls back to flex-start
+                        crossPos = lineCrossOffset + itemMarginBefore;
+                    }
                     break;
 
                 case "stretch":
