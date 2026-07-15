@@ -1052,7 +1052,9 @@ public static class FlexLayout
                     if (inlineRun > 0)
                         inlineRun += TextMeasurer.MeasureWidth(" ", fontSize,
                             style.FontFamily, style.FontWeight, style.Get("font-style"), letterSpacing);
-                    inlineRun += childWidth;
+                    inlineRun += childWidth
+                        + BlockLayout.ResolveLength(childStyle.Get("margin-left"), 0, fontSize)
+                        + BlockLayout.ResolveLength(childStyle.Get("margin-right"), 0, fontSize);
                 }
                 else
                 {

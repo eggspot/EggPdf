@@ -287,6 +287,10 @@ public class CascadeResolver
             case "white-space":
             case "letter-spacing":
             case "word-spacing":
+            case "word-break":
+            case "overflow-wrap":
+            case "word-wrap":
+            case "hyphens":
             case "visibility":
             case "text-transform":
             case "direction":
@@ -414,6 +418,7 @@ public class CascadeResolver
         "font-variant-ligatures", "font-variant-alternates",
         "line-height", "text-align", "text-indent", "text-transform",
         "letter-spacing", "word-spacing", "white-space", "direction",
+        "word-break", "overflow-wrap", "word-wrap", "hyphens",
         "visibility", "list-style-type", "list-style-position",
         "border-collapse", "border-spacing", "caption-side", "empty-cells",
         "quotes", "tab-size",

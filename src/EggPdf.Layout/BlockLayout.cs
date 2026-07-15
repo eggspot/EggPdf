@@ -2481,6 +2481,11 @@ public static class BlockLayout
             float runLetterSpacing = ResolveLength(run.Style.Get("letter-spacing"), 0, run.FontSize);
             float lhRun = TextMeasurer.GetLineHeight(run.FontSize, run.Style.Get("line-height"));
 
+            var runOverflowWrap = run.Style.Get("overflow-wrap") ?? run.Style.Get("word-wrap");
+            var runWordBreak = run.Style.Get("word-break");
+            bool runBreakWord = runOverflowWrap == "break-word" || runOverflowWrap == "anywhere" ||
+                                runWordBreak == "break-all" || runWordBreak == "break-word";
+
             // Iterate words inline — avoids allocating a string[] upfront.
             int wPos = 0;
             bool firstWord = true;
@@ -2508,6 +2513,56 @@ public static class BlockLayout
                     inlineLineHeight = 0;
                     wordText = word; // no space prefix after wrap
                     wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                }
+
+                // break-all / break-word: a word wider than the line splits into
+                // character chunks that each fit (e.g. long URLs in captions)
+                if (runBreakWord && wordWidth > containerWidth && wordText.Length > 1)
+                {
+                    int start = 0;
+                    while (start < wordText.Length)
+                    {
+                        int len = 1;
+                        float chunkWidth = TextMeasurer.MeasureWidth(wordText.Substring(start, 1),
+                            run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                        while (start + len < wordText.Length)
+                        {
+                            float nextWidth = TextMeasurer.MeasureWidth(wordText.Substring(start, len + 1),
+                                run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                            if (inlineX + nextWidth > containerWidth) break;
+                            len++;
+                            chunkWidth = nextWidth;
+                        }
+
+                        var chunkBox = new LayoutBox
+                        {
+                            Element = (!elementAssigned && wrapperElement != null) ? wrapperElement : null,
+                            Style = run.Style,
+                            X = box.X + box.PaddingLeft + inlineX,
+                            Y = box.Y + box.PaddingTop + childY,
+                            Width = chunkWidth,
+                            Height = lhRun,
+                            ContentWidth = chunkWidth,
+                            ContentHeight = lhRun,
+                            Text = wordText.Substring(start, len)
+                        };
+                        if (!elementAssigned && wrapperElement != null)
+                            elementAssigned = true;
+                        box.Children.Add(chunkBox);
+                        inlineX += chunkWidth;
+                        if (lhRun > inlineLineHeight)
+                            inlineLineHeight = lhRun;
+
+                        start += len;
+                        if (start < wordText.Length)
+                        {
+                            childY += inlineLineHeight > 0 ? inlineLineHeight : lhRun;
+                            inlineX = 0;
+                            inlineLineHeight = 0;
+                        }
+                    }
+                    firstWord = false;
+                    continue;
                 }
 
                 var textBox = new LayoutBox
