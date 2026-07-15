@@ -74,8 +74,10 @@ internal static class PngDecoder
         // Only 8-bit and 16-bit depth
         if (bitDepth != 8 && bitDepth != 16)
         {
-            // For indexed (color type 3), also allow 1, 2, 4 bit depth
-            if (colorType == 3 && (bitDepth == 1 || bitDepth == 2 || bitDepth == 4))
+            // Indexed (color type 3) and grayscale (color type 0) also allow
+            // 1, 2, 4 bit depth — 1-bit grayscale is the common QR code format.
+            if ((colorType == 3 || colorType == 0) &&
+                (bitDepth == 1 || bitDepth == 2 || bitDepth == 4))
             {
                 // OK
             }
@@ -155,6 +157,39 @@ internal static class PngDecoder
         return ConvertPixels(unfiltered, width, height, bitDepth, colorType, channels, stride, palette, trns);
     }
 
+    /// <summary>Extract a grayscale sample for bit depths 1, 2, 4, or 8.</summary>
+    private static int GetGraySample(byte[] data, int rowOffset, int x, int bitDepth)
+    {
+        switch (bitDepth)
+        {
+            case 1:
+            {
+                byte b = data[rowOffset + (x >> 3)];
+                return (b >> (7 - (x & 7))) & 0x1;
+            }
+            case 2:
+            {
+                byte b = data[rowOffset + (x >> 2)];
+                return (b >> (6 - ((x & 3) << 1))) & 0x3;
+            }
+            case 4:
+            {
+                byte b = data[rowOffset + (x >> 1)];
+                return (x & 1) == 0 ? (b >> 4) & 0xF : b & 0xF;
+            }
+            default:
+                return data[rowOffset + x];
+        }
+    }
+
+    /// <summary>Scale a sub-byte grayscale sample to the full 0-255 range.</summary>
+    private static byte ScaleGraySample(int sample, int bitDepth)
+    {
+        if (bitDepth >= 8) return (byte)sample;
+        int maxVal = (1 << bitDepth) - 1;
+        return (byte)(sample * 255 / maxVal);
+    }
+
     private static PngDecodeResult? ConvertPixels(byte[] unfiltered, int width, int height,
         int bitDepth, int colorType, int channels, int stride, byte[]? palette, byte[]? trns)
     {
@@ -188,12 +223,13 @@ internal static class PngDecoder
                             }
                             else
                             {
-                                gray = unfiltered[srcRow + x];
+                                int sample = GetGraySample(unfiltered, srcRow, x, bitDepth);
+                                gray = ScaleGraySample(sample, bitDepth);
                                 int dstIdx = (y * width + x) * 4;
                                 rgba[dstIdx] = (byte)gray;
                                 rgba[dstIdx + 1] = (byte)gray;
                                 rgba[dstIdx + 2] = (byte)gray;
-                                rgba[dstIdx + 3] = (byte)(gray == trnsGray ? 0 : 255);
+                                rgba[dstIdx + 3] = (byte)(sample == trnsGray ? 0 : 255);
                             }
                         }
                     }
@@ -211,7 +247,7 @@ internal static class PngDecoder
                             if (bitDepth == 16)
                                 gray = unfiltered[srcRow + x * 2]; // take high byte
                             else
-                                gray = unfiltered[srcRow + x];
+                                gray = (byte)ScaleGraySample(GetGraySample(unfiltered, srcRow, x, bitDepth), bitDepth);
 
                             int dstIdx = (y * width + x) * 3;
                             rgb[dstIdx] = gray;

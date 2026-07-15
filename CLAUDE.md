@@ -23,28 +23,29 @@ See `design/architecture/` for detailed component specs (8 docs, ~3,000 lines).
 5. **Infallible parsers** -- HTML/CSS parsers never throw. Produce error nodes / silently ignore.
 6. **Graceful degradation** -- unknown CSS ignored, missing resources produce warnings not crashes.
 
-## Development Workflow (STRICT — TDD)
+## Development Workflow (STRICT — batched TDD)
 
-Every code change follows this TDD loop. **Do not skip steps.**
+Tests are still written before the code they cover, but execution is batched:
+write ALL the code for the task first, then run the test suite and fix.
+**Do not run tests or builds between individual edits mid-batch.**
 
 ```
-1. Write test  →  must FAIL (proves the test is testing something real)
-2. Write minimal code to make it pass
-3. Run the test
-   - FAIL → fix code, go back to step 3
+1. Write failing tests for every change in the batch
+2. Write all the code for the batch
+3. Run ALL tests (this also compiles — no separate build step)
+   - FAIL → fix code, run again; iterate until green
    - PASS → continue
-4. Run ALL tests
-   - FAIL (regression) → fix code, go back to step 4
-   - PASS → continue
-5. Benchmark if hot path (no regressions allowed)
-6. Commit with conventional prefix
+4. Benchmark if hot path (no regressions allowed)
+5. Commit with conventional prefix
 ```
 
 **Rules:**
-- Never write code before writing the test.
+- Never write code before writing the test that covers it.
 - Never commit with failing tests.
 - Never skip benchmarks for hot-path changes.
 - Keep iterating fix → run → fix until all tests pass — do not give up early.
+- Write the whole batch of code first, THEN run tests once and fix failures — no test runs after every small edit.
+- No standalone `dotnet build` — `dotnet test` compiles everything it needs. Only build separately when diagnosing a build-system issue itself.
 
 ## Conventional Commits
 
@@ -66,7 +67,7 @@ src/
   EggPdf.Css/          -- CSS parser + cascade + selectors + inline parser
   EggPdf.Layout/       -- layout engine (block, inline, flex, table cells horizontal)
   EggPdf.Text/         -- TrueType parser, system font discovery, line breaking, font resolver
-  EggPdf.Pdf/          -- PDF 1.7 writer (text, rectangles, rounded rects, links, multi-page, PNG/JPEG images)
+  EggPdf.Pdf/          -- PDF 1.7 writer (text, CID fonts, images, links, merging, RC4 encryption, CMS/PKCS#7 signing)
   EggPdf.Cli/          -- CLI tool: eggpdf input.html -o output.pdf
   EggPdf.Service/      -- REST API + WebUI (POST /api/render, GET /e2e, GET /)
   EggPdf.Style/        -- (placeholder for future style resolution module)
@@ -75,8 +76,8 @@ src/
   EggPdf.Fragmentation/ -- (placeholder for future fragmentation)
 
 tests/
-  EggPdf.Tests.Unit/   -- 639 unit tests (parsers, CSS, var/calc, selectors, colors, PDF, PNG, bookmarks, E2E)
-  EggPdf.Tests.Layout/ -- 150 layout tests (block, inline, flex, float, table, grid, margins, lists)
+  EggPdf.Tests.Unit/   -- ~965 unit tests (parsers, CSS, fonts/webfonts, signing, PDF, PNG, E2E render checks)
+  EggPdf.Tests.Layout/ -- ~554 layout tests (block, inline, flex, float, table, grid, margins, lists)
   EggPdf.Tests.E2E/    -- 20 Playwright tests (WebUI, API endpoints)
 
 benchmarks/
@@ -92,7 +93,8 @@ docker/
   Dockerfile.cli       -- CLI Docker image
   docker-compose.yml
 
-docs/                  -- Wiki pages (14 pages, auto-synced to GitHub Wiki)
+site/                  -- GitHub Pages static site (getting-started, fonts, rest-api, ... + llms.txt)
+llms.txt               -- AI/LLM discovery file (repo root)
 ```
 
 ## Test Commands

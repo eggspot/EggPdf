@@ -261,8 +261,14 @@ public static class GridLayout
                 if (r > item.RowStart) cellHeight += rowGap;
             }
 
+            // Move the item box to its cell. X coordinates are absolute, so the
+            // already-laid-out descendants shift with the box; Y coordinates are
+            // parent-relative and get resolved in BlockLayout's post-layout pass.
+            float deltaX = cellX - item.Box.X;
             item.Box.X = cellX;
             item.Box.Y = cellY;
+            if (Math.Abs(deltaX) > 0.01f)
+                FlexLayout.OffsetChildren(item.Box, deltaX, 0);
             item.Box.Width = cellWidth;
             item.Box.ContentWidth = cellWidth - item.Box.PaddingLeft - item.Box.PaddingRight;
             if (item.Box.ContentWidth < 0) item.Box.ContentWidth = 0;
@@ -320,6 +326,11 @@ public static class GridLayout
 
             var childStyle = resolver(childElem, containerStyle);
             if (childStyle.Display == "none")
+                continue;
+
+            // Absolutely/fixed positioned children are out-of-flow, not grid items.
+            var childPosition = childStyle.Get("position");
+            if (childPosition == "absolute" || childPosition == "fixed")
                 continue;
 
             var item = new GridItem

@@ -56,22 +56,57 @@ public static class SystemFontLocator
         if (resolved != familyName)
             familyName = resolved;
 
+        var spaceless = familyName.Replace(" ", "");
+
+        // Rank matches so exact names win over substrings ("Arial.ttf" over
+        // "Arial Black.ttf") and spaceless forms match ("Segoe UI" -> segoeui.ttf).
+        string? best = null;
+        int bestRank = int.MaxValue;
+        int bestLength = int.MaxValue;
+
         foreach (var dir in GetFontDirectories())
         {
             try
             {
-                var files = Directory.GetFiles(dir, "*.ttf", SearchOption.AllDirectories);
-                var match = files.FirstOrDefault(f =>
-                    Path.GetFileNameWithoutExtension(f)
-                        .IndexOf(familyName, StringComparison.OrdinalIgnoreCase) >= 0);
-                if (match != null) return match;
+                var files = Directory.GetFiles(dir, "*.ttf", SearchOption.AllDirectories)
+                    .Concat(Directory.GetFiles(dir, "*.otf", SearchOption.AllDirectories));
 
-                // Also check .otf
-                var otfFiles = Directory.GetFiles(dir, "*.otf", SearchOption.AllDirectories);
-                match = otfFiles.FirstOrDefault(f =>
-                    Path.GetFileNameWithoutExtension(f)
-                        .IndexOf(familyName, StringComparison.OrdinalIgnoreCase) >= 0);
-                if (match != null) return match;
+                foreach (var file in files)
+                {
+                    var name = Path.GetFileNameWithoutExtension(file);
+                    var nameSpaceless = name.Replace(" ", "").Replace("-", "");
+
+                    int rank;
+                    if (string.Equals(name, familyName, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(nameSpaceless, spaceless, StringComparison.OrdinalIgnoreCase))
+                        rank = 0;
+                    else if (name.IndexOf(familyName, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                             nameSpaceless.IndexOf(spaceless, StringComparison.OrdinalIgnoreCase) >= 0)
+                        rank = 1;
+                    else
+                        continue;
+
+                    // Demote variant files (Bold/Italic) the query didn't ask for,
+                    // so "LiberationSans" finds Regular, not Bold.
+                    if (name.IndexOf("bold", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                        familyName.IndexOf("bold", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        familyName.IndexOf("bd", StringComparison.OrdinalIgnoreCase) < 0)
+                        rank += 10;
+                    if ((name.IndexOf("italic", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         name.IndexOf("oblique", StringComparison.OrdinalIgnoreCase) >= 0) &&
+                        familyName.IndexOf("italic", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        familyName.IndexOf("oblique", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        familyName.IndexOf("it", StringComparison.OrdinalIgnoreCase) < 0)
+                        rank += 10;
+
+                    if (rank < bestRank || (rank == bestRank && name.Length < bestLength))
+                    {
+                        best = file;
+                        bestRank = rank;
+                        bestLength = name.Length;
+                        if (rank == 0 && name.Length == familyName.Length) return best;
+                    }
+                }
             }
             catch
             {
@@ -79,7 +114,7 @@ public static class SystemFontLocator
             }
         }
 
-        return null;
+        return best;
     }
 
     /// <summary>Map generic CSS family names to platform-specific font names.</summary>
@@ -94,7 +129,7 @@ public static class SystemFontLocator
                 "monospace" => "Consolas",
                 "cursive" => "Comic Sans MS",
                 "fantasy" => "Impact",
-                _ => "Arial"
+                _ => genericName
             };
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
@@ -106,7 +141,7 @@ public static class SystemFontLocator
                 "monospace" => "Menlo",
                 "cursive" => "Apple Chancery",
                 "fantasy" => "Papyrus",
-                _ => "Helvetica"
+                _ => genericName
             };
         }
         else // Linux
@@ -118,7 +153,7 @@ public static class SystemFontLocator
                 "monospace" => "DejaVuSansMono",
                 "cursive" => "DejaVuSans",
                 "fantasy" => "DejaVuSans",
-                _ => "DejaVuSans"
+                _ => genericName
             };
         }
     }

@@ -15,6 +15,15 @@ public static class TextMeasurer
     /// <summary>Shared English hyphenator (thread-safe: immutable after construction).</summary>
     private static readonly Hyphenator _englishHyphenator = Hyphenator.CreateEnglish();
 
+    /// <summary>
+    /// Optional per-render provider resolving (font-family list, weight, style)
+    /// to a real parsed font whose advance widths are used for measurement.
+    /// Set by the render pipeline when @font-face webfonts are in play, so
+    /// layout measures with the same glyph metrics the PDF paints with.
+    /// </summary>
+    [ThreadStatic]
+    public static Func<string?, string?, string?, EggPdf.Text.TrueType.FontData?>? FontDataProvider;
+
     /// <summary>Measure the width of text in pixels using standard font metrics.</summary>
     public static float MeasureWidth(string text, float fontSize, string? fontFamily)
     {
@@ -25,10 +34,97 @@ public static class TextMeasurer
     public static float MeasureWidth(string text, float fontSize, string? fontFamily,
         string? fontWeight, string? fontStyle)
     {
+        return MeasureWidth(text, fontSize, fontFamily, fontWeight, fontStyle, 0f);
+    }
+
+    /// <summary>
+    /// Measure the width of text including letter-spacing. The PDF Tc operator
+    /// applies spacing after every glyph (including the last), so measurement
+    /// adds letterSpacing per glyph to match painting.
+    /// </summary>
+    public static float MeasureWidth(string text, float fontSize, string? fontFamily,
+        string? fontWeight, string? fontStyle, float letterSpacing)
+    {
         if (string.IsNullOrEmpty(text)) return 0;
 
-        var pdfFont = StandardFontMetrics.ResolvePdfFontName(fontFamily, fontWeight, fontStyle);
-        return StandardFontMetrics.MeasureWidth(text, fontSize, pdfFont);
+        float width;
+        int glyphCount = 0;
+
+        var fontData = FontDataProvider?.Invoke(fontFamily, fontWeight, fontStyle);
+        if (fontData != null && fontData.UnitsPerEm > 0)
+        {
+            // Real font metrics (webfont) — matches what the PDF will paint
+            var pdfFont = StandardFontMetrics.ResolvePdfFontName(fontFamily, fontWeight, fontStyle);
+            float w = 0;
+            for (int i = 0; i < text.Length; i++)
+            {
+                int cp = text[i];
+                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                {
+                    cp = char.ConvertToUtf32(text[i], text[i + 1]);
+                    i++;
+                }
+                glyphCount++;
+
+                var gid = fontData.GetGlyphId(cp);
+                if (gid > 0)
+                    w += fontData.GetAdvanceWidth(gid) * fontSize / fontData.UnitsPerEm;
+                else if (cp <= char.MaxValue)
+                    w += StandardFontMetrics.MeasureCharWidth((char)cp, fontSize, pdfFont);
+                else
+                    w += fontSize * 0.5f;
+            }
+            width = w;
+        }
+        else
+        {
+            var pdfFont = StandardFontMetrics.ResolvePdfFontName(fontFamily, fontWeight, fontStyle);
+            width = StandardFontMetrics.MeasureWidth(text, fontSize, pdfFont);
+            if (letterSpacing != 0)
+                glyphCount = CountGlyphs(text);
+        }
+
+        if (letterSpacing != 0)
+            width += letterSpacing * glyphCount;
+
+        return width;
+    }
+
+    /// <summary>
+    /// Baseline offset from the line-box top: half-leading plus ascent, using the
+    /// real font's metrics when a webfont provider is active (falls back to the
+    /// 0.86em/0.14em approximation for built-in fonts).
+    /// </summary>
+    public static float GetBaselineOffset(float fontSize, float lineBoxHeight,
+        string? fontFamily, string? fontWeight, string? fontStyle)
+    {
+        float asc = 0.86f, desc = 0.14f;
+        var fd = FontDataProvider?.Invoke(fontFamily, fontWeight, fontStyle);
+        if (fd != null && fd.UnitsPerEm > 0 && fd.Ascent > 0)
+        {
+            float a = (float)fd.Ascent / fd.UnitsPerEm;
+            float d = Math.Abs((float)fd.Descent) / fd.UnitsPerEm;
+            if (a >= 0.5f && a <= 1.2f && d <= 0.6f)
+            {
+                asc = a;
+                desc = d;
+            }
+        }
+        float halfLeading = (lineBoxHeight - (asc + desc) * fontSize) / 2f;
+        return halfLeading + asc * fontSize;
+    }
+
+    /// <summary>Count glyphs (surrogate pairs form one glyph).</summary>
+    private static int CountGlyphs(string text)
+    {
+        int count = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                i++;
+            count++;
+        }
+        return count;
     }
 
     /// <summary>Get line height for a font size.</summary>
@@ -83,10 +179,11 @@ public static class TextMeasurer
     /// <summary>
     /// Break text into lines respecting white-space, overflow-wrap/word-break, and optional hyphenation.
     /// When enableHyphenation is true, long words are broken at valid hyphenation points with a '-' appended.
+    /// letterSpacing (px per glyph) is included in width calculations.
     /// </summary>
     public static List<string> WrapText(string text, float fontSize, string? fontFamily,
         string? fontWeight, string? fontStyle, float maxWidth, string whiteSpace, bool breakWord,
-        bool enableHyphenation)
+        bool enableHyphenation, float letterSpacing = 0f)
     {
         var lines = new List<string>();
         if (string.IsNullOrEmpty(text))
@@ -105,7 +202,7 @@ public static class TextMeasurer
 
                 if (allowWrap && maxWidth > 0)
                 {
-                    var wrappedLines = WrapSingleLine(processedLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth, preserveSpaces, breakWord, enableHyphenation);
+                    var wrappedLines = WrapSingleLine(processedLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth, preserveSpaces, breakWord, enableHyphenation, letterSpacing);
                     lines.AddRange(wrappedLines);
                 }
                 else
@@ -126,7 +223,7 @@ public static class TextMeasurer
                 if (!string.IsNullOrEmpty(collapsed)) lines.Add(collapsed);
                 return lines;
             }
-            var wrappedLines = WrapSingleLine(collapsed, fontSize, fontFamily, fontWeight, fontStyle, maxWidth, false, breakWord, enableHyphenation);
+            var wrappedLines = WrapSingleLine(collapsed, fontSize, fontFamily, fontWeight, fontStyle, maxWidth, false, breakWord, enableHyphenation, letterSpacing);
             lines.AddRange(wrappedLines);
         }
 
@@ -136,7 +233,7 @@ public static class TextMeasurer
     /// <summary>Wrap a single line of text at word boundaries.</summary>
     private static List<string> WrapSingleLine(string text, float fontSize, string? fontFamily,
         string? fontWeight, string? fontStyle, float maxWidth, bool preserveSpaces,
-        bool breakWord = false, bool enableHyphenation = false)
+        bool breakWord = false, bool enableHyphenation = false, float letterSpacing = 0f)
     {
         var lines = new List<string>();
         if (string.IsNullOrEmpty(text))
@@ -161,43 +258,43 @@ public static class TextMeasurer
         if (words.Length == 0) { lines.Add(""); return lines; }
 
         var currentLine = words[0];
-        float currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
+        float currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
         // Measure separator width once; reused every iteration to avoid per-word allocation checks.
-        float spaceWidth = preserveSpaces ? 0f : MeasureWidth(" ", fontSize, fontFamily, fontWeight, fontStyle);
+        float spaceWidth = preserveSpaces ? 0f : MeasureWidth(" ", fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
 
         // If first word is too wide, try hyphenation then character-breaking
         if (currentLineWidth > maxWidth)
         {
             if (enableHyphenation)
             {
-                var hyphenated = HyphenateWordToFit(currentLine, "", fontSize, fontFamily, fontWeight, fontStyle, maxWidth);
+                var hyphenated = HyphenateWordToFit(currentLine, "", fontSize, fontFamily, fontWeight, fontStyle, maxWidth, letterSpacing);
                 if (hyphenated != null)
                 {
                     lines.Add(hyphenated.Item1);
                     currentLine = hyphenated.Item2;
-                    currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
+                    currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
                 }
                 else if (breakWord)
                 {
-                    var broken = BreakWordByCharacter(currentLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth);
+                    var broken = BreakWordByCharacter(currentLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth, letterSpacing);
                     for (int bi = 0; bi < broken.Count - 1; bi++) lines.Add(broken[bi]);
                     currentLine = broken.Count > 0 ? broken[broken.Count - 1] : "";
-                    currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
+                    currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
                 }
             }
             else if (breakWord)
             {
-                var broken = BreakWordByCharacter(currentLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth);
+                var broken = BreakWordByCharacter(currentLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth, letterSpacing);
                 for (int bi = 0; bi < broken.Count - 1; bi++) lines.Add(broken[bi]);
                 currentLine = broken.Count > 0 ? broken[broken.Count - 1] : "";
-                currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
+                currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
             }
         }
 
         for (int i = 1; i < words.Length; i++)
         {
             string word = words[i];
-            float wordWidth = MeasureWidth(word, fontSize, fontFamily, fontWeight, fontStyle);
+            float wordWidth = MeasureWidth(word, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
             // Check width without building candidate string — only concat when it fits.
             float candidateWidth = currentLineWidth + spaceWidth + wordWidth;
 
@@ -212,12 +309,12 @@ public static class TextMeasurer
                 bool hyphenUsed = false;
                 if (enableHyphenation)
                 {
-                    var hyphenated = HyphenateWordToFit(word, currentLine + separator, fontSize, fontFamily, fontWeight, fontStyle, maxWidth);
+                    var hyphenated = HyphenateWordToFit(word, currentLine + separator, fontSize, fontFamily, fontWeight, fontStyle, maxWidth, letterSpacing);
                     if (hyphenated != null)
                     {
                         lines.Add(hyphenated.Item1);
                         currentLine = hyphenated.Item2;
-                        currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
+                        currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
                         hyphenUsed = true;
                     }
                 }
@@ -233,27 +330,27 @@ public static class TextMeasurer
                     {
                         if (enableHyphenation)
                         {
-                            var hyphenated = HyphenateWordToFit(currentLine, "", fontSize, fontFamily, fontWeight, fontStyle, maxWidth);
+                            var hyphenated = HyphenateWordToFit(currentLine, "", fontSize, fontFamily, fontWeight, fontStyle, maxWidth, letterSpacing);
                             if (hyphenated != null)
                             {
                                 lines.Add(hyphenated.Item1);
                                 currentLine = hyphenated.Item2;
-                                currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
+                                currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
                             }
                             else if (breakWord)
                             {
-                                var broken = BreakWordByCharacter(currentLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth);
+                                var broken = BreakWordByCharacter(currentLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth, letterSpacing);
                                 for (int bi = 0; bi < broken.Count - 1; bi++) lines.Add(broken[bi]);
                                 currentLine = broken.Count > 0 ? broken[broken.Count - 1] : "";
-                                currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
+                                currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
                             }
                         }
                         else if (breakWord)
                         {
-                            var broken = BreakWordByCharacter(currentLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth);
+                            var broken = BreakWordByCharacter(currentLine, fontSize, fontFamily, fontWeight, fontStyle, maxWidth, letterSpacing);
                             for (int bi = 0; bi < broken.Count - 1; bi++) lines.Add(broken[bi]);
                             currentLine = broken.Count > 0 ? broken[broken.Count - 1] : "";
-                            currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle);
+                            currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
                         }
                     }
                 }
@@ -271,7 +368,8 @@ public static class TextMeasurer
     /// hyphenation point. Returns (lineWithHyphen, remainder) or null if no point fits.
     /// </summary>
     private static Tuple<string, string>? HyphenateWordToFit(string word, string linePrefix,
-        float fontSize, string? fontFamily, string? fontWeight, string? fontStyle, float maxWidth)
+        float fontSize, string? fontFamily, string? fontWeight, string? fontStyle, float maxWidth,
+        float letterSpacing = 0f)
     {
         var breakPoints = _englishHyphenator.Hyphenate(word);
         if (breakPoints.Length == 0) return null;
@@ -284,7 +382,7 @@ public static class TextMeasurer
             int bp = breakPoints[k];
             var prefix = word.Substring(0, bp) + "-";
             var candidate = linePrefix + prefix;
-            if (MeasureWidth(candidate, fontSize, fontFamily, fontWeight, fontStyle) <= maxWidth)
+            if (MeasureWidth(candidate, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing) <= maxWidth)
             {
                 bestLine = candidate;
                 bestRemainder = word.Substring(bp);
@@ -298,7 +396,7 @@ public static class TextMeasurer
 
     /// <summary>Break a single word into chunks that each fit within maxWidth.</summary>
     private static List<string> BreakWordByCharacter(string word, float fontSize,
-        string? fontFamily, string? fontWeight, string? fontStyle, float maxWidth)
+        string? fontFamily, string? fontWeight, string? fontStyle, float maxWidth, float letterSpacing = 0f)
     {
         var chunks = new List<string>();
         if (string.IsNullOrEmpty(word))
@@ -313,7 +411,7 @@ public static class TextMeasurer
         float runWidth = 0f;
         for (int i = 0; i < word.Length; i++)
         {
-            float cw = StandardFontMetrics.MeasureCharWidth(word[i], fontSize, pdfFont);
+            float cw = MeasureWidth(word[i].ToString(), fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
             if (runWidth + cw > maxWidth && i > start)
             {
                 chunks.Add(word.Substring(start, i - start));

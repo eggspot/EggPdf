@@ -137,6 +137,29 @@ public static class StandardFontMetrics
         bool bold = fontWeight == "bold" || fontWeight == "700" || fontWeight == "800" || fontWeight == "900";
         bool italic = fontStyle == "italic" || fontStyle == "oblique";
 
+        // When webfonts are in play (measurement provider active), intermediate
+        // numeric weights select their own face: the name carries the weight
+        // ("Arial-W600") so each weight embeds and paints its matching variant.
+        int numericWeight = 0;
+        if (!string.IsNullOrEmpty(fontWeight))
+            int.TryParse(fontWeight, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out numericWeight);
+        bool weightVariant = TextMeasurer.FontDataProvider != null &&
+            numericWeight >= 100 && numericWeight <= 900 &&
+            numericWeight != 400 && numericWeight != 700;
+        if (weightVariant)
+        {
+            bold = false; // the weight suffix carries the variant instead
+            var baseName = ResolveBaseFontName(fontFamily, false, italic);
+            return baseName + "-W" + numericWeight;
+        }
+
+        return ResolveBaseFontName(fontFamily, bold, italic);
+    }
+
+    private static string ResolveBaseFontName(string? fontFamily, bool bold, bool italic)
+    {
+
         var family = (fontFamily ?? "").ToLowerInvariant().Trim();
 
         if (family.IndexOf("monospace", StringComparison.OrdinalIgnoreCase) >= 0 ||

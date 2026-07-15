@@ -58,6 +58,34 @@ public class PdfPage
         ContentStream.AppendLine("ET");
     }
 
+    /// <summary>
+    /// Add CID text composed of runs in different embedded fonts (glyph
+    /// fallback). All runs share one BT block; Tj advances the text position,
+    /// so runs flow naturally after each other.
+    /// </summary>
+    public void AddTextRunsCID(List<(string fontName, ushort[] glyphIds)> runs,
+        float x, float y, float fontSize,
+        float colorR = 0, float colorG = 0, float colorB = 0,
+        float letterSpacing = 0, float wordSpacing = 0)
+    {
+        ContentStream.AppendLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
+        ContentStream.Append("BT ");
+        ContentStream.Append($"{F(letterSpacing)} Tc ");
+        ContentStream.Append($"{F(wordSpacing)} Tw ");
+        ContentStream.Append($"{F(x)} {F(y)} Td ");
+        foreach (var run in runs)
+        {
+            if (run.glyphIds.Length == 0) continue;
+            UsedFonts.Add(run.fontName);
+            ContentStream.Append($"/{run.fontName} {F(fontSize)} Tf ");
+            ContentStream.Append('<');
+            foreach (var gid in run.glyphIds)
+                ContentStream.Append(gid.ToString("X4"));
+            ContentStream.Append("> Tj ");
+        }
+        ContentStream.AppendLine("ET");
+    }
+
     /// <summary>Append raw PDF content stream commands (for SVG rendering etc.).</summary>
     public void AppendRawContent(string commands)
     {
@@ -288,7 +316,10 @@ public class PdfPage
     /// <summary>Set fill and stroke opacity (0.0-1.0). Creates an ExtGState reference.</summary>
     public void SetOpacity(float opacity)
     {
-        if (opacity >= 1.0f) return; // fully opaque, no ExtGState needed
+        // SetOpacity(1) must EMIT a reset state — the gs operator persists, so
+        // silently skipping it leaks the previous alpha into later content.
+        if (opacity > 1.0f) opacity = 1.0f;
+        if (opacity < 0f) opacity = 0f;
         var gsName = $"GS{(int)(opacity * 100)}";
         UsedExtGStates.Add(gsName);
         ContentStream.AppendLine($"/{gsName} gs");

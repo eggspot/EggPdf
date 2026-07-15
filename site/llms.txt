@@ -44,6 +44,19 @@ curl -X POST http://localhost:8080/api/render \
   -d '{"html": "<h1>Hello</h1>"}' -o output.pdf
 ```
 
+## Webfonts & Unicode
+- Google Fonts / remote `<link>` stylesheets fetched automatically; @font-face over http(s), data:, or files
+- Weight-accurate faces (300–900), real font metrics, full Vietnamese/extended Latin, symbol fallback (⚠ ✔)
+
+## Security
+```csharp
+// One-call PKI signing (detached CMS/PKCS#7, zero extra packages)
+byte[] signed = EggPdf.Pdf.PdfSigner.Sign(pdf, x509CertWithPrivateKey,
+    new EggPdf.Pdf.PdfSigner.SignOptions { Name = "Jane", Reason = "Approval" });
+```
+- View-only PDFs via REST `POST /api/encrypt` (RC4 128-bit, owner/user passwords, print/copy/modify flags)
+- Permission flags are advisory; signatures give cryptographic tamper evidence
+
 ## Performance
 - Simple page: 13 µs — Invoice: 86 µs — Large table (100 rows): 1.2 ms
 - Thread-safe, streaming output, zero allocations on hot path

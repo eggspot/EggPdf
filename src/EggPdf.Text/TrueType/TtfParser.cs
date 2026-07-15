@@ -144,29 +144,62 @@ public static class TtfParser
 
         ushort numSubtables = ReadUInt16(data, ref pos);
 
-        // Find a Unicode subtable (platformID 0 or 3)
-        int bestOffset = -1;
+        // Find Unicode subtables (platformID 0 or 3). A font may expose several;
+        // prefer format 12 (full Unicode) over format 4 (BMP only).
+        int format4Offset = -1;
+        int format12Offset = -1;
         for (int i = 0; i < numSubtables; i++)
         {
             ushort platformID = ReadUInt16(data, ref pos);
             ushort encodingID = ReadUInt16(data, ref pos);
             uint subtableOffset = ReadUInt32(data, ref pos);
 
-            if (platformID == 0 || (platformID == 3 && (encodingID == 1 || encodingID == 10)))
-            {
-                bestOffset = offset + (int)subtableOffset;
-            }
+            if (platformID != 0 && !(platformID == 3 && (encodingID == 1 || encodingID == 10)))
+                continue;
+
+            int subStart = offset + (int)subtableOffset;
+            if (subStart + 2 > data.Length) continue;
+
+            int subPos = subStart;
+            ushort format = ReadUInt16(data, ref subPos);
+            if (format == 4 && format4Offset < 0)
+                format4Offset = subStart;
+            else if (format == 12 && format12Offset < 0)
+                format12Offset = subStart;
         }
 
-        if (bestOffset < 0) return;
+        if (format12Offset >= 0)
+            ParseCmapFormat12(data, format12Offset, font.Cmap);
+        else if (format4Offset >= 0)
+            ParseCmapFormat4(data, format4Offset, font.Cmap);
+    }
 
-        // Read subtable format
-        int subPos = bestOffset;
-        ushort format = ReadUInt16(data, ref subPos);
+    private static void ParseCmapFormat12(byte[] data, int offset, CmapData cmap)
+    {
+        int pos = offset + 4; // skip format (2) + reserved (2)
+        pos += 4; // length
+        pos += 4; // language
+        uint numGroups = ReadUInt32(data, ref pos);
 
-        if (format == 4)
-            ParseCmapFormat4(data, bestOffset, font.Cmap);
-        // Format 12 support can be added later for supplementary planes
+        const int MaxMappings = 500000; // safety cap against corrupt group counts
+        int added = 0;
+        for (uint g = 0; g < numGroups; g++)
+        {
+            if (pos + 12 > data.Length) return;
+            uint startChar = ReadUInt32(data, ref pos);
+            uint endChar = ReadUInt32(data, ref pos);
+            uint startGlyph = ReadUInt32(data, ref pos);
+
+            if (endChar < startChar || endChar > 0x10FFFF) continue;
+
+            for (uint cp = startChar; cp <= endChar; cp++)
+            {
+                ushort glyphId = (ushort)(startGlyph + (cp - startChar));
+                if (glyphId != 0)
+                    cmap.Add((int)cp, glyphId);
+                if (++added >= MaxMappings) return;
+            }
+        }
     }
 
     private static void ParseCmapFormat4(byte[] data, int offset, CmapData cmap)

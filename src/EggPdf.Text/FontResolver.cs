@@ -27,11 +27,11 @@ public class FontResolver
         // Try variant names first (e.g., Arial Bold, Arial Italic)
         string[] candidates;
         if (bold && italic)
-            candidates = new[] { familyName + "BoldItalic", familyName + "-BoldItalic", familyName + "BI" };
+            candidates = new[] { familyName + " Bold Italic", familyName + "BoldItalic", familyName + "-BoldItalic", familyName + "bi", familyName + "BI" };
         else if (bold)
-            candidates = new[] { familyName + "Bold", familyName + "-Bold", familyName + "bd" };
+            candidates = new[] { familyName + " Bold", familyName + "Bold", familyName + "-Bold", familyName + "bd" };
         else if (italic)
-            candidates = new[] { familyName + "Italic", familyName + "-Italic", familyName + "it" };
+            candidates = new[] { familyName + " Italic", familyName + "Italic", familyName + "-Italic", familyName + "it" };
         else
             candidates = new[] { familyName };
 

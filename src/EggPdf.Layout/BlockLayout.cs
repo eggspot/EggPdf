@@ -11,6 +11,9 @@ namespace EggPdf.Layout;
 public static class BlockLayout
 {
     private const float DefaultFontSize = 16f;
+
+    /// <summary>U+00A0 — rendered content, never a collapsible boundary space.</summary>
+    private const char NonBreakingSpace = (char)0x00A0;
     private const float DefaultLineHeight = 1.2f;
 
     // Thread-local context for ::before/::after and CSS counters.
@@ -273,6 +276,12 @@ public static class BlockLayout
                 box.Y += offsetTopFlex;
             }
 
+            // Absolutely positioned children are out-of-flow (excluded from flex
+            // items); place them now that the container's final size is known.
+            var flexAbsChildren = CollectAbsoluteChildren(element, style, resolver);
+            if (flexAbsChildren.Count > 0)
+                LayoutAbsoluteChildren(flexAbsChildren, box, position, containingWidth, parent, fontSize, resolver, style);
+
             return box;
         }
 
@@ -326,6 +335,12 @@ public static class BlockLayout
                 float offsetTopGrid = ResolveLength(style.Get("top"), 0, fontSize);
                 box.Y += offsetTopGrid;
             }
+
+            // Absolutely positioned children are out-of-flow (excluded from grid
+            // items); place them now that the container's final size is known.
+            var gridAbsChildren = CollectAbsoluteChildren(element, style, resolver);
+            if (gridAbsChildren.Count > 0)
+                LayoutAbsoluteChildren(gridAbsChildren, box, position, containingWidth, parent, fontSize, resolver, style);
 
             return box;
         }
@@ -405,6 +420,10 @@ public static class BlockLayout
         // Form element special rendering: inject value/content text for void/custom form elements
         childY = InjectFormElementContent(element, style, box, fontSize, childContainingWidth, childY);
 
+        // Tracks a collapsed boundary space owned by the preceding text node
+        // ("Căn cứ <strong>Luật</strong>": the space precedes the inline element).
+        bool prevTextEndedWithSpace = false;
+
         foreach (var childNode in element.ChildNodes)
         {
             if (childNode is HtmlElement childElem)
@@ -422,7 +441,11 @@ public static class BlockLayout
                     continue;
                 }
 
-                if (IsBlockLevel(childStyle.Display))
+                // Images must keep their dedicated branch even when display:block
+                // (the generic block path would lose ImageSource entirely).
+                bool isImageElement = childElem.TagName == "img" || childElem.TagName == "picture";
+
+                if (IsBlockLevel(childStyle.Display) && !isImageElement)
                 {
                     // Flush any pending inline content
                     if (inlineX > 0)
@@ -606,8 +629,11 @@ public static class BlockLayout
                     float imgWidth = ResolveImgDimension(childStyle.Width, childElem.GetAttribute("width"), childContainingWidth, fontSize, 150);
                     float imgHeight = ResolveImgDimension(childStyle.Height, childElem.GetAttribute("height"), 0, fontSize, 150);
 
+                    // display:block images occupy their own line
+                    bool imgIsBlock = IsBlockLevel(childStyle.Display);
+
                     // Check if image fits on current inline line
-                    if (inlineX > 0 && inlineX + imgWidth > childContainingWidth)
+                    if (inlineX > 0 && (imgIsBlock || inlineX + imgWidth > childContainingWidth))
                     {
                         childY += inlineLineHeight;
                         inlineX = 0;
@@ -631,9 +657,20 @@ public static class BlockLayout
                         ImageSource = imgSrc
                     };
                     box.Children.Add(childBox);
-                    inlineX += imgWidth;
-                    if (imgHeight > inlineLineHeight)
-                        inlineLineHeight = imgHeight;
+
+                    if (imgIsBlock)
+                    {
+                        childY += imgHeight;
+                        inlineX = 0;
+                        inlineLineHeight = 0;
+                        hasBlockChild = true;
+                    }
+                    else
+                    {
+                        inlineX += imgWidth;
+                        if (imgHeight > inlineLineHeight)
+                            inlineLineHeight = imgHeight;
+                    }
                 }
                 else if (childElem.TagName == "picture")
                 {
@@ -674,6 +711,26 @@ public static class BlockLayout
                 {
                     // Inline-block: create a box that flows inline but has block internals
                     var childBox = CreateBox(childElem, childStyle, box, childContainingWidth, resolver, style);
+
+                    // Shrink-to-fit: an auto-width inline-block wraps its content
+                    // (CSS 2.1 §10.3.9) instead of filling the containing block.
+                    if (string.IsNullOrEmpty(childStyle.Width) || childStyle.Width == "auto")
+                    {
+                        float contentRight = childBox.X + childBox.PaddingLeft;
+                        for (int ci = 0; ci < childBox.Children.Count; ci++)
+                        {
+                            float r = childBox.Children[ci].X + childBox.Children[ci].Width;
+                            if (r > contentRight) contentRight = r;
+                        }
+                        float shrunk = contentRight - childBox.X + childBox.PaddingRight;
+                        if (shrunk > 0 && shrunk < childBox.Width)
+                        {
+                            childBox.Width = shrunk;
+                            childBox.ContentWidth = shrunk - childBox.PaddingLeft - childBox.PaddingRight;
+                            if (childBox.ContentWidth < 0) childBox.ContentWidth = 0;
+                        }
+                    }
+
                     float ibWidth = childBox.Width;
                     if (inlineX > 0 && inlineX + ibWidth > childContainingWidth)
                     {
@@ -681,8 +738,25 @@ public static class BlockLayout
                         inlineX = 0;
                         inlineLineHeight = 0;
                     }
-                    childBox.X = box.X + box.PaddingLeft + inlineX;
+
+                    // text-align on the parent positions the inline-block within the line
+                    float ibAlignOffset = 0;
+                    if (inlineX == 0 && ibWidth < childContainingWidth)
+                    {
+                        var parentTextAlign = style.Get("text-align");
+                        if (parentTextAlign == "center")
+                            ibAlignOffset = (childContainingWidth - ibWidth) / 2;
+                        else if (parentTextAlign == "right")
+                            ibAlignOffset = childContainingWidth - ibWidth;
+                    }
+
+                    // X is absolute (shift descendants); Y is parent-relative and
+                    // resolved in the post-layout pass.
+                    float ibDeltaX = box.X + box.PaddingLeft + inlineX + ibAlignOffset - childBox.X;
+                    childBox.X += ibDeltaX;
                     childBox.Y = box.Y + box.PaddingTop + childY;
+                    if (Math.Abs(ibDeltaX) > 0.01f)
+                        FlexLayout.OffsetChildren(childBox, ibDeltaX, 0);
                     box.Children.Add(childBox);
                     inlineX += ibWidth;
                     if (childBox.Height > inlineLineHeight) inlineLineHeight = childBox.Height;
@@ -698,6 +772,13 @@ public static class BlockLayout
                     // Inline elements: collect text runs with style info and lay out word-by-word
                     var runs = new System.Collections.Generic.List<InlineRun>();
                     CollectInlineRuns(childElem, childStyle, ResolveFontSize(childStyle.FontSize, fontSize), resolver, runs);
+                    if (runs.Count > 0 && prevTextEndedWithSpace)
+                    {
+                        var firstRun = runs[0];
+                        firstRun.HasLeadingSpace = true;
+                        runs[0] = firstRun;
+                    }
+                    prevTextEndedWithSpace = false;
                     if (runs.Count > 0)
                     {
                         LayoutInlineRuns(runs, box, childElem, ref inlineX, ref childY, ref inlineLineHeight,
@@ -737,16 +818,21 @@ public static class BlockLayout
                     var ilFontFamily = style.FontFamily;
                     var ilFontWeight = style.FontWeight;
                     var ilFontStyle = style.Get("font-style");
+                    float ilLetterSpacing = ResolveLength(style.Get("letter-spacing"), 0, fontSize);
                     float ilLineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
                     var ilTextData = TrimHtmlText(textNode.Data);
                     if (string.IsNullOrEmpty(ilTextData)) continue;
+
+                    // Measure the transformed text (uppercase is wider); paint-time
+                    // transform is idempotent so the box text may carry it too.
+                    ilTextData = ApplyTextTransformForMeasure(ilTextData, style);
 
                     // Split into words and lay them out inline
                     var words = ilTextData.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
                     foreach (var word in words)
                     {
                         var wordWithSpace = (inlineX > 0 ? " " : "") + word;
-                        float wordWidth = TextMeasurer.MeasureWidth(wordWithSpace, fontSize, ilFontFamily, ilFontWeight, ilFontStyle);
+                        float wordWidth = TextMeasurer.MeasureWidth(wordWithSpace, fontSize, ilFontFamily, ilFontWeight, ilFontStyle, ilLetterSpacing);
 
                         // Wrap to next line if word doesn't fit
                         if (inlineX > 0 && inlineX + wordWidth > childContainingWidth)
@@ -755,7 +841,7 @@ public static class BlockLayout
                             inlineX = 0;
                             inlineLineHeight = 0;
                             wordWithSpace = word;
-                            wordWidth = TextMeasurer.MeasureWidth(word, fontSize, ilFontFamily, ilFontWeight, ilFontStyle);
+                            wordWidth = TextMeasurer.MeasureWidth(word, fontSize, ilFontFamily, ilFontWeight, ilFontStyle, ilLetterSpacing);
                         }
 
                         var textBox = new LayoutBox
@@ -774,6 +860,10 @@ public static class BlockLayout
                         if (ilLineHeight > inlineLineHeight)
                             inlineLineHeight = ilLineHeight;
                     }
+
+                    // NBSP is rendered content, not a collapsible boundary space
+                    char ilLastChar = textNode.Data.Length > 0 ? textNode.Data[textNode.Data.Length - 1] : '\0';
+                    prevTextEndedWithSpace = ilLastChar != NonBreakingSpace && char.IsWhiteSpace(ilLastChar);
                     continue;
                 }
 
@@ -803,6 +893,11 @@ public static class BlockLayout
                 bool breakWord = overflowWrap == "break-word" || overflowWrap == "anywhere" ||
                                  wordBreak == "break-all" || wordBreak == "break-word";
                 bool enableHyphenation = style.Get("hyphens") == "auto";
+                float blockLetterSpacing = ResolveLength(style.Get("letter-spacing"), 0, fontSize);
+
+                // Wrap and measure the transformed text (uppercase is wider); the
+                // paint-time transform is idempotent, so storing it in the box is safe.
+                textData = ApplyTextTransformForMeasure(textData, style);
 
                 // text-wrap: balance — compute an optimal balanced width before wrapping
                 float balanceWidth = childContainingWidth;
@@ -820,7 +915,7 @@ public static class BlockLayout
                 // For text-indent, reduce first line's available width
                 float firstLineWidth = textIndent > 0 ? balanceWidth - textIndent : balanceWidth;
                 var lines = TextMeasurer.WrapText(textData, fontSize, fontFamily, fontWeight, fontStyle,
-                    firstLineWidth > 0 ? firstLineWidth : balanceWidth, whiteSpaceProp, breakWord, enableHyphenation);
+                    firstLineWidth > 0 ? firstLineWidth : balanceWidth, whiteSpaceProp, breakWord, enableHyphenation, blockLetterSpacing);
 
                 // If indent caused wrapping and there are remaining lines, re-wrap with full width
                 if (textIndent > 0 && lines.Count > 1)
@@ -830,7 +925,7 @@ public static class BlockLayout
                     lines = new System.Collections.Generic.List<string> { firstLine };
                     if (!string.IsNullOrEmpty(remaining))
                     {
-                        var moreLines = TextMeasurer.WrapText(remaining, fontSize, fontFamily, fontWeight, fontStyle, childContainingWidth, whiteSpaceProp, breakWord, enableHyphenation);
+                        var moreLines = TextMeasurer.WrapText(remaining, fontSize, fontFamily, fontWeight, fontStyle, childContainingWidth, whiteSpaceProp, breakWord, enableHyphenation, blockLetterSpacing);
                         lines.AddRange(moreLines);
                     }
                 }
@@ -976,7 +1071,7 @@ public static class BlockLayout
                             Y = box.Y + box.PaddingTop + childY,
                             Width = childContainingWidth,
                             Height = lineHeight,
-                            ContentWidth = TextMeasurer.MeasureWidth(line, fontSize, fontFamily, fontWeight, fontStyle),
+                            ContentWidth = TextMeasurer.MeasureWidth(line, fontSize, fontFamily, fontWeight, fontStyle, blockLetterSpacing),
                             ContentHeight = lineHeight,
                             Text = line
                         };
@@ -1249,6 +1344,74 @@ public static class BlockLayout
             box.Height = maxHeight.Value;
 
         // Layout absolutely/fixed positioned children (deferred from normal flow)
+        LayoutAbsoluteChildren(absChildren, box, position, containingWidth, parent, fontSize, resolver, style);
+
+        // Apply relative/sticky position Y offset (sticky behaves like relative in PDF — no scrolling)
+        if (position == "relative" || position == "sticky")
+        {
+            float offsetTop = ResolveLength(style.Get("top"), 0, fontSize);
+            box.Y += offsetTop;
+        }
+
+        return box;
+    }
+
+    /// <summary>
+    /// Apply text-transform for width measurement (uppercase glyphs are wider).
+    /// The painted text is transformed by the renderer; measuring the transformed
+    /// text keeps layout and paint in agreement. Box text stays untransformed.
+    /// </summary>
+    private static string ApplyTextTransformForMeasure(string text, ComputedStyle style)
+    {
+        var tt = style.Get("text-transform");
+        if (string.IsNullOrEmpty(tt) || tt == "none") return text;
+        if (tt == "uppercase") return text.ToUpperInvariant();
+        if (tt == "lowercase") return text.ToLowerInvariant();
+        return text; // capitalize changes width negligibly
+    }
+
+    /// <summary>Walk up parent chain to find page height.</summary>
+    private static float FindPageHeight(LayoutBox parent)
+    {
+        // The root box has Height set to page height and no Element
+        if (parent.Element == null && parent.Height > 0)
+            return parent.Height;
+        // Default A4 page height in CSS px
+        return parent.Height > 0 ? parent.Height : 841.89f;
+    }
+
+    /// <summary>
+    /// Collect absolutely/fixed positioned element children (out-of-flow).
+    /// Used by flex and grid containers, whose item collectors skip them.
+    /// </summary>
+    private static System.Collections.Generic.List<(HtmlElement elem, ComputedStyle style, string pos)> CollectAbsoluteChildren(
+        HtmlElement element, ComputedStyle style, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver)
+    {
+        var result = new System.Collections.Generic.List<(HtmlElement elem, ComputedStyle style, string pos)>();
+        foreach (var childNode in element.ChildNodes)
+        {
+            if (!(childNode is HtmlElement childElem))
+                continue;
+            var childStyle = resolver(childElem, style);
+            if (childStyle.Display == "none")
+                continue;
+            var childPosition = childStyle.Get("position");
+            if (childPosition == "absolute" || childPosition == "fixed")
+                result.Add((childElem, childStyle, childPosition!));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Position absolutely/fixed positioned children relative to their containing
+    /// block (this box when positioned, else the page root). Must run after the
+    /// container's final size is known. Appends the boxes to box.Children.
+    /// </summary>
+    private static void LayoutAbsoluteChildren(
+        System.Collections.Generic.List<(HtmlElement elem, ComputedStyle style, string pos)> absChildren,
+        LayoutBox box, string? position, float containingWidth, LayoutBox parent, float fontSize,
+        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle style)
+    {
         for (int ai = 0; ai < absChildren.Count; ai++)
         {
             var absEntry = absChildren[ai];
@@ -1276,11 +1439,16 @@ public static class BlockLayout
                 // Absolute: relative to nearest positioned ancestor or this box if positioned
                 if (position == "relative" || position == "absolute" || position == "fixed" || position == "sticky")
                 {
-                    // This box is the containing block
-                    cbX = box.X;
-                    cbY = box.Y;
-                    cbWidth = box.Width;
-                    cbHeight = box.Height;
+                    // This box is the containing block — its PADDING box (CSS 2.1
+                    // §10.1), so offsets count from inside the border.
+                    float cbBorderLeft = ResolveLength(style.Get("border-left-width"), 0, fontSize);
+                    float cbBorderRight = ResolveLength(style.Get("border-right-width"), 0, fontSize);
+                    float cbBorderTop = ResolveLength(style.Get("border-top-width"), 0, fontSize);
+                    float cbBorderBottom = ResolveLength(style.Get("border-bottom-width"), 0, fontSize);
+                    cbX = box.X + cbBorderLeft;
+                    cbY = box.Y + cbBorderTop;
+                    cbWidth = box.Width - cbBorderLeft - cbBorderRight;
+                    cbHeight = box.Height - cbBorderTop - cbBorderBottom;
                 }
                 else
                 {
@@ -1324,43 +1492,34 @@ public static class BlockLayout
                 }
             }
 
-            // Position X
+            // Position X: offsets move the box AND its already-laid-out descendants
+            float targetX;
             if (leftVal.HasValue)
-                absBox.X = cbX + leftVal.Value + absBox.MarginLeft;
+                targetX = cbX + leftVal.Value + absBox.MarginLeft;
             else if (rightVal.HasValue)
-                absBox.X = cbX + cbWidth - rightVal.Value - absBox.Width - absBox.MarginRight;
+                targetX = cbX + cbWidth - rightVal.Value - absBox.Width - absBox.MarginRight;
             else
-                absBox.X = cbX + absBox.MarginLeft; // default: top-left of containing block
+                targetX = cbX + absBox.MarginLeft; // default: top-left of containing block
 
             // Position Y
+            float targetY;
             if (topVal.HasValue)
-                absBox.Y = cbY + topVal.Value + absBox.MarginTop;
+                targetY = cbY + topVal.Value + absBox.MarginTop;
             else if (bottomVal.HasValue)
-                absBox.Y = cbY + cbHeight - bottomVal.Value - absBox.Height - absBox.MarginBottom;
+                targetY = cbY + cbHeight - bottomVal.Value - absBox.Height - absBox.MarginBottom;
             else
-                absBox.Y = cbY + absBox.MarginTop; // default: top-left of containing block
+                targetY = cbY + absBox.MarginTop; // default: top-left of containing block
+
+            // X is absolute (shift descendants); Y is parent-relative and resolved
+            // in the post-layout pass.
+            float absDeltaX = targetX - absBox.X;
+            absBox.X = targetX;
+            absBox.Y = targetY;
+            if (Math.Abs(absDeltaX) > 0.01f)
+                FlexLayout.OffsetChildren(absBox, absDeltaX, 0);
 
             box.Children.Add(absBox);
         }
-
-        // Apply relative/sticky position Y offset (sticky behaves like relative in PDF — no scrolling)
-        if (position == "relative" || position == "sticky")
-        {
-            float offsetTop = ResolveLength(style.Get("top"), 0, fontSize);
-            box.Y += offsetTop;
-        }
-
-        return box;
-    }
-
-    /// <summary>Walk up parent chain to find page height.</summary>
-    private static float FindPageHeight(LayoutBox parent)
-    {
-        // The root box has Height set to page height and no Element
-        if (parent.Element == null && parent.Height > 0)
-            return parent.Height;
-        // Default A4 page height in CSS px
-        return parent.Height > 0 ? parent.Height : 841.89f;
     }
 
     private static bool IsTableRow(string display)
@@ -2257,7 +2416,7 @@ public static class BlockLayout
                     Style = parentStyle,
                     Element = null,
                     FontSize = parentFontSize,
-                    HasLeadingSpace = data.Length > 0 && char.IsWhiteSpace(data[0])
+                    HasLeadingSpace = data.Length > 0 && data[0] != NonBreakingSpace && char.IsWhiteSpace(data[0])
                 });
             }
             return;
@@ -2321,6 +2480,7 @@ public static class BlockLayout
         ComputedStyle parentStyle, float parentFontSize)
     {
         bool elementAssigned = false;
+        bool prevRunTrailingSpace = false;
 
         for (int ri = 0; ri < runs.Count; ri++)
         {
@@ -2339,6 +2499,7 @@ public static class BlockLayout
                 {
                     childY += lh;
                 }
+                prevRunTrailingSpace = false;
                 continue;
             }
 
@@ -2351,10 +2512,25 @@ public static class BlockLayout
 
             if (string.IsNullOrEmpty(text)) continue;
 
+            // Measure the transformed text (uppercase is wider); the paint-time
+            // transform is idempotent so word boxes may carry it too.
+            text = ApplyTextTransformForMeasure(text, run.Style);
+
             var fontFamily = run.Style.FontFamily;
             var fontWeight = run.Style.FontWeight;
             var fontStyle = run.Style.Get("font-style");
+            float runLetterSpacing = ResolveLength(run.Style.Get("letter-spacing"), 0, run.FontSize);
             float lhRun = TextMeasurer.GetLineHeight(run.FontSize, run.Style.Get("line-height"));
+
+            var runOverflowWrap = run.Style.Get("overflow-wrap") ?? run.Style.Get("word-wrap");
+            var runWordBreak = run.Style.Get("word-break");
+            bool runBreakWord = runOverflowWrap == "break-word" || runOverflowWrap == "anywhere" ||
+                                runWordBreak == "break-all" || runWordBreak == "break-word";
+
+            // vertical-align: baseline (default) — smaller runs sit on the parent
+            // line's baseline, not the line top (ascent approximated at 0.8em)
+            float baselineShift = run.FontSize < parentFontSize
+                ? (parentFontSize - run.FontSize) * 0.8f : 0f;
 
             // Iterate words inline — avoids allocating a string[] upfront.
             int wPos = 0;
@@ -2368,9 +2544,12 @@ public static class BlockLayout
                 string word = text.Substring(wPos, wEnd - wPos);
                 wPos = wEnd;
 
-                bool needSpace = inlineX > 0 && (!firstWord || run.HasLeadingSpace);
+                // A boundary space also comes from the PREVIOUS run's trailing
+                // whitespace ("đến <strong>bản</strong>": the space belongs to the
+                // text run, not the strong run).
+                bool needSpace = inlineX > 0 && (!firstWord || run.HasLeadingSpace || prevRunTrailingSpace);
                 var wordText = needSpace ? " " + word : word;
-                float wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle);
+                float wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
 
                 // Wrap to next line if doesn't fit
                 if (inlineX > 0 && inlineX + wordWidth > containerWidth)
@@ -2379,7 +2558,57 @@ public static class BlockLayout
                     inlineX = 0;
                     inlineLineHeight = 0;
                     wordText = word; // no space prefix after wrap
-                    wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle);
+                    wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                }
+
+                // break-all / break-word: a word wider than the line splits into
+                // character chunks that each fit (e.g. long URLs in captions)
+                if (runBreakWord && wordWidth > containerWidth && wordText.Length > 1)
+                {
+                    int start = 0;
+                    while (start < wordText.Length)
+                    {
+                        int len = 1;
+                        float chunkWidth = TextMeasurer.MeasureWidth(wordText.Substring(start, 1),
+                            run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                        while (start + len < wordText.Length)
+                        {
+                            float nextWidth = TextMeasurer.MeasureWidth(wordText.Substring(start, len + 1),
+                                run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                            if (inlineX + nextWidth > containerWidth) break;
+                            len++;
+                            chunkWidth = nextWidth;
+                        }
+
+                        var chunkBox = new LayoutBox
+                        {
+                            Element = (!elementAssigned && wrapperElement != null) ? wrapperElement : null,
+                            Style = run.Style,
+                            X = box.X + box.PaddingLeft + inlineX,
+                            Y = box.Y + box.PaddingTop + childY + baselineShift,
+                            Width = chunkWidth,
+                            Height = lhRun,
+                            ContentWidth = chunkWidth,
+                            ContentHeight = lhRun,
+                            Text = wordText.Substring(start, len)
+                        };
+                        if (!elementAssigned && wrapperElement != null)
+                            elementAssigned = true;
+                        box.Children.Add(chunkBox);
+                        inlineX += chunkWidth;
+                        if (lhRun > inlineLineHeight)
+                            inlineLineHeight = lhRun;
+
+                        start += len;
+                        if (start < wordText.Length)
+                        {
+                            childY += inlineLineHeight > 0 ? inlineLineHeight : lhRun;
+                            inlineX = 0;
+                            inlineLineHeight = 0;
+                        }
+                    }
+                    firstWord = false;
+                    continue;
                 }
 
                 var textBox = new LayoutBox
@@ -2387,7 +2616,7 @@ public static class BlockLayout
                     Element = (!elementAssigned && wrapperElement != null) ? wrapperElement : null,
                     Style = run.Style,
                     X = box.X + box.PaddingLeft + inlineX,
-                    Y = box.Y + box.PaddingTop + childY,
+                    Y = box.Y + box.PaddingTop + childY + baselineShift,
                     Width = wordWidth,
                     Height = lhRun,
                     ContentWidth = wordWidth,
@@ -2404,6 +2633,10 @@ public static class BlockLayout
                     inlineLineHeight = lhRun;
                 firstWord = false;
             }
+
+            // NBSP is rendered content, not a collapsible boundary space
+            char lastRunChar = run.Text.Length > 0 ? run.Text[run.Text.Length - 1] : '\0';
+            prevRunTrailingSpace = lastRunChar != NonBreakingSpace && char.IsWhiteSpace(lastRunChar);
         }
     }
 

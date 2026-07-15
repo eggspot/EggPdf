@@ -388,21 +388,27 @@ public class TtfSubsetter
 
     private static void WriteFormat4(BinaryWriter bw, Dictionary<int, ushort> cpToGid)
     {
-        // Sort codepoints into segments of contiguous ranges
-        int[] sortedKeys = GetSortedKeys(cpToGid, bmp: true);
-        int[] sorted = sortedKeys.Length == 0 ? new[] { 0 } : sortedKeys;
+        // Sort codepoints into segments. Because only idDelta mapping is written
+        // (no glyphIdArray), a segment must be contiguous in BOTH codepoints and
+        // glyph IDs, so break whenever either sequence jumps.
+        int[] sorted = GetSortedKeys(cpToGid, bmp: true);
 
         var segments = new List<(ushort startCode, ushort endCode, short idDelta)>();
-        int segStart = 0;
-        for (int i = 0; i <= sorted.Length; i++)
+        if (sorted.Length > 0)
         {
-            if (i == sorted.Length || (i > segStart && sorted[i] != sorted[i - 1] + 1))
+            int segStart = 0;
+            for (int i = 1; i <= sorted.Length; i++)
             {
-                ushort sc = (ushort)sorted[segStart];
-                ushort ec = (ushort)sorted[i - 1];
-                short delta = (short)(cpToGid[sorted[segStart]] - sc);
-                segments.Add((sc, ec, delta));
-                segStart = i;
+                if (i == sorted.Length ||
+                    sorted[i] != sorted[i - 1] + 1 ||
+                    cpToGid[sorted[i]] != cpToGid[sorted[i - 1]] + 1)
+                {
+                    ushort sc = (ushort)sorted[segStart];
+                    ushort ec = (ushort)sorted[i - 1];
+                    short delta = (short)(cpToGid[sorted[segStart]] - sc);
+                    segments.Add((sc, ec, delta));
+                    segStart = i;
+                }
             }
         }
         // Add sentinel segment

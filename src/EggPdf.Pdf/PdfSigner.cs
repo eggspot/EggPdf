@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 namespace EggPdf.Pdf;
@@ -21,6 +22,84 @@ public static class PdfSigner
         public string? Location { get; set; }
         /// <summary>Signer name.</summary>
         public string? Name { get; set; }
+    }
+
+    private const int ContentsHexLength = 16384;
+
+    /// <summary>
+    /// Sign a PDF in one call with an X.509 certificate (RSA private key).
+    /// Embeds a detached CMS/PKCS#7 signature (adbe.pkcs7.detached) with a
+    /// correct /ByteRange, verifiable by standard PDF/CMS validators.
+    /// </summary>
+    public static byte[] Sign(byte[] pdfBytes, X509Certificate2 certificate, SignOptions? options = null)
+    {
+        if (pdfBytes == null || pdfBytes.Length == 0) return Array.Empty<byte>();
+        if (certificate == null) throw new ArgumentNullException(nameof(certificate));
+
+        options ??= new SignOptions();
+        string name = options.Name
+            ?? certificate.GetNameInfo(X509NameType.SimpleName, false)
+            ?? "Signer";
+
+        // 1. Append the signature dictionary as an incremental update, with a
+        //    fixed-width ByteRange placeholder patched after assembly.
+        const string byteRangePlaceholder = "[0 0000000000 0000000000 0000000000]";
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        int sigValObj = FindNextObjNumber(pdfBytes) + 1;
+        sb.AppendLine($"{sigValObj} 0 obj");
+        sb.Append("<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached");
+        sb.Append($" /Name ({EscapePdf(name)})");
+        if (!string.IsNullOrEmpty(options.Reason))
+            sb.Append($" /Reason ({EscapePdf(options.Reason!)})");
+        if (!string.IsNullOrEmpty(options.Location))
+            sb.Append($" /Location ({EscapePdf(options.Location!)})");
+        sb.Append($" /M (D:{DateTime.UtcNow:yyyyMMddHHmmss}Z)");
+        sb.Append($" /ByteRange {byteRangePlaceholder}");
+        sb.Append($" /Contents <{new string('0', ContentsHexLength)}>");
+        sb.AppendLine(" >>");
+        sb.AppendLine("endobj");
+
+        byte[] output;
+        using (var ms = new MemoryStream())
+        {
+            ms.Write(pdfBytes, 0, pdfBytes.Length);
+            var append = Encoding.ASCII.GetBytes(sb.ToString());
+            ms.Write(append, 0, append.Length);
+            output = ms.ToArray();
+        }
+
+        // 2. Locate the Contents hex gap and patch the real ByteRange
+        var text = Encoding.ASCII.GetString(output, pdfBytes.Length, output.Length - pdfBytes.Length);
+        int hexInAppend = text.IndexOf(new string('0', ContentsHexLength), StringComparison.Ordinal);
+        int hexStart = pdfBytes.Length + hexInAppend;
+        int gapStart = hexStart - 1;                     // the '<'
+        int gapEnd = hexStart + ContentsHexLength + 1;   // after the '>'
+        int tailLength = output.Length - gapEnd;
+
+        string byteRange = $"[0 {gapStart:D10} {gapEnd:D10} {tailLength:D10}]";
+        int brInAppend = text.IndexOf(byteRangePlaceholder, StringComparison.Ordinal);
+        var brBytes = Encoding.ASCII.GetBytes(byteRange);
+        Array.Copy(brBytes, 0, output, pdfBytes.Length + brInAppend, brBytes.Length);
+
+        // 3. Hash the two byte ranges and build the detached CMS signature
+        byte[] digest;
+        using (var sha = SHA256.Create())
+        {
+            sha.TransformBlock(output, 0, gapStart, null, 0);
+            sha.TransformFinalBlock(output, gapEnd, tailLength);
+            digest = sha.Hash!;
+        }
+
+        var cms = CmsSignedDataBuilder.BuildDetached(digest, certificate, DateTime.UtcNow);
+        if (cms.Length * 2 > ContentsHexLength)
+            throw new InvalidOperationException("CMS signature exceeds the reserved /Contents space.");
+
+        // 4. Write the CMS hex into the reserved gap
+        var cmsHex = Encoding.ASCII.GetBytes(BitConverter.ToString(cms).Replace("-", ""));
+        Array.Copy(cmsHex, 0, output, hexStart, cmsHex.Length);
+
+        return output;
     }
 
     /// <summary>

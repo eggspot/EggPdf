@@ -72,10 +72,16 @@
         EggPdf resolves fonts in this order:
       </p>
       <ol>
-        <li><code>@font-face</code> declarations in CSS (loaded from file when <code>basePath</code> is set)</li>
+        <li><code>@font-face</code> declarations in CSS — from <code>http(s)</code> URLs (Google Fonts and other CDNs), <code>data:</code> URIs, or files (relative paths resolve against <code>basePath</code>)</li>
         <li>System-installed TrueType/OpenType fonts matched by name</li>
         <li>Built-in PDF standard fonts: Helvetica, Times, Courier</li>
       </ol>
+      <p>
+        Remote <code>&lt;link rel="stylesheet"&gt;</code> tags are fetched too, so a plain Google Fonts
+        <code>&lt;link&gt;</code> works out of the box — every declared weight (300–900) selects its own
+        face, and codepoints missing from the chosen font (symbols like ⚠) fall back to a system
+        symbol font automatically.
+      </p>
       <p>
         Any matched TrueType font is automatically <strong>subset</strong> — only the glyphs actually used
         in the document are embedded, keeping PDF size small.
@@ -106,6 +112,22 @@
       <p>
         These are the 14 standard PDF fonts defined in the PDF specification. Every PDF viewer renders them
         without needing a font file embedded in the document.
+      </p>
+
+      <h2 id="webfonts">Webfonts — Google Fonts and remote URLs</h2>
+      <p>
+        Reference a hosted stylesheet exactly like on the web — EggPdf fetches the CSS, downloads the
+        declared faces, and embeds subsets with the document's real glyphs (full Unicode, including
+        Vietnamese and other extended Latin):
+      </p>
+      <div class="code-block"><pre><code><span class="pun">&lt;</span><span class="typ">link</span> <span class="kw">href</span><span class="pun">=</span><span class="str">"https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;600;700;800"</span> <span class="kw">rel</span><span class="pun">=</span><span class="str">"stylesheet"</span><span class="pun">&gt;</span>
+<span class="pun">&lt;</span><span class="typ">style</span><span class="pun">&gt;</span>
+<span class="typ">body</span> <span class="pun">{</span> <span class="kw">font-family</span><span class="pun">:</span> <span class="str">'Be Vietnam Pro', Arial, sans-serif</span><span class="pun">;</span> <span class="pun">}</span>
+<span class="pun">&lt;/</span><span class="typ">style</span><span class="pun">&gt;</span></code></pre></div>
+      <p>
+        Intermediate weights (<code>font-weight: 500/600/800…</code>) embed the matching variant
+        instead of snapping to regular/bold, and text is measured with the real font metrics so line
+        breaks match the browser's.
       </p>
 
       <h2 id="font-face">@font-face — load from file</h2>

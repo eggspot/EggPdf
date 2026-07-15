@@ -630,6 +630,10 @@ internal static class PdfRenderer
                             tlrPt, trrPt, brrPt, blrPt);
                     else
                         page.AddRectangle(pdfX, pdfY, pdfW, pdfH, bgR, bgG, bgB);
+
+                    // Reset opacity so it does not leak into subsequent content
+                    if (bgAlpha < 1f)
+                        page.SetOpacity(1f);
                 }
             }
 
@@ -839,7 +843,15 @@ internal static class PdfRenderer
             }
 
             float pdfX = textX * PdfCoordinates.PxToPt;
-            float pdfY = (pageHeightPx - adjustedY - box.PaddingTop - fontSize) * PdfCoordinates.PxToPt;
+
+            // Baseline placement like browsers: half-leading above the ascent
+            // (real font metrics when available) instead of a full em below the
+            // line top — otherwise large fonts with tight line-height overlap the
+            // following line with their descenders.
+            float lineBoxHeight = box.Height > 0 ? box.Height : fontSize * 1.2f;
+            float baselineOffset = TextMeasurer.GetBaselineOffset(fontSize, lineBoxHeight,
+                box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"));
+            float pdfY = (pageHeightPx - adjustedY - box.PaddingTop - baselineOffset) * PdfCoordinates.PxToPt;
 
             // Vertical-align baseline shift (sup/sub/super/sub)
             var verticalAlign = box.Style.Get("vertical-align");
@@ -912,29 +924,56 @@ internal static class PdfRenderer
                 }
             }
 
+            // Text alpha: rgba() color alpha combined with the element's css opacity
+            float textAlpha = (color?.A / 255f ?? 1f) * cssOpacity;
+            if (textAlpha < 1f)
+                page.SetOpacity(textAlpha);
+
             // Use CIDFont glyph IDs for embedded fonts, or WinAnsi for built-in fonts
             if (_currentPdfDoc != null && _currentPdfDoc.IsEmbeddedFont(fontName))
             {
                 var glyphIds = _currentPdfDoc.GetGlyphIds(fontName, paintText);
                 if (glyphIds != null && glyphIds.Length > 0)
                 {
-                    page.AddTextCID(glyphIds, pdfX, pdfY, fontName, pdfFontSize,
-                        color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
-                        letterSpacing, wordSpacing);
+                    // Glyphs missing from the main font route to the embedded
+                    // "-FB" fallback font mid-run instead of painting .notdef.
+                    string fallbackName = fontName + "-FB";
+                    bool hasNotdef = false;
+                    for (int gi = 0; gi < glyphIds.Length; gi++)
+                        if (glyphIds[gi] == 0) { hasNotdef = true; break; }
+
+                    if (hasNotdef && _currentPdfDoc.IsEmbeddedFont(fallbackName))
+                    {
+                        var runs = BuildFontFallbackRuns(paintText, fontName, fallbackName);
+                        page.AddTextRunsCID(runs, pdfX, pdfY, pdfFontSize,
+                            color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
+                            letterSpacing, wordSpacing);
+                    }
+                    else
+                    {
+                        page.AddTextCID(glyphIds, pdfX, pdfY, fontName, pdfFontSize,
+                            color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
+                            letterSpacing, wordSpacing);
+                    }
                 }
                 else
                 {
-                    page.AddText(paintText, pdfX, pdfY, fontName, pdfFontSize,
+                    page.AddText(paintText, pdfX, pdfY, StripWeightSuffix(fontName), pdfFontSize,
                         color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
                         letterSpacing, wordSpacing);
                 }
             }
             else
             {
-                page.AddText(paintText, pdfX, pdfY, fontName, pdfFontSize,
+                // Non-embedded fallback: weight-suffixed names ("Arial-W600") are
+                // not valid built-in fonts — degrade to the bucketed name.
+                page.AddText(paintText, pdfX, pdfY, StripWeightSuffix(fontName), pdfFontSize,
                     color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
                     letterSpacing, wordSpacing);
             }
+
+            if (textAlpha < 1f)
+                page.SetOpacity(1f);
 
             // Text decoration (underline, line-through, overline)
             // Honour text-decoration-line, text-decoration-color, text-decoration-thickness longhands.
@@ -1106,6 +1145,66 @@ internal static class PdfRenderer
         // Restore transform state
         if (hasTransform)
             page.RestoreState();
+    }
+
+    /// <summary>Strip a "-W###" weight suffix so built-in font fallbacks stay valid.</summary>
+    private static string StripWeightSuffix(string fontName)
+    {
+        int idx = fontName.LastIndexOf("-W", StringComparison.Ordinal);
+        if (idx <= 0 || idx + 2 >= fontName.Length) return fontName;
+        for (int i = idx + 2; i < fontName.Length; i++)
+            if (!char.IsDigit(fontName[i])) return fontName;
+        return fontName.Substring(0, idx);
+    }
+
+    /// <summary>
+    /// Split text into consecutive runs of (fontName, glyphIds): codepoints the
+    /// main font covers stay in it; missing ones use the fallback font (or stay
+    /// as .notdef in the main font when the fallback lacks them too).
+    /// </summary>
+    private static List<(string fontName, ushort[] glyphIds)> BuildFontFallbackRuns(
+        string text, string mainFont, string fallbackFont)
+    {
+        var runs = new List<(string fontName, ushort[] glyphIds)>();
+        var current = new List<ushort>();
+        string currentFont = mainFont;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            int cp = text[i];
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                cp = char.ConvertToUtf32(text[i], text[i + 1]);
+                i++;
+            }
+
+            string font = mainFont;
+            if (!_currentPdfDoc!.TryGetGlyphId(mainFont, cp, out var gid) || gid == 0)
+            {
+                if (_currentPdfDoc.TryGetGlyphId(fallbackFont, cp, out var fbGid) && fbGid > 0)
+                {
+                    font = fallbackFont;
+                    gid = fbGid;
+                }
+                else
+                {
+                    gid = 0; // .notdef in the main font
+                }
+            }
+
+            if (font != currentFont && current.Count > 0)
+            {
+                runs.Add((currentFont, current.ToArray()));
+                current.Clear();
+            }
+            currentFont = font;
+            current.Add(gid);
+        }
+
+        if (current.Count > 0)
+            runs.Add((currentFont, current.ToArray()));
+
+        return runs;
     }
 
     private static string CapitalizeText(string text)

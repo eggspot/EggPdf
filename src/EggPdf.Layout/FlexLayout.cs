@@ -42,7 +42,7 @@ public static class FlexLayout
         float mainGap = ResolveGap(style, isRow, container.ContentWidth, fontSize);
         float crossGap = ResolveGap(style, !isRow, container.ContentWidth, fontSize);
 
-        float mainSize = isRow ? container.ContentWidth : GetContainerCrossSize(container, style, isRow, fontSize);
+        float mainSize = isRow ? container.ContentWidth : GetColumnMainSize(container, style, fontSize);
         float crossSize = isRow ? GetContainerCrossSize(container, style, isRow, fontSize) : container.ContentWidth;
 
         // Collect flex items
@@ -53,13 +53,18 @@ public static class FlexLayout
         // Sort by order property
         SortByOrder(items);
 
+        // An auto-height column container has an indefinite main size: items keep
+        // their hypothetical sizes (no grow/shrink, no justify free space).
+        bool mainIndefinite = !isRow && mainSize <= 0;
+
         // Collect items into flex lines
-        var lines = CollectFlexLines(items, mainSize, mainGap, isWrap, isRow);
+        var lines = CollectFlexLines(items, mainIndefinite ? float.MaxValue : mainSize, mainGap, isWrap, isRow);
 
         // Resolve flexible lengths for each line
         for (int li = 0; li < lines.Count; li++)
         {
-            ResolveFlexibleLengths(lines[li], mainSize, mainGap, isRow);
+            float lineMain = mainIndefinite ? SumLineBaseMain(lines[li], mainGap, isRow) : mainSize;
+            ResolveFlexibleLengths(lines[li], lineMain, mainGap, isRow);
         }
 
         // Re-layout items whose width changed from the initial CreateBox pass.
@@ -94,7 +99,8 @@ public static class FlexLayout
             float lineCrossOffset = lineOffsets[lineIdx];
 
             // Main axis alignment
-            PositionMainAxis(line, mainSize, mainGap, justifyContent, isRow, isReverse, container);
+            float positionMain = mainIndefinite ? SumLineBaseMain(line, mainGap, isRow) : mainSize;
+            PositionMainAxis(line, positionMain, mainGap, justifyContent, isRow, isReverse, container);
 
             // Cross axis alignment
             PositionCrossAxis(line, lineCrossOffset, line.CrossSize, alignItems, isRow, container);
@@ -139,6 +145,41 @@ public static class FlexLayout
         return BlockLayout.ResolveLength(gapValue, containingWidth, fontSize);
     }
 
+    /// <summary>
+    /// Main size of a column flex container: its definite height, else min-height,
+    /// else 0 (auto — content-driven, no free space to distribute).
+    /// </summary>
+    private static float GetColumnMainSize(LayoutBox container, ComputedStyle style, float fontSize)
+    {
+        var h = BlockLayout.ResolveOptionalLength(style.Height, 0, fontSize)
+             ?? BlockLayout.ResolveOptionalLength(style.Get("min-height"), 0, fontSize);
+        if (!h.HasValue) return 0;
+
+        // Items are laid out inside the padding, so a border-box height must be
+        // reduced to the content height.
+        if (style.Get("box-sizing") == "border-box")
+        {
+            float content = h.Value - container.PaddingTop - container.PaddingBottom;
+            return content > 0 ? content : 0;
+        }
+        return h.Value;
+    }
+
+    /// <summary>Sum of a line's hypothetical item sizes, margins, and gaps along the main axis.</summary>
+    private static float SumLineBaseMain(FlexLine line, float mainGap, bool isRow)
+    {
+        float total = line.Items.Count > 1 ? mainGap * (line.Items.Count - 1) : 0;
+        for (int i = 0; i < line.Items.Count; i++)
+        {
+            var item = line.Items[i];
+            total += item.HypotheticalMainSize;
+            total += isRow
+                ? item.Box.MarginLeft + item.Box.MarginRight
+                : item.Box.MarginTop + item.Box.MarginBottom;
+        }
+        return total;
+    }
+
     /// <summary>Get container's cross size (height for row, width for column).</summary>
     private static float GetContainerCrossSize(LayoutBox container, ComputedStyle style, bool isRow, float fontSize)
     {
@@ -162,15 +203,133 @@ public static class FlexLayout
     {
         var items = new List<FlexItem>();
 
+        // Direct text (and <br>) children form an anonymous flex item (CSS Flexbox §4)
+        var anonLines = new List<string>();
+        var anonCurrent = new System.Text.StringBuilder();
+
+        void FlushAnonymousItem()
+        {
+            if (anonCurrent.Length > 0)
+            {
+                anonLines.Add(anonCurrent.ToString());
+                anonCurrent.Clear();
+            }
+            bool hasContent = false;
+            for (int li = 0; li < anonLines.Count; li++)
+                if (anonLines[li].Length > 0) { hasContent = true; break; }
+            if (!hasContent) { anonLines.Clear(); return; }
+
+            var fam = containerStyle.FontFamily;
+            var wt = containerStyle.FontWeight;
+            var fs = containerStyle.Get("font-style");
+            float ls = BlockLayout.ResolveLength(containerStyle.Get("letter-spacing"), 0, fontSize);
+            float lineH = TextMeasurer.GetLineHeight(fontSize, containerStyle.Get("line-height"));
+            bool centerLines = containerStyle.Get("text-align") == "center";
+
+            // Anonymous boxes carry only inherited text properties — copying the
+            // container's borders/backgrounds would paint its decorations twice
+            // (e.g. a second circle inside a round stamp).
+            var anonStyle = new ComputedStyle();
+            foreach (var kv in containerStyle.All)
+            {
+                if (kv.Key.StartsWith("border", StringComparison.Ordinal) ||
+                    kv.Key.StartsWith("background", StringComparison.Ordinal) ||
+                    kv.Key.StartsWith("box-shadow", StringComparison.Ordinal) ||
+                    kv.Key.StartsWith("outline", StringComparison.Ordinal) ||
+                    kv.Key.StartsWith("padding", StringComparison.Ordinal))
+                    continue;
+                anonStyle.Set(kv.Key, kv.Value);
+            }
+
+            float maxW = 0;
+            for (int li = 0; li < anonLines.Count; li++)
+            {
+                float w = anonLines[li].Length > 0
+                    ? TextMeasurer.MeasureWidth(anonLines[li], fontSize, fam, wt, fs, ls) : 0;
+                if (w > maxW) maxW = w;
+            }
+
+            var anonBox = new LayoutBox { Style = anonStyle };
+            float y = 0;
+            for (int li = 0; li < anonLines.Count; li++)
+            {
+                var line = anonLines[li];
+                float w = line.Length > 0 ? TextMeasurer.MeasureWidth(line, fontSize, fam, wt, fs, ls) : 0;
+                anonBox.Children.Add(new LayoutBox
+                {
+                    Style = anonStyle,
+                    Text = line.Length > 0 ? line : null,
+                    X = centerLines ? (maxW - w) / 2 : 0,
+                    Y = y,
+                    Width = w,
+                    Height = lineH,
+                    ContentWidth = w,
+                    ContentHeight = lineH
+                });
+                y += lineH;
+            }
+            anonBox.Width = maxW;
+            anonBox.ContentWidth = maxW;
+            anonBox.Height = y;
+            anonBox.ContentHeight = y;
+
+            items.Add(new FlexItem
+            {
+                Box = anonBox,
+                Element = null!,
+                Style = anonStyle,
+                FlexGrow = 0,
+                FlexShrink = 1,
+                BaseSize = isRow ? maxW : y,
+                HypotheticalMainSize = isRow ? maxW : y,
+                Order = 0,
+                AlignSelf = null,
+                MinMain = 0,
+                MaxMain = float.MaxValue,
+                SourceIndex = items.Count,
+                InitialBoxWidth = maxW
+            });
+            anonLines.Clear();
+        }
+
         for (int i = 0; i < element.ChildNodes.Count; i++)
         {
             var childNode = element.ChildNodes[i];
+
+            if (childNode is HtmlTextNode textNode)
+            {
+                var t = textNode.Data.Trim();
+                if (t.Length > 0)
+                {
+                    if (anonCurrent.Length > 0) anonCurrent.Append(' ');
+                    anonCurrent.Append(t);
+                }
+                continue;
+            }
+
             if (!(childNode is HtmlElement childElem))
                 continue;
+
+            if (childElem.TagName == "br")
+            {
+                anonLines.Add(anonCurrent.ToString());
+                anonCurrent.Clear();
+                continue;
+            }
 
             var childStyle = resolver(childElem, containerStyle);
             if (childStyle.Display == "none")
                 continue;
+
+            // Absolutely/fixed positioned children are out-of-flow: they are not
+            // flex items and must not consume flex space. The container's CreateBox
+            // branch positions them after the flex layout completes.
+            var childPosition = childStyle.Get("position");
+            if (childPosition == "absolute" || childPosition == "fixed")
+                continue;
+
+            // An element child ends any pending anonymous text item
+            FlushAnonymousItem();
 
             // Read flex item properties
             float flexGrow = ParseFloatSafe(childStyle.Get("flex-grow"), 0);
@@ -194,9 +353,10 @@ public static class FlexLayout
                 hasExplicitMainSize = !string.IsNullOrEmpty(childStyle.Height) && childStyle.Height != "auto";
             }
 
-            // Create child box using BlockLayout
+            // Create child box using BlockLayout. Items resolve their widths against
+            // the flex container's content box, not the container's own containing block.
             var childBox = BlockLayout.CreateBox(childElem, childStyle, container,
-                containingWidth, resolver, containerStyle);
+                container.ContentWidth, resolver, containerStyle);
 
             // Determine base size
             float baseSize;
@@ -227,7 +387,12 @@ public static class FlexLayout
                 // the baseSize incorrectly. Leaf text runs have ContentWidth = measured text width.
                 if (isRow)
                 {
-                    baseSize = GetMaxLeafContentWidth(childBox);
+                    // Max-content sizing: leaf runs are word-level after wrapping, so
+                    // also measure the unwrapped text width (flex-shrink recovers
+                    // overflow when the sum exceeds the line).
+                    baseSize = Math.Max(GetMaxLeafContentWidth(childBox),
+                        MeasureContentWidth(childElem, childStyle, resolver,
+                            BlockLayout.ResolveFontSize(childStyle.FontSize, fontSize)));
                 }
                 else
                 {
@@ -271,6 +436,9 @@ public static class FlexLayout
                 InitialBoxWidth = childBox.Width
             });
         }
+
+        // Trailing text content also forms an anonymous item
+        FlushAnonymousItem();
 
         return items;
     }
@@ -342,10 +510,18 @@ public static class FlexLayout
         float totalGap = line.Items.Count > 1 ? mainGap * (line.Items.Count - 1) : 0;
         float availableMain = mainSize - totalGap;
 
-        // Sum of hypothetical main sizes
+        // Sum of hypothetical main sizes INCLUDING main-axis margins — margins
+        // occupy main-axis space (PositionMainAxis advances past them), so
+        // ignoring them over-grows flex items and pushes later ones off the edge.
         float totalHypothetical = 0;
         for (int i = 0; i < line.Items.Count; i++)
-            totalHypothetical += line.Items[i].HypotheticalMainSize;
+        {
+            var it = line.Items[i];
+            totalHypothetical += it.HypotheticalMainSize;
+            totalHypothetical += isRow
+                ? it.Box.MarginLeft + it.Box.MarginRight
+                : it.Box.MarginTop + it.Box.MarginBottom;
+        }
 
         float freeSpace = availableMain - totalHypothetical;
 
@@ -598,6 +774,8 @@ public static class FlexLayout
         for (int i = 0; i < line.Items.Count; i++)
         {
             var item = line.Items[i];
+            // Anonymous text items have no element to re-lay-out
+            if (item.Element == null) continue;
             // Skip items whose width didn't change (explicit-width items that kept their size)
             if (Math.Abs(item.Box.Width - item.InitialBoxWidth) < 0.5f) continue;
 
@@ -642,6 +820,30 @@ public static class FlexLayout
         float freeSpace = mainSize - totalItemMain - totalGap;
         if (freeSpace < 0) freeSpace = 0;
 
+        // Auto margins absorb positive free space before justify-content
+        // (CSS Flexbox §8.1) — margin-top:auto pushes a footer to the bottom.
+        int autoMarginCount = 0;
+        for (int i = 0; i < line.Items.Count; i++)
+        {
+            var st = line.Items[i].Style;
+            if (isRow)
+            {
+                if (st.Get("margin-left") == "auto") autoMarginCount++;
+                if (st.Get("margin-right") == "auto") autoMarginCount++;
+            }
+            else
+            {
+                if (st.Get("margin-top") == "auto") autoMarginCount++;
+                if (st.Get("margin-bottom") == "auto") autoMarginCount++;
+            }
+        }
+        float autoMarginShare = 0;
+        if (autoMarginCount > 0 && freeSpace > 0)
+        {
+            autoMarginShare = freeSpace / autoMarginCount;
+            freeSpace = 0;
+        }
+
         // Compute initial offset and spacing based on justify-content
         float mainOffset;
         float extraGap;
@@ -657,6 +859,8 @@ public static class FlexLayout
 
             if (isRow)
             {
+                if (autoMarginShare > 0 && item.Style.Get("margin-left") == "auto")
+                    pos += autoMarginShare;
                 pos += item.Box.MarginLeft;
                 float newX = container.X + container.PaddingLeft + pos;
                 float deltaX = newX - item.Box.X;
@@ -665,16 +869,20 @@ public static class FlexLayout
                 if (Math.Abs(deltaX) > 0.01f)
                     OffsetChildren(item.Box, deltaX, 0);
                 pos += item.MainSize + item.Box.MarginRight;
+                if (autoMarginShare > 0 && item.Style.Get("margin-right") == "auto")
+                    pos += autoMarginShare;
             }
             else
             {
+                if (autoMarginShare > 0 && item.Style.Get("margin-top") == "auto")
+                    pos += autoMarginShare;
                 pos += item.Box.MarginTop;
-                float newY = container.Y + container.PaddingTop + pos;
-                float deltaY = newY - item.Box.Y;
-                item.Box.Y = newY;
-                if (Math.Abs(deltaY) > 0.01f)
-                    OffsetChildren(item.Box, 0, deltaY);
+                // Child Y coordinates are parent-relative (the post-layout pass in
+                // BlockLayout adds each ancestor's Y), so only the box moves here.
+                item.Box.Y = container.Y + container.PaddingTop + pos;
                 pos += item.MainSize + item.Box.MarginBottom;
+                if (autoMarginShare > 0 && item.Style.Get("margin-bottom") == "auto")
+                    pos += autoMarginShare;
             }
 
             // Add gap between items (not after last)
@@ -782,8 +990,26 @@ public static class FlexLayout
                     break;
 
                 case "baseline":
-                    // Simplified baseline: treat as flex-start
-                    crossPos = lineCrossOffset + itemMarginBefore;
+                    if (isRow)
+                    {
+                        // Align first baselines (ascent approximated at 0.8em of
+                        // each item's font size)
+                        float maxAscent = 0;
+                        for (int bi = 0; bi < line.Items.Count; bi++)
+                        {
+                            float fs = BlockLayout.ResolveFontSize(line.Items[bi].Style.FontSize, DefaultFontSize);
+                            float asc = fs * 0.8f + line.Items[bi].Box.MarginTop;
+                            if (asc > maxAscent) maxAscent = asc;
+                        }
+                        float itemAscent = BlockLayout.ResolveFontSize(item.Style.FontSize, DefaultFontSize) * 0.8f
+                            + itemMarginBefore;
+                        crossPos = lineCrossOffset + itemMarginBefore + (maxAscent - itemAscent);
+                    }
+                    else
+                    {
+                        // Column direction: baseline falls back to flex-start
+                        crossPos = lineCrossOffset + itemMarginBefore;
+                    }
                     break;
 
                 case "stretch":
@@ -825,11 +1051,9 @@ public static class FlexLayout
 
             if (isRow)
             {
-                float newY = container.Y + container.PaddingTop + crossPos;
-                float deltaY = newY - item.Box.Y;
-                item.Box.Y = newY;
-                if (Math.Abs(deltaY) > 0.01f)
-                    OffsetChildren(item.Box, 0, deltaY);
+                // Child Y coordinates are parent-relative (resolved in a post-layout
+                // pass), so only the box itself moves vertically.
+                item.Box.Y = container.Y + container.PaddingTop + crossPos;
             }
             else
             {
@@ -843,7 +1067,7 @@ public static class FlexLayout
     }
 
     /// <summary>Recursively offset all children by delta X/Y when parent is repositioned.</summary>
-    private static void OffsetChildren(LayoutBox box, float dx, float dy)
+    internal static void OffsetChildren(LayoutBox box, float dx, float dy)
     {
         for (int i = 0; i < box.Children.Count; i++)
         {
@@ -859,6 +1083,9 @@ public static class FlexLayout
         Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, float fontSize)
     {
         float maxWidth = 0;
+        float inlineRun = 0; // consecutive inline content shares one line (max-content)
+        float letterSpacing = BlockLayout.ResolveLength(style.Get("letter-spacing"), 0, fontSize);
+        var textTransform = style.Get("text-transform");
 
         for (int i = 0; i < element.ChildNodes.Count; i++)
         {
@@ -867,30 +1094,51 @@ public static class FlexLayout
             {
                 var text = textNode.Data.Trim();
                 if (string.IsNullOrEmpty(text)) continue;
-                float textWidth = TextMeasurer.MeasureWidth(text, fontSize,
-                    style.FontFamily, style.FontWeight, style.Get("font-style"));
-                if (textWidth > maxWidth) maxWidth = textWidth;
+                if (textTransform == "uppercase") text = text.ToUpperInvariant();
+                else if (textTransform == "lowercase") text = text.ToLowerInvariant();
+                if (inlineRun > 0)
+                    inlineRun += TextMeasurer.MeasureWidth(" ", fontSize,
+                        style.FontFamily, style.FontWeight, style.Get("font-style"), letterSpacing);
+                inlineRun += TextMeasurer.MeasureWidth(text, fontSize,
+                    style.FontFamily, style.FontWeight, style.Get("font-style"), letterSpacing);
             }
             else if (child is HtmlElement childElem)
             {
                 var childStyle = resolver(childElem, style);
                 if (childStyle.Display == "none") continue;
 
-                // Check for explicit width
+                float childWidth;
                 var explicitWidth = BlockLayout.ResolveOptionalLength(childStyle.Width, 0, fontSize);
                 if (explicitWidth.HasValue)
                 {
-                    if (explicitWidth.Value > maxWidth) maxWidth = explicitWidth.Value;
+                    childWidth = explicitWidth.Value;
                 }
                 else
                 {
                     float childFontSize = BlockLayout.ResolveFontSize(childStyle.FontSize, fontSize);
-                    float childContentWidth = MeasureContentWidth(childElem, childStyle, resolver, childFontSize);
-                    if (childContentWidth > maxWidth) maxWidth = childContentWidth;
+                    childWidth = MeasureContentWidth(childElem, childStyle, resolver, childFontSize);
+                }
+
+                bool isInline = childStyle.Display == "inline" || childStyle.Display == "inline-block";
+                if (isInline)
+                {
+                    if (inlineRun > 0)
+                        inlineRun += TextMeasurer.MeasureWidth(" ", fontSize,
+                            style.FontFamily, style.FontWeight, style.Get("font-style"), letterSpacing);
+                    inlineRun += childWidth
+                        + BlockLayout.ResolveLength(childStyle.Get("margin-left"), 0, fontSize)
+                        + BlockLayout.ResolveLength(childStyle.Get("margin-right"), 0, fontSize);
+                }
+                else
+                {
+                    if (inlineRun > maxWidth) maxWidth = inlineRun;
+                    inlineRun = 0;
+                    if (childWidth > maxWidth) maxWidth = childWidth;
                 }
             }
         }
 
+        if (inlineRun > maxWidth) maxWidth = inlineRun;
         return maxWidth;
     }
 

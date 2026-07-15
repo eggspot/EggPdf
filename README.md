@@ -105,12 +105,13 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 
 ### HTML & CSS
 - Full HTML5 parsing (WHATWG spec-compliant)
-- CSS 2.1 complete + CSS3 (Flexbox, Grid, Multi-column)
+- CSS 2.1 complete + CSS3 (Flexbox with auto margins & baseline alignment, Grid, Multi-column)
 - CSS Custom Properties (`var()`)
 - `@media print` support
-- `@font-face` with WOFF/WOFF2
+- Webfonts: remote `<link>` stylesheets (Google Fonts) and `@font-face` over http(s), data: URIs, or files
 - SVG rendering (vector output, not rasterized)
-- All image formats (JPEG, PNG, GIF, WebP, SVG, Base64)
+- All image formats (JPEG, PNG incl. 1-bit QR codes, GIF, WebP, SVG, Base64)
+- Cloudflare email obfuscation (`data-cfemail`) decoded automatically
 
 ### PDF
 - PDF 1.4 / 1.5 / 1.7 / 2.0
@@ -125,22 +126,18 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 
 ### Typography
 - TrueType/OpenType font embedding with subsetting
-- Font fallback chain
-- CJK support (Chinese, Japanese, Korean)
-- Vietnamese, Thai, Arabic, Hebrew
-- Emoji rendering (color emoji)
+- Weight-accurate faces: `font-weight: 300–900` each select their own variant
+- Font fallback chain + per-codepoint symbol-font fallback (⚠ ✔ …)
+- Full Unicode: Vietnamese and extended Latin out of the box
+- Browser-parity metrics: text measured with the real font, baselines like Chrome
 - Automatic hyphenation
-- Variable font support
 
 ### Business
-- PDF/A (archival: 1b, 2b, 3b)
-- PDF/UA (accessibility)
-- Digital signatures (PAdES)
-- AcroForm fields
-- QR codes and barcodes
-- File attachments (ZUGFeRD/Factur-X e-invoicing)
+- Digital signatures — one-call X.509 signing (`PdfSigner.Sign(pdf, cert)`, detached CMS/PKCS#7) or external-CMS two-step flow for HSMs
+- Password protection with permission flags — view-only PDFs that block editing/copying (RC4 40/128-bit)
+- AcroForm fields (fillable forms from HTML form elements)
 - PDF merging
-- AES-256 encryption
+- QR codes and barcodes
 
 ### Performance
 - Streaming output (constant memory for large documents)
