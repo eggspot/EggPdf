@@ -11,6 +11,9 @@ namespace EggPdf.Layout;
 public static class BlockLayout
 {
     private const float DefaultFontSize = 16f;
+
+    /// <summary>U+00A0 — rendered content, never a collapsible boundary space.</summary>
+    private const char NonBreakingSpace = (char)0x00A0;
     private const float DefaultLineHeight = 1.2f;
 
     // Thread-local context for ::before/::after and CSS counters.
@@ -826,8 +829,9 @@ public static class BlockLayout
                             inlineLineHeight = ilLineHeight;
                     }
 
-                    prevTextEndedWithSpace = textNode.Data.Length > 0 &&
-                        char.IsWhiteSpace(textNode.Data[textNode.Data.Length - 1]);
+                    // NBSP is rendered content, not a collapsible boundary space
+                    char ilLastChar = textNode.Data.Length > 0 ? textNode.Data[textNode.Data.Length - 1] : '\0';
+                    prevTextEndedWithSpace = ilLastChar != NonBreakingSpace && char.IsWhiteSpace(ilLastChar);
                     continue;
                 }
 
@@ -2375,7 +2379,7 @@ public static class BlockLayout
                     Style = parentStyle,
                     Element = null,
                     FontSize = parentFontSize,
-                    HasLeadingSpace = data.Length > 0 && char.IsWhiteSpace(data[0])
+                    HasLeadingSpace = data.Length > 0 && data[0] != NonBreakingSpace && char.IsWhiteSpace(data[0])
                 });
             }
             return;
@@ -2593,8 +2597,9 @@ public static class BlockLayout
                 firstWord = false;
             }
 
-            prevRunTrailingSpace = run.Text.Length > 0 &&
-                char.IsWhiteSpace(run.Text[run.Text.Length - 1]);
+            // NBSP is rendered content, not a collapsible boundary space
+            char lastRunChar = run.Text.Length > 0 ? run.Text[run.Text.Length - 1] : '\0';
+            prevRunTrailingSpace = lastRunChar != NonBreakingSpace && char.IsWhiteSpace(lastRunChar);
         }
     }
 
