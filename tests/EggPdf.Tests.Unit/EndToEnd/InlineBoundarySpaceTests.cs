@@ -25,6 +25,20 @@ public class InlineBoundarySpaceTests
     }
 
     [Fact]
+    public async Task Nbsp_BeforeInlineElement_DoesNotDoubleSpace()
+    {
+        // "Tax ID:&nbsp;<strong>value</strong>" — the NBSP is rendered content;
+        // no additional boundary space may be synthesized.
+        var pdf = await HtmlToPdf.RenderAsync(
+            "<html><body><p>Tax ID:&#160;<strong>VALUE</strong></p></body></html>");
+
+        var text = Encoding.GetEncoding("ISO-8859-1").GetString(pdf);
+        text.Should().NotContain("( VALUE)",
+            "the NBSP already provides the gap — a synthesized space would double it");
+        text.Should().Contain("(VALUE)");
+    }
+
+    [Fact]
     public async Task StrongBetweenTextRuns_MidSentence_KeepsSpaces()
     {
         var pdf = await HtmlToPdf.RenderAsync(
