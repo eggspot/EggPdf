@@ -495,10 +495,18 @@ public static class FlexLayout
         float totalGap = line.Items.Count > 1 ? mainGap * (line.Items.Count - 1) : 0;
         float availableMain = mainSize - totalGap;
 
-        // Sum of hypothetical main sizes
+        // Sum of hypothetical main sizes INCLUDING main-axis margins — margins
+        // occupy main-axis space (PositionMainAxis advances past them), so
+        // ignoring them over-grows flex items and pushes later ones off the edge.
         float totalHypothetical = 0;
         for (int i = 0; i < line.Items.Count; i++)
-            totalHypothetical += line.Items[i].HypotheticalMainSize;
+        {
+            var it = line.Items[i];
+            totalHypothetical += it.HypotheticalMainSize;
+            totalHypothetical += isRow
+                ? it.Box.MarginLeft + it.Box.MarginRight
+                : it.Box.MarginTop + it.Box.MarginBottom;
+        }
 
         float freeSpace = availableMain - totalHypothetical;
 

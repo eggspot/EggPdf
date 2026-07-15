@@ -316,7 +316,10 @@ public class PdfPage
     /// <summary>Set fill and stroke opacity (0.0-1.0). Creates an ExtGState reference.</summary>
     public void SetOpacity(float opacity)
     {
-        if (opacity >= 1.0f) return; // fully opaque, no ExtGState needed
+        // SetOpacity(1) must EMIT a reset state — the gs operator persists, so
+        // silently skipping it leaks the previous alpha into later content.
+        if (opacity > 1.0f) opacity = 1.0f;
+        if (opacity < 0f) opacity = 0f;
         var gsName = $"GS{(int)(opacity * 100)}";
         UsedExtGStates.Add(gsName);
         ContentStream.AppendLine($"/{gsName} gs");
