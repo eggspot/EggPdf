@@ -135,6 +135,8 @@ ipch/
 
 # Visual Studio Trace Files
 *.e2e
+# ...but *.e2e also matches the E2E test project directory — keep it tracked
+!tests/EggPdf.Tests.E2E/
 
 # TFS 2012 Local Workspace
 $tf/
