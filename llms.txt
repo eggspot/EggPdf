@@ -186,7 +186,7 @@ netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0
 - Repeating table headers
 - TrueType/OpenType embedding with subsetting
 - Digital signatures: one-call X.509 signing (detached CMS/PKCS#7, adbe.pkcs7.detached) or external-CMS two-step flow
-- Encryption: RC4 40/128-bit with owner/user passwords and permission flags (via REST /api/encrypt)
+- Encryption: RC4 40/128-bit with owner/user passwords and permission flags — one-call `HtmlToPdf.Render(html, new PdfEncryption {...})` or REST /api/encrypt; all streams and strings encrypted per the PDF 1.7 Standard security handler
 - Cloudflare email obfuscation (data-cfemail) decoded automatically
 - PDF merging
 
@@ -210,7 +210,20 @@ byte[] done = PdfSigner.SignWithCmsData(withPlaceholder, cmsBytes);
 ```
 
 View-only protection (RC4 40/128-bit, owner/user passwords, permission flags —
-printing/copying/modifying) is available through the REST service:
+printing/copying/modifying). One call in code:
+
+```csharp
+byte[] protectedPdf = HtmlToPdf.Render(html, new PdfEncryption
+{
+    OwnerPassword = "secret",     // full access
+    UserPassword = "",            // empty = opens without a prompt, permissions still apply
+    AllowPrinting = true,
+    AllowCopying = false,
+    AllowModifying = false,
+});
+```
+
+Or through the REST service:
 
 ```bash
 curl -X POST http://localhost:8080/api/encrypt \

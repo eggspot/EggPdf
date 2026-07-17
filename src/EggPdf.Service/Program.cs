@@ -282,8 +282,7 @@ app.MapPost("/api/encrypt", async (HttpContext ctx) =>
     if (string.IsNullOrEmpty(request?.Html))
         return Results.BadRequest(new { error = "html field is required" });
 
-    var pdfDoc = new EggPdf.Pdf.PdfDocument();
-    pdfDoc.Encryption = new EggPdf.Pdf.PdfEncryption
+    var encryption = new EggPdf.Pdf.PdfEncryption
     {
         UserPassword = request.UserPassword ?? "",
         OwnerPassword = request.OwnerPassword ?? "owner",
@@ -292,7 +291,7 @@ app.MapPost("/api/encrypt", async (HttpContext ctx) =>
         AllowModifying = request.AllowModifying ?? false,
     };
 
-    var pdf = EggPdf.HtmlToPdf.Render(request.Html);
+    var pdf = EggPdf.HtmlToPdf.Render(request.Html, encryption);
     return Results.File(pdf, "application/pdf", "encrypted.pdf");
 });
 

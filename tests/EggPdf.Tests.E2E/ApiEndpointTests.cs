@@ -110,6 +110,30 @@ public class ApiEndpointTests
     }
 
     [Fact]
+    public async Task Encrypt_ReturnsEncryptedPdf()
+    {
+        var content = new StringContent(
+            JsonSerializer.Serialize(new
+            {
+                html = "<html><body><p>Confidential body text</p></body></html>",
+                ownerPassword = "owner-secret",
+                allowCopying = false,
+            }),
+            Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/encrypt", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        var bytes = await resp.Content.ReadAsByteArrayAsync();
+        Encoding.ASCII.GetString(bytes, 0, 5).Should().Be("%PDF-");
+
+        var raw = Encoding.Latin1.GetString(bytes);
+        raw.Should().Contain("/Encrypt <<", "the response must actually be encrypted");
+        raw.Should().NotContain("Confidential body text",
+            "an encrypted PDF must not leak plaintext content");
+    }
+
+    [Fact]
     public async Task PrintPreview_ReturnsHtml()
     {
         var content = new StringContent(

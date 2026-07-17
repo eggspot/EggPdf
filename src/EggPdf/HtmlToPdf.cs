@@ -126,7 +126,24 @@ public static class HtmlToPdf
         return RenderInternal(html ?? "", basePath);
     }
 
-    private static byte[] RenderInternal(string html, string? basePath)
+    /// <summary>
+    /// Render HTML to an RC4-encrypted PDF (view-only protection / permission
+    /// flags). All streams and strings are encrypted per the PDF 1.7 Standard
+    /// security handler.
+    /// </summary>
+    public static byte[] Render(string? html, Pdf.PdfEncryption encryption)
+    {
+        return RenderInternal(html ?? "", null, encryption);
+    }
+
+    /// <summary>Render HTML to an RC4-encrypted PDF asynchronously.</summary>
+    public static Task<byte[]> RenderAsync(string? html, Pdf.PdfEncryption encryption, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(RenderInternal(html ?? "", null, encryption));
+    }
+
+    private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null)
     {
         // 1. Parse HTML -> DOM
         var document = HtmlParser.Parse(html);
@@ -177,7 +194,7 @@ public static class HtmlToPdf
             var layoutRoot = BlockLayout.LayoutDocument(document, contentWidthPx, contentHeightPx, cascadeResolver);
 
             // 6. Resolve images (load data from src attributes)
-            var pdfDoc = new PdfDocument();
+            var pdfDoc = new PdfDocument { Encryption = encryption };
             ResolveImages(layoutRoot, pdfDoc);
 
             // 6b. Subset and embed TrueType fonts for non-standard fonts
