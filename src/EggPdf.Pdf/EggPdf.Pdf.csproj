@@ -13,4 +13,8 @@
     <ProjectReference Include="..\EggPdf.Text\EggPdf.Text.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="EggPdf.Tests.Unit" />
+  </ItemGroup>
+
 </Project>

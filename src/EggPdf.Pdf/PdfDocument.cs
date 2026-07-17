@@ -25,6 +25,20 @@ public class PdfDocument
     /// <summary>Optional encryption settings. When set, the PDF will be encrypted.</summary>
     public PdfEncryption? Encryption { get; set; }
 
+    /// <summary>
+    /// Process-wide default for <see cref="CompressContentStreams"/>; new
+    /// documents copy it at construction. Internal so the test assembly can
+    /// opt out once globally — hundreds of tests assert against raw
+    /// content-stream text. Production default is true.
+    /// </summary>
+    internal static bool DefaultCompressContentStreams = true;
+
+    /// <summary>
+    /// Compress page content streams with FlateDecode (zlib). Enabled by
+    /// default; typically shrinks text-heavy pages by 50-70%.
+    /// </summary>
+    public bool CompressContentStreams { get; set; } = DefaultCompressContentStreams;
+
     /// <summary>Register an embedded TrueType font for CIDFont Type 2 embedding.</summary>
     public void AddEmbeddedFont(string fontName, byte[] subsetData, Dictionary<int, ushort> codepointToGid, ushort[] widths,
         int unitsPerEm, int ascent, int descent)
@@ -355,9 +369,19 @@ public class PdfDocument
 
             offsets[contentStreamObj] = writer.Position;
             writer.WriteLine($"{contentStreamObj} 0 obj");
-            writer.WriteLine($"<< /Length {contentBytes.Length} >>");
-            writer.WriteLine("stream");
-            writer.WriteBytes(contentBytes);
+            if (CompressContentStreams)
+            {
+                var compressedContent = CompressZlib(contentBytes);
+                writer.WriteLine($"<< /Length {compressedContent.Length} /Filter /FlateDecode >>");
+                writer.WriteLine("stream");
+                writer.WriteBytes(compressedContent);
+            }
+            else
+            {
+                writer.WriteLine($"<< /Length {contentBytes.Length} >>");
+                writer.WriteLine("stream");
+                writer.WriteBytes(contentBytes);
+            }
             writer.WriteLine("");
             writer.WriteLine("endstream");
             writer.WriteLine("endobj");
