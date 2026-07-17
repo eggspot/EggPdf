@@ -131,6 +131,18 @@ public class PdfDocument
     {
         var writer = new PdfStreamWriter(output);
 
+        // Encryption: compute the file key up front — every stream and string
+        // below is RC4-encrypted with a per-object key derived from it.
+        EncryptionParams? enc = null;
+        byte[] encDocId = Array.Empty<byte>();
+        if (Encryption != null &&
+            (!string.IsNullOrEmpty(Encryption.OwnerPassword) || !string.IsNullOrEmpty(Encryption.UserPassword)))
+        {
+            using (var md5 = System.Security.Cryptography.MD5.Create())
+                encDocId = md5.ComputeHash(Encoding.UTF8.GetBytes(DateTime.UtcNow.Ticks.ToString() + (Title ?? "")));
+            enc = Encryption.Compute(encDocId);
+        }
+
         // Header
         writer.WriteLine("%PDF-1.7");
         writer.WriteLine("%\xE2\xE3\xCF\xD3"); // binary marker
@@ -242,7 +254,7 @@ public class PdfDocument
             if (cidFontObjs.TryGetValue(kv.Key, out var cid))
             {
                 // Write CIDFont Type 2 (embedded TrueType)
-                WriteCIDFont(writer, offsets, kv.Key, cid, _embeddedFonts[kv.Key]);
+                WriteCIDFont(writer, offsets, kv.Key, cid, _embeddedFonts[kv.Key], enc);
             }
             else
             {
@@ -285,7 +297,7 @@ public class PdfDocument
             var img = _images[kv.Key];
             var smaskData = img.SMaskData!;
 
-            byte[] compressedSmask = CompressZlib(smaskData);
+            byte[] compressedSmask = EncryptBytes(enc, CompressZlib(smaskData), kv.Value);
 
             offsets[kv.Value] = writer.Position;
             writer.WriteLine($"{kv.Value} 0 obj");
@@ -309,21 +321,22 @@ public class PdfDocument
             if (img.Format == PdfImageFormat.Jpeg)
             {
                 // JPEG: pass-through with DCTDecode
+                byte[] jpegBody = EncryptBytes(enc, img.Data, kv.Value);
                 var imgDict = new StringBuilder();
                 imgDict.Append($"<< /Type /XObject /Subtype /Image /Width {img.Width} /Height {img.Height}");
                 imgDict.Append($" /ColorSpace /DeviceRGB /BitsPerComponent {img.BitsPerComponent}");
-                imgDict.Append($" /Filter /DCTDecode /Length {img.Data.Length}");
+                imgDict.Append($" /Filter /DCTDecode /Length {jpegBody.Length}");
                 imgDict.Append(" >>");
                 writer.WriteLine(imgDict.ToString());
                 writer.WriteLine("stream");
-                writer.WriteBytes(img.Data);
+                writer.WriteBytes(jpegBody);
                 writer.WriteLine("");
                 writer.WriteLine("endstream");
             }
             else
             {
                 // Raw RGB: compress with zlib (FlateDecode)
-                byte[] compressed = CompressZlib(img.Data);
+                byte[] compressed = EncryptBytes(enc, CompressZlib(img.Data), kv.Value);
 
                 var imgDict = new StringBuilder();
                 imgDict.Append($"<< /Type /XObject /Subtype /Image /Width {img.Width} /Height {img.Height}");
@@ -371,16 +384,17 @@ public class PdfDocument
             writer.WriteLine($"{contentStreamObj} 0 obj");
             if (CompressContentStreams)
             {
-                var compressedContent = CompressZlib(contentBytes);
+                var compressedContent = EncryptBytes(enc, CompressZlib(contentBytes), contentStreamObj);
                 writer.WriteLine($"<< /Length {compressedContent.Length} /Filter /FlateDecode >>");
                 writer.WriteLine("stream");
                 writer.WriteBytes(compressedContent);
             }
             else
             {
-                writer.WriteLine($"<< /Length {contentBytes.Length} >>");
+                var contentBody = EncryptBytes(enc, contentBytes, contentStreamObj);
+                writer.WriteLine($"<< /Length {contentBody.Length} >>");
                 writer.WriteLine("stream");
-                writer.WriteBytes(contentBytes);
+                writer.WriteBytes(contentBody);
             }
             writer.WriteLine("");
             writer.WriteLine("endstream");
@@ -444,7 +458,7 @@ public class PdfDocument
                     float y2 = link.Y + link.Height;
                     pageDict.Append($" << /Type /Annot /Subtype /Link /Rect [{F(x1)} {F(y1)} {F(x2)} {F(y2)}]");
                     pageDict.Append($" /Border [0 0 0]");
-                    pageDict.Append($" /A << /Type /Action /S /URI /URI ({EscapePdfString(link.Url)}) >> >>");
+                    pageDict.Append($" /A << /Type /Action /S /URI /URI {PdfString(enc, link.Url, pageDictObj)} >> >>");
                 }
                 pageDict.Append(" ]");
             }
@@ -457,19 +471,19 @@ public class PdfDocument
         // Write outline objects (bookmarks)
         if (_bookmarks != null && _bookmarks.Count > 0 && outlineRootObj > 0)
         {
-            WriteOutlineObjects(writer, offsets, pageObjs, outlineRootObj, outlineItemObjs);
+            WriteOutlineObjects(writer, offsets, pageObjs, outlineRootObj, outlineItemObjs, enc);
         }
 
         // Info dictionary
         offsets[infoObj] = writer.Position;
         writer.WriteLine($"{infoObj} 0 obj");
         var info = new StringBuilder();
-        info.Append("<< /Producer (EggPdf)");
+        info.Append($"<< /Producer {PdfString(enc, "EggPdf", infoObj)}");
         if (!string.IsNullOrEmpty(Title))
-            info.Append($" /Title ({EscapePdfString(Title)})");
+            info.Append($" /Title {PdfString(enc, Title!, infoObj)}");
         if (!string.IsNullOrEmpty(Author))
-            info.Append($" /Author ({EscapePdfString(Author)})");
-        info.Append($" /CreationDate (D:{DateTime.UtcNow:yyyyMMddHHmmss}Z)");
+            info.Append($" /Author {PdfString(enc, Author!, infoObj)}");
+        info.Append($" /CreationDate {PdfString(enc, $"D:{DateTime.UtcNow:yyyyMMddHHmmss}Z", infoObj)}");
         info.Append(" >>");
         writer.WriteLine(info.ToString());
         writer.WriteLine("endobj");
@@ -494,21 +508,15 @@ public class PdfDocument
         var trailerDict = new StringBuilder();
         trailerDict.Append($"<< /Size {totalObjects} /Root {catalogObj} 0 R /Info {infoObj} 0 R");
 
-        // Add encryption dictionary if configured
-        if (Encryption != null && !string.IsNullOrEmpty(Encryption.OwnerPassword))
+        // Add encryption dictionary if configured — reuses the parameters the
+        // streams and strings above were actually encrypted with.
+        if (enc != null)
         {
-            // Generate document ID
-            var docId = new byte[16];
-            using (var md5 = System.Security.Cryptography.MD5.Create())
-            {
-                var idSource = Encoding.UTF8.GetBytes(DateTime.UtcNow.Ticks.ToString() + (Title ?? ""));
-                docId = md5.ComputeHash(idSource);
-            }
-            var encParams = Encryption.Compute(docId);
+            var encParams = enc;
 
             string oHex = BitConverter.ToString(encParams.OValue).Replace("-", "");
             string uHex = BitConverter.ToString(encParams.UValue).Replace("-", "");
-            string idHex = BitConverter.ToString(docId).Replace("-", "");
+            string idHex = BitConverter.ToString(encDocId).Replace("-", "");
 
             trailerDict.Append($" /ID [<{idHex}> <{idHex}>]");
             trailerDict.Append($" /Encrypt << /Filter /Standard /V 2 /R 3 /Length {encParams.KeyLength}");
@@ -534,7 +542,8 @@ public class PdfDocument
         Dictionary<int, long> offsets,
         List<(int pageDict, int contentStream, int? annotArray)> pageObjs,
         int outlineRootObj,
-        List<int> outlineItemObjs)
+        List<int> outlineItemObjs,
+        EncryptionParams? enc)
     {
         // Build tree structure from flat list:
         // Each node tracks: parentObjId, firstChildIdx, lastChildIdx, prevIdx, nextIdx, childCount
@@ -640,9 +649,8 @@ public class PdfDocument
             int pageRef = pageObjs[pageIdx].pageDict;
 
             var entry = new StringBuilder();
-            entry.Append("<< /Title (");
-            entry.Append(EscapePdfString(bm.Title));
-            entry.Append(")");
+            entry.Append("<< /Title ");
+            entry.Append(PdfString(enc, bm.Title, objNum));
             entry.Append($" /Parent {parentObj[i]} 0 R");
             entry.Append($" /Dest [{pageRef} 0 R /XYZ 0 {F(bm.TopPt)} 0]");
 
@@ -713,10 +721,10 @@ public class PdfDocument
     /// <summary>Write a CIDFont Type 2 (embedded TrueType) with all required objects.</summary>
     private void WriteCIDFont(PdfStreamWriter writer, Dictionary<int, long> offsets,
         string fontName, (int type0, int cidFont, int descriptor, int stream, int toUnicode) objs,
-        EmbeddedFontData fontData)
+        EmbeddedFontData fontData, EncryptionParams? enc)
     {
-        // 1. Compress the subset font data
-        byte[] compressed = CompressZlib(fontData.SubsetData);
+        // 1. Compress the subset font data (encrypt after compressing)
+        byte[] compressed = EncryptBytes(enc, CompressZlib(fontData.SubsetData), objs.stream);
 
         // 2. Build W (widths) array: /W [0 [w0 w1 w2 ...]]
         var wArray = new StringBuilder();
@@ -733,7 +741,7 @@ public class PdfDocument
         // 3. Build ToUnicode CMap
         byte[] toUnicodeData = BuildToUnicodeCMap(fontData.CodepointToGlyphId);
 
-        byte[] toUnicodeCompressed = CompressZlib(toUnicodeData);
+        byte[] toUnicodeCompressed = EncryptBytes(enc, CompressZlib(toUnicodeData), objs.toUnicode);
 
         // 4. Write font stream (subset TrueType data)
         offsets[objs.stream] = writer.Position;
@@ -763,7 +771,7 @@ public class PdfDocument
         offsets[objs.cidFont] = writer.Position;
         writer.WriteLine($"{objs.cidFont} 0 obj");
         writer.WriteLine($"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{fontName}");
-        writer.WriteLine($"/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>");
+        writer.WriteLine($"/CIDSystemInfo << /Registry {PdfString(enc, "Adobe", objs.cidFont)} /Ordering {PdfString(enc, "Identity", objs.cidFont)} /Supplement 0 >>");
         writer.WriteLine($"/FontDescriptor {objs.descriptor} 0 R");
         writer.WriteLine($"/W {wArray}");
         writer.WriteLine($"/DW 1000 >>");
@@ -850,6 +858,27 @@ public class PdfDocument
 
     private static string EscapePdfString(string text)
         => text.Replace("\\", "\\\\").Replace("(", "\\(").Replace(")", "\\)");
+
+    /// <summary>Encrypt stream bytes for their containing object (no-op when unencrypted).</summary>
+    private static byte[] EncryptBytes(EncryptionParams? enc, byte[] data, int objNum)
+        => enc == null ? data : PdfEncryption.EncryptForObject(enc.EncryptionKey, objNum, 0, data);
+
+    /// <summary>
+    /// Serialize a PDF string for the given containing object: a literal
+    /// (escaped) string when unencrypted, an RC4-encrypted hex string when
+    /// the document is encrypted (spec: ALL strings are encrypted).
+    /// </summary>
+    private static string PdfString(EncryptionParams? enc, string text, int objNum)
+    {
+        if (enc == null) return "(" + EscapePdfString(text) + ")";
+
+        var cipher = PdfEncryption.EncryptForObject(enc.EncryptionKey, objNum, 0, Latin1Encoding.GetBytes(text));
+        var sb = new StringBuilder(cipher.Length * 2 + 2);
+        sb.Append('<');
+        for (int i = 0; i < cipher.Length; i++) sb.Append(cipher[i].ToString("X2"));
+        sb.Append('>');
+        return sb.ToString();
+    }
 }
 
 /// <summary>Data for an embedded TrueType font (CIDFont Type 2).</summary>

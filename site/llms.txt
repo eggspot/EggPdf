@@ -54,7 +54,7 @@ curl -X POST http://localhost:8080/api/render \
 byte[] signed = EggPdf.Pdf.PdfSigner.Sign(pdf, x509CertWithPrivateKey,
     new EggPdf.Pdf.PdfSigner.SignOptions { Name = "Jane", Reason = "Approval" });
 ```
-- View-only PDFs via REST `POST /api/encrypt` (RC4 128-bit, owner/user passwords, print/copy/modify flags)
+- View-only PDFs: `HtmlToPdf.Render(html, new PdfEncryption {...})` or REST `POST /api/encrypt` (RC4 128-bit, owner/user passwords, print/copy/modify flags)
 - Permission flags are advisory; signatures give cryptographic tamper evidence
 
 ## Performance

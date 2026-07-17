@@ -178,6 +178,31 @@ public class PdfEncryption
         return uValue;
     }
 
+    /// <summary>
+    /// Encrypt a stream's or string's bytes for the object that contains it
+    /// (PDF 32000 Algorithm 1): RC4 with MD5(fileKey + objNum[3 LE] + gen[2 LE])
+    /// truncated to min(keyLen + 5, 16) bytes. RC4 preserves length, so
+    /// /Length values written for the ciphertext match the plaintext.
+    /// </summary>
+    internal static byte[] EncryptForObject(byte[] fileKey, int objNum, int generation, byte[] data)
+    {
+        var input = new byte[fileKey.Length + 5];
+        Array.Copy(fileKey, input, fileKey.Length);
+        input[fileKey.Length] = (byte)(objNum & 0xFF);
+        input[fileKey.Length + 1] = (byte)((objNum >> 8) & 0xFF);
+        input[fileKey.Length + 2] = (byte)((objNum >> 16) & 0xFF);
+        input[fileKey.Length + 3] = (byte)(generation & 0xFF);
+        input[fileKey.Length + 4] = (byte)((generation >> 8) & 0xFF);
+
+        byte[] hash;
+        using (var md5 = MD5.Create())
+            hash = md5.ComputeHash(input);
+
+        var objKey = new byte[Math.Min(fileKey.Length + 5, 16)];
+        Array.Copy(hash, objKey, objKey.Length);
+        return RC4(objKey, data);
+    }
+
     /// <summary>RC4 encryption/decryption.</summary>
     internal static byte[] RC4(byte[] key, byte[] data)
     {
