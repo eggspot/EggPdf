@@ -157,10 +157,30 @@ public static class StandardFontMetrics
         return ResolveBaseFontName(fontFamily, bold, italic);
     }
 
+    /// <summary>
+    /// Memoized: this runs for every word measured (the hottest call in
+    /// layout), and the lowercasing + substring scans are pure functions of
+    /// the inputs. Distinct (family, bold, italic) triples per process are
+    /// bounded by the documents' font lists.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string family, bool bold, bool italic), string>
+        _baseNameCache = new System.Collections.Concurrent.ConcurrentDictionary<(string, bool, bool), string>();
+    private const int BaseNameCacheMaxEntries = 512;
+
     private static string ResolveBaseFontName(string? fontFamily, bool bold, bool italic)
     {
+        var key = (fontFamily ?? "", bold, italic);
+        if (_baseNameCache.TryGetValue(key, out var cached)) return cached;
 
-        var family = (fontFamily ?? "").ToLowerInvariant().Trim();
+        var result = ResolveBaseFontNameUncached(key.Item1, bold, italic);
+        if (_baseNameCache.Count < BaseNameCacheMaxEntries)
+            _baseNameCache.TryAdd(key, result);
+        return result;
+    }
+
+    private static string ResolveBaseFontNameUncached(string fontFamily, bool bold, bool italic)
+    {
+        var family = fontFamily.ToLowerInvariant().Trim();
 
         if (family.IndexOf("monospace", StringComparison.OrdinalIgnoreCase) >= 0 ||
             family.IndexOf("courier", StringComparison.OrdinalIgnoreCase) >= 0 ||

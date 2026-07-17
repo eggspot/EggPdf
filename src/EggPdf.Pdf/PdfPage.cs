@@ -16,6 +16,7 @@ public class PdfPage
     internal HashSet<string> UsedFonts { get; } = new();
     internal List<PdfLinkAnnotation> Links { get; } = new();
     internal List<string> UsedImages { get; } = new();
+    private readonly HashSet<string> _usedImageSet = new();
     internal HashSet<string> UsedExtGStates { get; } = new();
 
     internal PdfPage(float widthPt, float heightPt)
@@ -35,7 +36,9 @@ public class PdfPage
         ContentStream.Append($"{F(letterSpacing)} Tc ");
         ContentStream.Append($"{F(wordSpacing)} Tw ");
         ContentStream.Append($"{F(x)} {F(y)} Td ");
-        ContentStream.Append($"({EscapePdfString(text)}) Tj ");
+        ContentStream.Append('(');
+        AppendEscapedPdfString(ContentStream, text);
+        ContentStream.Append(") Tj ");
         ContentStream.AppendLine("ET");
     }
 
@@ -389,7 +392,7 @@ public class PdfPage
     /// <summary>Add an image at a position with specified dimensions (PDF coordinates).</summary>
     public void AddImage(string imageName, float x, float y, float width, float height)
     {
-        if (!UsedImages.Contains(imageName))
+        if (_usedImageSet.Add(imageName)) // O(1) de-dup; list keeps insertion order
             UsedImages.Add(imageName);
 
         // Save graphics state, apply transformation matrix, draw image, restore
@@ -502,6 +505,29 @@ public class PdfPage
     private static string EscapePdfString(string text)
     {
         var sb = new StringBuilder(text.Length);
+        AppendEscapedPdfString(sb, text);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Escape a PDF literal string directly into a builder — the hot text
+    /// path appends into the content stream without a temporary
+    /// StringBuilder + string per run. Plain-ASCII runs append in one call.
+    /// </summary>
+    private static void AppendEscapedPdfString(StringBuilder sb, string text)
+    {
+        bool simple = true;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char sc = text[i];
+            if (sc >= 128 || sc == '\\' || sc == '(' || sc == ')') { simple = false; break; }
+        }
+        if (simple)
+        {
+            sb.Append(text);
+            return;
+        }
+
         foreach (char c in text)
         {
             if (c == '\\') sb.Append("\\\\");
@@ -521,7 +547,6 @@ public class PdfPage
                     sb.Append('?'); // unmappable
             }
         }
-        return sb.ToString();
     }
 
     /// <summary>Map common Unicode characters to WinAnsiEncoding byte values.</summary>
