@@ -19,7 +19,7 @@ app.UseStaticFiles();
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "healthy",
-    version = "0.1.0",
+    version = typeof(EggPdf.HtmlToPdf).Assembly.GetName().Version?.ToString(3) ?? "unknown",
     uptime = (DateTime.UtcNow - Process.GetCurrentProcess().StartTime.ToUniversalTime()).ToString(@"d\.hh\:mm\:ss")
 }));
 

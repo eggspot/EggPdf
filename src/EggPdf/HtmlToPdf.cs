@@ -734,13 +734,20 @@ public static class HtmlToPdf
                 {
                     // Parse once per process — fetched bytes are cached by URL,
                     // but reparsing every render costs tens of ms per face.
-                    fontData = WebFontParseCache.GetOrAdd(url, u =>
+                    if (!WebFontParseCache.TryGetValue(url, out fontData))
                     {
-                        var rawBytes = Text.FontUrlFetcher.Fetch(u);
-                        if (rawBytes == null || rawBytes.Length == 0) return null;
-                        try { return Text.TrueType.TtfParser.Parse(rawBytes); }
-                        catch { return null; }
-                    });
+                        var rawBytes = Text.FontUrlFetcher.Fetch(url);
+                        if (rawBytes != null && rawBytes.Length != 0)
+                        {
+                            try { fontData = Text.TrueType.TtfParser.Parse(rawBytes); }
+                            catch { fontData = null; }
+                            // The bytes behind a URL are immutable once fetched, so
+                            // even a parse failure is safe to cache. A FAILED fetch
+                            // is not cached here — FontUrlFetcher's retry window
+                            // decides when that URL may be tried again.
+                            WebFontParseCache.TryAdd(url, fontData);
+                        }
+                    }
                 }
 
                 if (fontData != null) return fontData;

@@ -1370,6 +1370,48 @@ public static class BlockLayout
         return text; // capitalize changes width negligibly
     }
 
+    /// <summary>
+    /// CSS white-space:normal collapsing for an inline run: \n \r \t map to
+    /// spaces, runs of ordinary spaces collapse to one, edge whitespace trims.
+    /// NBSP is rendered content — trimmed at the edges (like string.Trim did)
+    /// but never collapsed in the interior. Zero-allocation when the text is
+    /// already normalized.
+    /// </summary>
+    private static string NormalizeInlineWhitespace(string text)
+    {
+        int start = 0, end = text.Length;
+        while (start < end && char.IsWhiteSpace(text[start])) start++;
+        while (end > start && char.IsWhiteSpace(text[end - 1])) end--;
+        if (start >= end) return "";
+
+        bool needsRewrite = false;
+        for (int i = start; i < end; i++)
+        {
+            char c = text[i];
+            if (c == '\n' || c == '\r' || c == '\t' ||
+                (c == ' ' && text[i - 1] == ' '))
+            {
+                needsRewrite = true;
+                break;
+            }
+        }
+
+        if (!needsRewrite)
+            return start == 0 && end == text.Length ? text : text.Substring(start, end - start);
+
+        var sb = new System.Text.StringBuilder(end - start);
+        bool prevSpace = false;
+        for (int i = start; i < end; i++)
+        {
+            char c = text[i];
+            if (c == '\n' || c == '\r' || c == '\t') c = ' ';
+            if (c == ' ' && prevSpace) continue;
+            sb.Append(c);
+            prevSpace = c == ' ';
+        }
+        return sb.ToString();
+    }
+
     /// <summary>Walk up parent chain to find page height.</summary>
     private static float FindPageHeight(LayoutBox parent)
     {
@@ -2503,14 +2545,12 @@ public static class BlockLayout
                 continue;
             }
 
-            // Normalize whitespace
-            var text = run.Text.Replace('\n', ' ').Replace('\r', ' ').Replace('\t', ' ');
-            // Collapse multiple spaces
-            while (text.IndexOf("  ", StringComparison.Ordinal) >= 0)
-                text = text.Replace("  ", " ");
-            text = text.Trim();
+            // Normalize whitespace: \n \r \t become spaces, runs of spaces
+            // collapse, edges trim — single pass (the old Replace loop
+            // reallocated the string once per collapsed pair).
+            var text = NormalizeInlineWhitespace(run.Text);
 
-            if (string.IsNullOrEmpty(text)) continue;
+            if (text.Length == 0) continue;
 
             // Measure the transformed text (uppercase is wider); the paint-time
             // transform is idempotent so word boxes may carry it too.
