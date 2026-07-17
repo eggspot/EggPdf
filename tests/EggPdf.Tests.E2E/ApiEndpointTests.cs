@@ -104,7 +104,7 @@ public class ApiEndpointTests
 
         resp.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
         var bytes = await resp.Content.ReadAsByteArrayAsync();
-        var pdfText = Encoding.ASCII.GetString(bytes);
+        var pdfText = PdfTextDecoder.Decode(bytes);
         pdfText.Should().Contain("Invoice");
         pdfText.Should().Contain("Widget");
     }
