@@ -46,6 +46,39 @@ public static class SystemFontLocator
         return dirs.Where(Directory.Exists).ToArray();
     }
 
+    /// <summary>
+    /// Process-wide cache of discovered font files — the directory walk is
+    /// expensive (hundreds of files on Linux with Noto installed) and font
+    /// installs during the process lifetime are not a supported scenario.
+    /// </summary>
+    private static string[]? _cachedFontFiles;
+    private static readonly object _fontFilesLock = new object();
+
+    private static string[] GetAllFontFiles()
+    {
+        var cached = _cachedFontFiles;
+        if (cached != null) return cached;
+        lock (_fontFilesLock)
+        {
+            if (_cachedFontFiles != null) return _cachedFontFiles;
+            var files = new List<string>();
+            foreach (var dir in GetFontDirectories())
+            {
+                try
+                {
+                    files.AddRange(Directory.GetFiles(dir, "*.ttf", SearchOption.AllDirectories));
+                    files.AddRange(Directory.GetFiles(dir, "*.otf", SearchOption.AllDirectories));
+                }
+                catch
+                {
+                    // Permission denied, etc.
+                }
+            }
+            _cachedFontFiles = files.ToArray();
+            return _cachedFontFiles;
+        }
+    }
+
     /// <summary>Find a font file by family name. Returns null if not found.</summary>
     public static string? FindFont(string familyName)
     {
@@ -64,16 +97,9 @@ public static class SystemFontLocator
         int bestRank = int.MaxValue;
         int bestLength = int.MaxValue;
 
-        foreach (var dir in GetFontDirectories())
+        foreach (var file in GetAllFontFiles())
         {
-            try
-            {
-                var files = Directory.GetFiles(dir, "*.ttf", SearchOption.AllDirectories)
-                    .Concat(Directory.GetFiles(dir, "*.otf", SearchOption.AllDirectories));
-
-                foreach (var file in files)
-                {
-                    var name = Path.GetFileNameWithoutExtension(file);
+            var name = Path.GetFileNameWithoutExtension(file);
                     var nameSpaceless = name.Replace(" ", "").Replace("-", "");
 
                     int rank;
@@ -106,12 +132,6 @@ public static class SystemFontLocator
                         bestLength = name.Length;
                         if (rank == 0 && name.Length == familyName.Length) return best;
                     }
-                }
-            }
-            catch
-            {
-                // Permission denied, etc.
-            }
         }
 
         return best;
