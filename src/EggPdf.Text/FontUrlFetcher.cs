@@ -12,8 +12,20 @@ namespace EggPdf.Text;
 /// </summary>
 public static class FontUrlFetcher
 {
-    private static readonly ConcurrentDictionary<string, byte[]?> _cache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, byte[]> _cache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, DateTime> _failedFetches = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HttpClient _httpClient = CreateClient();
+
+    /// <summary>
+    /// How long a failed fetch suppresses retries for that URL. Bounded so a
+    /// transient network failure cannot poison the URL for the process
+    /// lifetime, but long enough that a dead URL does not add a network
+    /// timeout to every render. Internal-mutable for tests.
+    /// </summary>
+    internal static TimeSpan FailureRetryInterval = TimeSpan.FromSeconds(30);
+
+    /// <summary>Test seam: replaces the actual fetch when set.</summary>
+    internal static Func<string, byte[]?>? FetchOverride;
 
     private static HttpClient CreateClient()
     {
@@ -31,17 +43,34 @@ public static class FontUrlFetcher
     {
         if (string.IsNullOrEmpty(url)) return null;
 
-        return _cache.GetOrAdd(url, u =>
+        if (_cache.TryGetValue(url, out var cached)) return cached;
+
+        // A recent failure suppresses retries briefly; unlike a cache entry
+        // it expires, so the URL recovers after a transient outage.
+        if (_failedFetches.TryGetValue(url, out var failedAt) &&
+            DateTime.UtcNow - failedAt < FailureRetryInterval)
+            return null;
+
+        byte[]? data;
+        try
         {
-            try
-            {
-                return FetchInternal(u);
-            }
-            catch
-            {
-                return null;
-            }
-        });
+            var fetch = FetchOverride;
+            data = fetch != null ? fetch(url) : FetchInternal(url);
+        }
+        catch
+        {
+            data = null;
+        }
+
+        if (data != null && data.Length > 0)
+        {
+            _cache.TryAdd(url, data);
+            _failedFetches.TryRemove(url, out _);
+            return data;
+        }
+
+        _failedFetches[url] = DateTime.UtcNow;
+        return null;
     }
 
     private static byte[]? FetchInternal(string url)
@@ -124,6 +153,10 @@ public static class FontUrlFetcher
         return null;
     }
 
-    /// <summary>Clear the font cache.</summary>
-    public static void ClearCache() => _cache.Clear();
+    /// <summary>Clear the font cache, including recorded fetch failures.</summary>
+    public static void ClearCache()
+    {
+        _cache.Clear();
+        _failedFetches.Clear();
+    }
 }
