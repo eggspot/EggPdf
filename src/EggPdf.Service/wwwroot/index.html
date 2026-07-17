@@ -109,7 +109,7 @@
 <header class="header">
   <div class="logo">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="6" fill="#6c5ce7"/><path d="M7 7h10v2H7V7zm0 4h10v2H7v-2zm0 4h7v2H7v-2z" fill="white"/></svg>
-    EggPdf <span>v0.1.0</span>
+    EggPdf <span id="appVersion"></span>
   </div>
   <div class="tabs">
     <button class="tab active" onclick="switchEditorTab('html', this)">HTML</button>
@@ -773,6 +773,11 @@ async function downloadPdfFile() {
     window.open(url, '_blank');
   } catch (e) { alert('Download error: ' + e.message); }
 }
+
+// Header version badge follows the running engine, not a hardcoded string
+fetch('/api/info').then(r => r.json())
+  .then(info => { document.getElementById('appVersion').textContent = 'v' + info.version; })
+  .catch(() => {});
 </script>
 </body>
 </html>
