@@ -25,6 +25,17 @@ public static class HtmlToPdf
     private const float DefaultPageHeightPx = 841.89f;  // A4 height
     private const int MaxImportDepth = 10;
 
+    /// <summary>
+    /// Process-wide font resolver: its cache (family → parsed FontData) survives
+    /// across renders, avoiding repeated font-directory scans and TTF parses.
+    /// Thread-safe (ConcurrentDictionary-backed).
+    /// </summary>
+    private static readonly Text.FontResolver SharedFontResolver = new Text.FontResolver();
+
+    /// <summary>Process-wide cache of parsed webfonts keyed by source URL.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Text.TrueType.FontData?>
+        WebFontParseCache = new System.Collections.Concurrent.ConcurrentDictionary<string, Text.TrueType.FontData?>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Render HTML to PDF as byte array.</summary>
     public static Task<byte[]> RenderAsync(string? html, CancellationToken ct = default)
     {
@@ -92,7 +103,8 @@ public static class HtmlToPdf
         var fontFaces = BuildFontFaceMap(stylesheets);
         if (fontFaces.Count > 0)
         {
-            var measureResolver = new Text.FontResolver();
+            PrefetchWebFonts(fontFaces);
+            var measureResolver = SharedFontResolver;
             var measureCache = new Dictionary<string, Text.TrueType.FontData?>(StringComparer.Ordinal);
             TextMeasurer.FontDataProvider = (family, weight, fontStyle) =>
             {
@@ -133,6 +145,39 @@ public static class HtmlToPdf
         {
             TextMeasurer.FontDataProvider = null;
         }
+    }
+
+    /// <summary>
+    /// Download all @font-face sources in parallel into FontUrlFetcher's cache.
+    /// A dozen sequential HTTPS fetches dominate cold-start latency; in parallel
+    /// the cost is one round-trip. Cached URLs return instantly on later renders.
+    /// </summary>
+    private static void PrefetchWebFonts(Dictionary<string, List<FontFaceCandidate>> fontFaces)
+    {
+        var tasks = new List<System.Threading.Tasks.Task>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var faces in fontFaces.Values)
+        {
+            foreach (var face in faces)
+            {
+                foreach (var srcPart in face.Src.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var url = Text.FontUrlFetcher.ParseFontSrcUrl(srcPart.Trim());
+                    if (url == null ||
+                        url.StartsWith("local:", StringComparison.OrdinalIgnoreCase) ||
+                        !url.StartsWith("http", StringComparison.OrdinalIgnoreCase) ||
+                        !seen.Add(url))
+                        continue;
+
+                    var u = url;
+                    tasks.Add(System.Threading.Tasks.Task.Run(() => Text.FontUrlFetcher.Fetch(u)));
+                }
+            }
+        }
+
+        if (tasks.Count > 0)
+            System.Threading.Tasks.Task.WaitAll(tasks.ToArray());
     }
 
     /// <summary>
@@ -543,7 +588,7 @@ public static class HtmlToPdf
 
         if (fontCodepoints.Count == 0) return;
 
-        var fontResolver = new Text.FontResolver();
+        var fontResolver = SharedFontResolver;
 
         foreach (var kv in fontCodepoints)
         {
@@ -687,12 +732,15 @@ public static class HtmlToPdf
                 }
                 else
                 {
-                    var rawBytes = Text.FontUrlFetcher.Fetch(url);
-                    if (rawBytes != null && rawBytes.Length > 0)
+                    // Parse once per process — fetched bytes are cached by URL,
+                    // but reparsing every render costs tens of ms per face.
+                    fontData = WebFontParseCache.GetOrAdd(url, u =>
                     {
-                        try { fontData = Text.TrueType.TtfParser.Parse(rawBytes); }
-                        catch { fontData = null; }
-                    }
+                        var rawBytes = Text.FontUrlFetcher.Fetch(u);
+                        if (rawBytes == null || rawBytes.Length == 0) return null;
+                        try { return Text.TrueType.TtfParser.Parse(rawBytes); }
+                        catch { return null; }
+                    });
                 }
 
                 if (fontData != null) return fontData;
