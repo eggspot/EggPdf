@@ -557,51 +557,81 @@ public static class HtmlToPdf
     }
 
     /// <summary>Walk the layout tree and resolve image sources to byte data.</summary>
+    /// <summary>
+    /// Process-wide decoded-image cache for data: URIs only — their content
+    /// is immutable by construction, so no invalidation is needed. File-path
+    /// sources stay uncached (the file can change on disk between renders).
+    /// PdfImage entries are read-only to all consumers.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (byte[] raw, PdfImage? image)>
+        DataUriImageCache = new System.Collections.Concurrent.ConcurrentDictionary<string, (byte[], PdfImage?)>(StringComparer.Ordinal);
+    private const int DataUriImageCacheMaxEntries = 32;
+
+    /// <summary>Test observability: incremented on every image-cache hit.</summary>
+    internal static int ImageCacheHits;
+
     private static void ResolveImages(LayoutBox box, PdfDocument pdfDoc)
     {
         if (!string.IsNullOrEmpty(box.ImageSource))
         {
-            var data = LoadImageData(box.ImageSource);
-            if (data != null)
+            bool cacheable = box.ImageSource.StartsWith("data:", StringComparison.OrdinalIgnoreCase);
+
+            if (cacheable && DataUriImageCache.TryGetValue(box.ImageSource, out var cached))
             {
-                box.ImageData = data;
-                string imgName = "Img" + box.ImageSource.GetHashCode().ToString("X8");
-                PdfImage? pdfImage = null;
+                System.Threading.Interlocked.Increment(ref ImageCacheHits);
+                box.ImageData = cached.raw;
+                if (cached.image != null)
+                    pdfDoc.AddImage(cached.image);
+            }
+            else
+            {
+                var data = LoadImageData(box.ImageSource);
+                if (data != null)
+                {
+                    box.ImageData = data;
+                    var pdfImage = DecodeImage(box.ImageSource, data);
+                    if (pdfImage != null)
+                        pdfDoc.AddImage(pdfImage);
 
-                // Detect format by magic bytes
-                if (data.Length >= 8 &&
-                    data[0] == 137 && data[1] == 80 && data[2] == 78 && data[3] == 71 &&
-                    data[4] == 13 && data[5] == 10 && data[6] == 26 && data[7] == 10)
-                {
-                    // PNG signature
-                    pdfImage = PdfImage.FromPng(imgName, data);
-                }
-                else if (data.Length >= 2 && data[0] == 0xFF && data[1] == 0xD8)
-                {
-                    // JPEG SOI marker
-                    pdfImage = PdfImage.FromJpeg(imgName, data);
-                }
-                else if (data.Length >= 4 &&
-                    data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x38)
-                {
-                    // GIF signature ("GIF8")
-                    pdfImage = PdfImage.FromGif(imgName, data);
-                }
-                else if (data.Length >= 2 && data[0] == 0x42 && data[1] == 0x4D)
-                {
-                    // BMP signature ("BM")
-                    pdfImage = PdfImage.FromBmp(imgName, data);
-                }
-
-                if (pdfImage != null)
-                {
-                    pdfDoc.AddImage(pdfImage);
+                    if (cacheable)
+                    {
+                        if (DataUriImageCache.Count >= DataUriImageCacheMaxEntries)
+                            DataUriImageCache.Clear(); // crude bound; images are large
+                        DataUriImageCache.TryAdd(box.ImageSource, (data, pdfImage));
+                    }
                 }
             }
         }
 
         foreach (var child in box.Children)
             ResolveImages(child, pdfDoc);
+    }
+
+    /// <summary>Decode raw image bytes into a PdfImage, detecting the format by magic bytes.</summary>
+    private static PdfImage? DecodeImage(string source, byte[] data)
+    {
+        string imgName = "Img" + source.GetHashCode().ToString("X8");
+
+        if (data.Length >= 8 &&
+            data[0] == 137 && data[1] == 80 && data[2] == 78 && data[3] == 71 &&
+            data[4] == 13 && data[5] == 10 && data[6] == 26 && data[7] == 10)
+        {
+            return PdfImage.FromPng(imgName, data); // PNG signature
+        }
+        if (data.Length >= 2 && data[0] == 0xFF && data[1] == 0xD8)
+        {
+            return PdfImage.FromJpeg(imgName, data); // JPEG SOI marker
+        }
+        if (data.Length >= 4 &&
+            data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x38)
+        {
+            return PdfImage.FromGif(imgName, data); // GIF signature ("GIF8")
+        }
+        if (data.Length >= 2 && data[0] == 0x42 && data[1] == 0x4D)
+        {
+            return PdfImage.FromBmp(imgName, data); // BMP signature ("BM")
+        }
+        return null;
     }
 
     /// <summary>Load image data from a source string (data URI or file path).</summary>

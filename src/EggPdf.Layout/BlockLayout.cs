@@ -79,6 +79,9 @@ public static class BlockLayout
     {
         _viewportWidth = pageWidth;
         _viewportHeight = pageHeight;
+        // Per-render cache: without clearing, a pooled thread retains every
+        // table element from every past render (unbounded growth).
+        _tableColumnWidthCache?.Clear();
 
         var root = new LayoutBox
         {
@@ -424,6 +427,11 @@ public static class BlockLayout
         // ("Căn cứ <strong>Luật</strong>": the space precedes the inline element).
         bool prevTextEndedWithSpace = false;
 
+        // Table-row column geometry, computed once per row on first cell —
+        // the previous per-cell rescans were O(cells²) per row.
+        Dictionary<HtmlElement, int>? rowCellColOffsets = null;
+        int rowTotalColumns = 0;
+
         foreach (var childNode in element.ChildNodes)
         {
             if (childNode is HtmlElement childElem)
@@ -458,8 +466,24 @@ public static class BlockLayout
                     // Table row layout: cells go side-by-side (horizontal)
                     if (IsTableRow(style.Display) && IsTableCell(childStyle.Display))
                     {
-                        int totalColumns = CountTableColumns(element);
-                        int colOffset = CountPreviousColumns(element, childElem);
+                        if (rowCellColOffsets == null)
+                        {
+                            rowCellColOffsets = new Dictionary<HtmlElement, int>();
+                            int running = 0;
+                            foreach (var rowChild in element.ChildNodes)
+                            {
+                                if (rowChild is HtmlElement rc)
+                                {
+                                    rowCellColOffsets[rc] = running;
+                                    if (rc.TagName == "td" || rc.TagName == "th")
+                                        running += GetColspan(rc);
+                                }
+                            }
+                            rowTotalColumns = running;
+                        }
+                        int totalColumns = rowTotalColumns;
+                        int colOffset = rowCellColOffsets.TryGetValue(childElem, out var cachedOffset)
+                            ? cachedOffset : 0;
                         int colspan = GetColspan(childElem);
 
                         // border-collapse inherits from <table> via CSS inheritance
@@ -1983,28 +2007,6 @@ public static class BlockLayout
     }
 
     /// <summary>Count total column slots in a row (respecting colspan).</summary>
-    private static int CountTableColumns(HtmlElement row)
-    {
-        int count = 0;
-        foreach (var child in row.ChildNodes)
-            if (child is HtmlElement e && (e.TagName == "td" || e.TagName == "th"))
-                count += GetColspan(e);
-        return count;
-    }
-
-    /// <summary>Count column slots before the current cell (respecting colspan).</summary>
-    private static int CountPreviousColumns(HtmlElement row, HtmlElement currentCell)
-    {
-        int columns = 0;
-        foreach (var child in row.ChildNodes)
-        {
-            if (child == currentCell) return columns;
-            if (child is HtmlElement e && (e.TagName == "td" || e.TagName == "th"))
-                columns += GetColspan(e);
-        }
-        return columns;
-    }
-
     /// <summary>Get colspan attribute value (default 1).</summary>
     private static int GetColspan(HtmlElement cell)
     {

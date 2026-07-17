@@ -210,16 +210,19 @@ public class BasicStyleResolver
     /// </summary>
     private static void ResolveCustomProperties(ComputedStyle style)
     {
-        var toResolve = new List<KeyValuePair<string, string>>();
+        // Lazy list + '(' gate: the common case has no var()/env() at all.
+        List<KeyValuePair<string, string>>? toResolve = null;
         foreach (var kv in style.All)
         {
+            if (kv.Value.IndexOf('(') < 0) continue;
             if (!CssVariableResolver.IsCustomProperty(kv.Key) &&
                 (kv.Value.IndexOf("var(", StringComparison.OrdinalIgnoreCase) >= 0 ||
                  kv.Value.IndexOf("env(", StringComparison.OrdinalIgnoreCase) >= 0))
             {
-                toResolve.Add(kv);
+                (toResolve ??= new List<KeyValuePair<string, string>>()).Add(kv);
             }
         }
+        if (toResolve == null) return;
 
         foreach (var kv in toResolve)
         {

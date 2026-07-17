@@ -186,6 +186,23 @@ internal class HtmlTreeBuilder
         if (tagName == "html" || tagName == "body" || tagName == "head")
             return;
 
+        // Fast path: properly nested close — no scratch stack needed.
+        if (_openElements.Count > 0)
+        {
+            var topElement = _openElements.Peek();
+            if (topElement.TagName == tagName)
+            {
+                _openElements.Pop();
+                return;
+            }
+            if (topElement.TagName == "body" || topElement.TagName == "html")
+                return;
+        }
+        else
+        {
+            return;
+        }
+
         // Pop elements until we find matching start tag
         var temp = new Stack<HtmlElement>();
         bool found = false;

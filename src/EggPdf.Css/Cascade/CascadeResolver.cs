@@ -15,7 +15,40 @@ public class CascadeResolver
 {
     private readonly List<CssStyleRule> _authorRules = new();
     private readonly List<int> _authorRuleSpecificities = new();
+    private readonly List<RuleFilter> _authorRuleFilters = new();
     private readonly BasicStyleResolver _uaResolver = new();
+
+    /// <summary>
+    /// Pseudo-element rules indexed by pseudo name (before/after/marker/...),
+    /// with base selector and specificity precomputed — ResolvePseudoElement
+    /// runs ~6x per element and must not rescan every author rule.
+    /// </summary>
+    private readonly Dictionary<string, List<(string baseSelector, CssStyleRule rule, int specScore, int order)>>
+        _pseudoRules = new(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly string[] PseudoElementNames =
+        { "before", "after", "marker", "first-line", "first-letter", "placeholder" };
+
+    // Reused per-element scratch: Resolve is called once per element on a
+    // single-threaded, per-render resolver; allocating these per call was
+    // measurable churn.
+    private readonly List<(CssDeclaration decl, int specificity, int layerOrder, int order)> _matchScratch = new();
+    private readonly Dictionary<string, (string value, bool important, int specificity, int layerOrder, int order)>
+        _winnersScratch = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Cheap per-rule rejection data derived from the rightmost compound.
+    /// Extra simple selectors (attributes, pseudo-classes) only narrow a
+    /// match, so a required tag/id/class extracted before them stays sound.
+    /// </summary>
+    private struct RuleFilter
+    {
+        public string? Tag;
+        public string? Id;
+        public string? Class;
+        public bool AlwaysCheck; // no cheap rejection possible
+        public bool SkipAlways;  // '::' pseudo-element rule — Matches() is always false
+    }
     private readonly string _mediaType;
     private readonly float _pageWidth;
     /// <summary>@property initial-values keyed by custom property name.</summary>
@@ -74,10 +107,20 @@ public class CascadeResolver
         // 2. Collect matching author rules with specificity and layer order
         // Tuple: (decl, specificity, layerOrder, sourceOrder)
         // layerOrder: int.MaxValue = unlayered (wins), 0,1,2... = layer index (later wins)
-        var matches = new List<(CssDeclaration decl, int specificity, int layerOrder, int order)>();
+        var matches = _matchScratch;
+        matches.Clear();
+
+        // Per-element values the rule prefilter tests against
+        string elemTag = element.TagName;
+        string? elemId = element.GetAttribute("id");
+        string? elemClass = element.GetAttribute("class");
 
         for (int ri = 0; ri < _authorRules.Count; ri++)
         {
+            var filter = _authorRuleFilters[ri];
+            if (filter.SkipAlways) continue;
+            if (!FilterMightMatch(in filter, elemTag, elemId, elemClass)) continue;
+
             var rule = _authorRules[ri];
             if (SelectorMatcher.Matches(rule.SelectorText, element))
             {
@@ -104,7 +147,8 @@ public class CascadeResolver
 
         // 4. Apply in order (later wins for same property at same importance level)
         // Group by property, last one wins (unless !important overrides)
-        var propertyWinners = new Dictionary<string, (string value, bool important, int specificity, int layerOrder, int order)>(StringComparer.OrdinalIgnoreCase);
+        var propertyWinners = _winnersScratch;
+        propertyWinners.Clear();
 
         foreach (var (decl, spec, layerOrder, order) in matches)
         {
@@ -196,38 +240,19 @@ public class CascadeResolver
     /// <summary>Resolve computed style for a pseudo-element (::before or ::after).</summary>
     public ComputedStyle? ResolvePseudoElement(HtmlElement element, string pseudo, ComputedStyle? parentStyle)
     {
-        // Collect matching rules that target this pseudo-element
-        string pseudoSuffix = "::" + pseudo;
-        string pseudoSuffixSingle = ":" + pseudo; // legacy single-colon
+        // Indexed at AddRules time — no rules for this pseudo means no scan at all
+        // (this method runs ~6x per element).
+        if (!_pseudoRules.TryGetValue(pseudo, out var candidates))
+            return null;
+
         var matches = new List<(CssDeclaration decl, int specificity, int order)>();
-        int ruleOrder = 0;
-
-        foreach (var rule in _authorRules)
+        foreach (var (baseSelector, rule, specScore, order) in candidates)
         {
-            var sel = rule.SelectorText;
-            bool hasPseudo = false;
-            string? baseSelector = null;
-
-            if (sel.EndsWith(pseudoSuffix, StringComparison.OrdinalIgnoreCase))
+            if (SelectorMatcher.Matches(baseSelector, element))
             {
-                baseSelector = sel.Substring(0, sel.Length - pseudoSuffix.Length);
-                hasPseudo = true;
-            }
-            else if (sel.EndsWith(pseudoSuffixSingle, StringComparison.OrdinalIgnoreCase))
-            {
-                baseSelector = sel.Substring(0, sel.Length - pseudoSuffixSingle.Length);
-                hasPseudo = true;
-            }
-
-            if (hasPseudo && !string.IsNullOrEmpty(baseSelector) && SelectorMatcher.Matches(baseSelector, element))
-            {
-                var spec = SelectorMatcher.CalculateSpecificity(baseSelector);
-                int specScore = spec.A * 10000 + spec.B * 100 + spec.C + 1; // +1 for pseudo-element
-
                 foreach (var decl in rule.Declarations)
-                    matches.Add((decl, specScore, ruleOrder));
+                    matches.Add((decl, specScore, order));
             }
-            ruleOrder++;
         }
 
         if (matches.Count == 0) return null;
@@ -326,17 +351,20 @@ public class CascadeResolver
     /// </summary>
     private static void ResolveCustomProperties(ComputedStyle style)
     {
-        // Collect properties that need resolution (avoid modifying during iteration)
-        var toResolve = new List<KeyValuePair<string, string>>();
+        // Collect properties that need resolution (avoid modifying during iteration).
+        // Lazy list + '(' gate: the common case has no var()/env() at all.
+        List<KeyValuePair<string, string>>? toResolve = null;
         foreach (var kv in style.All)
         {
+            if (kv.Value.IndexOf('(') < 0) continue;
             if (!CssVariableResolver.IsCustomProperty(kv.Key) &&
                 (kv.Value.IndexOf("var(", StringComparison.OrdinalIgnoreCase) >= 0 ||
                  kv.Value.IndexOf("env(", StringComparison.OrdinalIgnoreCase) >= 0))
             {
-                toResolve.Add(kv);
+                (toResolve ??= new List<KeyValuePair<string, string>>()).Add(kv);
             }
         }
+        if (toResolve == null) return;
 
         foreach (var kv in toResolve)
         {
@@ -380,8 +408,119 @@ public class CascadeResolver
         {
             var spec = SelectorMatcher.CalculateSpecificity(rule.SelectorText);
             _authorRuleSpecificities.Add(spec.A * 10000 + spec.B * 100 + spec.C);
+            int order = _authorRules.Count;
             _authorRules.Add(rule);
+            _authorRuleFilters.Add(BuildFilter(rule.SelectorText));
+            IndexPseudoElementRule(rule, order);
         }
+    }
+
+    /// <summary>If the selector targets a pseudo-element, index it by pseudo name.</summary>
+    private void IndexPseudoElementRule(CssStyleRule rule, int order)
+    {
+        var sel = rule.SelectorText;
+        foreach (var name in PseudoElementNames)
+        {
+            string? baseSelector = null;
+            var doubleColon = "::" + name;
+            var singleColon = ":" + name;
+            if (sel.EndsWith(doubleColon, StringComparison.OrdinalIgnoreCase))
+                baseSelector = sel.Substring(0, sel.Length - doubleColon.Length);
+            else if (sel.EndsWith(singleColon, StringComparison.OrdinalIgnoreCase))
+                baseSelector = sel.Substring(0, sel.Length - singleColon.Length);
+
+            if (string.IsNullOrEmpty(baseSelector)) continue;
+
+            var spec = SelectorMatcher.CalculateSpecificity(baseSelector!);
+            int specScore = spec.A * 10000 + spec.B * 100 + spec.C + 1; // +1 for pseudo-element
+
+            if (!_pseudoRules.TryGetValue(name, out var list))
+                _pseudoRules[name] = list = new List<(string, CssStyleRule, int, int)>();
+            list.Add((baseSelector!, rule, specScore, order));
+            return; // a selector ends in at most one pseudo-element
+        }
+    }
+
+    /// <summary>Extract cheap rejection requirements from the rightmost compound.</summary>
+    private static RuleFilter BuildFilter(string selectorText)
+    {
+        var f = new RuleFilter();
+        var sel = selectorText.Trim();
+
+        // Selector lists and escaped identifiers: just run the full matcher.
+        if (sel.Length == 0 || sel.IndexOf(',') >= 0 || sel.IndexOf('\\') >= 0)
+        {
+            f.AlwaysCheck = true;
+            return f;
+        }
+
+        // '::' pseudo-element selectors never match an element directly
+        // (SelectorMatcher.Matches rejects them) — skip without matching.
+        if (sel.IndexOf("::", StringComparison.Ordinal) >= 0)
+        {
+            f.SkipAlways = true;
+            return f;
+        }
+
+        // Find the rightmost compound: scan backwards for a top-level combinator
+        // (spaces/'+' inside [...] or (...) don't count).
+        int depth = 0, start = 0;
+        for (int i = sel.Length - 1; i >= 0; i--)
+        {
+            char c = sel[i];
+            if (c == ')' || c == ']') depth++;
+            else if (c == '(' || c == '[') depth--;
+            else if (depth == 0 && (c == ' ' || c == '>' || c == '+' || c == '~'))
+            {
+                start = i + 1;
+                break;
+            }
+        }
+
+        // Parse the compound's leading tag and '.class'/'#id' tokens; stop at
+        // '[' / ':' / anything else — later constraints only narrow the match.
+        int p = start;
+        if (p < sel.Length && sel[p] == '*')
+        {
+            p++;
+        }
+        else
+        {
+            int identStart = p;
+            while (p < sel.Length && (char.IsLetterOrDigit(sel[p]) || sel[p] == '-' || sel[p] == '_')) p++;
+            if (p > identStart) f.Tag = sel.Substring(identStart, p - identStart);
+        }
+
+        while (p < sel.Length && (sel[p] == '.' || sel[p] == '#'))
+        {
+            char kind = sel[p];
+            p++;
+            int identStart = p;
+            while (p < sel.Length && (char.IsLetterOrDigit(sel[p]) || sel[p] == '-' || sel[p] == '_')) p++;
+            if (p == identStart) { f.AlwaysCheck = true; return f; }
+            var ident = sel.Substring(identStart, p - identStart);
+            if (kind == '#') f.Id = ident;
+            else if (f.Class == null) f.Class = ident;
+        }
+
+        if (f.Tag == null && f.Id == null && f.Class == null)
+            f.AlwaysCheck = true;
+        return f;
+    }
+
+    private static bool FilterMightMatch(in RuleFilter f, string tagName, string? id, string? classAttr)
+    {
+        if (f.AlwaysCheck) return true;
+        if (f.Tag != null && !string.Equals(f.Tag, tagName, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (f.Id != null && !string.Equals(f.Id, id, StringComparison.OrdinalIgnoreCase))
+            return false;
+        // Substring check may false-positive ("foo" in "foobar") — that only
+        // means the full matcher runs; it can never false-negative.
+        if (f.Class != null && (classAttr == null ||
+            classAttr.IndexOf(f.Class, StringComparison.OrdinalIgnoreCase) < 0))
+            return false;
+        return true;
     }
 
     /// <summary>Remove spaces around colons in container conditions: "min-width : 400px" → "min-width:400px".</summary>
@@ -484,9 +623,16 @@ public class CascadeResolver
         {
             var val = kv.Value;
             if (val == null) continue;
-            var lower = val.Trim().ToLowerInvariant();
-            if (lower != "inherit" && lower != "initial" && lower != "unset" && lower != "revert")
-                continue;
+            // Cheap gate: the four CSS-wide keywords are 5-7 chars; skip the
+            // Trim/ToLower allocations for everything that can't be one.
+            if (val.Length < 5 || val.Length > 16) continue;
+            var trimmed = val.Trim();
+            string lower;
+            if (trimmed.Equals("inherit", StringComparison.OrdinalIgnoreCase)) lower = "inherit";
+            else if (trimmed.Equals("initial", StringComparison.OrdinalIgnoreCase)) lower = "initial";
+            else if (trimmed.Equals("unset", StringComparison.OrdinalIgnoreCase)) lower = "unset";
+            else if (trimmed.Equals("revert", StringComparison.OrdinalIgnoreCase)) lower = "revert";
+            else continue;
 
             string? resolved = null;
             bool remove = false;
