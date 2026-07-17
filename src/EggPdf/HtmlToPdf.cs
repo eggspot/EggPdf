@@ -36,6 +36,57 @@ public static class HtmlToPdf
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Text.TrueType.FontData?>
         WebFontParseCache = new System.Collections.Concurrent.ConcurrentDictionary<string, Text.TrueType.FontData?>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Process-wide cache of font subsets keyed by font identity + used-codepoint
+    /// set. Documents sharing a character repertoire (e.g. certificates from one
+    /// template) subset each font once, not per render. Entries are treated as
+    /// immutable by all consumers (PdfDocument reads them, never mutates).
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Text.TrueType.TtfSubsetter.SubsetResult>
+        SubsetCache = new System.Collections.Concurrent.ConcurrentDictionary<string, Text.TrueType.TtfSubsetter.SubsetResult>(StringComparer.Ordinal);
+
+    /// <summary>Crude memory bound: subsets are tens of KB; wipe instead of LRU.</summary>
+    private const int SubsetCacheMaxEntries = 512;
+
+    /// <summary>Test observability: incremented on every subset-cache hit.</summary>
+    internal static int SubsetCacheHits;
+
+    /// <summary>Subset a font for the given codepoints, via the process-wide cache.</summary>
+    private static Text.TrueType.TtfSubsetter.SubsetResult? SubsetCached(
+        Text.TrueType.FontData font, System.Collections.Generic.HashSet<int> codepoints)
+    {
+        if (font.RawData == null) return null;
+
+        var sorted = new int[codepoints.Count];
+        codepoints.CopyTo(sorted);
+        Array.Sort(sorted);
+
+        // FNV-1a over the sorted codepoints; font identity via reference hash +
+        // length (FontData instances are process-wide singletons from the font
+        // caches, so reference identity is stable for a given font).
+        ulong h = 14695981039346656037UL;
+        for (int i = 0; i < sorted.Length; i++)
+        {
+            h ^= (uint)sorted[i];
+            h *= 1099511628211UL;
+        }
+        var key = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(font.RawData).ToString("x8")
+            + ":" + font.RawData.Length + ":" + h.ToString("x16");
+
+        if (SubsetCache.TryGetValue(key, out var cached))
+        {
+            System.Threading.Interlocked.Increment(ref SubsetCacheHits);
+            return cached;
+        }
+
+        var subset = Text.TrueType.TtfSubsetter.Subset(font, sorted);
+        if (subset == null || subset.FontData.Length == 0) return subset;
+
+        if (SubsetCache.Count >= SubsetCacheMaxEntries) SubsetCache.Clear();
+        SubsetCache.TryAdd(key, subset);
+        return subset;
+    }
+
     /// <summary>Render HTML to PDF as byte array.</summary>
     public static Task<byte[]> RenderAsync(string? html, CancellationToken ct = default)
     {
@@ -630,8 +681,8 @@ public static class HtmlToPdf
             if (fontData == null || fontData.RawData == null || fontData.RawData.Length == 0)
                 continue;
 
-            // Subset the font to only include used glyphs
-            var subset = Text.TrueType.TtfSubsetter.Subset(fontData, codepoints);
+            // Subset the font to only include used glyphs (process-wide cache)
+            var subset = SubsetCached(fontData, codepoints);
             if (subset == null || subset.FontData.Length == 0)
                 continue;
 
@@ -683,7 +734,7 @@ public static class HtmlToPdf
             }
             if (!covers) continue;
 
-            var fbSubset = Text.TrueType.TtfSubsetter.Subset(fb, missing);
+            var fbSubset = SubsetCached(fb, missing);
             if (fbSubset == null || fbSubset.FontData.Length == 0) continue;
 
             pdfDoc.AddEmbeddedFont(
