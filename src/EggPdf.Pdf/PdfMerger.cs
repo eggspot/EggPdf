@@ -56,7 +56,7 @@ public class PdfMerger
         {
             // Encrypted inputs cannot be merged: their stream bytes are
             // ciphertext and would be re-emitted as garbage page operators.
-            if (Encoding.ASCII.GetString(doc).IndexOf("/Encrypt <<", StringComparison.Ordinal) >= 0)
+            if (PdfInspect.IsEncrypted(doc))
                 throw new NotSupportedException(
                     "Merging encrypted PDFs is not supported — decrypt or re-render the input first.");
 
@@ -121,9 +121,13 @@ public class PdfMerger
                 var body = new byte[bodyEnd - streamIdx];
                 Array.Copy(pdf, streamIdx, body, 0, body.Length);
 
-                // The stream's dictionary immediately precedes "stream\n"
-                int dictStart = Math.Max(0, text.LastIndexOf("<<", streamIdx, StringComparison.Ordinal));
-                bool compressed = text.IndexOf("/FlateDecode", dictStart, streamIdx - dictStart, StringComparison.Ordinal) >= 0;
+                // Scan the whole containing object dict (from "N 0 obj" to the
+                // stream) so a nested sub-dictionary — e.g. /DecodeParms << ... >>
+                // — can't hide the /FlateDecode token. Anchoring on the nearest
+                // "<<" would stop at the inner sub-dict.
+                int objStart = text.LastIndexOf(" obj", streamIdx, StringComparison.Ordinal);
+                if (objStart < 0) objStart = 0;
+                bool compressed = text.IndexOf("/FlateDecode", objStart, streamIdx - objStart, StringComparison.Ordinal) >= 0;
                 if (compressed)
                 {
                     try { body = InflateZlib(body); }
