@@ -151,6 +151,25 @@ public class CascadePrefilterTests
     }
 
     [Fact]
+    public void AttributeValueContainingDoubleColon_StillMatches()
+    {
+        // "::" inside an attribute VALUE (with a non-pseudo-element ident) must
+        // not be mistaken for a pseudo-element selector.
+        Resolve("<div data-state='a::b'>t</div>", "[data-state='a::b'] { color: red; }", "div")
+            .Color.Should().Be("red");
+    }
+
+    [Fact]
+    public void UnknownPseudoElementSuffix_BehavesLikeTheFullMatcher()
+    {
+        // The matcher only recognizes before/after/first-line/first-letter/marker
+        // as pseudo-elements; "::placeholder" falls through and matches the base
+        // element. The prefilter must mirror that exactly (bug-for-bug).
+        Resolve("<input>", "input::placeholder { color: red; }", "input")
+            .Color.Should().Be("red");
+    }
+
+    [Fact]
     public void PseudoElement_LegacySingleColon_StillResolves()
     {
         var doc = HtmlParser.Parse("<p>t</p>");

@@ -133,13 +133,18 @@ public class PdfDocument
 
         // Encryption: compute the file key up front — every stream and string
         // below is RC4-encrypted with a per-object key derived from it.
+        // Setting Encryption at all opts in: permission-only configurations
+        // (both passwords empty) still encrypt with the padded empty password,
+        // otherwise the flags would be silently dropped.
         EncryptionParams? enc = null;
         byte[] encDocId = Array.Empty<byte>();
-        if (Encryption != null &&
-            (!string.IsNullOrEmpty(Encryption.OwnerPassword) || !string.IsNullOrEmpty(Encryption.UserPassword)))
+        if (Encryption != null)
         {
-            using (var md5 = System.Security.Cryptography.MD5.Create())
-                encDocId = md5.ComputeHash(Encoding.UTF8.GetBytes(DateTime.UtcNow.Ticks.ToString() + (Title ?? "")));
+            // Random /ID: it seeds the file key and O/U values, so it must be
+            // unique per document (a timestamp collides within one clock tick).
+            encDocId = new byte[16];
+            using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+                rng.GetBytes(encDocId);
             enc = Encryption.Compute(encDocId);
         }
 
