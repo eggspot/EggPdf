@@ -41,6 +41,10 @@ public class PdfEncryption
     /// <summary>Compute encryption parameters for the PDF trailer.</summary>
     public EncryptionParams Compute(byte[] documentId)
     {
+        if (KeyLength != 40 && KeyLength != 128)
+            throw new ArgumentException(
+                $"KeyLength must be 40 or 128 for the RC4 Standard security handler (got {KeyLength}).");
+
         int keyLen = KeyLength / 8; // bytes
         int permissions = ComputePermissions();
 
@@ -94,28 +98,23 @@ public class PdfEncryption
         using var md5 = MD5.Create();
         byte[] hash = md5.ComputeHash(ownerPwd);
 
-        // For 128-bit, iterate MD5 50 times
-        if (keyLen > 5)
-        {
-            for (int i = 0; i < 50; i++)
-                hash = md5.ComputeHash(hash);
-        }
+        // Revision 3 (which the writer always declares): 50 MD5 iterations
+        // and 19 RC4 rounds regardless of key length — they are tied to the
+        // REVISION, not to 40 vs 128 bits (ISO 32000-1 Algorithm 3).
+        for (int i = 0; i < 50; i++)
+            hash = md5.ComputeHash(hash);
 
         byte[] key = new byte[keyLen];
         Array.Copy(hash, 0, key, 0, keyLen);
 
         byte[] result = RC4(key, userPwd);
 
-        // For 128-bit, additional rounds
-        if (keyLen > 5)
+        for (int round = 1; round <= 19; round++)
         {
-            for (int round = 1; round <= 19; round++)
-            {
-                byte[] roundKey = new byte[keyLen];
-                for (int j = 0; j < keyLen; j++)
-                    roundKey[j] = (byte)(key[j] ^ round);
-                result = RC4(roundKey, result);
-            }
+            byte[] roundKey = new byte[keyLen];
+            for (int j = 0; j < keyLen; j++)
+                roundKey[j] = (byte)(key[j] ^ round);
+            result = RC4(roundKey, result);
         }
 
         return result;
@@ -137,10 +136,12 @@ public class PdfEncryption
 
         byte[] hash = md5.ComputeHash(ms.ToArray());
 
-        if (keyLen > 5)
+        // R3 Algorithm 2: 50 iterations over the TRUNCATED hash, for any key length
+        for (int i = 0; i < 50; i++)
         {
-            for (int i = 0; i < 50; i++)
-                hash = md5.ComputeHash(hash);
+            var trunc = new byte[keyLen];
+            Array.Copy(hash, 0, trunc, 0, keyLen);
+            hash = md5.ComputeHash(trunc);
         }
 
         byte[] key = new byte[keyLen];
@@ -150,13 +151,8 @@ public class PdfEncryption
 
     private static byte[] ComputeUValue(byte[] encKey, byte[] documentId, int keyLen)
     {
-        if (keyLen <= 5)
-        {
-            // 40-bit: encrypt padding string
-            return RC4(encKey, PasswordPadding);
-        }
-
-        // 128-bit: MD5(padding + documentId), then RC4 with 20 rounds
+        // R3 Algorithm 5 for every key length: MD5(padding + documentId),
+        // RC4, then 19 XOR rounds, padded to 32 bytes.
         using var md5 = MD5.Create();
         using var ms = new MemoryStream();
         ms.Write(PasswordPadding, 0, PasswordPadding.Length);

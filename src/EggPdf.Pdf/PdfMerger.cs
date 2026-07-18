@@ -54,6 +54,12 @@ public class PdfMerger
 
         foreach (var doc in _documents)
         {
+            // Encrypted inputs cannot be merged: their stream bytes are
+            // ciphertext and would be re-emitted as garbage page operators.
+            if (Encoding.ASCII.GetString(doc).IndexOf("/Encrypt <<", StringComparison.Ordinal) >= 0)
+                throw new NotSupportedException(
+                    "Merging encrypted PDFs is not supported — decrypt or re-render the input first.");
+
             // Extract pages from each document
             // Simple approach: find page content streams and re-emit
             int pageCount = CountPages(doc);
@@ -85,11 +91,15 @@ public class PdfMerger
         return Math.Max(count, 1);
     }
 
-    /// <summary>Extract page content stream (simplified).</summary>
+    /// <summary>
+    /// Extract page content stream operators (simplified). Handles the
+    /// production default of FlateDecode-compressed content streams by
+    /// inflating; scanning uses Latin-1 (1:1 char-to-byte) and the body is
+    /// sliced from the original bytes so compressed data survives intact.
+    /// </summary>
     private static string? ExtractPageContent(byte[] pdf, int pageIndex)
     {
-        // Simplified: find the content stream between "stream" and "endstream"
-        var text = Encoding.ASCII.GetString(pdf);
+        var text = Latin1.GetString(pdf);
         int streamIdx = 0;
         int page = 0;
 
@@ -103,13 +113,42 @@ public class PdfMerger
             if (endIdx < 0) break;
 
             if (page == pageIndex)
-                return text.Substring(streamIdx, endIdx - streamIdx);
+            {
+                int bodyEnd = endIdx;
+                while (bodyEnd > streamIdx && (text[bodyEnd - 1] == '\n' || text[bodyEnd - 1] == '\r'))
+                    bodyEnd--;
+
+                var body = new byte[bodyEnd - streamIdx];
+                Array.Copy(pdf, streamIdx, body, 0, body.Length);
+
+                // The stream's dictionary immediately precedes "stream\n"
+                int dictStart = Math.Max(0, text.LastIndexOf("<<", streamIdx, StringComparison.Ordinal));
+                bool compressed = text.IndexOf("/FlateDecode", dictStart, streamIdx - dictStart, StringComparison.Ordinal) >= 0;
+                if (compressed)
+                {
+                    try { body = InflateZlib(body); }
+                    catch { return null; } // undecodable stream: skip the page content
+                }
+                return Latin1.GetString(body);
+            }
 
             page++;
             streamIdx = endIdx + 9;
         }
 
         return null;
+    }
+
+    private static readonly Encoding Latin1 = Encoding.GetEncoding(28591);
+
+    private static byte[] InflateZlib(byte[] data)
+    {
+        // Skip the 2-byte zlib header; DeflateStream stops before the Adler-32.
+        using var input = new MemoryStream(data, 2, data.Length - 2);
+        using var deflate = new System.IO.Compression.DeflateStream(input, System.IO.Compression.CompressionMode.Decompress);
+        using var output = new MemoryStream();
+        deflate.CopyTo(output);
+        return output.ToArray();
     }
 
     /// <summary>Extract page dimensions from MediaBox.</summary>

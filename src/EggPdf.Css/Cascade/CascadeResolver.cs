@@ -454,11 +454,20 @@ public class CascadeResolver
             return f;
         }
 
-        // '::' pseudo-element selectors never match an element directly
-        // (SelectorMatcher.Matches rejects them) — skip without matching.
+        // Pseudo-element selectors never match an element directly — but only
+        // for the names the matcher itself recognizes. Mirror its detection
+        // exactly ("::" with an unknown ident, or inside an attribute value
+        // with a non-pseudo ident, still reaches the full matcher).
         if (sel.IndexOf("::", StringComparison.Ordinal) >= 0)
         {
-            f.SkipAlways = true;
+            if (SelectorMatcher.HasPseudoElement(sel))
+            {
+                f.SkipAlways = true;
+                return f;
+            }
+            // Unrecognized "::name": the matcher skips the token and matches
+            // the base compound — too irregular to extract requirements from.
+            f.AlwaysCheck = true;
             return f;
         }
 
@@ -623,10 +632,12 @@ public class CascadeResolver
         {
             var val = kv.Value;
             if (val == null) continue;
-            // Cheap gate: the four CSS-wide keywords are 5-7 chars; skip the
-            // Trim/ToLower allocations for everything that can't be one.
-            if (val.Length < 5 || val.Length > 16) continue;
+            // Cheap gate: the four CSS-wide keywords are 5-7 chars. Trim first
+            // (no allocation when there is nothing to trim) so padded values
+            // of any length still resolve like they always did.
+            if (val.Length < 5) continue;
             var trimmed = val.Trim();
+            if (trimmed.Length < 5 || trimmed.Length > 7) continue;
             string lower;
             if (trimmed.Equals("inherit", StringComparison.OrdinalIgnoreCase)) lower = "inherit";
             else if (trimmed.Equals("initial", StringComparison.OrdinalIgnoreCase)) lower = "initial";

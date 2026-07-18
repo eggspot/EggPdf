@@ -45,7 +45,7 @@ public static class SelectorMatcher
     }
 
     /// <summary>Check if a selector contains a pseudo-element (::before, ::after, etc.).</summary>
-    private static bool HasPseudoElement(string selector)
+    internal static bool HasPseudoElement(string selector)
     {
         int idx = selector.IndexOf("::", StringComparison.Ordinal);
         if (idx < 0) return false;

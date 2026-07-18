@@ -35,6 +35,7 @@ public static class PdfSigner
     {
         if (pdfBytes == null || pdfBytes.Length == 0) return Array.Empty<byte>();
         if (certificate == null) throw new ArgumentNullException(nameof(certificate));
+        ThrowIfEncrypted(pdfBytes);
 
         options ??= new SignOptions();
         string name = options.Name
@@ -110,6 +111,7 @@ public static class PdfSigner
     public static byte[] AddSignaturePlaceholder(byte[] pdfBytes, SignOptions? options = null)
     {
         if (pdfBytes == null || pdfBytes.Length == 0) return pdfBytes ?? Array.Empty<byte>();
+        ThrowIfEncrypted(pdfBytes);
 
         options ??= new SignOptions();
         string name = options.Name ?? "Signer";
@@ -173,6 +175,18 @@ public static class PdfSigner
         Array.Copy(cmsBytes, 0, result, placeholderIdx, cmsBytes.Length);
 
         return result;
+    }
+
+    /// <summary>
+    /// Signing appends dictionary strings in plaintext; a compliant reader of
+    /// an encrypted document decrypts ALL strings, turning them into garbage.
+    /// </summary>
+    private static void ThrowIfEncrypted(byte[] pdfBytes)
+    {
+        if (Encoding.ASCII.GetString(pdfBytes).IndexOf("/Encrypt <<", StringComparison.Ordinal) >= 0)
+            throw new NotSupportedException(
+                "Signing an encrypted PDF is not supported — sign first, then note that " +
+                "encrypting afterwards invalidates the signature; use one or the other.");
     }
 
     private static int FindNextObjNumber(byte[] pdf)

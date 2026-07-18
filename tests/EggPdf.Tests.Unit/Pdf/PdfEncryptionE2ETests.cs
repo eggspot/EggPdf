@@ -72,7 +72,12 @@ public class PdfEncryptionE2ETests
         return padded;
     }
 
-    /// <summary>PDF 32000 Algorithm 2: file encryption key from the user password.</summary>
+    /// <summary>
+    /// PDF 32000 Algorithm 2 for revision 3: file encryption key from the
+    /// user password. R3 always performs the 50 MD5 iterations — they are
+    /// tied to the REVISION, not the key length (this also applies to
+    /// 40-bit keys, using 5-byte truncation).
+    /// </summary>
     private static byte[] DeriveFileKey(string userPassword, byte[] oValue, int permissions, byte[] docId, int keyLenBytes)
     {
         var pBytes = new byte[]
@@ -81,16 +86,30 @@ public class PdfEncryptionE2ETests
             (byte)((permissions >> 16) & 0xFF), (byte)((permissions >> 24) & 0xFF),
         };
         var hash = Md5(PadPassword(userPassword), oValue, pBytes, docId);
-        if (keyLenBytes > 5)
-            for (int i = 0; i < 50; i++)
-            {
-                var trunc = new byte[keyLenBytes];
-                Array.Copy(hash, trunc, keyLenBytes);
-                hash = Md5(trunc);
-            }
+        for (int i = 0; i < 50; i++)
+        {
+            var trunc = new byte[keyLenBytes];
+            Array.Copy(hash, trunc, keyLenBytes);
+            hash = Md5(trunc);
+        }
         var key = new byte[keyLenBytes];
         Array.Copy(hash, key, keyLenBytes);
         return key;
+    }
+
+    /// <summary>PDF 32000 Algorithm 5 (R3): recompute U and compare its first 16 bytes.</summary>
+    private static void AssertUMatchesR3(byte[] fileKey, byte[] docId, byte[] uValue)
+    {
+        var expected = Rc4(fileKey, Md5(Pad, docId));
+        for (int round = 1; round <= 19; round++)
+        {
+            var roundKey = new byte[fileKey.Length];
+            for (int i = 0; i < fileKey.Length; i++) roundKey[i] = (byte)(fileKey[i] ^ round);
+            expected = Rc4(roundKey, expected);
+        }
+        for (int i = 0; i < 16; i++)
+            uValue[i].Should().Be(expected[i],
+                "a spec-compliant R3 reader must be able to verify the user password");
     }
 
     /// <summary>PDF 32000 Algorithm 1: per-object key.</summary>
@@ -191,18 +210,7 @@ public class PdfEncryptionE2ETests
         var (o, u, p, id, lengthBits) = ReadEncryptDict(Latin1(pdf));
 
         var fileKey = DeriveFileKey("user1", o, p, id, lengthBits / 8);
-
-        // Algorithm 5 (R3): U = RC4^20(key XOR rounds, MD5(padding + docId)), first 16 bytes
-        var expected = Rc4(fileKey, Md5(Pad, id));
-        for (int round = 1; round <= 19; round++)
-        {
-            var roundKey = new byte[fileKey.Length];
-            for (int i = 0; i < fileKey.Length; i++) roundKey[i] = (byte)(fileKey[i] ^ round);
-            expected = Rc4(roundKey, expected);
-        }
-
-        for (int i = 0; i < 16; i++)
-            u[i].Should().Be(expected[i], "a spec-compliant reader must be able to verify the user password");
+        AssertUMatchesR3(fileKey, id, u);
     }
 
     [Fact]
@@ -255,17 +263,60 @@ public class PdfEncryptionE2ETests
     }
 
     [Fact]
-    public void Encrypted_40Bit_RoundtripsToo()
+    public void Encrypted_40Bit_UsesR3AlgorithmsAndRoundtrips()
     {
         var pdf = RenderEncrypted(new PdfEncryption { OwnerPassword = "owner", KeyLength = 40 });
         var text = Latin1(pdf);
-        var (o, _, p, id, lengthBits) = ReadEncryptDict(text);
+        var (o, u, p, id, lengthBits) = ReadEncryptDict(text);
         lengthBits.Should().Be(40);
         var fileKey = DeriveFileKey("", o, p, id, lengthBits / 8);
+
+        // The dictionary declares /R 3, so O/U/key derivation must use the
+        // R3 algorithms even with a 40-bit key — otherwise compliant viewers
+        // reject the correct password.
+        AssertUMatchesR3(fileKey, id, u);
 
         var (cipher, objNum) = ExtractStream(pdf, text, 0);
         Encoding.Latin1.GetString(Rc4(ObjectKey(fileKey, objNum), cipher))
             .Should().Contain("(" + Secret + ") Tj");
+    }
+
+    [Fact]
+    public void PermissionOnly_NoPasswords_StillEncrypts()
+    {
+        // The common view-only case: no passwords, only permission flags.
+        // This must produce an encrypted PDF (empty user password), not a
+        // silently unrestricted plaintext one.
+        var pdf = RenderEncrypted(new PdfEncryption { AllowCopying = false, AllowPrinting = false });
+        var text = Latin1(pdf);
+
+        text.Should().Contain("/Encrypt <<", "permission flags require the encryption dictionary");
+        text.Should().NotContain(Secret);
+
+        var (o, u, p, id, lengthBits) = ReadEncryptDict(text);
+        (p & 0x10).Should().Be(0, "copying must be disallowed");
+        var fileKey = DeriveFileKey("", o, p, id, lengthBits / 8);
+        AssertUMatchesR3(fileKey, id, u);
+    }
+
+    [Fact]
+    public void InvalidKeyLength_ThrowsClearError()
+    {
+        var act = () => RenderEncrypted(new PdfEncryption { OwnerPassword = "x", KeyLength = 256 });
+        act.Should().Throw<ArgumentException>(
+            "the RC4 Standard handler supports only 40- and 128-bit keys");
+    }
+
+    [Fact]
+    public void TwoDocumentsBackToBack_GetDistinctDocumentIds()
+    {
+        var a = RenderEncrypted(new PdfEncryption { OwnerPassword = "owner" });
+        var b = RenderEncrypted(new PdfEncryption { OwnerPassword = "owner" });
+
+        var idA = ReadEncryptDict(Latin1(a)).id;
+        var idB = ReadEncryptDict(Latin1(b)).id;
+        idA.Should().NotEqual(idB,
+            "/ID must be unique per document even for documents created in the same clock tick");
     }
 
     [Fact]
