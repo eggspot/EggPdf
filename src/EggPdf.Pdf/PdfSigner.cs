@@ -183,7 +183,7 @@ public static class PdfSigner
     /// </summary>
     private static void ThrowIfEncrypted(byte[] pdfBytes)
     {
-        if (Encoding.ASCII.GetString(pdfBytes).IndexOf("/Encrypt <<", StringComparison.Ordinal) >= 0)
+        if (PdfInspect.IsEncrypted(pdfBytes))
             throw new NotSupportedException(
                 "Signing an encrypted PDF is not supported — sign first, then note that " +
                 "encrypting afterwards invalidates the signature; use one or the other.");

@@ -63,4 +63,54 @@ public class PdfMergerTests
         act.Should().Throw<NotSupportedException>(
             "merging encrypted PDFs would silently re-emit ciphertext as page operators");
     }
+
+    [Fact]
+    public void Merge_ForeignPdf_IndirectEncryptReference_IsRefused()
+    {
+        // Most non-EggPdf writers reference the encryption dict indirectly
+        // ("/Encrypt 9 0 R") rather than inline — the guard must catch it.
+        var foreign = System.Text.Encoding.ASCII.GetBytes(
+            "%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n" +
+            "trailer\n<< /Root 1 0 R /Encrypt 9 0 R /ID [<00> <00>] >>\n%%EOF");
+        var merger = new PdfMerger();
+        merger.Add(foreign);
+        merger.Add(MakePdf("plain", compress: false));
+
+        var act = () => merger.Build();
+        act.Should().Throw<NotSupportedException>();
+    }
+
+    [Fact]
+    public void Merge_StreamDictWithSubDictionary_StillInflates()
+    {
+        // A stream whose dict contains a nested sub-dictionary before the
+        // /FlateDecode token must still be detected as compressed.
+        var doc = new PdfDocument { CompressContentStreams = true };
+        var page = doc.AddPage(595, 842);
+        page.AddText("nested dict content", 50, 700, "Helvetica", 12);
+        var bytes = doc.ToByteArray();
+
+        // Inject a /DecodeParms sub-dict AFTER /FlateDecode, so the nearest
+        // "<<" before the stream is the sub-dict's — the exact shape that
+        // defeats a LastIndexOf("<<") scan (the token is now outside its
+        // window). Anchoring on the object start must still find it.
+        var text = System.Text.Encoding.Latin1.GetString(bytes);
+        text = ReplaceFirst(text, "/Filter /FlateDecode",
+            "/Filter /FlateDecode /DecodeParms << /Predictor 1 >>");
+        var mutated = System.Text.Encoding.Latin1.GetBytes(text);
+
+        var merger = new PdfMerger();
+        merger.Add(mutated);
+        merger.Add(MakePdf("second page", compress: false));
+
+        System.Text.Encoding.Latin1.GetString(merger.Build())
+            .Should().Contain("(nested dict content) Tj",
+                "the /FlateDecode after a sub-dict must still trigger inflation");
+    }
+
+    private static string ReplaceFirst(string haystack, string find, string replace)
+    {
+        int i = haystack.IndexOf(find, StringComparison.Ordinal);
+        return i < 0 ? haystack : haystack.Substring(0, i) + replace + haystack.Substring(i + find.Length);
+    }
 }
