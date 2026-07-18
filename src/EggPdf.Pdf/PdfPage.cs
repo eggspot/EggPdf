@@ -6,6 +6,19 @@ using System.Text;
 namespace EggPdf.Pdf;
 
 /// <summary>
+/// Content-stream helpers that keep PDF output byte-identical across
+/// platforms. StringBuilder.AppendLine emits Environment.NewLine, which would
+/// make Windows output differ from Linux for the same input — unacceptable for
+/// a library whose PDFs get hashed and signed.
+/// </summary>
+internal static class PdfContentStreamExtensions
+{
+    /// <summary>Append a line terminated by a literal LF, never CRLF.</summary>
+    public static StringBuilder AppendOpLine(this StringBuilder sb, string value)
+        => sb.Append(value).Append('\n');
+}
+
+/// <summary>
 /// Represents a single PDF page with content operations.
 /// </summary>
 public class PdfPage
@@ -31,7 +44,7 @@ public class PdfPage
         float letterSpacing = 0, float wordSpacing = 0)
     {
         UsedFonts.Add(fontName);
-        ContentStream.AppendLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
+        ContentStream.AppendOpLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
         ContentStream.Append($"BT /{fontName} {F(fontSize)} Tf ");
         ContentStream.Append($"{F(letterSpacing)} Tc ");
         ContentStream.Append($"{F(wordSpacing)} Tw ");
@@ -39,7 +52,7 @@ public class PdfPage
         ContentStream.Append('(');
         AppendEscapedPdfString(ContentStream, text);
         ContentStream.Append(") Tj ");
-        ContentStream.AppendLine("ET");
+        ContentStream.AppendOpLine("ET");
     }
 
     /// <summary>Add text using CIDFont glyph IDs (for embedded TrueType fonts with full Unicode).</summary>
@@ -48,7 +61,7 @@ public class PdfPage
         float letterSpacing = 0, float wordSpacing = 0)
     {
         UsedFonts.Add(fontName);
-        ContentStream.AppendLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
+        ContentStream.AppendOpLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
         ContentStream.Append($"BT /{fontName} {F(fontSize)} Tf ");
         ContentStream.Append($"{F(letterSpacing)} Tc ");
         ContentStream.Append($"{F(wordSpacing)} Tw ");
@@ -58,7 +71,7 @@ public class PdfPage
         foreach (var gid in glyphIds)
             ContentStream.Append(gid.ToString("X4"));
         ContentStream.Append("> Tj ");
-        ContentStream.AppendLine("ET");
+        ContentStream.AppendOpLine("ET");
     }
 
     /// <summary>
@@ -71,7 +84,7 @@ public class PdfPage
         float colorR = 0, float colorG = 0, float colorB = 0,
         float letterSpacing = 0, float wordSpacing = 0)
     {
-        ContentStream.AppendLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
+        ContentStream.AppendOpLine($"{F(colorR)} {F(colorG)} {F(colorB)} rg");
         ContentStream.Append("BT ");
         ContentStream.Append($"{F(letterSpacing)} Tc ");
         ContentStream.Append($"{F(wordSpacing)} Tw ");
@@ -86,7 +99,7 @@ public class PdfPage
                 ContentStream.Append(gid.ToString("X4"));
             ContentStream.Append("> Tj ");
         }
-        ContentStream.AppendLine("ET");
+        ContentStream.AppendOpLine("ET");
     }
 
     /// <summary>Append raw PDF content stream commands (for SVG rendering etc.).</summary>
@@ -98,16 +111,16 @@ public class PdfPage
     /// <summary>Add a filled rectangle.</summary>
     public void AddRectangle(float x, float y, float width, float height, float r, float g, float b)
     {
-        ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} rg");
-        ContentStream.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re f");
+        ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} rg");
+        ContentStream.AppendOpLine($"{F(x)} {F(y)} {F(width)} {F(height)} re f");
     }
 
     /// <summary>Add a stroked rectangle (border).</summary>
     public void AddStrokeRectangle(float x, float y, float width, float height, float r, float g, float b, float lineWidth)
     {
-        ContentStream.AppendLine($"{F(lineWidth)} w");
-        ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
-        ContentStream.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re S");
+        ContentStream.AppendOpLine($"{F(lineWidth)} w");
+        ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} RG");
+        ContentStream.AppendOpLine($"{F(x)} {F(y)} {F(width)} {F(height)} re S");
     }
 
     /// <summary>Set dash pattern for subsequent strokes. Empty array = solid.</summary>
@@ -115,7 +128,7 @@ public class PdfPage
     {
         if (dashArray == null || dashArray.Length == 0)
         {
-            ContentStream.AppendLine("[] 0 d");
+            ContentStream.AppendOpLine("[] 0 d");
             return;
         }
         var sb = new StringBuilder("[");
@@ -127,40 +140,40 @@ public class PdfPage
         sb.Append("] ");
         sb.Append(F(dashPhase));
         sb.Append(" d");
-        ContentStream.AppendLine(sb.ToString());
+        ContentStream.AppendOpLine(sb.ToString());
     }
 
     /// <summary>Set line cap style: 0=butt, 1=round, 2=square.</summary>
     public void SetLineCap(int cap)
     {
-        ContentStream.AppendLine($"{cap} J");
+        ContentStream.AppendOpLine($"{cap} J");
     }
 
     /// <summary>Add a stroked line between two points (border side).</summary>
     public void AddBorderLine(float x1, float y1, float x2, float y2,
         float r, float g, float b, float lineWidth, string borderStyle)
     {
-        ContentStream.AppendLine($"{F(lineWidth)} w");
-        ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
+        ContentStream.AppendOpLine($"{F(lineWidth)} w");
+        ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} RG");
 
         switch (borderStyle)
         {
             case "dashed":
                 // Dash pattern: 3x line width on, 3x off
                 float dashLen = lineWidth * 3;
-                ContentStream.AppendLine($"[{F(dashLen)} {F(dashLen)}] 0 d");
-                ContentStream.AppendLine("0 J"); // butt cap
-                ContentStream.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
-                ContentStream.AppendLine("[] 0 d"); // reset dash
+                ContentStream.AppendOpLine($"[{F(dashLen)} {F(dashLen)}] 0 d");
+                ContentStream.AppendOpLine("0 J"); // butt cap
+                ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+                ContentStream.AppendOpLine("[] 0 d"); // reset dash
                 break;
 
             case "dotted":
                 // Dotted: round cap with 0-length dash
-                ContentStream.AppendLine($"[0 {F(lineWidth * 2)}] 0 d");
-                ContentStream.AppendLine("1 J"); // round cap
-                ContentStream.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
-                ContentStream.AppendLine("[] 0 d"); // reset dash
-                ContentStream.AppendLine("0 J"); // reset cap
+                ContentStream.AppendOpLine($"[0 {F(lineWidth * 2)}] 0 d");
+                ContentStream.AppendOpLine("1 J"); // round cap
+                ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+                ContentStream.AppendOpLine("[] 0 d"); // reset dash
+                ContentStream.AppendOpLine("0 J"); // reset cap
                 break;
 
             case "double":
@@ -168,7 +181,7 @@ public class PdfPage
                 // Double: two lines at 1/3 width with 1/3 gap
                 float third = lineWidth / 3;
                 if (third < 0.5f) third = 0.5f;
-                ContentStream.AppendLine($"{F(third)} w");
+                ContentStream.AppendOpLine($"{F(third)} w");
 
                 // Calculate perpendicular offset for the two lines
                 float dx = x2 - x1, dy = y2 - y1;
@@ -177,9 +190,9 @@ public class PdfPage
                 float nx = -dy / len * third, ny = dx / len * third;
 
                 // First line (offset outward)
-                ContentStream.AppendLine($"{F(x1 + nx)} {F(y1 + ny)} m {F(x2 + nx)} {F(y2 + ny)} l S");
+                ContentStream.AppendOpLine($"{F(x1 + nx)} {F(y1 + ny)} m {F(x2 + nx)} {F(y2 + ny)} l S");
                 // Second line (offset inward)
-                ContentStream.AppendLine($"{F(x1 - nx)} {F(y1 - ny)} m {F(x2 - nx)} {F(y2 - ny)} l S");
+                ContentStream.AppendOpLine($"{F(x1 - nx)} {F(y1 - ny)} m {F(x2 - nx)} {F(y2 - ny)} l S");
                 break;
             }
 
@@ -202,11 +215,11 @@ public class PdfPage
                 float r1 = grooveFirst ? darkR : lightR, g1 = grooveFirst ? darkG : lightG, b1 = grooveFirst ? darkB : lightB;
                 float r2 = grooveFirst ? lightR : darkR, g2 = grooveFirst ? lightG : darkG, b2 = grooveFirst ? lightB : darkB;
 
-                ContentStream.AppendLine($"{F(half)} w");
-                ContentStream.AppendLine($"{F(r1)} {F(g1)} {F(b1)} RG");
-                ContentStream.AppendLine($"{F(x1 + nx)} {F(y1 + ny)} m {F(x2 + nx)} {F(y2 + ny)} l S");
-                ContentStream.AppendLine($"{F(r2)} {F(g2)} {F(b2)} RG");
-                ContentStream.AppendLine($"{F(x1 - nx)} {F(y1 - ny)} m {F(x2 - nx)} {F(y2 - ny)} l S");
+                ContentStream.AppendOpLine($"{F(half)} w");
+                ContentStream.AppendOpLine($"{F(r1)} {F(g1)} {F(b1)} RG");
+                ContentStream.AppendOpLine($"{F(x1 + nx)} {F(y1 + ny)} m {F(x2 + nx)} {F(y2 + ny)} l S");
+                ContentStream.AppendOpLine($"{F(r2)} {F(g2)} {F(b2)} RG");
+                ContentStream.AppendOpLine($"{F(x1 - nx)} {F(y1 - ny)} m {F(x2 - nx)} {F(y2 - ny)} l S");
                 break;
             }
 
@@ -218,13 +231,13 @@ public class PdfPage
                 float adjR = darken ? r * 0.6f : Math.Min(r * 1.4f, 1f);
                 float adjG = darken ? g * 0.6f : Math.Min(g * 1.4f, 1f);
                 float adjB = darken ? b * 0.6f : Math.Min(b * 1.4f, 1f);
-                ContentStream.AppendLine($"{F(adjR)} {F(adjG)} {F(adjB)} RG");
-                ContentStream.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+                ContentStream.AppendOpLine($"{F(adjR)} {F(adjG)} {F(adjB)} RG");
+                ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
                 break;
             }
 
             default: // solid
-                ContentStream.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+                ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
                 break;
         }
     }
@@ -242,9 +255,9 @@ public class PdfPage
         brr = Math.Min(brr, Math.Min(maxRadiusW, maxRadiusH));
         blr = Math.Min(blr, Math.Min(maxRadiusW, maxRadiusH));
 
-        ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} rg");
+        ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} rg");
         AppendRoundedRectPath(x, y, w, h, tlr, trr, brr, blr);
-        ContentStream.AppendLine("h f");
+        ContentStream.AppendOpLine("h f");
     }
 
     /// <summary>Add a stroked rounded rectangle using Bézier curves for corners.</summary>
@@ -260,10 +273,10 @@ public class PdfPage
         brr = Math.Min(brr, Math.Min(maxRadiusW, maxRadiusH));
         blr = Math.Min(blr, Math.Min(maxRadiusW, maxRadiusH));
 
-        ContentStream.AppendLine($"{F(lineWidth)} w");
-        ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
+        ContentStream.AppendOpLine($"{F(lineWidth)} w");
+        ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} RG");
         AppendRoundedRectPath(x, y, w, h, tlr, trr, brr, blr);
-        ContentStream.AppendLine("h S");
+        ContentStream.AppendOpLine("h S");
     }
 
     /// <summary>Appends the rounded rectangle path operators (m, l, c) to the content stream.</summary>
@@ -277,43 +290,43 @@ public class PdfPage
         // Start at top-left corner (after TL radius), go clockwise
 
         // Move to start of top edge (after TL radius)
-        ContentStream.AppendLine($"{F(x + tlr)} {F(y + h)} m");
+        ContentStream.AppendOpLine($"{F(x + tlr)} {F(y + h)} m");
 
         // Top edge line to start of TR radius
-        ContentStream.AppendLine($"{F(x + w - trr)} {F(y + h)} l");
+        ContentStream.AppendOpLine($"{F(x + w - trr)} {F(y + h)} l");
 
         // TR corner curve
         if (trr > 0)
-            ContentStream.AppendLine($"{F(x + w - trr + trr * k)} {F(y + h)} {F(x + w)} {F(y + h - trr + trr * k)} {F(x + w)} {F(y + h - trr)} c");
+            ContentStream.AppendOpLine($"{F(x + w - trr + trr * k)} {F(y + h)} {F(x + w)} {F(y + h - trr + trr * k)} {F(x + w)} {F(y + h - trr)} c");
         else
-            ContentStream.AppendLine($"{F(x + w)} {F(y + h)} l");
+            ContentStream.AppendOpLine($"{F(x + w)} {F(y + h)} l");
 
         // Right edge line to start of BR radius
-        ContentStream.AppendLine($"{F(x + w)} {F(y + brr)} l");
+        ContentStream.AppendOpLine($"{F(x + w)} {F(y + brr)} l");
 
         // BR corner curve
         if (brr > 0)
-            ContentStream.AppendLine($"{F(x + w)} {F(y + brr - brr * k)} {F(x + w - brr + brr * k)} {F(y)} {F(x + w - brr)} {F(y)} c");
+            ContentStream.AppendOpLine($"{F(x + w)} {F(y + brr - brr * k)} {F(x + w - brr + brr * k)} {F(y)} {F(x + w - brr)} {F(y)} c");
         else
-            ContentStream.AppendLine($"{F(x + w)} {F(y)} l");
+            ContentStream.AppendOpLine($"{F(x + w)} {F(y)} l");
 
         // Bottom edge line to start of BL radius
-        ContentStream.AppendLine($"{F(x + blr)} {F(y)} l");
+        ContentStream.AppendOpLine($"{F(x + blr)} {F(y)} l");
 
         // BL corner curve
         if (blr > 0)
-            ContentStream.AppendLine($"{F(x + blr - blr * k)} {F(y)} {F(x)} {F(y + blr - blr * k)} {F(x)} {F(y + blr)} c");
+            ContentStream.AppendOpLine($"{F(x + blr - blr * k)} {F(y)} {F(x)} {F(y + blr - blr * k)} {F(x)} {F(y + blr)} c");
         else
-            ContentStream.AppendLine($"{F(x)} {F(y)} l");
+            ContentStream.AppendOpLine($"{F(x)} {F(y)} l");
 
         // Left edge line to start of TL radius
-        ContentStream.AppendLine($"{F(x)} {F(y + h - tlr)} l");
+        ContentStream.AppendOpLine($"{F(x)} {F(y + h - tlr)} l");
 
         // TL corner curve
         if (tlr > 0)
-            ContentStream.AppendLine($"{F(x)} {F(y + h - tlr + tlr * k)} {F(x + tlr - tlr * k)} {F(y + h)} {F(x + tlr)} {F(y + h)} c");
+            ContentStream.AppendOpLine($"{F(x)} {F(y + h - tlr + tlr * k)} {F(x + tlr - tlr * k)} {F(y + h)} {F(x + tlr)} {F(y + h)} c");
         else
-            ContentStream.AppendLine($"{F(x)} {F(y + h)} l");
+            ContentStream.AppendOpLine($"{F(x)} {F(y + h)} l");
     }
 
     /// <summary>Set fill and stroke opacity (0.0-1.0). Creates an ExtGState reference.</summary>
@@ -325,7 +338,7 @@ public class PdfPage
         if (opacity < 0f) opacity = 0f;
         var gsName = $"GS{(int)(opacity * 100)}";
         UsedExtGStates.Add(gsName);
-        ContentStream.AppendLine($"/{gsName} gs");
+        ContentStream.AppendOpLine($"/{gsName} gs");
     }
 
     /// <summary>
@@ -338,7 +351,7 @@ public class PdfPage
         if (pdfBm == null) return;
         var gsName = $"GSBM_{cssBlendMode.ToLowerInvariant().Replace('-', '_')}";
         UsedExtGStates.Add(gsName);
-        ContentStream.AppendLine($"/{gsName} gs");
+        ContentStream.AppendOpLine($"/{gsName} gs");
     }
 
     internal static string? CssBlendModeToPdf(string cssMode)
@@ -368,25 +381,25 @@ public class PdfPage
     /// <summary>Save graphics state.</summary>
     public void SaveState()
     {
-        ContentStream.AppendLine("q");
+        ContentStream.AppendOpLine("q");
     }
 
     /// <summary>Restore graphics state.</summary>
     public void RestoreState()
     {
-        ContentStream.AppendLine("Q");
+        ContentStream.AppendOpLine("Q");
     }
 
     /// <summary>Add a clipping rectangle (clips all subsequent drawing).</summary>
     public void AddClipRect(float x, float y, float width, float height)
     {
-        ContentStream.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re W n");
+        ContentStream.AppendOpLine($"{F(x)} {F(y)} {F(width)} {F(height)} re W n");
     }
 
     /// <summary>Concatenate a transformation matrix (PDF cm operator).</summary>
     public void ConcatMatrix(float a, float b, float c, float d, float e, float f)
     {
-        ContentStream.AppendLine($"{F(a)} {F(b)} {F(c)} {F(d)} {F(e)} {F(f)} cm");
+        ContentStream.AppendOpLine($"{F(a)} {F(b)} {F(c)} {F(d)} {F(e)} {F(f)} cm");
     }
 
     /// <summary>Add an image at a position with specified dimensions (PDF coordinates).</summary>
@@ -396,18 +409,18 @@ public class PdfPage
             UsedImages.Add(imageName);
 
         // Save graphics state, apply transformation matrix, draw image, restore
-        ContentStream.AppendLine("q");
-        ContentStream.AppendLine($"{F(width)} 0 0 {F(height)} {F(x)} {F(y)} cm");
-        ContentStream.AppendLine($"/{imageName} Do");
-        ContentStream.AppendLine("Q");
+        ContentStream.AppendOpLine("q");
+        ContentStream.AppendOpLine($"{F(width)} 0 0 {F(height)} {F(x)} {F(y)} cm");
+        ContentStream.AppendOpLine($"/{imageName} Do");
+        ContentStream.AppendOpLine("Q");
     }
 
     /// <summary>Add a stroked line between two points.</summary>
     public void AddLine(float x1, float y1, float x2, float y2, float r, float g, float b, float lineWidth)
     {
-        ContentStream.AppendLine($"{F(lineWidth)} w");
-        ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
-        ContentStream.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+        ContentStream.AppendOpLine($"{F(lineWidth)} w");
+        ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} RG");
+        ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
     }
 
     /// <summary>
@@ -421,30 +434,30 @@ public class PdfPage
         switch (style)
         {
             case "dashed":
-                ContentStream.AppendLine($"{F(lineWidth)} w");
-                ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
+                ContentStream.AppendOpLine($"{F(lineWidth)} w");
+                ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} RG");
                 float dashLen = lineWidth * 4;
-                ContentStream.AppendLine($"[{F(dashLen)} {F(dashLen)}] 0 d 0 J");
-                ContentStream.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
-                ContentStream.AppendLine("[] 0 d");
+                ContentStream.AppendOpLine($"[{F(dashLen)} {F(dashLen)}] 0 d 0 J");
+                ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+                ContentStream.AppendOpLine("[] 0 d");
                 break;
 
             case "dotted":
-                ContentStream.AppendLine($"{F(lineWidth)} w");
-                ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
-                ContentStream.AppendLine($"[0 {F(lineWidth * 2.5f)}] 0 d 1 J");
-                ContentStream.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
-                ContentStream.AppendLine("[] 0 d 0 J");
+                ContentStream.AppendOpLine($"{F(lineWidth)} w");
+                ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} RG");
+                ContentStream.AppendOpLine($"[0 {F(lineWidth * 2.5f)}] 0 d 1 J");
+                ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+                ContentStream.AppendOpLine("[] 0 d 0 J");
                 break;
 
             case "double":
             {
                 float third = Math.Max(lineWidth / 3f, 0.3f);
-                ContentStream.AppendLine($"{F(third)} w");
-                ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
+                ContentStream.AppendOpLine($"{F(third)} w");
+                ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} RG");
                 float off = lineWidth * 0.67f;
-                ContentStream.AppendLine($"{F(x1)} {F(y1 + off)} m {F(x2)} {F(y2 + off)} l S");
-                ContentStream.AppendLine($"{F(x1)} {F(y1 - off)} m {F(x2)} {F(y2 - off)} l S");
+                ContentStream.AppendOpLine($"{F(x1)} {F(y1 + off)} m {F(x2)} {F(y2 + off)} l S");
+                ContentStream.AppendOpLine($"{F(x1)} {F(y1 - off)} m {F(x2)} {F(y2 - off)} l S");
                 break;
             }
 
@@ -454,9 +467,9 @@ public class PdfPage
                 // Wave period = 4 × lineWidth; amplitude = lineWidth.
                 float amplitude = Math.Max(lineWidth * 1.5f, 0.5f);
                 float period = Math.Max(amplitude * 4f, 2f);
-                ContentStream.AppendLine($"{F(lineWidth)} w");
-                ContentStream.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
-                ContentStream.AppendLine($"{F(x1)} {F(y1)} m");
+                ContentStream.AppendOpLine($"{F(lineWidth)} w");
+                ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} RG");
+                ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m");
                 float x = x1;
                 bool up = true;
                 while (x < x2)
@@ -468,7 +481,7 @@ public class PdfPage
                     float cp1x = x + halfPeriod * 0.5f;
                     float cp2x = x + halfPeriod * 1.5f;
                     float midX = x + halfPeriod;
-                    ContentStream.AppendLine(
+                    ContentStream.AppendOpLine(
                         $"{F(cp1x)} {F(cy)} {F(cp2x)} {F(cy)} {F(midX)} {F(y1)} c");
                     x = midX;
                     up = !up;
@@ -478,13 +491,13 @@ public class PdfPage
                     float segEnd2 = Math.Min(x + halfPeriod, x2);
                     float cp3x = x + (segEnd2 - x) * 0.5f;
                     float cp4x = x + (segEnd2 - x) * 1.5f;
-                    ContentStream.AppendLine(
+                    ContentStream.AppendOpLine(
                         $"{F(cp3x)} {F(cy)} {F(cp4x)} {F(cy)} {F(segEnd2)} {F(y1)} c");
                     x = segEnd2;
                     up = !up;
                     if (x >= x2) break;
                 }
-                ContentStream.AppendLine("S");
+                ContentStream.AppendOpLine("S");
                 break;
             }
 

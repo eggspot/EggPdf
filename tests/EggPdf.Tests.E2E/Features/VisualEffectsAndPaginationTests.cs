@@ -80,7 +80,7 @@ public class VisualEffectsAndPaginationTests
     {
         var text = await RenderPdf("<div style='transform: translateX(50px); background-color: red; width: 100px; height: 100px'>Moved</div>");
         text.Should().Contain("Moved");
-        text.Should().Contain(" cm\r\n", "translateX emits cm operator");
+        text.Should().Contain(" cm\n", "translateX emits cm operator");
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public class VisualEffectsAndPaginationTests
     {
         var text = await RenderPdf("<div style='transform: translateY(30px); background-color: blue; width: 100px; height: 100px'>Down</div>");
         text.Should().Contain("Down");
-        text.Should().Contain(" cm\r\n");
+        text.Should().Contain(" cm\n");
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public class VisualEffectsAndPaginationTests
     {
         var text = await RenderPdf("<div style='transform: rotate(45deg); background-color: green; width: 100px; height: 100px'>Rotated</div>");
         text.Should().Contain("Rotated");
-        text.Should().Contain(" cm\r\n");
+        text.Should().Contain(" cm\n");
         text.Should().Contain("0.71", "cos(45deg) ~ 0.71");
     }
 
@@ -105,7 +105,7 @@ public class VisualEffectsAndPaginationTests
     {
         var text = await RenderPdf("<div style='transform: skewX(10deg); background-color: purple; width: 100px; height: 100px'>Skewed</div>");
         text.Should().Contain("Skewed");
-        text.Should().Contain(" cm\r\n");
+        text.Should().Contain(" cm\n");
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public class VisualEffectsAndPaginationTests
     {
         var text = await RenderPdf("<div style='transform: scale(1.5); background-color: orange; width: 100px; height: 100px'>Scaled</div>");
         text.Should().Contain("Scaled");
-        text.Should().Contain(" cm\r\n");
+        text.Should().Contain(" cm\n");
     }
 
     // === Images ===
