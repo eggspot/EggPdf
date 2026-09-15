@@ -101,7 +101,7 @@
       <div class="code-block"><pre><code>dotnet add package EggPdf</code></pre></div>
       <p>Or via the NuGet Package Manager in Visual Studio — search for <code>EggPdf</code>. You can also add it directly to your <code>.csproj</code>:</p>
       <div class="code-header">YourProject.csproj</div>
-      <div class="code-block"><pre><code><span class="pun">&lt;</span><span class="typ">PackageReference</span> <span class="var">Include</span><span class="pun">=</span><span class="str">"EggPdf"</span> <span class="var">Version</span><span class="pun">=</span><span class="str">"1.4.11"</span> <span class="pun">/&gt;</span></code></pre></div>
+      <div class="code-block"><pre><code><span class="pun">&lt;</span><span class="typ">PackageReference</span> <span class="var">Include</span><span class="pun">=</span><span class="str">"EggPdf"</span> <span class="var">Version</span><span class="pun">=</span><span class="str">"__EGGPDF_VERSION__"</span> <span class="pun">/&gt;</span></code></pre></div>
 
       <h2 id="first-pdf">Your First PDF</h2>
       <p>The entire public API is one static method: <code>HtmlToPdf.RenderAsync</code>. It accepts an HTML string and returns a <code>byte[]</code> containing the PDF document.</p>

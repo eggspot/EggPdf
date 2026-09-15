@@ -182,7 +182,7 @@
       <h2 id="health">Health Check</h2>
       <p>The service exposes a health endpoint that returns <code>200 OK</code> with a JSON payload:</p>
       <div class="code-block"><pre><code>curl http://localhost:8080/health
-<span class="cmt"># {"status":"Healthy","version":"1.4.11"}</span></code></pre></div>
+<span class="cmt"># {"status":"Healthy","version":"__EGGPDF_VERSION__"}</span></code></pre></div>
       <p>Use this with container orchestrators (Kubernetes, ECS, Docker Swarm) for liveness and readiness probes.</p>
 
       <h2 id="cli-in-container">Using CLI Inside the Container</h2>

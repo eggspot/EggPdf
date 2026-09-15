@@ -191,3 +191,16 @@ jobs:
           git add -A
           git diff --staged --quiet || git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
           git push origin main || true
+
+      - name: Trigger docs site redeploy
+        # site/**/*.html carries the version as the literal placeholder
+        # __EGGPDF_VERSION__, substituted at deploy time by pages.yml (not
+        # committed here) — otherwise the first substitution would overwrite
+        # the placeholder with a real number and every release after would
+        # have nothing left to replace.
+        if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
+        run: |
+          gh api repos/${{ github.repository }}/actions/workflows/pages.yml/dispatches \
+            --field ref="main"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
