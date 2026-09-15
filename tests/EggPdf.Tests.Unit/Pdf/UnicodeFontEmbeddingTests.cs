@@ -56,6 +56,22 @@ public class UnicodeFontEmbeddingTests
     }
 
     [Fact]
+    public async Task Render_VietnameseText_CourierFamily_EmbedsTrueTypeFont()
+    {
+        // 'Courier New' resolves to a "standard PDF font" name too; embedding must
+        // still kick in because the codepoints exceed WinAnsi. This is the family
+        // used by monospace metadata fields (e.g. a "version" or "IP address" value
+        // sitting next to Vietnamese labels) — a class of machines missing every one
+        // of Courier New/Liberation Mono/DejaVu Sans Mono/Noto Sans Mono must still
+        // fall back to *some* embedded font rather than degrading to '?'.
+        var pdf = await HtmlToPdf.RenderAsync(
+            "<html><body><p style=\"font-family: 'Courier New', monospace\">Phiên bản 6</p></body></html>");
+
+        Latin1(pdf).Should().Contain("/FontFile2",
+            "Vietnamese text cannot be encoded in WinAnsi, so a TrueType subset must be embedded even for the Courier family");
+    }
+
+    [Fact]
     public async Task Render_AsciiOnlyText_KeepsBuiltinType1Font()
     {
         // Pure WinAnsi-encodable text should keep the lean non-embedded built-in
