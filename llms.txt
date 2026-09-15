@@ -185,7 +185,7 @@ netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0
 - Bookmarks, links, TOC
 - Running headers/footers via `position: fixed` (repeats on every physical page); `counter(page)`/`counter(pages)` resolve per page inside `::before`/`::after` content on such elements
 - Pin content to the bottom of the page it lands on (e.g. a signature block after variable-length content): `-eggpdf-pin-bottom: page`
-- Repeating table headers
+- Tables spanning any number of pages without row loss (repeating `<thead>` on continuation pages is not yet implemented — don't claim it)
 - TrueType/OpenType embedding with subsetting
 - Digital signatures: one-call X.509 signing (detached CMS/PKCS#7, adbe.pkcs7.detached) or external-CMS two-step flow
 - Encryption: RC4 40/128-bit with owner/user passwords and permission flags — one-call `HtmlToPdf.Render(html, new PdfEncryption {...})` or REST /api/encrypt; all streams and strings encrypted per the PDF 1.7 Standard security handler

@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tables — EggPdf | Eggspot</title>
-  <meta name="description" content="Render HTML tables in PDF with EggPdf — multi-page tables, repeating headers, and CSS styling.">
+  <meta name="description" content="Render HTML tables in PDF with EggPdf — multi-page tables and CSS styling.">
   <link rel="canonical" href="https://eggspot.github.io/EggPdf/tables.html">
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
   <link rel="apple-touch-icon" href="assets/favicon.svg">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://eggspot.github.io/EggPdf/tables.html">
   <meta property="og:title" content="Tables — EggPdf">
-  <meta property="og:description" content="Render HTML tables in PDF with EggPdf — multi-page tables, repeating headers, and CSS styling.">
+  <meta property="og:description" content="Render HTML tables in PDF with EggPdf — multi-page tables and CSS styling.">
   <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -41,7 +41,7 @@
 <div class="page-header">
   <div class="container">
     <h1>Tables</h1>
-    <p>HTML tables render natively with repeating headers, zebra stripes, and automatic pagination.</p>
+    <p>HTML tables render natively with zebra stripes and automatic multi-page pagination.</p>
   </div>
 </div>
 
@@ -92,16 +92,18 @@
 
       <h2 id="multi-page">Multi-page tables</h2>
       <p>
-        When a table is taller than a single page, EggPdf paginates it automatically.
-        The <code>&lt;thead&gt;</code> row group repeats at the top of each new page so readers
-        always see the column headings. The <code>&lt;tfoot&gt;</code> row group repeats at the
-        bottom of each page.
+        When a table is taller than a single page, EggPdf paginates it automatically — it
+        continues onto as many additional pages as needed, with no rows lost regardless of
+        table size.
       </p>
       <div class="callout callout-info">
         <span class="callout-icon">ℹ️</span>
         <div>
-          To prevent individual rows from being split across a page boundary, add
-          <code>tr { break-inside: avoid; }</code> to your stylesheet.
+          <code>&lt;thead&gt;</code>/<code>&lt;tfoot&gt;</code> repeating at the top/bottom of every
+          continuation page is not yet implemented — the header/footer row group currently
+          appears once, on whichever page it naturally falls on. To prevent individual rows from
+          being split across a page boundary, add <code>tr { break-inside: avoid; }</code> to your
+          stylesheet.
         </div>
       </div>
 
