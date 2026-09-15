@@ -5,6 +5,8 @@
     <RootNamespace>EggPdf.AspNetCore</RootNamespace>
     <Description>ASP.NET Core integration for EggPdf (PdfResult, middleware)</Description>
     <Version>1.4.11</Version>
+    <IsPackable>true</IsPackable>
+    <PackageId>EggPdf.AspNetCore</PackageId>
   </PropertyGroup>
 
   <ItemGroup>
