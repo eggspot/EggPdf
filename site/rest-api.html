@@ -73,7 +73,6 @@
         <div class="sidebar-section">On this page</div>
         <a href="#base-url">Base URL</a>
         <a href="#post-render">POST /api/render</a>
-        <a href="#options-reference">Options Reference</a>
         <a href="#get-health">GET /health</a>
         <a href="#curl-examples">curl Examples</a>
         <a href="#python-example">Python Example</a>
@@ -103,7 +102,7 @@
           <thead><tr><th>Property</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
           <tbody>
             <tr><td><code>html</code></td><td><code>string</code></td><td>✅ Yes</td><td>The HTML document to render</td></tr>
-            <tr><td><code>options</code></td><td><code>object</code></td><td>No</td><td>Render options (see below)</td></tr>
+            <tr><td><code>options</code></td><td><code>object</code></td><td>No</td><td>Accepted but not yet applied to output — see the callout below</td></tr>
           </tbody>
         </table>
       </div>
@@ -125,38 +124,24 @@
   <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;h1&gt;Hello, EggPdf!&lt;/h1&gt;&lt;p&gt;Pure C# PDF rendering.&lt;/p&gt;"</span>
 <span class="pun">}</span></code></pre></div>
 
-      <h3>Full example with options</h3>
+      <div class="callout callout-warning">
+        <span class="callout-icon">⚠️</span>
+        <div>
+          The request body's <code>options</code> field is currently parsed but has no effect on
+          the rendered output — this is a known gap, not documented (mis)behavior. Until it's
+          wired up, control page size, margins, orientation, and running headers/footers with CSS
+          inside the <code>html</code> string instead: <code>@page</code> for size/margin, and
+          <code>position: fixed</code> (with <code>counter(page)</code>/<code>counter(pages)</code>
+          for page numbers) for content that repeats on every page. See
+          <a href="page-layout.html">Page Layout</a> and <a href="headers-footers.html">Headers &amp; Footers</a>.
+        </div>
+      </div>
+
+      <h3>Example: page size, margins, and a page-number footer via CSS</h3>
       <div class="code-header">JSON Request Body</div>
       <div class="code-block"><pre><code><span class="pun">{</span>
-  <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;!DOCTYPE html&gt;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"</span><span class="pun">,</span>
-  <span class="str">"options"</span><span class="pun">:</span> <span class="pun">{</span>
-    <span class="str">"pageSize"</span><span class="pun">:</span>  <span class="str">"A4"</span><span class="pun">,</span>
-    <span class="str">"margins"</span><span class="pun">:</span>   <span class="pun">{</span> <span class="str">"top"</span><span class="pun">:</span> <span class="num">60</span><span class="pun">,</span> <span class="str">"right"</span><span class="pun">:</span> <span class="num">50</span><span class="pun">,</span> <span class="str">"bottom"</span><span class="pun">:</span> <span class="num">60</span><span class="pun">,</span> <span class="str">"left"</span><span class="pun">:</span> <span class="num">50</span> <span class="pun">},</span>
-    <span class="str">"title"</span><span class="pun">:</span>     <span class="str">"Q4 Report"</span><span class="pun">,</span>
-    <span class="str">"footer"</span><span class="pun">:</span>    <span class="str">"Page {page} of {pages}"</span><span class="pun">,</span>
-    <span class="str">"header"</span><span class="pun">:</span>    <span class="str">"Acme Corp — Confidential"</span>
-  <span class="pun">}</span>
+  <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;html&gt;&lt;head&gt;&lt;style&gt;@page{size:A4;margin:60px 50px}.footer{position:fixed;bottom:0;left:0;right:0;text-align:center}.footer::after{content:'Page ' counter(page) ' of ' counter(pages)}&lt;/style&gt;&lt;/head&gt;&lt;body&gt;&lt;div class='footer'&gt;&lt;/div&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"</span>
 <span class="pun">}</span></code></pre></div>
-
-      <h2 id="options-reference">Options Reference</h2>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
-          </thead>
-          <tbody>
-            <tr><td><code>pageSize</code></td><td><code>string</code></td><td><code>"A4"</code></td><td>Page size: <code>A3</code>, <code>A4</code>, <code>A5</code>, <code>Letter</code>, <code>Legal</code></td></tr>
-            <tr><td><code>margins.top</code></td><td><code>number</code></td><td><code>40</code></td><td>Top margin in CSS pixels</td></tr>
-            <tr><td><code>margins.right</code></td><td><code>number</code></td><td><code>40</code></td><td>Right margin in CSS pixels</td></tr>
-            <tr><td><code>margins.bottom</code></td><td><code>number</code></td><td><code>40</code></td><td>Bottom margin in CSS pixels</td></tr>
-            <tr><td><code>margins.left</code></td><td><code>number</code></td><td><code>40</code></td><td>Left margin in CSS pixels</td></tr>
-            <tr><td><code>title</code></td><td><code>string</code></td><td><code>null</code></td><td>PDF document title metadata</td></tr>
-            <tr><td><code>footer</code></td><td><code>string</code></td><td><code>null</code></td><td>Footer template. Supports <code>{page}</code> and <code>{pages}</code></td></tr>
-            <tr><td><code>header</code></td><td><code>string</code></td><td><code>null</code></td><td>Header template. Supports <code>{page}</code> and <code>{pages}</code></td></tr>
-            <tr><td><code>landscape</code></td><td><code>boolean</code></td><td><code>false</code></td><td>Render in landscape orientation</td></tr>
-          </tbody>
-        </table>
-      </div>
 
       <h2 id="get-health">GET /health</h2>
       <p>Returns the health status of the service. Use this for liveness probes in Kubernetes, ECS, or other orchestrators.</p>
@@ -203,17 +188,11 @@
   -d '{"html":"&lt;h1&gt;Hello&lt;/h1&gt;"}' \
   --output hello.pdf</code></pre></div>
 
-      <h3>With options</h3>
+      <h3>With page size, margins, and a footer (via CSS in the HTML)</h3>
       <div class="code-block"><pre><code>curl -X POST http://localhost:8080/api/render \
   -H "Content-Type: application/json" \
   -d '{
-    "html": "&lt;!DOCTYPE html&gt;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invoice #42&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;",
-    "options": {
-      "pageSize": "Letter",
-      "title": "Invoice #42",
-      "footer": "Page {page} of {pages}",
-      "margins": { "top": 60, "right": 50, "bottom": 60, "left": 50 }
-    }
+    "html": "&lt;html&gt;&lt;head&gt;&lt;style&gt;@page{size:Letter;margin:60px 50px}.footer{position:fixed;bottom:0;left:0;right:0;text-align:center}.footer::after{content:\"Page \" counter(page) \" of \" counter(pages)}&lt;/style&gt;&lt;/head&gt;&lt;body&gt;&lt;div class=\"footer\"&gt;&lt;/div&gt;&lt;h1&gt;Invoice #42&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
   }' \
   --output invoice-42.pdf</code></pre></div>
 
@@ -234,14 +213,10 @@ curl -X POST http://localhost:8080/api/render \
 
 <span class="var">EGGPDF_URL</span> <span class="pun">=</span> <span class="str">"http://localhost:8080"</span>
 
-<span class="kw">def</span> <span class="fn">render_pdf</span><span class="pun">(</span><span class="var">html</span><span class="pun">:</span> <span class="typ">str</span><span class="pun">,</span> <span class="var">options</span><span class="pun">:</span> <span class="typ">dict</span> <span class="pun">=</span> <span class="kw">None</span><span class="pun">)</span> <span class="pun">-&gt;</span> <span class="typ">bytes</span><span class="pun">:</span>
-    <span class="var">payload</span> <span class="pun">=</span> <span class="pun">{</span><span class="str">"html"</span><span class="pun">:</span> <span class="var">html</span><span class="pun">}</span>
-    <span class="kw">if</span> <span class="var">options</span><span class="pun">:</span>
-        <span class="var">payload</span><span class="pun">[</span><span class="str">"options"</span><span class="pun">]</span> <span class="pun">=</span> <span class="var">options</span>
-
+<span class="kw">def</span> <span class="fn">render_pdf</span><span class="pun">(</span><span class="var">html</span><span class="pun">:</span> <span class="typ">str</span><span class="pun">)</span> <span class="pun">-&gt;</span> <span class="typ">bytes</span><span class="pun">:</span>
     <span class="var">response</span> <span class="pun">=</span> <span class="var">requests</span><span class="pun">.</span><span class="fn">post</span><span class="pun">(</span>
         <span class="str">f"{EGGPDF_URL}/api/render"</span><span class="pun">,</span>
-        <span class="var">json</span><span class="pun">=</span><span class="var">payload</span><span class="pun">,</span>
+        <span class="var">json</span><span class="pun">=</span><span class="pun">{</span><span class="str">"html"</span><span class="pun">:</span> <span class="var">html</span><span class="pun">},</span>
         <span class="var">timeout</span><span class="pun">=</span><span class="num">30</span><span class="pun">,</span>
     <span class="pun">)</span>
     <span class="var">response</span><span class="pun">.</span><span class="fn">raise_for_status</span><span class="pun">()</span>
@@ -254,25 +229,18 @@ curl -X POST http://localhost:8080/api/render \
     <span class="var">f</span><span class="pun">.</span><span class="fn">write</span><span class="pun">(</span><span class="var">pdf_bytes</span><span class="pun">)</span>
 <span class="fn">print</span><span class="pun">(</span><span class="str">f"PDF saved: {len(pdf_bytes):,} bytes"</span><span class="pun">)</span>
 
-<span class="cmt"># With options</span>
-<span class="var">pdf_bytes</span> <span class="pun">=</span> <span class="fn">render_pdf</span><span class="pun">(</span>
-    <span class="str">"&lt;h1&gt;Invoice&lt;/h1&gt;"</span><span class="pun">,</span>
-    <span class="var">options</span><span class="pun">={</span>
-        <span class="str">"pageSize"</span><span class="pun">:</span> <span class="str">"Letter"</span><span class="pun">,</span>
-        <span class="str">"title"</span><span class="pun">:</span> <span class="str">"Invoice #42"</span><span class="pun">,</span>
-        <span class="str">"footer"</span><span class="pun">:</span> <span class="str">"Page {page} of {pages}"</span><span class="pun">,</span>
-    <span class="pun">},</span>
-<span class="pun">)</span></code></pre></div>
+<span class="cmt"># Page size / margins / footer are set via CSS inside the html string —</span>
+<span class="cmt"># see "Example: page size, margins, and a page-number footer via CSS" above.</span></code></pre></div>
 
       <h2 id="nodejs-example">Node.js Example</h2>
       <div class="code-header">renderPdf.mjs</div>
       <div class="code-block"><pre><code><span class="kw">const</span> <span class="var">EGGPDF_URL</span> <span class="pun">=</span> <span class="str">'http://localhost:8080'</span><span class="pun">;</span>
 
-<span class="kw">async function</span> <span class="fn">renderPdf</span><span class="pun">(</span><span class="var">html</span><span class="pun">,</span> <span class="var">options</span> <span class="pun">=</span> <span class="pun">{})</span> <span class="pun">{</span>
+<span class="kw">async function</span> <span class="fn">renderPdf</span><span class="pun">(</span><span class="var">html</span><span class="pun">)</span> <span class="pun">{</span>
   <span class="kw">const</span> <span class="var">response</span> <span class="pun">=</span> <span class="kw">await</span> <span class="fn">fetch</span><span class="pun">(</span><span class="str">`${EGGPDF_URL}/api/render`</span><span class="pun">, {</span>
     <span class="var">method</span><span class="pun">:</span> <span class="str">'POST'</span><span class="pun">,</span>
     <span class="var">headers</span><span class="pun">: {</span> <span class="str">'Content-Type'</span><span class="pun">:</span> <span class="str">'application/json'</span> <span class="pun">},</span>
-    <span class="var">body</span><span class="pun">:</span> <span class="typ">JSON</span><span class="pun">.</span><span class="fn">stringify</span><span class="pun">({</span> <span class="var">html</span><span class="pun">,</span> <span class="var">options</span> <span class="pun">}),</span>
+    <span class="var">body</span><span class="pun">:</span> <span class="typ">JSON</span><span class="pun">.</span><span class="fn">stringify</span><span class="pun">({</span> <span class="var">html</span> <span class="pun">}),</span>
   <span class="pun">});</span>
 
   <span class="kw">if</span> <span class="pun">(!</span><span class="var">response</span><span class="pun">.</span><span class="var">ok</span><span class="pun">)</span> <span class="pun">{</span>
@@ -288,14 +256,11 @@ curl -X POST http://localhost:8080/api/render \
 <span class="kw">await</span> <span class="var">fs</span><span class="pun">.</span><span class="fn">writeFile</span><span class="pun">(</span><span class="str">'output.pdf'</span><span class="pun">,</span> <span class="var">pdf</span><span class="pun">);</span>
 <span class="typ">console</span><span class="pun">.</span><span class="fn">log</span><span class="pun">(</span><span class="str">`PDF saved: ${pdf.length.toLocaleString()} bytes`</span><span class="pun">);</span>
 
-<span class="cmt">// With options — return as HTTP response (Express example)</span>
+<span class="cmt">// Return as HTTP response (Express example) — page size/title/footer set via</span>
+<span class="cmt">// @page and position:fixed CSS inside buildInvoiceHtml's returned string</span>
 <span class="var">app</span><span class="pun">.</span><span class="fn">get</span><span class="pun">(</span><span class="str">'/invoice/:id'</span><span class="pun">,</span> <span class="kw">async</span> <span class="pun">(</span><span class="var">req</span><span class="pun">,</span> <span class="var">res</span><span class="pun">)</span> <span class="pun">=&gt; {</span>
   <span class="kw">const</span> <span class="var">html</span> <span class="pun">=</span> <span class="kw">await</span> <span class="fn">buildInvoiceHtml</span><span class="pun">(</span><span class="var">req</span><span class="pun">.</span><span class="var">params</span><span class="pun">.</span><span class="var">id</span><span class="pun">);</span>
-  <span class="kw">const</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="fn">renderPdf</span><span class="pun">(</span><span class="var">html</span><span class="pun">, {</span>
-    <span class="var">pageSize</span><span class="pun">:</span> <span class="str">'A4'</span><span class="pun">,</span>
-    <span class="var">title</span><span class="pun">:</span> <span class="str">`Invoice #${req.params.id}`</span><span class="pun">,</span>
-    <span class="var">footer</span><span class="pun">:</span> <span class="str">'Page {page} of {pages}'</span><span class="pun">,</span>
-  <span class="pun">});</span>
+  <span class="kw">const</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="fn">renderPdf</span><span class="pun">(</span><span class="var">html</span><span class="pun">);</span>
   <span class="var">res</span><span class="pun">.</span><span class="fn">setHeader</span><span class="pun">(</span><span class="str">'Content-Type'</span><span class="pun">,</span> <span class="str">'application/pdf'</span><span class="pun">);</span>
   <span class="var">res</span><span class="pun">.</span><span class="fn">send</span><span class="pun">(</span><span class="var">pdf</span><span class="pun">);</span>
 <span class="pun">});</span></code></pre></div>

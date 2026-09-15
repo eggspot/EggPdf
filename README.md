@@ -40,24 +40,22 @@ File.WriteAllBytes("output.pdf", pdf);
 
 ## Standard Usage
 
+Page size, margins, and orientation are set with regular CSS `@page` rules in the HTML itself —
+there's no separate options object:
+
 ```csharp
-var converter = new HtmlToPdfConverter(new PdfOptions
-{
-    PageSize = PageSize.A4,
-    Orientation = PageOrientation.Portrait,
-    Margins = new PageMargins(top: 20, right: 15, bottom: 20, left: 15, unit: Unit.Mm),
-    DefaultFont = "Arial",
-    Title = "My Document"
-});
+string html = @"
+    <html><head><style>@page { size: A4; margin: 20mm 15mm; }</style></head>
+    <body><h1>My Document</h1></body></html>";
 
 // To byte[]
-byte[] pdf = await converter.RenderAsync(htmlString);
+byte[] pdf = await EggPdf.HtmlToPdf.RenderAsync(html);
 
-// To file
-await converter.RenderToFileAsync(htmlString, "report.pdf");
+// To a file
+await EggPdf.HtmlToPdf.RenderToFileAsync(html, "report.pdf");
 
-// To HTTP response (streaming, no buffering)
-await converter.RenderAsync(htmlString, Response.Body, HttpContext.RequestAborted);
+// To a stream (e.g. an HTTP response body), with cancellation
+await EggPdf.HtmlToPdf.RenderAsync(html, Response.Body, HttpContext.RequestAborted);
 ```
 
 ## ASP.NET Core Integration
@@ -67,20 +65,13 @@ dotnet add package EggPdf.AspNetCore
 ```
 
 ```csharp
-// DI Registration
-services.AddEggPdf(options =>
-{
-    options.PageSize = PageSize.A4;
-    options.DefaultFont = "Arial";
-});
-
-// Controller
+// Controller — PdfResult wraps HtmlToPdf.Render() and streams it as a file download
 [HttpGet("invoice/{id}/pdf")]
 public async Task<IActionResult> GetInvoice(int id)
 {
     var model = await _invoiceService.GetAsync(id);
     string html = await _viewRenderer.RenderAsync("Invoice", model);
-    return new PdfResult(html) { FileName = $"invoice-{id}.pdf" };
+    return new PdfResult(html, $"invoice-{id}.pdf");
 }
 ```
 
@@ -203,9 +194,8 @@ Download a single executable for your platform -- no installation required:
 
 ```bash
 ./eggpdf input.html -o output.pdf
-./eggpdf input.html -o output.png --format png
-./eggpdf input.html --watch    # live reload
-./eggpdf --serve               # start REST API server
+./eggpdf https://example.com -o page.pdf   # fetch and render a URL
+echo "<h1>Hi</h1>" | ./eggpdf - -o output.pdf
 ```
 
 ### Web UI (for anyone)

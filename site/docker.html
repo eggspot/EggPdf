@@ -104,18 +104,7 @@
   -H "Content-Type: application/json" \
   -d '{"html":"&lt;h1&gt;Hello from EggPdf&lt;/h1&gt;&lt;p&gt;Rendered in Docker.&lt;/p&gt;"}' \
   --output hello.pdf</code></pre></div>
-      <p>You can also pass render options:</p>
-      <div class="code-block"><pre><code>curl -X POST http://localhost:8080/api/render \
-  -H "Content-Type: application/json" \
-  -d '{
-    "html": "&lt;h1&gt;My Report&lt;/h1&gt;",
-    "options": {
-      "pageSize": "A4",
-      "title": "My Report",
-      "footer": "Page {page} of {pages}"
-    }
-  }' \
-  --output report.pdf</code></pre></div>
+      <p>Page size, margins, and running headers/footers are set with CSS inside the <code>html</code> string — see the <a href="rest-api.html#post-render">REST API reference</a> for a full example.</p>
 
       <h2 id="webui">Built-in WebUI</h2>
       <p>The Docker image ships with a full-featured WebUI at <code>http://localhost:8080</code>:</p>

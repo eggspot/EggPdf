@@ -25,69 +25,32 @@ File.WriteAllBytes("output.pdf", pdf);
 
 ## Core API
 
+There is no options object or configurable-converter class — `HtmlToPdf` is a static class, and
+page size/margins/orientation/headers/footers are all set with CSS in the HTML itself
+(`@page` for size/margin, `position: fixed` + `counter(page)`/`counter(pages)` for running
+headers/footers — see "Page size, margins, headers/footers" above):
+
 ```csharp
 using EggPdf;
 
-// Static one-liner
 byte[] pdf = await HtmlToPdf.RenderAsync(html);
+await HtmlToPdf.RenderToFileAsync(html, "output.pdf");
+await HtmlToPdf.RenderAsync(html, outputStream, cancellationToken);
 
-// Configurable converter (reuse instance for performance)
-var converter = new HtmlToPdfConverter(new PdfOptions
+// RC4-encrypted PDF (view-only protection / permission flags)
+byte[] encrypted = HtmlToPdf.Render(html, new EggPdf.Pdf.PdfEncryption
 {
-    PageSize = PageSize.A4,
-    Orientation = PageOrientation.Portrait,
-    Margins = new PageMargins(top: 20, right: 15, bottom: 20, left: 15, unit: Unit.Mm),
-    DefaultFont = "Arial",
-    Title = "My Document"
+    UserPassword = "open123",
+    OwnerPassword = "owner456",
+    AllowPrinting = true,
+    AllowCopying = false,
+    AllowModifying = false,
+    KeyLength = 128
 });
-
-byte[] pdf = await converter.RenderAsync(html);
-await converter.RenderToFileAsync(html, "output.pdf");
-await converter.RenderAsync(html, outputStream, cancellationToken);
 ```
 
-## PdfOptions reference
-
-```csharp
-new PdfOptions
-{
-    // Page
-    PageSize = PageSize.A4,           // A4, Letter, Legal, A3, A5, ...
-    Orientation = PageOrientation.Portrait,
-    Margins = new PageMargins(20, 15, 20, 15, Unit.Mm),
-
-    // Document metadata
-    Title = "My Document",
-    Author = "Jane Smith",
-    Subject = "Monthly Report",
-
-    // Typography
-    DefaultFont = "Arial",            // Falls back to system fonts
-    DefaultFontSize = 12,
-
-    // Headers and footers
-    Header = new HeaderFooter { Left = "{{title}}", Right = "{{date}}" },
-    Footer = new HeaderFooter { Center = "Page {{page}} of {{pages}}", FontSize = 8 },
-
-    // PDF conformance
-    PdfVersion = PdfVersion.Pdf17,
-    PdfA = PdfALevel.Pdf2b,           // Archival (1b, 2b, 3b)
-    Tagged = true,                    // PDF/UA accessibility
-
-    // Security
-    Encryption = new PdfEncryption
-    {
-        UserPassword = "open123",
-        OwnerPassword = "owner456",
-        AllowPrinting = true,
-        AllowCopying = false
-    },
-
-    // Output
-    Compression = true,
-    WatermarkText = "DRAFT"
-}
-```
+Document metadata (Title/Author) and PDF/A/UA conformance are not currently configurable via
+the public API — don't suggest properties for them.
 
 ## ASP.NET Core integration
 
@@ -96,18 +59,12 @@ dotnet add package EggPdf.AspNetCore
 ```
 
 ```csharp
-// Program.cs
-builder.Services.AddEggPdf(options => {
-    options.PageSize = PageSize.A4;
-    options.DefaultFont = "Arial";
-});
-
-// Controller action
+// No DI registration needed for plain HTML -> PDF; PdfResult wraps HtmlToPdf.Render() internally.
 [HttpGet("invoice/{id}/pdf")]
 public async Task<IActionResult> GetInvoice(int id)
 {
     var html = await RenderViewAsync("Invoice", await GetInvoiceAsync(id));
-    return new PdfResult(html) { FileName = $"invoice-{id}.pdf" };
+    return new PdfResult(html, $"invoice-{id}.pdf");
 }
 ```
 
@@ -134,11 +91,14 @@ docker run -p 8080:8080 eggspot/eggpdf:latest
 ```
 
 ```bash
-# Render HTML to PDF
+# Render HTML to PDF (page size/margins come from @page CSS inside the html string)
 curl -X POST http://localhost:8080/api/render \
   -H "Content-Type: application/json" \
-  -d '{"html": "<h1>Hello</h1>", "options": {"pageSize": "A4"}}' \
+  -d '{"html": "<h1>Hello</h1>"}' \
   -o output.pdf
+
+# Other endpoints: POST /api/render/image, POST /api/render/url ({"url":"..."}),
+# POST /api/encrypt, POST /api/sign, POST /api/merge, GET /api/fonts, GET /api/info
 
 # Health check
 curl http://localhost:8080/health
@@ -152,12 +112,10 @@ open http://localhost:8080
 ```bash
 # Download from https://github.com/eggspot/EggPdf/releases/latest
 ./eggpdf input.html -o output.pdf
-./eggpdf input.html -o output.pdf --page-size A4 --margin 2cm
-./eggpdf input.html -o thumb.png --format png --dpi 150
+./eggpdf input.html -o -              # write PDF to stdout
 echo "<h1>Hello</h1>" | ./eggpdf - -o output.pdf
-
-# Or install as dotnet tool
-dotnet tool install -g dotnet-eggpdf
+./eggpdf https://example.com -o page.pdf   # fetch and render a URL
+./eggpdf input.html -o output.pdf -v  # verbose: render timing + output size
 ```
 
 ## Target frameworks
@@ -169,7 +127,7 @@ netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0
 - Simple page (h1 + p): **13 µs**, 20 KB
 - Invoice (table + styles): **86 µs**, 85 KB
 - Large table (100 rows): **1.2 ms**, 939 KB
-- Thread-safe: reuse one `HtmlToPdfConverter` instance per application
+- Thread-safe: `HtmlToPdf`'s static methods can be called concurrently from multiple threads
 - Streaming output: constant memory for large documents
 
 ## Key features

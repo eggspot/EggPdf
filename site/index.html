@@ -132,7 +132,6 @@
               <button class="tab-btn active" role="tab" aria-selected="true" onclick="switchTab(event,'cli-windows')">Windows</button>
               <button class="tab-btn" role="tab" aria-selected="false" onclick="switchTab(event,'cli-linux')">Linux</button>
               <button class="tab-btn" role="tab" aria-selected="false" onclick="switchTab(event,'cli-macos')">macOS</button>
-              <button class="tab-btn" role="tab" aria-selected="false" onclick="switchTab(event,'cli-dotnet')">dotnet tool</button>
             </div>
             <div class="tab-content">
               <div id="cli-windows" class="tab-panel active">
@@ -160,11 +159,6 @@
 <span class="cmt"># Intel Mac</span>
 <span class="var">curl -L https://github.com/eggspot/EggPdf/releases/latest/download/eggpdf-cli-osx-x64 -o eggpdf</span>
 <span class="var">chmod +x eggpdf</span></code></pre></div>
-              </div>
-              <div id="cli-dotnet" class="tab-panel">
-                <div class="code-block"><pre><code><span class="cmt"># Install as global .NET tool (requires .NET SDK, all platforms)</span>
-<span class="var">dotnet tool install -g dotnet-eggpdf</span>
-<span class="var">eggpdf input.html -o output.pdf</span></code></pre></div>
               </div>
             </div>
           </div>

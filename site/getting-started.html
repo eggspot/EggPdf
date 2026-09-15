@@ -139,37 +139,31 @@
 <span class="typ">Console</span><span class="pun">.</span><span class="fn">WriteLine</span><span class="pun">(</span><span class="str">$"PDF written: {pdf.Length:N0} bytes"</span><span class="pun">);</span></code></pre></div>
 
       <h2 id="render-options">Render Options</h2>
-      <p>Pass a <code>PdfRenderOptions</code> object to customise page size, margins, title, and headers/footers:</p>
+      <p>
+        There's no separate options object — <code>HtmlToPdf.RenderAsync</code> takes only the
+        HTML string. Page size, margins, orientation, and running headers/footers are all set
+        with regular CSS inside that HTML: <code>@page</code> for size/margin, and
+        <code>position: fixed</code> (with <code>counter(page)</code>/<code>counter(pages)</code>
+        for page numbers) for content that repeats on every page. See
+        <a href="page-layout.html">Page Layout</a> and <a href="headers-footers.html">Headers &amp; Footers</a>
+        for the full reference.
+      </p>
       <div class="code-header">Program.cs</div>
       <div class="code-block"><pre><code><span class="kw">using</span> <span class="typ">EggPdf</span><span class="pun">;</span>
 
-<span class="kw">var</span> <span class="var">options</span> <span class="pun">=</span> <span class="kw">new</span> <span class="typ">PdfRenderOptions</span>
-<span class="pun">{</span>
-    <span class="var">PageSize</span>  <span class="pun">=</span> <span class="typ">PageSize</span><span class="pun">.</span><span class="var">A4</span><span class="pun">,</span>
-    <span class="var">Margins</span>   <span class="pun">=</span> <span class="kw">new</span> <span class="typ">PageMargins</span><span class="pun">(</span><span class="num">40</span><span class="pun">,</span> <span class="num">50</span><span class="pun">,</span> <span class="num">40</span><span class="pun">,</span> <span class="num">50</span><span class="pun">),</span>  <span class="cmt">// top, right, bottom, left (px)</span>
-    <span class="var">Title</span>     <span class="pun">=</span> <span class="str">"My Document"</span><span class="pun">,</span>
-    <span class="var">Footer</span>    <span class="pun">=</span> <span class="str">"Page {page} of {pages}"</span><span class="pun">,</span>
-<span class="pun">};</span>
+<span class="kw">var</span> <span class="var">html</span> <span class="pun">=</span> <span class="str">"""
+    &lt;html&gt;&lt;head&gt;&lt;style&gt;
+      @page { size: A4; margin: 40px 50px; }
+      .footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; }
+      .footer::after { content: "Page " counter(page) " of " counter(pages); }
+    &lt;/style&gt;&lt;/head&gt;
+    &lt;body&gt;&lt;div class="footer"&gt;&lt;/div&gt;&lt;h1&gt;My Document&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;
+    """</span><span class="pun">;</span>
 
-<span class="kw">var</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="fn">RenderAsync</span><span class="pun">(</span><span class="var">html</span><span class="pun">,</span> <span class="var">options</span><span class="pun">);</span></code></pre></div>
-
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
-          </thead>
-          <tbody>
-            <tr><td><code>PageSize</code></td><td><code>PageSize</code></td><td><code>A4</code></td><td>Page size (A4, Letter, Legal, A3, A5…)</td></tr>
-            <tr><td><code>Margins</code></td><td><code>PageMargins</code></td><td>40px all sides</td><td>Top, right, bottom, left margins in CSS pixels</td></tr>
-            <tr><td><code>Title</code></td><td><code>string?</code></td><td><code>null</code></td><td>PDF document title metadata</td></tr>
-            <tr><td><code>Footer</code></td><td><code>string?</code></td><td><code>null</code></td><td>Footer template. Supports <code>{page}</code> and <code>{pages}</code></td></tr>
-            <tr><td><code>Header</code></td><td><code>string?</code></td><td><code>null</code></td><td>Header template. Supports <code>{page}</code> and <code>{pages}</code></td></tr>
-          </tbody>
-        </table>
-      </div>
+<span class="kw">var</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="fn">RenderAsync</span><span class="pun">(</span><span class="var">html</span><span class="pun">);</span></code></pre></div>
 
       <h2 id="aspnet-core">ASP.NET Core Integration</h2>
-      <p>Inject EggPdf into your ASP.NET Core application to serve PDFs from controller actions or Razor pages.</p>
+      <p>Call EggPdf directly from a controller action to serve a PDF, no DI registration required for plain HTML rendering.</p>
       <div class="code-header">InvoiceController.cs</div>
       <div class="code-block"><pre><code><span class="kw">using</span> <span class="typ">EggPdf</span><span class="pun">;</span>
 <span class="kw">using</span> <span class="typ">Microsoft.AspNetCore.Mvc</span><span class="pun">;</span>
@@ -182,12 +176,15 @@
     <span class="kw">public async</span> <span class="typ">Task</span><span class="pun">&lt;</span><span class="typ">IActionResult</span><span class="pun">&gt;</span> <span class="fn">GetPdf</span><span class="pun">(</span><span class="kw">int</span> <span class="var">id</span><span class="pun">)</span>
     <span class="pun">{</span>
         <span class="kw">var</span> <span class="var">html</span> <span class="pun">=</span> <span class="kw">await</span> <span class="fn">BuildInvoiceHtmlAsync</span><span class="pun">(</span><span class="var">id</span><span class="pun">);</span>
-        <span class="kw">var</span> <span class="var">options</span> <span class="pun">=</span> <span class="kw">new</span> <span class="typ">PdfRenderOptions</span> <span class="pun">{</span> <span class="var">Title</span> <span class="pun">=</span> <span class="str">$"Invoice #{id}"</span> <span class="pun">};</span>
-        <span class="kw">var</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="fn">RenderAsync</span><span class="pun">(</span><span class="var">html</span><span class="pun">,</span> <span class="var">options</span><span class="pun">);</span>
+        <span class="kw">var</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="fn">RenderAsync</span><span class="pun">(</span><span class="var">html</span><span class="pun">);</span>
 
         <span class="kw">return</span> <span class="fn">File</span><span class="pun">(</span><span class="var">pdf</span><span class="pun">,</span> <span class="str">"application/pdf"</span><span class="pun">,</span> <span class="str">$"invoice-{id}.pdf"</span><span class="pun">);</span>
     <span class="pun">}</span>
 <span class="pun">}</span></code></pre></div>
+      <p>
+        Or install the <code>EggPdf.AspNetCore</code> package for a ready-made <code>PdfResult</code>
+        action result: <code>return new PdfResult(html, $"invoice-{id}.pdf");</code>
+      </p>
 
       <h2 id="minimal-api">Minimal API (ASP.NET Core 6+)</h2>
       <div class="code-header">Program.cs</div>

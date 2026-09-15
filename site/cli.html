@@ -72,7 +72,6 @@
         <a href="architecture.html">Architecture</a>
         <div class="sidebar-section">On this page</div>
         <a href="#download">Download Binaries</a>
-        <a href="#dotnet-tool">dotnet tool</a>
         <a href="#basic-usage">Basic Usage</a>
         <a href="#options">All Options</a>
         <a href="#piping">Piping / stdin</a>
@@ -136,32 +135,21 @@ chmod +x eggpdf-cli-osx-arm64</code></pre></div>
         <div>On macOS, you may need to allow the binary in <strong>System Settings → Privacy &amp; Security</strong> after the first run, or run <code>xattr -dr com.apple.quarantine ./eggpdf-cli-osx-arm64</code>.</div>
       </div>
 
-      <h2 id="dotnet-tool">Install as a dotnet Tool</h2>
-      <p>If you have the .NET SDK installed, install EggPdf as a global dotnet tool — no binary download needed:</p>
-      <div class="code-block"><pre><code>dotnet tool install -g dotnet-eggpdf</code></pre></div>
-      <p>After installation, the <code>eggpdf</code> command is available globally:</p>
-      <div class="code-block"><pre><code>eggpdf --version</code></pre></div>
-      <p>Update to the latest version:</p>
-      <div class="code-block"><pre><code>dotnet tool update -g dotnet-eggpdf</code></pre></div>
-
       <h2 id="basic-usage">Basic Usage</h2>
+      <p>
+        Page size, margins, orientation, headers/footers, and document title are all set with
+        CSS in the HTML file itself (<code>@page</code> rules, <code>position: fixed</code> for
+        running headers/footers) — not CLI flags. See
+        <a href="page-layout.html">Page Layout</a> and <a href="headers-footers.html">Headers &amp; Footers</a>.
+      </p>
       <div class="code-block"><pre><code><span class="cmt"># Convert an HTML file to PDF</span>
 eggpdf input.html -o output.pdf
 
-<span class="cmt"># Specify page size</span>
-eggpdf input.html -o output.pdf --page-size Letter
+<span class="cmt"># Fetch and render a URL</span>
+eggpdf https://example.com -o page.pdf
 
-<span class="cmt"># Add a footer with page numbers</span>
-eggpdf input.html -o output.pdf --footer "Page {page} of {pages}"
-
-<span class="cmt"># Add a header</span>
-eggpdf input.html -o output.pdf --header "My Company — Confidential"
-
-<span class="cmt"># Custom margins (top right bottom left, in CSS pixels)</span>
-eggpdf input.html -o output.pdf --margin 60 50 60 50
-
-<span class="cmt"># Set document title</span>
-eggpdf input.html -o output.pdf --title "Annual Report 2025"</code></pre></div>
+<span class="cmt"># Verbose: print render timing and output size to stderr</span>
+eggpdf input.html -o output.pdf -v</code></pre></div>
 
       <h2 id="options">All Options</h2>
       <div class="table-wrap">
@@ -170,14 +158,8 @@ eggpdf input.html -o output.pdf --title "Annual Report 2025"</code></pre></div>
             <tr><th>Option</th><th>Short</th><th>Default</th><th>Description</th></tr>
           </thead>
           <tbody>
-            <tr><td><code>--output</code></td><td><code>-o</code></td><td>required</td><td>Output PDF file path</td></tr>
-            <tr><td><code>--page-size</code></td><td>—</td><td><code>A4</code></td><td>Page size: A3, A4, A5, Letter, Legal</td></tr>
-            <tr><td><code>--margin</code></td><td>—</td><td><code>40 40 40 40</code></td><td>Margins in px: top right bottom left</td></tr>
-            <tr><td><code>--title</code></td><td>—</td><td>—</td><td>PDF document title metadata</td></tr>
-            <tr><td><code>--header</code></td><td>—</td><td>—</td><td>Header template. Supports <code>{page}</code>, <code>{pages}</code></td></tr>
-            <tr><td><code>--footer</code></td><td>—</td><td>—</td><td>Footer template. Supports <code>{page}</code>, <code>{pages}</code></td></tr>
-            <tr><td><code>--landscape</code></td><td>—</td><td>false</td><td>Render in landscape orientation</td></tr>
-            <tr><td><code>--verbose</code></td><td><code>-v</code></td><td>false</td><td>Print render statistics to stderr</td></tr>
+            <tr><td><code>--output</code></td><td><code>-o</code></td><td>required</td><td>Output PDF file path, or <code>-</code> for stdout</td></tr>
+            <tr><td><code>--verbose</code></td><td><code>-v</code></td><td>false</td><td>Print render timing and output size to stderr</td></tr>
             <tr><td><code>--version</code></td><td>—</td><td>—</td><td>Print version and exit</td></tr>
             <tr><td><code>--help</code></td><td><code>-h</code></td><td>—</td><td>Show help message and exit</td></tr>
           </tbody>
@@ -219,7 +201,7 @@ EOF</code></pre></div>
           <span class="var">chmod +x eggpdf</span>
 
       <span class="pun">-</span> <span class="var">name</span><span class="pun">:</span> <span class="str">Render Report PDF</span>
-        <span class="var">run</span><span class="pun">:</span> <span class="str">./eggpdf report.html -o report.pdf --footer "Page {page} of {pages}"</span>
+        <span class="var">run</span><span class="pun">:</span> <span class="str">./eggpdf report.html -o report.pdf</span>
 
       <span class="pun">-</span> <span class="var">name</span><span class="pun">:</span> <span class="str">Upload PDF artifact</span>
         <span class="var">uses</span><span class="pun">:</span> <span class="str">actions/upload-artifact@v4</span>
