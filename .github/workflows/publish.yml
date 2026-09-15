@@ -19,6 +19,18 @@ permissions:
   contents: write
   actions: write
 
+# Two pushes to main close together (e.g. two PRs merging within seconds of
+# each other) would otherwise start overlapping runs that both read the same
+# "last tag", compute the same next version, and race to create it — NuGet's
+# --skip-duplicate makes the package push harmless, but `git tag`/`git push`
+# for the tag is not idempotent, so the second run fails outright on that
+# step. Queuing (not cancelling) keeps every push's release intent instead of
+# dropping one, and each queued run re-reads the tag/version fresh once it's
+# its turn, so it naturally computes the next version after the previous run.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
 jobs:
   publish:
     name: Publish NuGet
