@@ -71,9 +71,10 @@
       <div class="callout callout-info">
         <p>
           Native header/footer support via <code>@page</code> margin boxes is on the roadmap.
-          Today there are two practical approaches: <strong>(a)</strong> CSS fixed positioning for
-          simple headers and footers that repeat on every page, and <strong>(b)</strong> HTML structure
-          with repeating table headers for column-heavy documents.
+          Today the practical approach is CSS fixed positioning: <code>position: fixed</code>
+          content (including page numbers via <code>counter(page)</code>) repeats on every page.
+          Tables spanning multiple pages continue correctly, though the column header row itself
+          doesn't yet repeat on continuation pages.
         </p>
       </div>
 
@@ -127,10 +128,11 @@
         Each physical page gets its own resolved number — no manual per-page text needed.
       </p>
 
-      <h2 id="table-header">Repeating table headers (works today)</h2>
+      <h2 id="table-header">Large tables spanning pages (works today)</h2>
       <p>
-        For table-heavy documents, <code>&lt;thead&gt;</code> automatically repeats at the top of each page.
-        This doubles as a column header on every page and requires no extra CSS:
+        A <code>&lt;table&gt;</code> taller than one physical page correctly continues onto as
+        many additional pages as it needs — no rows are lost or painted off-page, regardless of
+        table size:
       </p>
       <div class="code-block"><pre><code><span class="pun">&lt;</span><span class="typ">table</span><span class="pun">&gt;</span>
   <span class="pun">&lt;</span><span class="typ">thead</span><span class="pun">&gt;</span>
@@ -141,9 +143,14 @@
     <span class="pun">&lt;/</span><span class="typ">tr</span><span class="pun">&gt;</span>
   <span class="pun">&lt;/</span><span class="typ">thead</span><span class="pun">&gt;</span>
   <span class="pun">&lt;</span><span class="typ">tbody</span><span class="pun">&gt;</span>
-    <span class="cmt">&lt;!-- rows repeat across pages, thead repeats too --&gt;</span>
+    <span class="cmt">&lt;!-- rows continue onto additional pages as needed --&gt;</span>
   <span class="pun">&lt;/</span><span class="typ">tbody</span><span class="pun">&gt;</span>
 <span class="pun">&lt;/</span><span class="typ">table</span><span class="pun">&gt;</span></code></pre></div>
+      <p>
+        Note: the <code>&lt;thead&gt;</code> row itself is not yet repeated at the top of each
+        continuation page — it currently appears once, on whichever page the table starts on.
+        Repeating column headers per page is on the roadmap.
+      </p>
 
       <h2 id="page-margin-boxes">@page margin boxes (planned)</h2>
       <p>

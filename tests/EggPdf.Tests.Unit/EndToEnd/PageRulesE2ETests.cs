@@ -365,4 +365,57 @@ public class PageRulesE2ETests
         m.Success.Should().BeTrue("expected to find the marker text's positioning operator");
         return float.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
     }
+
+    [Fact]
+    public async Task TablePagination_SectionTallerThanOnePage_AllRowsPaintedWithinPageBounds()
+    {
+        // A <section> bounded by page-break-after: always (a common "one logical chunk per
+        // forced break" document structure) can itself be taller than one physical page — e.g.
+        // a long table. The old pagination logic treated every forced-break-bounded section as
+        // exactly one physical page, so content past the first page's-worth of an oversized
+        // section got painted at Y coordinates beyond that single page's canvas: present in the
+        // PDF's text objects, but never visible in any viewer. Rows must instead spill onto
+        // additional physical pages, same as unbounded flowing content already does.
+        var sb = new StringBuilder();
+        sb.Append(@"<html><head><style>
+            @page { size: 400px 800px; margin: 0; }
+            body { margin: 0; }
+            .page { page-break-after: always; }
+            table { border-collapse: collapse; width: 100%; }
+            td { height: 40px; }
+        </style></head><body>
+        <section class=""page""><p>SECTIONA</p></section>
+        <section class=""page""><table><tbody>");
+        for (int i = 0; i < 40; i++)
+            sb.Append($@"<tr><td>ROW{i}</td></tr>");
+        sb.Append(@"</tbody></table></section>
+        <section class=""page""><p>SECTIONC</p></section>
+        </body></html>");
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(sb.ToString());
+        var pageContents = ExtractPageContentStreams(pdf);
+
+        // Section A + Section C are each one page on their own; if the table section were
+        // (buggily) treated as a single physical page regardless of its content height, the
+        // whole document would be exactly 3 pages. 40 rows of ~40px+ each need more than one
+        // 800px page, so the real count must exceed that.
+        pageContents.Count.Should().BeGreaterThan(3,
+            "an oversized forced-break section must spill onto extra physical pages, not collapse into one");
+
+        const float pageHeightPt = 800f * 0.75f;
+        foreach (var content in pageContents)
+        {
+            foreach (Match m in Regex.Matches(content, @"(-?\d+\.\d+) (-?\d+\.\d+) Td"))
+            {
+                float y = float.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+                y.Should().BeInRange(-1f, pageHeightPt + 1f,
+                    "text must never be painted outside the physical page it was assigned to");
+            }
+        }
+
+        // And every row must actually be present — no silent data loss.
+        string allText = string.Join("\n", pageContents);
+        for (int i = 0; i < 40; i++)
+            allText.Should().Contain($"ROW{i}");
+    }
 }

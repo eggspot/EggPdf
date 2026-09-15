@@ -128,26 +128,6 @@ internal static class PdfRenderer
             if (bottom > maxY) maxY = bottom;
         }
 
-        // Build page boundaries (combining natural page breaks with forced ones).
-        // pageCapacityBottom tracks, per page, the true usable content-bottom edge (i.e. where
-        // this page's content area actually ends — a forced break, or the full page height when
-        // no break applies) as opposed to pageBounds' bottom, which for the trailing page is
-        // clamped down to wherever the content happens to end (maxY). The two coincide except on
-        // the last page when its content doesn't fill the whole page.
-        var pageBounds = new List<(float top, float bottom)>();
-        var pageCapacityBottom = new List<float>();
-        float currentTop = 0;
-
-        foreach (float breakY in pageBreakYs)
-        {
-            if (breakY > currentTop && breakY < maxY)
-            {
-                pageBounds.Add((currentTop, breakY));
-                pageCapacityBottom.Add(breakY);
-                currentTop = breakY;
-            }
-        }
-
         // Content area height for pagination (page height minus vertical margins).
         // Both margins must be subtracted individually — asymmetric @page margins
         // (e.g. a tall margin-top with a small margin-bottom) are common, and
@@ -170,12 +150,46 @@ internal static class PdfRenderer
         if (bodyMarginBottomPx > paginationHeight / 2)
             bodyMarginBottomPx = 0;
 
-        // Fill remaining pages using content area height, with smart page breaking
-        // that avoids cutting through content boxes OR placing content within the
-        // body's bottom margin zone (which would leave no visual padding at the page bottom).
+        // Real forced-break boundaries (page-break-after/before). A section bounded by one
+        // of these can itself be taller than one physical page — a long table or flowing
+        // text block inside a page-break-bounded <section> is a common case — so content
+        // must not be allowed to cross a forced break onto the same physical page below,
+        // but (unlike the document's natural end, maxY) a forced break IS a real constraint
+        // on how tall a single page's band can be, not just "where content happens to stop".
+        // Treating a whole oversized section as a single physical page (the previous
+        // behavior) doesn't just mis-paginate: content past the first page's-worth of
+        // that section gets painted at Y coordinates beyond the physical page canvas —
+        // present in the PDF's text objects but invisible in any viewer, which is exactly
+        // the "content silently vanishes past a certain point" table bug.
+        var hardBoundaries = new List<float>();
+        foreach (float breakY in pageBreakYs)
+            if (breakY > 0 && breakY < maxY) hardBoundaries.Add(breakY);
+        hardBoundaries.Sort();
+
+        // pageCapacityBottom tracks, per page, the true usable content-bottom edge (i.e.
+        // where this page's content area actually ends — a forced break, a full page's
+        // height, or wherever the next smart-break constraint lands) as opposed to
+        // pageBounds' bottom, which for the trailing page is clamped down to wherever the
+        // content happens to end (maxY). The two coincide except on the last page when its
+        // content doesn't fill the whole page — maxY must NOT cap naiveBottom below, or a
+        // page's true remaining capacity collapses to wherever content happens to stop.
+        var pageBounds = new List<(float top, float bottom)>();
+        var pageCapacityBottom = new List<float>();
+        float currentTop = 0;
+        int hardBoundaryIndex = 0;
+
+        // Fill pages using content area height, with smart page breaking that avoids
+        // cutting through content boxes OR placing content within the body's bottom
+        // margin zone (which would leave no visual padding at the page bottom) — bounded
+        // so a page's band never crosses into the next forced-break section.
         while (currentTop < maxY)
         {
-            float naiveBottom = currentTop + paginationHeight;
+            while (hardBoundaryIndex < hardBoundaries.Count && hardBoundaries[hardBoundaryIndex] <= currentTop)
+                hardBoundaryIndex++;
+            float nextHardBoundary = hardBoundaryIndex < hardBoundaries.Count
+                ? hardBoundaries[hardBoundaryIndex] : float.MaxValue;
+
+            float naiveBottom = Math.Min(currentTop + paginationHeight, nextHardBoundary);
             // Effective soft boundary: boxes must not START in the bottom margin zone
             float effectiveBottom = naiveBottom - bodyMarginBottomPx;
             float smartBottom = naiveBottom;
