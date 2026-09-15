@@ -102,6 +102,25 @@ public class FlexLayoutTests
     }
 
     [Fact]
+    public void FlexColumn_ExplicitHeightLargerThanContent_StillShrinksToFitContainer()
+    {
+        // The automatic minimum size (§4.5) is a CONTENT-based floor. An item with an
+        // explicit height has a baseSize equal to that specified height, not to its
+        // content need — pinning the automatic minimum to baseSize in that case would
+        // block flex-shrink from ever honoring an explicit height taller than the
+        // container, which is exactly the scenario flex-shrink exists to handle.
+        var root = LayoutFlex(
+            "<div style='display: flex; flex-direction: column; height: 60px; width: 200px'>" +
+            "<p style='margin: 0; height: 500px; overflow: visible'>short</p>" +
+            "</div>");
+
+        var paragraph = root.FindByTag("p");
+        paragraph.Should().NotBeNull();
+        paragraph!.Height.Should().BeApproximately(60f, 0.5f,
+            "an item's own explicit height must not become an automatic minimum that blocks shrinking to fit the container");
+    }
+
+    [Fact]
     public void FlexColumn_MaxHeightBelowContent_AutoMinimumClampedToMaxHeight()
     {
         // The content-based automatic minimum is itself clamped by max-height, so an
