@@ -250,6 +250,45 @@ public class WhiteSpaceTests
     }
 
     [Fact]
+    public void Nbsp_TrailingInSiblingSpan_IsNotTrimmedAway()
+    {
+        // A common "dash marker" idiom: a dedicated <span> holding just "-&nbsp;",
+        // immediately followed (no source whitespace) by a sibling <span> with the
+        // real label. Because the marker span is itself an element (not a bare text
+        // node), it goes through CollectInlineRuns/NormalizeInlineWhitespace rather
+        // than the direct-text-node path the other Nbsp_* tests exercise — a
+        // different code path with its own edge-trimming logic that must also treat
+        // NBSP as non-collapsible, or the marker and label glue together with no gap.
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0'><ul><li><span class='dash'>-&nbsp;</span>" +
+            "<span><span class='label'>Label:</span> <span class='value'>VALUE</span></span></li></ul></body>",
+            400, 600);
+
+        var li = root.FindByTag("li");
+        li.Should().NotBeNull();
+
+        var textBoxes = li!.Children
+            .SelectMany(b => new[] { b }.Concat(b.Children).Concat(b.Children.SelectMany(c => c.Children)))
+            .Where(b => !string.IsNullOrEmpty(b.Text))
+            .OrderBy(b => b.X)
+            .ToList();
+
+        var dashBox = textBoxes.FirstOrDefault(b => b.Text!.Contains("-"));
+        dashBox.Should().NotBeNull();
+
+        // The trailing &nbsp; must survive as part of the box's own text — it's what
+        // gives the box its extra width (measuring "- " vs bare "-"), which is
+        // what actually separates the dash glyph from the following label visually,
+        // rather than requiring a separate gap between sibling boxes.
+        dashBox!.Text.Should().Contain(" ",
+            "the trailing &nbsp; in the dash span must not be trimmed away like ordinary whitespace");
+
+        float bareDashWidth = EggPdf.Layout.TextMeasurer.MeasureWidth("-", 16f, "Helvetica");
+        dashBox.Width.Should().BeGreaterThan(bareDashWidth + 1f,
+            "the box must be wider than the bare dash glyph — the extra width is the nbsp's own advance");
+    }
+
+    [Fact]
     public void Nbsp_Width_EqualsSpaceWidth()
     {
         // A paragraph with one &nbsp; should have the same width as one normal space

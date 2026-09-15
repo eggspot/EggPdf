@@ -1380,15 +1380,17 @@ public static class BlockLayout
     /// <summary>
     /// CSS white-space:normal collapsing for an inline run: \n \r \t map to
     /// spaces, runs of ordinary spaces collapse to one, edge whitespace trims.
-    /// NBSP is rendered content — trimmed at the edges (like string.Trim did)
-    /// but never collapsed in the interior. Zero-allocation when the text is
-    /// already normalized.
+    /// NBSP is rendered content — never trimmed at the edges or collapsed in
+    /// the interior (unlike char.IsWhiteSpace, which misclassifies it as
+    /// collapsible and would silently swallow a "&amp;nbsp;"-only run, e.g. a
+    /// `&lt;span&gt;–&amp;nbsp;&lt;/span&gt;` bullet-dash marker losing its trailing
+    /// space entirely). Zero-allocation when the text is already normalized.
     /// </summary>
     private static string NormalizeInlineWhitespace(string text)
     {
         int start = 0, end = text.Length;
-        while (start < end && char.IsWhiteSpace(text[start])) start++;
-        while (end > start && char.IsWhiteSpace(text[end - 1])) end--;
+        while (start < end && IsCollapsibleWhitespace(text[start])) start++;
+        while (end > start && IsCollapsibleWhitespace(text[end - 1])) end--;
         if (start >= end) return "";
 
         bool needsRewrite = false;
