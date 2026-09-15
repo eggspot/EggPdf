@@ -725,6 +725,25 @@ public static class HtmlToPdf
                 }
             }
 
+            // 4. Last resort: none of the family-specific candidates (including the
+            //    metric-compatible substitutes) were installed on this machine — a
+            //    minimal container often lacks every one of Courier/Liberation*/
+            //    DejaVu*/Noto* for a given class. Reaching here means step 2 already
+            //    established these codepoints exceed WinAnsiEncoding (or the family
+            //    wasn't standard to begin with), so giving up now would silently
+            //    fall back to the non-embedded path, which can only paint '?' for
+            //    them. A generic sans-serif substitute — even if metrically
+            //    mismatched with the requested family — still renders the real
+            //    character, which is what a browser's font-fallback chain would do.
+            if (fontData == null)
+            {
+                foreach (var candidate in GetSystemFontCandidates(string.Empty))
+                {
+                    fontData = fontResolver.Resolve(candidate, bold, italic);
+                    if (fontData != null) break;
+                }
+            }
+
             if (fontData == null || fontData.RawData == null || fontData.RawData.Length == 0)
                 continue;
 
