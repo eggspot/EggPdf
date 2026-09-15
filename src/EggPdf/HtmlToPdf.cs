@@ -205,7 +205,7 @@ public static class HtmlToPdf
             float pageHeightPt = pageHeightPx * PdfCoordinates.PxToPt;
 
             PdfRenderer.Render(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx,
-                pageSettings.MarginLeft, pageSettings.MarginTop);
+                pageSettings.MarginLeft, pageSettings.MarginTop, pageSettings.MarginBottom);
 
             return pdfDoc.ToByteArray();
         }

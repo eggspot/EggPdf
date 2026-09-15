@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Xunit;
@@ -60,6 +62,35 @@ public class PageRulesE2ETests
         text.Should().Contain("Content with page margins");
         // MediaBox should remain full A4 size (margins don't change MediaBox)
         text.Should().Contain("/MediaBox [0 0 595.28 841.89]");
+    }
+
+    [Fact]
+    public async Task PageMargin_Asymmetric_ReservesRealBottomMargin()
+    {
+        // A small top margin with a large bottom margin. The renderer used to derive
+        // its per-page content band as `pageHeight - marginTop*2`, treating marginTop
+        // as a stand-in for marginBottom — so the true, much larger margin-bottom was
+        // silently ignored (it wasn't even forwarded from @page to the renderer).
+        // With that bug, the reserved dead zone at the bottom of each page equals
+        // marginTop (20px), not the real marginBottom (200px), so text paints deep
+        // inside where the margin should be.
+        var sb = new StringBuilder();
+        sb.Append("<html><head><style>@page { margin-top: 20px; margin-bottom: 200px; } body{margin:0}</style></head><body>");
+        for (int i = 0; i < 60; i++)
+            sb.Append($"<p>Paragraph {i}: filler text to force this document across multiple pages.</p>");
+        sb.Append("</body></html>");
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(sb.ToString());
+        var text = Encoding.ASCII.GetString(pdf);
+
+        float marginBottomPt = 200f * 0.75f; // CSS px (96dpi) -> PDF pt
+
+        foreach (Match m in Regex.Matches(text, @"(-?\d+\.\d+) (-?\d+\.\d+) Td \("))
+        {
+            float y = float.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+            y.Should().BeGreaterOrEqualTo(marginBottomPt - 1f,
+                "no text should be painted inside the reserved @page margin-bottom band");
+        }
     }
 
     [Fact]
