@@ -82,6 +82,46 @@ public class FlexLayoutTests
     }
 
     [Fact]
+    public void FlexColumn_OverflowHidden_ItemShrinksToFitContainer()
+    {
+        // CSS Flexbox §4.5: the automatic minimum size only applies when overflow is
+        // visible. An overflow:hidden item is meant to be clipped, so it must still be
+        // allowed to shrink below its content height to fit the container.
+        string longText = string.Concat(System.Linq.Enumerable.Repeat(
+            "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt. ", 20));
+
+        var root = LayoutFlex(
+            "<div style='display: flex; flex-direction: column; height: 80px; width: 200px'>" +
+            $"<p style='margin:0; overflow:hidden'>{longText}</p>" +
+            "</div>");
+
+        var paragraph = root.FindByTag("p");
+        paragraph.Should().NotBeNull();
+        paragraph!.Height.Should().BeLessOrEqualTo(80f + 0.5f,
+            "an overflow:hidden column item has no automatic minimum and shrinks to the container");
+    }
+
+    [Fact]
+    public void FlexColumn_MaxHeightBelowContent_AutoMinimumClampedToMaxHeight()
+    {
+        // The content-based automatic minimum is itself clamped by max-height, so an
+        // explicit max-height smaller than the content must win (min must not exceed max).
+        string longText = string.Concat(System.Linq.Enumerable.Repeat(
+            "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt. ", 20));
+
+        var root = LayoutFlex(
+            "<div style='display: flex; flex-direction: column; min-height: 40px; width: 200px'>" +
+            $"<p style='margin:0; max-height:30px'>{longText}</p>" +
+            "<div style='width: 50px; height: 20px'></div>" +
+            "</div>");
+
+        var paragraph = root.FindByTag("p");
+        paragraph.Should().NotBeNull();
+        paragraph!.Height.Should().BeApproximately(30f, 0.5f,
+            "max-height caps the automatic minimum size");
+    }
+
+    [Fact]
     public void FlexColumn_ChildrenLaidOutVertically()
     {
         var root = LayoutFlex(

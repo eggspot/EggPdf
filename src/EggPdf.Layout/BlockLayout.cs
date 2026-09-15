@@ -31,10 +31,6 @@ public static class BlockLayout
     public static float ViewportWidth => _viewportWidth;
     /// <summary>Current viewport height in pixels (for vh unit resolution). Set during layout.</summary>
     public static float ViewportHeight => _viewportHeight;
-    /// <summary>Current-thread CascadeResolver, for resolving ::before/::after outside BlockLayout (e.g. GridLayout).</summary>
-    internal static Css.Cascade.CascadeResolver? ThreadCascadeResolver => _threadCascadeResolver;
-    /// <summary>Current-thread CSS counter context, for resolving ::before/::after content outside BlockLayout.</summary>
-    internal static CssCounterContext? ThreadCounterCtx => _threadCounterCtx;
 
     /// <summary>A segment of text with associated style for inline formatting.</summary>
     private struct InlineRun
@@ -396,32 +392,24 @@ public static class BlockLayout
         var absChildren = new System.Collections.Generic.List<(HtmlElement elem, ComputedStyle style, string pos)>();
 
         // ::before pseudo-element content
-        if (cascadeRes != null && counterCtx != null)
+        if (TryResolvePseudoContent(element, "before", style, out var beforeStyle, out var beforeContent))
         {
-            var beforeStyle = cascadeRes.ResolvePseudoElement(element, "before", style);
-            if (beforeStyle != null)
+            float bFontSize = ResolveFontSize(beforeStyle!.FontSize, fontSize);
+            float bLineHeight = TextMeasurer.GetLineHeight(bFontSize, beforeStyle.Get("line-height"));
+            var textBox = new LayoutBox
             {
-                var content = counterCtx.ResolveContent(beforeStyle.Get("content"), element, beforeStyle);
-                if (content != null)
-                {
-                    float bFontSize = ResolveFontSize(beforeStyle.FontSize, fontSize);
-                    float bLineHeight = TextMeasurer.GetLineHeight(bFontSize, beforeStyle.Get("line-height"));
-                    var textBox = new LayoutBox
-                    {
-                        Style = beforeStyle,
-                        X = box.X + box.PaddingLeft,
-                        Y = box.Y + box.PaddingTop + childY,
-                        Width = childContainingWidth,
-                        Height = bLineHeight,
-                        ContentWidth = TextMeasurer.MeasureWidth(content, bFontSize,
-                            beforeStyle.FontFamily, beforeStyle.FontWeight, beforeStyle.Get("font-style")),
-                        ContentHeight = bLineHeight,
-                        Text = content
-                    };
-                    box.Children.Add(textBox);
-                    childY += bLineHeight;
-                }
-            }
+                Style = beforeStyle,
+                X = box.X + box.PaddingLeft,
+                Y = box.Y + box.PaddingTop + childY,
+                Width = childContainingWidth,
+                Height = bLineHeight,
+                ContentWidth = TextMeasurer.MeasureWidth(beforeContent!, bFontSize,
+                    beforeStyle.FontFamily, beforeStyle.FontWeight, beforeStyle.Get("font-style")),
+                ContentHeight = bLineHeight,
+                Text = beforeContent
+            };
+            box.Children.Add(textBox);
+            childY += bLineHeight;
         }
 
         // Form element special rendering: inject value/content text for void/custom form elements
@@ -1126,32 +1114,24 @@ public static class BlockLayout
         }
 
         // ::after pseudo-element content
-        if (cascadeRes != null && counterCtx != null)
+        if (TryResolvePseudoContent(element, "after", style, out var afterStyle, out var afterContent))
         {
-            var afterStyle = cascadeRes.ResolvePseudoElement(element, "after", style);
-            if (afterStyle != null)
+            float aFontSize = ResolveFontSize(afterStyle!.FontSize, fontSize);
+            float aLineHeight = TextMeasurer.GetLineHeight(aFontSize, afterStyle.Get("line-height"));
+            var textBox = new LayoutBox
             {
-                var content = counterCtx.ResolveContent(afterStyle.Get("content"), element, afterStyle);
-                if (content != null)
-                {
-                    float aFontSize = ResolveFontSize(afterStyle.FontSize, fontSize);
-                    float aLineHeight = TextMeasurer.GetLineHeight(aFontSize, afterStyle.Get("line-height"));
-                    var textBox = new LayoutBox
-                    {
-                        Style = afterStyle,
-                        X = box.X + box.PaddingLeft,
-                        Y = box.Y + box.PaddingTop + childY,
-                        Width = childContainingWidth,
-                        Height = aLineHeight,
-                        ContentWidth = TextMeasurer.MeasureWidth(content, aFontSize,
-                            afterStyle.FontFamily, afterStyle.FontWeight, afterStyle.Get("font-style")),
-                        ContentHeight = aLineHeight,
-                        Text = content
-                    };
-                    box.Children.Add(textBox);
-                    childY += aLineHeight;
-                }
-            }
+                Style = afterStyle,
+                X = box.X + box.PaddingLeft,
+                Y = box.Y + box.PaddingTop + childY,
+                Width = childContainingWidth,
+                Height = aLineHeight,
+                ContentWidth = TextMeasurer.MeasureWidth(afterContent!, aFontSize,
+                    afterStyle.FontFamily, afterStyle.FontWeight, afterStyle.Get("font-style")),
+                ContentHeight = aLineHeight,
+                Text = afterContent
+            };
+            box.Children.Add(textBox);
+            childY += aLineHeight;
         }
 
         // CSS counters: pop scopes created by counter-reset on this element (after children processed)
@@ -1322,16 +1302,13 @@ public static class BlockLayout
                             // Place the spanning element at full container width
                             if (isSpanning)
                             {
-                                float spanDeltaY = currentY - child!.Y;
-                                float spanDeltaX = containerX - child.X;
-                                child.Width = box.ContentWidth;
+                                child!.Width = box.ContentWidth;
                                 child.ContentWidth = box.ContentWidth - child.PaddingLeft - child.PaddingRight;
                                 if (child.ContentWidth < 0) child.ContentWidth = 0;
-                                // Shift the whole subtree (not just direct children) so
-                                // deeply nested text/inline boxes move too; absolutely
-                                // positioned descendants are skipped since their coordinates
-                                // are resolved against their own containing block.
-                                MultiColumnLayout.TranslateSubtree(child, spanDeltaX, spanDeltaY);
+                                // X is absolute: shift the whole subtree. Y is parent-relative
+                                // (resolved in the post-layout pass): only the spanning box moves.
+                                MultiColumnLayout.ShiftSubtreeX(child, containerX - child.X);
+                                child.Y = currentY;
                                 box.Children.Add(child);
                                 currentY += child.Height + child.MarginTop + child.MarginBottom;
                                 totalHeight += child.Height + child.MarginTop + child.MarginBottom;
@@ -2488,40 +2465,48 @@ public static class BlockLayout
             float fontSize = ResolveFontSize(style.FontSize, parentFontSize);
 
             // ::before pseudo-element injection for inline elements
-            var cascadeResInline = _threadCascadeResolver;
-            var counterCtxInline = _threadCounterCtx;
-            if (cascadeResInline != null && counterCtxInline != null)
+            if (TryResolvePseudoContent(elem, "before", style, out var beforeStyle, out var beforeContent))
             {
-                var beforeStyle = cascadeResInline.ResolvePseudoElement(elem, "before", style);
-                if (beforeStyle != null)
-                {
-                    var content = counterCtxInline.ResolveContent(beforeStyle.Get("content"), elem, beforeStyle);
-                    if (content != null)
-                    {
-                        float bfs = ResolveFontSize(beforeStyle.FontSize, fontSize);
-                        runs.Add(new InlineRun { Text = content, Style = beforeStyle, Element = elem, FontSize = bfs, HasLeadingSpace = false });
-                    }
-                }
+                float bfs = ResolveFontSize(beforeStyle!.FontSize, fontSize);
+                runs.Add(new InlineRun { Text = beforeContent!, Style = beforeStyle, Element = elem, FontSize = bfs, HasLeadingSpace = false });
             }
 
             foreach (var child in elem.ChildNodes)
                 CollectInlineRuns(child, style, fontSize, resolver, runs);
 
             // ::after pseudo-element injection for inline elements
-            if (cascadeResInline != null && counterCtxInline != null)
+            if (TryResolvePseudoContent(elem, "after", style, out var afterStyle, out var afterContent))
             {
-                var afterStyle = cascadeResInline.ResolvePseudoElement(elem, "after", style);
-                if (afterStyle != null)
-                {
-                    var content = counterCtxInline.ResolveContent(afterStyle.Get("content"), elem, afterStyle);
-                    if (content != null)
-                    {
-                        float afs = ResolveFontSize(afterStyle.FontSize, fontSize);
-                        runs.Add(new InlineRun { Text = content, Style = afterStyle, Element = null, FontSize = afs, HasLeadingSpace = false });
-                    }
-                }
+                float afs = ResolveFontSize(afterStyle!.FontSize, fontSize);
+                runs.Add(new InlineRun { Text = afterContent!, Style = afterStyle, Element = null, FontSize = afs, HasLeadingSpace = false });
             }
         }
+    }
+
+    /// <summary>
+    /// Resolve a ::before/::after pseudo-element for <paramref name="element"/>: its computed
+    /// style and the text produced by its `content` property. Returns false when no cascade
+    /// context is active, the pseudo-element has no matching rule, or `content` yields nothing.
+    /// </summary>
+    internal static bool TryResolvePseudoContent(HtmlElement element, string pseudo, ComputedStyle parentStyle,
+        out ComputedStyle? pseudoStyle, out string? content)
+    {
+        pseudoStyle = null;
+        content = null;
+
+        var cascadeRes = _threadCascadeResolver;
+        var counterCtx = _threadCounterCtx;
+        if (cascadeRes == null || counterCtx == null) return false;
+
+        var resolved = cascadeRes.ResolvePseudoElement(element, pseudo, parentStyle);
+        if (resolved == null) return false;
+
+        var text = counterCtx.ResolveContent(resolved.Get("content"), element, resolved);
+        if (text == null) return false;
+
+        pseudoStyle = resolved;
+        content = text;
+        return true;
     }
 
     /// <summary>Layout inline runs as word-level boxes with style-aware wrapping.</summary>

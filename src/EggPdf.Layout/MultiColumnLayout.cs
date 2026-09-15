@@ -113,12 +113,12 @@ public static class MultiColumnLayout
                     col < columnCount - 1) // last column gets everything remaining
                     break;
 
-                // Reposition child within this column. The child (and everything laid out
-                // beneath it during the original single-column pass) must move together —
-                // otherwise descendants keep stale coordinates and overlap other columns.
-                float newX = colX + child.MarginLeft;
-                float newY = colY + currentHeight + child.MarginTop;
-                TranslateSubtree(child, newX - child.X, newY - child.Y);
+                // Reposition child within this column. X is absolute in this engine, so the
+                // child's whole subtree must shift horizontally with it. Y is parent-relative
+                // (BlockLayout's post-layout pass adds each ancestor's Y), so only the child's
+                // own Y changes — and it is now relative to the column box it was moved into.
+                ShiftSubtreeX(child, colX + child.MarginLeft - child.X);
+                child.Y = currentHeight + child.MarginTop;
 
                 columnBox.Children.Add(child);
                 currentHeight += childHeight;
@@ -134,21 +134,36 @@ public static class MultiColumnLayout
     }
 
     /// <summary>
-    /// Shift a box and every descendant already positioned beneath it by (dx, dy),
-    /// preserving the relative layout computed during the original single-column pass.
-    /// Absolutely positioned descendants are skipped: their coordinates were already
-    /// resolved against their containing block (page root or nearest positioned
-    /// ancestor), not against this box, so shifting them here would double-move them —
-    /// the same reason <see cref="BlockLayout"/>'s OffsetBoxY skips them.
+    /// Shift a box and its descendants horizontally by dx. An absolutely positioned
+    /// descendant moves only if its containing block is inside the shifted subtree
+    /// (a positioned ancestor at or below <paramref name="box"/>); one anchored to the
+    /// page root keeps its coordinates. fixed-positioned boxes never move.
     /// </summary>
-    internal static void TranslateSubtree(LayoutBox box, float dx, float dy)
+    internal static void ShiftSubtreeX(LayoutBox box, float dx)
+    {
+        if (Math.Abs(dx) > 0.01f)
+            ShiftSubtreeX(box, dx, insidePositioned: false);
+    }
+
+    private static void ShiftSubtreeX(LayoutBox box, float dx, bool insidePositioned)
     {
         box.X += dx;
-        box.Y += dy;
+        var position = box.Style.Get("position");
+        bool positioned = insidePositioned ||
+            (position != null && position != "static");
+
         foreach (var child in box.Children)
         {
-            if (!child.IsAbsolutelyPositioned)
-                TranslateSubtree(child, dx, dy);
+            if (child.IsAbsolutelyPositioned)
+            {
+                if (!positioned || child.Style.Get("position") == "fixed")
+                    continue;
+                ShiftSubtreeX(child, dx, insidePositioned: true);
+            }
+            else
+            {
+                ShiftSubtreeX(child, dx, positioned);
+            }
         }
     }
 }
