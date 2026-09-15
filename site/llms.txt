@@ -24,16 +24,18 @@ byte[] pdf = await HtmlToPdf.RenderAsync("<h1>Hello</h1>");
 await File.WriteAllBytesAsync("output.pdf", pdf);
 ```
 
-## With options
+## Page size, margins, headers/footers
+Set with CSS, not an options object — `@page` for size/margin, `position: fixed` for running
+headers/footers (repeats on every page), `counter(page)`/`counter(pages)` for page numbers:
 ```csharp
-var converter = new HtmlToPdfConverter(new PdfOptions
-{
-    PageSize = PageSize.A4,
-    Margins = new PageMargins(20, 15, 20, 15, Unit.Mm),
-    DefaultFont = "Arial",
-    Footer = new HeaderFooter { Center = "Page {{page}} of {{pages}}" }
-});
-byte[] pdf = await converter.RenderAsync(html);
+string html = @"
+    <html><head><style>
+        @page { size: A4; margin: 20mm 15mm; }
+        .footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; }
+        .footer::after { content: ""Page "" counter(page) "" of "" counter(pages); }
+    </style></head>
+    <body><div class=""footer""></div><h1>My Document</h1></body></html>";
+byte[] pdf = await HtmlToPdf.RenderAsync(html);
 ```
 
 ## REST API (any language)
