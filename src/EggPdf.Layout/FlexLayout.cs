@@ -413,15 +413,21 @@ public static class FlexLayout
                 maxMain = BlockLayout.ResolveOptionalLength(childStyle.Get("max-height"), 0, fontSize);
 
                 // CSS Flexbox "automatic minimum size" (§4.5): a column-direction item's
-                // default min-height is its content size, not 0. Block content (text,
+                // default min-height is its CONTENT size, not 0. Block content (text,
                 // paragraphs, multi-column blocks, ...) doesn't reflow when its box is
                 // shrunk vertically the way it reflows when shrunk horizontally, so letting
-                // flex-shrink compress it below baseSize leaves the box shorter than the
-                // content actually painted inside it — the next sibling then gets positioned
-                // over that unshrunk content instead of after it. Per spec this only applies
-                // when the item's overflow is visible (a clipped item may shrink freely), and
-                // the content-based minimum is itself capped by max-height.
-                if (!minMain.HasValue)
+                // flex-shrink compress it below its content height leaves the box shorter
+                // than the content actually painted inside it — the next sibling then gets
+                // positioned over that unshrunk content instead of after it. Per spec this
+                // only applies when the item's overflow is visible (a clipped item may
+                // shrink freely), and the content-based minimum is itself capped by
+                // max-height. Only baseSize computed from the auto/content-based branch
+                // (hasExplicitMainSize false) is a content size — an item with an explicit
+                // height or flex-basis has baseSize equal to that *specified* size, and
+                // pinning the automatic minimum to it would block flex-shrink from ever
+                // honoring an explicit height smaller than the content wants, which is
+                // exactly what flex-shrink is for.
+                if (!minMain.HasValue && !hasExplicitMainSize)
                 {
                     var overflow = childStyle.Get("overflow-y") ?? childStyle.Get("overflow");
                     if (string.IsNullOrEmpty(overflow) || overflow == "visible" || overflow == "clip")
