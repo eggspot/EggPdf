@@ -343,7 +343,7 @@ public static class GridLayout
         // e.g. `li::before { content: "-" }` alongside `li { display:grid; grid-template-columns:
         // 14px 1fr }` is a common custom-marker idiom. Without this, the marker column goes
         // unfilled and the first real child (the item text) lands in the narrow marker track.
-        var beforeItem = TryCreatePseudoItem(element, containerStyle, "before", -1, fontSize);
+        var beforeItem = TryCreatePseudoItem(element, containerStyle, "before");
         if (beforeItem != null) items.Add(beforeItem);
 
         for (int i = 0; i < element.ChildNodes.Count; i++)
@@ -392,7 +392,7 @@ public static class GridLayout
             items.Add(item);
         }
 
-        var afterItem = TryCreatePseudoItem(element, containerStyle, "after", int.MaxValue, fontSize);
+        var afterItem = TryCreatePseudoItem(element, containerStyle, "after");
         if (afterItem != null) items.Add(afterItem);
 
         return items;
@@ -403,24 +403,15 @@ public static class GridLayout
     /// GridItem carrying no real HtmlElement (see GridItem.PseudoContent) — the box-creation
     /// loop in LayoutGrid builds its LayoutBox directly instead of via BlockLayout.CreateBox.
     /// </summary>
-    private static GridItem? TryCreatePseudoItem(HtmlElement element, ComputedStyle containerStyle,
-        string pseudo, int sourceIndex, float fontSize)
+    private static GridItem? TryCreatePseudoItem(HtmlElement element, ComputedStyle containerStyle, string pseudo)
     {
-        var cascadeRes = BlockLayout.ThreadCascadeResolver;
-        var counterCtx = BlockLayout.ThreadCounterCtx;
-        if (cascadeRes == null || counterCtx == null) return null;
-
-        var pseudoStyle = cascadeRes.ResolvePseudoElement(element, pseudo, containerStyle);
-        if (pseudoStyle == null) return null;
-
-        var content = counterCtx.ResolveContent(pseudoStyle.Get("content"), element, pseudoStyle);
-        if (content == null) return null;
+        if (!BlockLayout.TryResolvePseudoContent(element, pseudo, containerStyle, out var pseudoStyle, out var content))
+            return null;
 
         return new GridItem
         {
             Element = element,
-            Style = pseudoStyle,
-            SourceIndex = sourceIndex,
+            Style = pseudoStyle!,
             ColumnStart = -1,
             RowStart = -1,
             ColumnSpan = 1,

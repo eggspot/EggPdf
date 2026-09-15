@@ -418,9 +418,19 @@ public static class FlexLayout
                 // shrunk vertically the way it reflows when shrunk horizontally, so letting
                 // flex-shrink compress it below baseSize leaves the box shorter than the
                 // content actually painted inside it — the next sibling then gets positioned
-                // over that unshrunk content instead of after it.
+                // over that unshrunk content instead of after it. Per spec this only applies
+                // when the item's overflow is visible (a clipped item may shrink freely), and
+                // the content-based minimum is itself capped by max-height.
                 if (!minMain.HasValue)
-                    minMain = baseSize;
+                {
+                    var overflow = childStyle.Get("overflow-y") ?? childStyle.Get("overflow");
+                    if (string.IsNullOrEmpty(overflow) || overflow == "visible" || overflow == "clip")
+                    {
+                        minMain = baseSize;
+                        if (maxMain.HasValue && minMain.Value > maxMain.Value)
+                            minMain = maxMain.Value;
+                    }
+                }
             }
 
             // Clamp base size

@@ -30,14 +30,17 @@ internal static class PdfRenderer
     [ThreadStatic]
     private static float _marginTopPx;
     [ThreadStatic]
+    private static float _marginBottomPx;
+    [ThreadStatic]
     private static PdfDocument? _currentPdfDoc;
 
     public static void Render(LayoutBox layoutRoot, PdfDocument pdfDoc,
         float pageWidthPt, float pageHeightPt, float pageHeightPx,
-        float marginLeftPx = 0, float marginTopPx = 0)
+        float marginLeftPx = 0, float marginTopPx = 0, float marginBottomPx = 0)
     {
         _marginLeftPx = marginLeftPx;
         _marginTopPx = marginTopPx;
+        _marginBottomPx = marginBottomPx;
         _currentPdfDoc = pdfDoc;
 
         try
@@ -48,6 +51,7 @@ internal static class PdfRenderer
         {
             _marginLeftPx = 0;
             _marginTopPx = 0;
+            _marginBottomPx = 0;
             _currentPdfDoc = null;
         }
     }
@@ -117,8 +121,11 @@ internal static class PdfRenderer
             }
         }
 
-        // Content area height for pagination (page height minus vertical margins)
-        float paginationHeight = pageHeightPx - _marginTopPx * 2;
+        // Content area height for pagination (page height minus vertical margins).
+        // Both margins must be subtracted individually — asymmetric @page margins
+        // (e.g. a tall margin-top with a small margin-bottom) are common, and
+        // doubling one of them silently mis-sizes every page's content band.
+        float paginationHeight = pageHeightPx - _marginTopPx - _marginBottomPx;
         if (paginationHeight <= 0) paginationHeight = pageHeightPx;
 
         // Find body's margin-bottom so we can use it as a bottom snap zone:

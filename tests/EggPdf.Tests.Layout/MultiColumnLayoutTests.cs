@@ -208,13 +208,41 @@ public class MultiColumnLayoutTests
         var column2Child = columns[1].Children.Single();
         column2Child.Should().BeSameAs(child);
 
-        // The grandchild must move by the same delta as its parent — otherwise it keeps
+        // The grandchild must move by the same X delta as its parent — otherwise it keeps
         // painting at its stale column-1 coordinates, overlapping column 1's real content.
         float expectedDeltaX = column2Child.X - 0; // child's X before redistribution was 0
         grandchild.X.Should().BeApproximately(5 + expectedDeltaX, 0.1f,
             "descendants of a box moved into column 2 must be translated by the same offset as the box itself");
         grandchild.X.Should().BeGreaterThan(columnWidth,
             "grandchild should now fall within column 2's X range, not still overlap column 1");
+
+        // Y is parent-relative in this engine (BlockLayout's post-layout pass adds each
+        // ancestor's Y), so the grandchild's Y must NOT be touched — it is already relative
+        // to `child`, which is what moved.
+        grandchild.Y.Should().Be(5f, "descendant Y is parent-relative and must not be shifted");
+        // ...and `child` itself is now relative to its column box, whose Y is the container offset.
+        columns[1].Y.Should().Be(0f);
+        column2Child.Y.Should().Be(0f, "first child of a column sits at the column's top, relative to the column box");
+    }
+
+    [Fact]
+    public void Distribute_AbsoluteDescendantOfPositionedAncestor_MovesWithAncestor()
+    {
+        // The absolutely-positioned badge's containing block is the position:relative div
+        // that gets moved into column 2 — so the badge must move with it (its coordinates
+        // were resolved against that div). Contrast with the static-parent case below.
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0'>" +
+            "<div class='tc' style='column-count:2; column-gap:20px; width:400px'>" +
+            "<div style='height:60px'><p>First</p></div>" +
+            "<div style='height:60px; position:relative'><span style='position:absolute; top:10px; left:10px'>Badge</span></div>" +
+            "</div></body>", 500, 800);
+
+        var badge = root.FindByTag("span");
+        badge.Should().NotBeNull();
+        badge!.IsAbsolutelyPositioned.Should().BeTrue();
+        badge.X.Should().BeGreaterThan(190f,
+            "the badge is positioned against its relative ancestor, which now lives in column 2");
     }
 
     // ── integration: column-count in HTML layout ────────────────────────────
@@ -350,6 +378,81 @@ public class MultiColumnLayoutTests
         paragraphs[1].X.Should().BeGreaterThan(paragraphs[0].X + 50,
             "the second block's paragraph was distributed into column 2 and must be painted there, " +
             "not at column 1's original X — otherwise the two columns' text overlaps");
+
+        // Both are the first paragraph of their column, so they sit on the same row. If the
+        // redistribution had also shifted descendants in Y (which is parent-relative here),
+        // the column-2 paragraph would be pulled up by column 1's height into earlier content.
+        paragraphs[1].Y.Should().BeApproximately(paragraphs[0].Y, 0.5f,
+            "column-2 content must not be shifted vertically relative to column 1");
+    }
+
+    [Fact]
+    public void Layout_FlexColumnPage_MultiColumnSecondItem_ContentStaysBelowPrecedingItem()
+    {
+        // Reproduces the "Phụ lục" bleed: a flex-column page whose second item is a
+        // 2-column block. Article B is distributed into column 2; its paragraphs must
+        // all render below the page header, never above it / on the previous page.
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0'>" +
+            "<section style='display:flex; flex-direction:column; width:400px'>" +
+            "<p style='margin:0'>Header</p>" +
+            "<div style='column-count:2; column-gap:16px'>" +
+            "<div><h3>A</h3><p>a1</p><p>a2</p><p>a3</p></div>" +
+            "<div><h3>B</h3><p>b1</p><p>b2</p><p>b3</p><p>b4</p><p>b5</p></div>" +
+            "</div></section></body>", 500, 800);
+
+        var paragraphs = root.FindAllByTag("p");
+        paragraphs.Should().HaveCount(9);
+        var header = paragraphs[0];
+        for (int i = 1; i < paragraphs.Count; i++)
+        {
+            paragraphs[i].Y.Should().BeGreaterThan(header.Y + 0.5f,
+                $"paragraph {i} belongs to the multi-column block that follows the header");
+        }
+    }
+
+    [Fact]
+    public void Layout_ColumnCount2_PaddingTop_ColumnChildrenNotDoubleOffset()
+    {
+        // Column boxes sit at the container's padding offset; their children must be
+        // relative to the column box, or the padding gets added twice by the post-layout pass.
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0'>" +
+            "<div class='tc' style='column-count:2; column-gap:20px; width:400px; padding-top:20px'>" +
+            "<div style='height:60px'><p style='margin:0'>First</p></div>" +
+            "<div style='height:60px'><p style='margin:0'>Second</p></div>" +
+            "</div></body>", 500, 800);
+
+        var tc = root.FindByTag("div");
+        var paragraphs = root.FindAllByTag("p");
+        paragraphs[0].Y.Should().BeApproximately(tc!.Y + 20f, 1f,
+            "the first column paragraph starts right after the container's top padding, not 2x padding");
+    }
+
+    [Fact]
+    public void ColumnSpanAll_DeeplyNestedContentIsShiftedWithSpanningElement()
+    {
+        // Two paragraphs before the spanning element split across 2 columns, so the
+        // spanning element's Y after redistribution differs from its original single-column
+        // Y. The paragraph nested inside it is parent-relative and must end up inside the
+        // spanning div's resolved bounds — not pulled out of it by a stray Y shift.
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0'>" +
+            "<div style='column-count:2; width:400px; column-gap:0'>" +
+            "<p style='height:80px'>Before one</p>" +
+            "<p style='height:80px'>Before two</p>" +
+            "<div style='column-span:all'><p>Spanning paragraph text</p></div>" +
+            "<p>After</p>" +
+            "</div></body>", 500, 800);
+
+        var paragraphs = root.FindAllByTag("p");
+        var spanningParagraph = paragraphs[2];
+        var spanningDiv = root.FindAllByTag("div").Find(d => d.Style.Get("column-span") == "all");
+        spanningDiv.Should().NotBeNull();
+
+        spanningParagraph.Y.Should().BeGreaterOrEqualTo(spanningDiv!.Y - 0.5f);
+        spanningParagraph.Y.Should().BeLessOrEqualTo(spanningDiv.Y + spanningDiv.Height + 0.5f,
+            "a paragraph nested inside the column-span:all element must stay inside it");
     }
 
     [Fact]
