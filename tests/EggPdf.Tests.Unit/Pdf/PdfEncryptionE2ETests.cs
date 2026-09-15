@@ -196,7 +196,19 @@ public class PdfEncryptionE2ETests
         var text = Latin1(pdf);
 
         text.Should().NotContain(Secret, "content stream bytes must be RC4-encrypted");
-        text.Should().NotContain("Tj", "text-showing operators must not be readable in an encrypted PDF");
+
+        // A bare 2-byte "Tj" search over the whole file (including the pseudo-random RC4
+        // ciphertext) is flaky: any 2-byte sequence has a real chance of turning up by pure
+        // coincidence in ~100+ bytes of near-random data. Scope the check to just the content
+        // stream's own ciphertext, and require the actual multi-byte operator-invocation syntax
+        // (") Tj") rather than the bare keyword, cutting the false-positive rate by ~4 orders of
+        // magnitude while still catching the real bug this guards against (stream encryption
+        // silently skipped, leaving PDF operators readable).
+        var (contentCipher, _) = ExtractStream(pdf, text, 0);
+        var contentCipherText = Latin1(contentCipher);
+        contentCipherText.Should().NotContain(") Tj",
+            "text-showing operators must not be readable in the encrypted content stream");
+
         text.Should().NotContain("private-link", "annotation URI strings must be encrypted");
         text.Should().NotContain("Hidden Title", "Info dictionary strings must be encrypted");
         text.Should().Contain("/Encrypt <<");
