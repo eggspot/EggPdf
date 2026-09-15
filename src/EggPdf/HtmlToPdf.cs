@@ -1078,6 +1078,19 @@ public static class HtmlToPdf
             // text-overflow: ellipsis may append "..." at paint time
             if (box.Style?.Get("text-overflow") == "ellipsis")
                 codepoints.Add('.');
+
+            // counter(page)/counter(pages) resolve to a real page number only at paint
+            // time (PdfRenderer.PaintFixedBoxes), once pagination is known — well after
+            // font subsetting runs (which just scanned this box's still-unresolved sentinel
+            // text above). Every digit a page number could ever contain must already be in
+            // the subset, or whichever digits never happened to appear elsewhere in the
+            // document would silently paint as .notdef boxes.
+            if (box.Text!.IndexOf(Layout.CssCounterContext.PageCounterSentinel, StringComparison.Ordinal) >= 0 ||
+                box.Text!.IndexOf(Layout.CssCounterContext.PagesCounterSentinel, StringComparison.Ordinal) >= 0)
+            {
+                for (char d = '0'; d <= '9'; d++)
+                    codepoints.Add(d);
+            }
         }
 
         foreach (var child in box.Children)

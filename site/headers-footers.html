@@ -111,11 +111,20 @@
 <span class="pun">&lt;/</span><span class="typ">style</span><span class="pun">&gt;</span>
 
 <span class="pun">&lt;</span><span class="typ">div</span> <span class="kw">class</span><span class="pun">=</span><span class="str">"page-header"</span><span class="pun">&gt;</span>My Company — Confidential<span class="pun">&lt;/</span><span class="typ">div</span><span class="pun">&gt;</span>
-<span class="pun">&lt;</span><span class="typ">div</span> <span class="kw">class</span><span class="pun">=</span><span class="str">"page-footer"</span><span class="pun">&gt;</span>Document Title · Page 1<span class="pun">&lt;/</span><span class="typ">div</span><span class="pun">&gt;</span></code></pre></div>
+<span class="pun">&lt;</span><span class="typ">div</span> <span class="kw">class</span><span class="pun">=</span><span class="str">"page-footer"</span><span class="pun">&gt;</span>Document Title<span class="pun">&lt;/</span><span class="typ">div</span><span class="pun">&gt;</span></code></pre></div>
+
+      <h3 id="page-numbers">Page numbers with <code>counter(page)</code> (works today)</h3>
       <p>
-        Note: Page number variables such as <code>counter(page)</code> are not yet supported with fixed
-        positioning. Static text works well; dynamic page numbers require the planned
-        <code>@page</code> margin box support.
+        <code>counter(page)</code> and <code>counter(pages)</code> resolve per physical page inside a
+        <code>position: fixed</code> element's content — put them in a <code>::after</code> (or
+        <code>::before</code>) rule rather than as literal element text, since a real page number
+        isn't known until the whole document is paginated:
+      </p>
+      <div class="code-block"><pre><code><span class="typ">.page-footer</span><span class="pun">::after</span> <span class="pun">{</span>
+    <span class="kw">content</span><span class="pun">:</span> <span class="str">"Page " counter(page) " of " counter(pages)</span><span class="pun">;</span>
+<span class="pun">}</span></code></pre></div>
+      <p>
+        Each physical page gets its own resolved number — no manual per-page text needed.
       </p>
 
       <h2 id="table-header">Repeating table headers (works today)</h2>
