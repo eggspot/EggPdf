@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using EggPdf.Css;
 using EggPdf.Core;
 using EggPdf.Html.Dom;
@@ -68,12 +69,30 @@ internal static class PdfRenderer
         float pageWidthPt, float pageHeightPt, float pageHeightPx)
     {
         // Collect all leaf boxes (boxes with text or background)
+        var allPaintableBoxes = new List<LayoutBox>();
+        CollectPaintableBoxes(layoutRoot, allPaintableBoxes);
+
+        // position:fixed content repeats identically on every physical page: its containing
+        // block is the page origin (0,0), not the document flow (see BlockLayout's
+        // LayoutAbsoluteChildren), so its Y/X are already page-local rather than document-
+        // absolute. Split these out from normal flow boxes so Y-band pagination below doesn't
+        // assign them to a single page — they're instead repainted once per page further down.
         var allBoxes = new List<LayoutBox>();
-        CollectPaintableBoxes(layoutRoot, allBoxes);
+        var fixedBoxes = new List<LayoutBox>();
+        var fixedBoxSet = new HashSet<LayoutBox>();
+        CollectFixedPositionedBoxes(layoutRoot, false, fixedBoxSet);
+        for (int fi = 0; fi < allPaintableBoxes.Count; fi++)
+        {
+            if (fixedBoxSet.Contains(allPaintableBoxes[fi]))
+                fixedBoxes.Add(allPaintableBoxes[fi]);
+            else
+                allBoxes.Add(allPaintableBoxes[fi]);
+        }
 
         // Sort by z-index stacking order: non-positioned first (doc order),
         // then positioned elements sorted by z-index ascending (higher = painted later = on top)
         SortByZIndex(allBoxes);
+        SortByZIndex(fixedBoxes);
 
         // Also collect heading boxes for bookmarks
         var headings = new List<(string title, int level, float yPx)>();
@@ -81,8 +100,9 @@ internal static class PdfRenderer
 
         if (allBoxes.Count == 0)
         {
-            // Empty document: single blank page
-            pdfDoc.AddPage(pageWidthPt, pageHeightPt);
+            var blankPage = pdfDoc.AddPage(pageWidthPt, pageHeightPt);
+            blankPage.AddRectangle(0, 0, pageWidthPt, pageHeightPt, 1f, 1f, 1f);
+            PaintFixedBoxes(blankPage, fixedBoxes, pageHeightPt, pageHeightPx, pageIndex: 1, totalPages: 1);
             return;
         }
 
@@ -108,8 +128,14 @@ internal static class PdfRenderer
             if (bottom > maxY) maxY = bottom;
         }
 
-        // Build page boundaries (combining natural page breaks with forced ones)
+        // Build page boundaries (combining natural page breaks with forced ones).
+        // pageCapacityBottom tracks, per page, the true usable content-bottom edge (i.e. where
+        // this page's content area actually ends — a forced break, or the full page height when
+        // no break applies) as opposed to pageBounds' bottom, which for the trailing page is
+        // clamped down to wherever the content happens to end (maxY). The two coincide except on
+        // the last page when its content doesn't fill the whole page.
         var pageBounds = new List<(float top, float bottom)>();
+        var pageCapacityBottom = new List<float>();
         float currentTop = 0;
 
         foreach (float breakY in pageBreakYs)
@@ -117,6 +143,7 @@ internal static class PdfRenderer
             if (breakY > currentTop && breakY < maxY)
             {
                 pageBounds.Add((currentTop, breakY));
+                pageCapacityBottom.Add(breakY);
                 currentTop = breakY;
             }
         }
@@ -237,13 +264,66 @@ internal static class PdfRenderer
 
             float bottom = Math.Min(smartBottom, maxY);
             pageBounds.Add((currentTop, bottom));
+            pageCapacityBottom.Add(smartBottom);
             currentTop = bottom;
         }
 
         if (pageBounds.Count == 0)
+        {
             pageBounds.Add((0, maxY));
+            pageCapacityBottom.Add(maxY);
+        }
+
+        // -eggpdf-pin-bottom: page — visually pin a box (and everything after it in
+        // document order on the same page) to that page's bottom content edge, but only
+        // when the marked box itself fits entirely within a single page. This is a paint-time
+        // offset only (box.Y in the tree is never mutated), so it can't affect pagination itself
+        // or how many pages dynamic/flowing content produces above it.
+        var pinBottomBoxes = new List<LayoutBox>();
+        CollectPinBottomBoxes(layoutRoot, pinBottomBoxes);
+        var pageShiftThresholdY = new float[pageBounds.Count];
+        var pageShiftDelta = new float[pageBounds.Count];
+        if (pinBottomBoxes.Count > 0)
+        {
+            for (int pi = 0; pi < pageBounds.Count; pi++)
+                pageShiftThresholdY[pi] = float.MaxValue;
+
+            foreach (var markBox in pinBottomBoxes)
+            {
+                for (int pi = 0; pi < pageBounds.Count; pi++)
+                {
+                    var (pTop, pBottom) = pageBounds[pi];
+                    if (markBox.Y < pTop || markBox.Y >= pBottom) continue;
+                    if (markBox.Y + markBox.Height > pBottom) break; // doesn't fit this one page: leave in natural flow
+
+                    float pageBottomCapacity = pageCapacityBottom[pi];
+                    float thresholdY = markBox.Y;
+
+                    // Extent of everything from the marked box through the end of the page,
+                    // in its original (unshifted) position.
+                    float groupBottom = markBox.Y + markBox.Height;
+                    foreach (var b in allBoxes)
+                    {
+                        if (b.Y >= thresholdY && b.Y < pBottom)
+                        {
+                            float bBottom = b.Y + b.Height;
+                            if (bBottom > groupBottom) groupBottom = bBottom;
+                        }
+                    }
+
+                    float delta = pageBottomCapacity - groupBottom;
+                    if (delta > 0 && thresholdY < pageShiftThresholdY[pi])
+                    {
+                        pageShiftThresholdY[pi] = thresholdY;
+                        pageShiftDelta[pi] = delta;
+                    }
+                    break;
+                }
+            }
+        }
 
         // Render each page
+        int renderPageIndex = 0;
         foreach (var (pageTopPx, pageBottomPx) in pageBounds)
         {
             var page = pdfDoc.AddPage(pageWidthPt, pageHeightPt);
@@ -252,6 +332,9 @@ internal static class PdfRenderer
             // Without this, PDF viewers render the transparent page as off-white, causing
             // visible differences against explicitly white-background elements in browsers.
             page.AddRectangle(0, 0, pageWidthPt, pageHeightPt, 1f, 1f, 1f);
+
+            float shiftThreshold = pageShiftThresholdY[renderPageIndex];
+            float shiftDelta = pageShiftDelta[renderPageIndex];
 
             // Paint boxes that fall on this page
             foreach (var box in allBoxes)
@@ -270,10 +353,19 @@ internal static class PdfRenderer
 
                 if (skip) continue;
 
+                float effectiveY = box.Y;
+                if (shiftDelta > 0 && box.Y >= shiftThreshold)
+                    effectiveY += shiftDelta;
+
                 // Adjust Y coordinate relative to this page, offset by top margin
-                float adjustedY = box.Y - pageTopPx + _marginTopPx;
+                float adjustedY = effectiveY - pageTopPx + _marginTopPx;
                 PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY);
             }
+
+            PaintFixedBoxes(page, fixedBoxes, pageHeightPt, pageHeightPx,
+                pageIndex: renderPageIndex + 1, totalPages: pageBounds.Count);
+
+            renderPageIndex++;
         }
 
         // Convert headings to PDF bookmarks
@@ -385,6 +477,71 @@ internal static class PdfRenderer
 
         foreach (var child in box.Children)
             CollectBreakInsideAvoid(child, result);
+    }
+
+    /// <summary>
+    /// Collect every paintable box that lives inside a <c>position: fixed</c> subtree
+    /// (the fixed element itself and all its descendants). Their Y/X are already page-local
+    /// (see BlockLayout's <c>LayoutAbsoluteChildren</c>, which anchors a fixed box's containing
+    /// block to page origin), so they must be excluded from normal document-flow pagination
+    /// and repainted per page instead.
+    /// </summary>
+    private static void CollectFixedPositionedBoxes(LayoutBox box, bool insideFixed, HashSet<LayoutBox> result)
+    {
+        bool nowInsideFixed = insideFixed || box.Style?.Get("position") == "fixed";
+        if (nowInsideFixed)
+            result.Add(box);
+
+        foreach (var child in box.Children)
+            CollectFixedPositionedBoxes(child, nowInsideFixed, result);
+    }
+
+    /// <summary>
+    /// Repaint every position:fixed box onto the given page, using its already page-local
+    /// Y/X directly (no page-offset adjustment — its containing block IS the page origin).
+    /// Any counter(page)/counter(pages) sentinel left in a box's text by
+    /// <see cref="EggPdf.Layout.CssCounterContext.ResolveContent"/> is substituted with this
+    /// page's real number before painting, then restored so the next page starts clean.
+    /// </summary>
+    private static void PaintFixedBoxes(PdfPage page, List<LayoutBox> fixedBoxes,
+        float pageHeightPt, float pageHeightPx, int pageIndex, int totalPages)
+    {
+        for (int i = 0; i < fixedBoxes.Count; i++)
+        {
+            var box = fixedBoxes[i];
+            string? originalText = box.Text;
+            bool textSubstituted = false;
+
+            if (!string.IsNullOrEmpty(originalText) &&
+                (originalText.IndexOf(CssCounterContext.PageCounterSentinel, StringComparison.Ordinal) >= 0 ||
+                 originalText.IndexOf(CssCounterContext.PagesCounterSentinel, StringComparison.Ordinal) >= 0))
+            {
+                box.Text = originalText
+                    .Replace(CssCounterContext.PageCounterSentinel, pageIndex.ToString(CultureInfo.InvariantCulture))
+                    .Replace(CssCounterContext.PagesCounterSentinel, totalPages.ToString(CultureInfo.InvariantCulture));
+                textSubstituted = true;
+            }
+
+            PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY: box.Y);
+
+            if (textSubstituted)
+                box.Text = originalText;
+        }
+    }
+
+    /// <summary>
+    /// Collect boxes carrying the <c>-eggpdf-pin-bottom: page</c> extension property —
+    /// an opt-in EggPdf-specific hook for pinning trailing content (e.g. a signature/acceptance
+    /// block) to the bottom of whichever physical page it lands on, once auto-pagination of any
+    /// preceding dynamic content has already been resolved.
+    /// </summary>
+    private static void CollectPinBottomBoxes(LayoutBox box, List<LayoutBox> result)
+    {
+        if (box.Style?.Get("-eggpdf-pin-bottom") == "page")
+            result.Add(box);
+
+        foreach (var child in box.Children)
+            CollectPinBottomBoxes(child, result);
     }
 
     /// <summary>Text block with orphans/widows constraints for pagination.</summary>

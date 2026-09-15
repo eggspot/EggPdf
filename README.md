@@ -123,6 +123,7 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Repeating table headers across pages
 - Mixed page orientations (portrait + landscape)
 - Watermarks
+- Pin content (e.g. a signature/acceptance box) to the bottom of whichever page dynamic content ends on (`-eggpdf-pin-bottom: page`)
 
 ### Typography
 - TrueType/OpenType font embedding with subsetting

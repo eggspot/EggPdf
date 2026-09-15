@@ -134,6 +134,30 @@
 <span class="cmt">/* Don't split table rows */</span>
 <span class="var">tr</span> <span class="pun">{</span> <span class="var">break-inside</span><span class="pun">:</span> <span class="var">avoid</span><span class="pun">; }</span></code></pre></div>
 
+      <h2 id="pin-bottom">Pinning content to the bottom of the last page</h2>
+      <p>
+        A common pattern — a signature block, an acceptance/consent box, a summary total — needs
+        to sit flush against the bottom of whichever page it ends up on, even when everything
+        above it is dynamic, variable-length content that auto-paginates across an unknown number
+        of pages. Standard CSS has no way to express this: flexbox's <code>margin-top: auto</code>
+        bottom-pinning trick only works when the flex container is guaranteed to be a single
+        physical page, which dynamic content can't guarantee up front.
+      </p>
+      <p>
+        EggPdf's <code>-eggpdf-pin-bottom: page</code> extension solves this directly. Apply it to
+        the element that should hug the bottom edge — once pagination has run, if that element
+        (and anything after it in the flow) fits within a single physical page, it's shifted down
+        to the bottom of that page:
+      </p>
+      <div class="code-block"><pre><code><span class="pun">.</span><span class="var">acceptance-box</span> <span class="pun">{</span>
+    <span class="var">-eggpdf-pin-bottom</span><span class="pun">:</span> <span class="var">page</span><span class="pun">;</span>
+<span class="pun">}</span></code></pre></div>
+      <p>
+        If the marked element itself is too tall to fit on one physical page, it's left exactly
+        where normal flow placed it rather than forced — there's no single "page bottom" to align
+        to in that case, so pinning it would corrupt the layout instead of fixing it.
+      </p>
+
       <h2 id="flexbox-grid">Flexbox and Grid</h2>
       <p>
         Both <code>display: flex</code> and <code>display: grid</code> work exactly as in a

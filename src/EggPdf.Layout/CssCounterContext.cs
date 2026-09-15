@@ -16,6 +16,17 @@ public class CssCounterContext
     private readonly Dictionary<string, Stack<int>> _counters =
         new Dictionary<string, Stack<int>>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Placeholder emitted for counter(page) during layout, when the physical page number
+    /// isn't known yet (pagination happens later, in PdfRenderer). PdfRenderer substitutes
+    /// this for the real page number when painting a position:fixed box, once per page.
+    /// Wrapped in Unicode Private Use Area characters so it can't collide with real content.
+    /// </summary>
+    public const string PageCounterSentinel = "EGGPDF-PAGE";
+
+    /// <summary>Same as <see cref="PageCounterSentinel"/>, for counter(pages) (the total page count).</summary>
+    public const string PagesCounterSentinel = "EGGPDF-PAGES";
+
     // Maps custom counter style name -> rule
     private Dictionary<string, CssCounterStyleRule>? _customStyles;
 
@@ -199,8 +210,19 @@ public class CssCounterContext
                 var counterName = comma >= 0 ? args.Substring(0, comma).Trim() : args.Trim();
                 var counterStyle = comma >= 0 ? args.Substring(comma + 1).Trim() : "decimal";
 
-                int val = GetValue(counterName);
-                result.Append(FormatCounterValue(val, counterStyle));
+                // counter(page) / counter(pages) are reserved CSS Paged Media counters —
+                // not something counter-reset can define — and their real value isn't known
+                // until pagination runs, well after layout. Emit a sentinel for PdfRenderer
+                // to substitute per page instead of resolving (incorrectly) to 0 here.
+                if (string.Equals(counterName, "page", StringComparison.OrdinalIgnoreCase))
+                    result.Append(PageCounterSentinel);
+                else if (string.Equals(counterName, "pages", StringComparison.OrdinalIgnoreCase))
+                    result.Append(PagesCounterSentinel);
+                else
+                {
+                    int val = GetValue(counterName);
+                    result.Append(FormatCounterValue(val, counterStyle));
+                }
             }
             else if (remaining.StartsWith("counters(", StringComparison.OrdinalIgnoreCase))
             {

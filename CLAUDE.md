@@ -155,6 +155,26 @@ dotnet run --project src/EggPdf.Service -c Release -- --urls http://localhost:55
 - Remove unused code -- no dead methods, unused usings, or orphaned helpers. Keep the codebase clean.
 - Test naming: `Feature_Condition_ExpectedBehavior`
 
+## Docs Stay in Sync
+
+When a change adds, fixes, or removes a user-facing CSS/HTML/PDF capability (a new supported
+property, a bug fix that makes something documented-but-broken actually work, a documented
+limitation that no longer applies), update the relevant docs in the SAME change, not as a
+follow-up:
+
+- `README.md` -- feature bullet lists (`### HTML & CSS`, `### PDF`, etc.)
+- `llms.txt` / `site/llms.txt` -- AI/LLM discovery files (`## Key features`)
+- `site/*.html` -- the relevant GitHub Pages doc (e.g. `headers-footers.html`, `page-layout.html`,
+  `tables.html`) -- correct any "(planned)" / "not yet supported" notes that the change resolves
+- `CLAUDE.md` -- if the change alters this file's own project-structure/workflow claims
+
+Never document a capability as working until it's verified end-to-end (rendered, inspected in the
+actual PDF bytes) -- a feature that merely doesn't crash is not "supported". Conversely, if you
+discover docs claiming something works that doesn't (verify before trusting the doc), fix the
+underlying gap or correct the doc -- don't leave the mismatch. The `/docs` skill runs a fuller
+audit pass (versions, benchmarks, Docker image names, wiki pages) -- use it periodically, but
+per-change doc updates above shouldn't wait for that pass.
+
 ## Skills (invoke with /slash commands)
 
 - `/feat` -- implement a new feature (test-first workflow)
