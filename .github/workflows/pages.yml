@@ -30,6 +30,19 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
+      - name: Stamp current version into site
+        # site/**/*.html carries the version as the literal placeholder
+        # __EGGPDF_VERSION__ in source control — substituted here, in the
+        # ephemeral runner checkout only, never committed back. That keeps
+        # the placeholder reusable on every future release instead of being
+        # permanently overwritten by the first one.
+        run: |
+          VERSION=$(grep -oP '(?<=<Version>)[^<]+' src/EggPdf/EggPdf.csproj | head -1)
+          echo "Stamping version: $VERSION"
+          grep -rl "__EGGPDF_VERSION__" site/ | while read -r f; do
+            sed -i "s|__EGGPDF_VERSION__|${VERSION}|g" "$f"
+          done
+
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
