@@ -167,8 +167,28 @@ public static class GridLayout
                 }
             }
 
-            // Create child box with the calculated width
-            var childBox = BlockLayout.CreateBox(item.Element, item.Style, container, itemWidth, resolver, style);
+            // Create child box with the calculated width. A synthesized ::before/::after
+            // item has no real HtmlElement to hand BlockLayout.CreateBox, so build its
+            // (text-only) box directly instead.
+            LayoutBox childBox;
+            if (item.PseudoContent != null)
+            {
+                float pFontSize = BlockLayout.ResolveFontSize(item.Style.FontSize, fontSize);
+                float pLineHeight = TextMeasurer.GetLineHeight(pFontSize, item.Style.Get("line-height"));
+                childBox = new LayoutBox
+                {
+                    Style = item.Style,
+                    Width = itemWidth,
+                    Height = pLineHeight,
+                    ContentWidth = itemWidth,
+                    ContentHeight = pLineHeight,
+                    Text = item.PseudoContent
+                };
+            }
+            else
+            {
+                childBox = BlockLayout.CreateBox(item.Element, item.Style, container, itemWidth, resolver, style);
+            }
 
             // Override width to match grid cell
             childBox.Width = itemWidth;
@@ -318,6 +338,14 @@ public static class GridLayout
     {
         var items = new List<GridItem>();
 
+        // ::before generates a box that is itself a grid item when its parent is a grid
+        // container (CSS Display §3), placed before all of the container's real children —
+        // e.g. `li::before { content: "-" }` alongside `li { display:grid; grid-template-columns:
+        // 14px 1fr }` is a common custom-marker idiom. Without this, the marker column goes
+        // unfilled and the first real child (the item text) lands in the narrow marker track.
+        var beforeItem = TryCreatePseudoItem(element, containerStyle, "before", -1, fontSize);
+        if (beforeItem != null) items.Add(beforeItem);
+
         for (int i = 0; i < element.ChildNodes.Count; i++)
         {
             var childNode = element.ChildNodes[i];
@@ -364,7 +392,41 @@ public static class GridLayout
             items.Add(item);
         }
 
+        var afterItem = TryCreatePseudoItem(element, containerStyle, "after", int.MaxValue, fontSize);
+        if (afterItem != null) items.Add(afterItem);
+
         return items;
+    }
+
+    /// <summary>
+    /// Resolve a ::before/::after pseudo-element's `content` and, if non-null, wrap it as a
+    /// GridItem carrying no real HtmlElement (see GridItem.PseudoContent) — the box-creation
+    /// loop in LayoutGrid builds its LayoutBox directly instead of via BlockLayout.CreateBox.
+    /// </summary>
+    private static GridItem? TryCreatePseudoItem(HtmlElement element, ComputedStyle containerStyle,
+        string pseudo, int sourceIndex, float fontSize)
+    {
+        var cascadeRes = BlockLayout.ThreadCascadeResolver;
+        var counterCtx = BlockLayout.ThreadCounterCtx;
+        if (cascadeRes == null || counterCtx == null) return null;
+
+        var pseudoStyle = cascadeRes.ResolvePseudoElement(element, pseudo, containerStyle);
+        if (pseudoStyle == null) return null;
+
+        var content = counterCtx.ResolveContent(pseudoStyle.Get("content"), element, pseudoStyle);
+        if (content == null) return null;
+
+        return new GridItem
+        {
+            Element = element,
+            Style = pseudoStyle,
+            SourceIndex = sourceIndex,
+            ColumnStart = -1,
+            RowStart = -1,
+            ColumnSpan = 1,
+            RowSpan = 1,
+            PseudoContent = content
+        };
     }
 
     /// <summary>Parse grid-column/row placement properties.</summary>
@@ -1095,5 +1157,8 @@ public static class GridLayout
         public int ColumnSpan;
         public int RowSpan;
         public string? AreaName;
+        /// <summary>Set for a synthesized ::before/::after item — its resolved `content` text,
+        /// painted directly instead of via BlockLayout.CreateBox (which needs a real element).</summary>
+        public string? PseudoContent;
     }
 }

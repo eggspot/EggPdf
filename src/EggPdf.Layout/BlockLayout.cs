@@ -31,6 +31,10 @@ public static class BlockLayout
     public static float ViewportWidth => _viewportWidth;
     /// <summary>Current viewport height in pixels (for vh unit resolution). Set during layout.</summary>
     public static float ViewportHeight => _viewportHeight;
+    /// <summary>Current-thread CascadeResolver, for resolving ::before/::after outside BlockLayout (e.g. GridLayout).</summary>
+    internal static Css.Cascade.CascadeResolver? ThreadCascadeResolver => _threadCascadeResolver;
+    /// <summary>Current-thread CSS counter context, for resolving ::before/::after content outside BlockLayout.</summary>
+    internal static CssCounterContext? ThreadCounterCtx => _threadCounterCtx;
 
     /// <summary>A segment of text with associated style for inline formatting.</summary>
     private struct InlineRun
@@ -851,8 +855,13 @@ public static class BlockLayout
                     // transform is idempotent so the box text may carry it too.
                     ilTextData = ApplyTextTransformForMeasure(ilTextData, style);
 
-                    // Split into words and lay them out inline
-                    var words = ilTextData.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    // Split into words and lay them out inline. TrimHtmlText only trims the
+                    // edges — it deliberately doesn't collapse internal whitespace runs (unlike
+                    // NormalizeInlineWhitespace), so a CRLF or bare \n/\t sitting between two
+                    // space-separated words must also be treated as a delimiter here, or it
+                    // stays glued to the end of a "word" and reaches the glyph layer as a raw
+                    // control character with no printable glyph (renders as a tofu box).
+                    var words = ilTextData.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
                     foreach (var word in words)
                     {
                         var wordWithSpace = (inlineX > 0 ? " " : "") + word;
@@ -1315,17 +1324,14 @@ public static class BlockLayout
                             {
                                 float spanDeltaY = currentY - child!.Y;
                                 float spanDeltaX = containerX - child.X;
-                                child.X = containerX;
-                                child.Y = currentY;
                                 child.Width = box.ContentWidth;
                                 child.ContentWidth = box.ContentWidth - child.PaddingLeft - child.PaddingRight;
                                 if (child.ContentWidth < 0) child.ContentWidth = 0;
-                                // Shift all inline/text children
-                                for (int gi = 0; gi < child.Children.Count; gi++)
-                                {
-                                    child.Children[gi].X += spanDeltaX;
-                                    child.Children[gi].Y += spanDeltaY;
-                                }
+                                // Shift the whole subtree (not just direct children) so
+                                // deeply nested text/inline boxes move too; absolutely
+                                // positioned descendants are skipped since their coordinates
+                                // are resolved against their own containing block.
+                                MultiColumnLayout.TranslateSubtree(child, spanDeltaX, spanDeltaY);
                                 box.Children.Add(child);
                                 currentY += child.Height + child.MarginTop + child.MarginBottom;
                                 totalHeight += child.Height + child.MarginTop + child.MarginBottom;

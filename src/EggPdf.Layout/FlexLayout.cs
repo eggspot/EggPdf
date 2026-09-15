@@ -411,6 +411,16 @@ public static class FlexLayout
             {
                 minMain = BlockLayout.ResolveOptionalLength(childStyle.Get("min-height"), 0, fontSize);
                 maxMain = BlockLayout.ResolveOptionalLength(childStyle.Get("max-height"), 0, fontSize);
+
+                // CSS Flexbox "automatic minimum size" (§4.5): a column-direction item's
+                // default min-height is its content size, not 0. Block content (text,
+                // paragraphs, multi-column blocks, ...) doesn't reflow when its box is
+                // shrunk vertically the way it reflows when shrunk horizontally, so letting
+                // flex-shrink compress it below baseSize leaves the box shorter than the
+                // content actually painted inside it — the next sibling then gets positioned
+                // over that unshrunk content instead of after it.
+                if (!minMain.HasValue)
+                    minMain = baseSize;
             }
 
             // Clamp base size

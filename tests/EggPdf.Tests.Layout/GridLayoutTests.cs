@@ -39,6 +39,29 @@ public class GridLayoutTests
     }
 
     [Fact]
+    public void GridContainer_BeforePseudoElement_OccupiesMarkerColumnNotRealChild()
+    {
+        // Common custom-list-marker idiom: `li::before { content: "-" }` paired with
+        // `li { display:grid; grid-template-columns: 14px 1fr }`. The ::before box must
+        // become a grid item occupying the narrow marker column — if it isn't collected
+        // at all, the real <span> child (the only DOM child) auto-places into that 14px
+        // column instead of the 1fr column, squeezing all its text into ~14px and forcing
+        // one word per line.
+        var html = "<html><head><style>" +
+            "li { display:grid; grid-template-columns: 14px 1fr; width: 400px; }" +
+            "li::before { content: '-'; }" +
+            "</style></head><body>" +
+            "<ul><li><span>Some marker text that needs the wide column to wrap normally</span></li></ul>" +
+            "</body></html>";
+        var root = LayoutTestHelper.Layout(html, 600, 800);
+
+        var span = root.FindByTag("span");
+        span.Should().NotBeNull();
+        span!.ContentWidth.Should().BeGreaterThan(200f,
+            "the real child must land in the 1fr column, not the 14px column reserved for ::before");
+    }
+
+    [Fact]
     public void GridContainer_DoesNotCrash()
     {
         var act = () => LayoutGrid(
