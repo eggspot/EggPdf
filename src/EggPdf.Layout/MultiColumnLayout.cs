@@ -113,12 +113,14 @@ public static class MultiColumnLayout
                     col < columnCount - 1) // last column gets everything remaining
                     break;
 
-                // Reposition child within this column
-                var repositioned = child;
-                repositioned.X = colX + child.MarginLeft;
-                repositioned.Y = colY + currentHeight + child.MarginTop;
+                // Reposition child within this column. The child (and everything laid out
+                // beneath it during the original single-column pass) must move together —
+                // otherwise descendants keep stale coordinates and overlap other columns.
+                float newX = colX + child.MarginLeft;
+                float newY = colY + currentHeight + child.MarginTop;
+                TranslateSubtree(child, newX - child.X, newY - child.Y);
 
-                columnBox.Children.Add(repositioned);
+                columnBox.Children.Add(child);
                 currentHeight += childHeight;
                 childIdx++;
             }
@@ -129,5 +131,24 @@ public static class MultiColumnLayout
         }
 
         return columns;
+    }
+
+    /// <summary>
+    /// Shift a box and every descendant already positioned beneath it by (dx, dy),
+    /// preserving the relative layout computed during the original single-column pass.
+    /// Absolutely positioned descendants are skipped: their coordinates were already
+    /// resolved against their containing block (page root or nearest positioned
+    /// ancestor), not against this box, so shifting them here would double-move them —
+    /// the same reason <see cref="BlockLayout"/>'s OffsetBoxY skips them.
+    /// </summary>
+    internal static void TranslateSubtree(LayoutBox box, float dx, float dy)
+    {
+        box.X += dx;
+        box.Y += dy;
+        foreach (var child in box.Children)
+        {
+            if (!child.IsAbsolutelyPositioned)
+                TranslateSubtree(child, dx, dy);
+        }
     }
 }

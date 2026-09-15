@@ -50,6 +50,38 @@ public class FlexLayoutTests
     }
 
     [Fact]
+    public void FlexColumn_ContentOverflowsMinHeight_ItemNotShrunkBelowContent()
+    {
+        // Reproduces the VCRRM certificate bug: a `.page { display:flex; flex-direction:column;
+        // min-height:... }` container whose text content is taller than min-height. Because
+        // block text doesn't reflow when its box is squeezed vertically (unlike width-shrinking,
+        // where text rewraps), the paragraph's rendered box must keep its full content height —
+        // flex-shrink must not compress it — or the next sibling gets positioned on top of the
+        // paragraph's still-visible text instead of below it.
+        string longText = string.Concat(System.Linq.Enumerable.Repeat(
+            "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt. ", 20));
+
+        var root = LayoutFlex(
+            "<div style='display: flex; flex-direction: column; min-height: 40px; width: 200px'>" +
+            $"<p style='margin:0'>{longText}</p>" +
+            "<div style='width: 50px; height: 20px'></div>" +
+            "</div>");
+
+        var container = FindInnerDivs(root)[0];
+        var paragraph = root.FindByTag("p");
+        paragraph.Should().NotBeNull();
+
+        // The paragraph must keep the height its wrapped text actually needs — far more
+        // than the container's 40px min-height — not be shrunk down to fit.
+        paragraph!.Height.Should().BeGreaterThan(40f,
+            "block text content must not be compressed below the height its wrapped lines need");
+
+        var secondItem = container.Children[1];
+        secondItem.Y.Should().BeGreaterOrEqualTo(paragraph.Y + paragraph.Height - 0.5f,
+            "the second flex item must be positioned after the paragraph's true content height, not overlapping it");
+    }
+
+    [Fact]
     public void FlexColumn_ChildrenLaidOutVertically()
     {
         var root = LayoutFlex(
