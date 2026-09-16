@@ -48,4 +48,25 @@ public class InlineBoundarySpaceTests
         text.Should().Contain("( gamma)");
         text.Should().Contain("( delta)");
     }
+
+    [Fact]
+    public async Task WhitespaceOnlyTextNodeBetweenSiblingSpans_CollapsesToOneSpace()
+    {
+        // Real-world case: a certificate template's field-list writes each <li> across
+        // multiple source lines for readability --
+        //   <span><span class="field-label">Label:</span>
+        //           <span class="field-value">Value</span></span>
+        // -- leaving only a newline + indentation (a whitespace-only text node, no literal
+        // space character) between the two sibling spans. CSS still collapses that into one
+        // boundary space; LayoutInlineRuns' word loop skips a run that normalizes to nothing
+        // (`if (text.Length == 0) continue;`) without recording that it was a boundary space,
+        // so the following run's "needSpace" check never sees it and the label glues directly
+        // onto the value with no space at all ("Label:Value" instead of "Label: Value").
+        var pdf = await HtmlToPdf.RenderAsync(
+            "<html><body><div><span><span>Label:</span>\n        <span>Value</span></span></div></body></html>");
+        var text = Encoding.ASCII.GetString(pdf);
+
+        text.Should().Contain("( Value)",
+            "a whitespace-only text node between sibling inline elements must still collapse to one boundary space");
+    }
 }

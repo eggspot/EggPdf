@@ -2586,7 +2586,17 @@ public static class BlockLayout
             // reallocated the string once per collapsed pair).
             var text = NormalizeInlineWhitespace(run.Text);
 
-            if (text.Length == 0) continue;
+            if (text.Length == 0)
+            {
+                // A run that normalizes to nothing was pure whitespace -- e.g. the newline +
+                // indentation HTML source formatting often leaves as its own text node between
+                // two sibling inline elements. CSS still collapses that into a single boundary
+                // space, so the NEXT run must still know a space belongs before it (mirrors the
+                // trailing-space bookkeeping below, which this skip would otherwise bypass).
+                char lastRunCharSkip = run.Text.Length > 0 ? run.Text[run.Text.Length - 1] : '\0';
+                prevRunTrailingSpace = lastRunCharSkip != NonBreakingSpace && char.IsWhiteSpace(lastRunCharSkip);
+                continue;
+            }
 
             // Measure the transformed text (uppercase is wider); the paint-time
             // transform is idempotent so word boxes may carry it too.
