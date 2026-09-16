@@ -65,13 +65,19 @@ dotnet add package EggPdf.AspNetCore
 ```
 
 ```csharp
-// Controller — PdfResult wraps HtmlToPdf.Render() and streams it as a file download
+// Plain HTML -> PDF download, no DI registration needed
+[HttpGet("report/pdf")]
+public IActionResult GetReport()
+    => new PdfResult("<h1>Report</h1>", "report.pdf");
+
+// Render a .cshtml Razor view directly -> PDF download, one line.
+// Requires services.AddEggPdfRazor() at startup (EggPdf.AspNetCore already
+// references EggPdf.Razor, so installing just this package is enough).
 [HttpGet("invoice/{id}/pdf")]
 public async Task<IActionResult> GetInvoice(int id)
 {
     var model = await _invoiceService.GetAsync(id);
-    string html = await _viewRenderer.RenderAsync("Invoice", model);
-    return new PdfResult(html, $"invoice-{id}.pdf");
+    return new RazorPdfResult("Invoice", model, $"invoice-{id}.pdf");
 }
 ```
 

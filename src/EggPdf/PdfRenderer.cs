@@ -373,7 +373,31 @@ internal static class PdfRenderer
 
                 // Adjust Y coordinate relative to this page, offset by top margin
                 float adjustedY = effectiveY - pageTopPx + _marginTopPx;
-                PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY);
+
+                // A box taller than one physical page (e.g. a bordered/backgrounded <section>
+                // that now correctly spans multiple pages — see the pagination fix above) only
+                // has PART of its height visible on any single page. PaintBox draws background/
+                // border/shadow rectangles from box.Height unconditionally; passing the box's
+                // full height here would paint those rectangles at the wrong position and size
+                // on every page but the one where the box begins — visible as a mispositioned
+                // sliver of color instead of a correctly filled page. Clamp to the portion of
+                // the box actually visible on this page before painting, then restore.
+                float visibleTop = Math.Max(effectiveY, pageTopPx);
+                float visibleBottom = Math.Min(effectiveY + box.Height, pageBottomPx);
+                float clampedHeight = Math.Max(0f, visibleBottom - visibleTop);
+
+                if (clampedHeight < box.Height)
+                {
+                    float clampedAdjustedY = visibleTop - pageTopPx + _marginTopPx;
+                    float originalHeight = box.Height;
+                    box.Height = clampedHeight;
+                    PaintBox(page, box, pageHeightPt, pageHeightPx, clampedAdjustedY);
+                    box.Height = originalHeight;
+                }
+                else
+                {
+                    PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY);
+                }
             }
 
             PaintFixedBoxes(page, fixedBoxes, pageHeightPt, pageHeightPx,
@@ -536,8 +560,17 @@ internal static class PdfRenderer
                 textSubstituted = true;
             }
 
+            // PaintBox always adds _marginLeftPx to box.X (correct for document-flow content,
+            // whose X is measured from the content area's left edge). A fixed box's X is
+            // already measured from the full physical page's left edge (see BlockLayout's
+            // _fullPageWidthPx), so that add must be cancelled out here or "left: 0" would
+            // land marginLeftPx short of the true page edge.
+            float originalX = box.X;
+            box.X = originalX - _marginLeftPx;
+
             PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY: box.Y);
 
+            box.X = originalX;
             if (textSubstituted)
                 box.Text = originalText;
         }

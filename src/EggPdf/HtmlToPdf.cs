@@ -16,8 +16,9 @@ using EggPdf.Pdf;
 namespace EggPdf;
 
 /// <summary>
-/// Static convenience class for HTML-to-PDF conversion.
-/// For advanced usage, use HtmlToPdfConverter with PdfOptions.
+/// Static class for HTML-to-PDF conversion. Page size, margins, orientation, and running
+/// headers/footers are configured with CSS inside the HTML itself (<c>@page</c> for size/margin,
+/// <c>position: fixed</c> for repeating headers/footers) rather than through an options object.
 /// </summary>
 public static class HtmlToPdf
 {
@@ -190,8 +191,11 @@ public static class HtmlToPdf
         try
         {
             // 5. Layout (uses cascade resolver for full CSS support)
-            // Layout uses content area (page minus margins) for body width
-            var layoutRoot = BlockLayout.LayoutDocument(document, contentWidthPx, contentHeightPx, cascadeResolver);
+            // Layout uses content area (page minus margins) for body width. The full physical
+            // page dimensions are passed separately so position:fixed's containing block can
+            // reach the true page edge (see BlockLayout's _fullPageWidthPx/_fullPageHeightPx).
+            var layoutRoot = BlockLayout.LayoutDocument(document, contentWidthPx, contentHeightPx, cascadeResolver,
+                fullPageWidth: pageWidthPx, fullPageHeight: pageHeightPx);
 
             // 6. Resolve images (load data from src attributes)
             var pdfDoc = new PdfDocument { Encryption = encryption };

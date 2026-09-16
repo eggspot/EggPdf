@@ -26,6 +26,16 @@ public static class BlockLayout
     private static float _viewportWidth;
     [System.ThreadStatic]
     private static float _viewportHeight;
+    // The TRUE physical page dimensions, as opposed to pageWidth/pageHeight above (which are
+    // the content area only, already reduced by @page margins). position:fixed's containing
+    // block must be the full physical page — a "bottom: 0" footer should reach the literal
+    // page edge (so it can occupy the @page margin-bottom area the author reserved for it),
+    // not the content area's own bottom edge. Defaults to the content dimensions when unset,
+    // matching prior behavior for callers (mostly tests) that never had a real @page margin.
+    [System.ThreadStatic]
+    private static float _fullPageWidthPx;
+    [System.ThreadStatic]
+    private static float _fullPageHeightPx;
 
     /// <summary>Current viewport width in pixels (for vw unit resolution). Set during layout.</summary>
     public static float ViewportWidth => _viewportWidth;
@@ -48,6 +58,8 @@ public static class BlockLayout
     public static LayoutBox LayoutDocument(HtmlDocument document, float pageWidth, float pageHeight)
     {
         var resolver = new BasicStyleResolver();
+        _fullPageWidthPx = pageWidth;
+        _fullPageHeightPx = pageHeight;
         return LayoutDocumentInternal(document, pageWidth, pageHeight,
             (elem, parent) => resolver.Resolve(elem, parent));
     }
@@ -56,12 +68,14 @@ public static class BlockLayout
     /// Lay out with CascadeResolver for full CSS support (style tags, selectors, specificity, @media).
     /// </summary>
     public static LayoutBox LayoutDocument(HtmlDocument document, float pageWidth, float pageHeight,
-        Css.Cascade.CascadeResolver cascadeResolver)
+        Css.Cascade.CascadeResolver cascadeResolver, float? fullPageWidth = null, float? fullPageHeight = null)
     {
         _threadCascadeResolver = cascadeResolver;
         _threadCounterCtx = new CssCounterContext();
         if (cascadeResolver.CounterStyleRules.Count > 0)
             _threadCounterCtx.RegisterCounterStyles(cascadeResolver.CounterStyleRules);
+        _fullPageWidthPx = fullPageWidth ?? pageWidth;
+        _fullPageHeightPx = fullPageHeight ?? pageHeight;
         try
         {
             return LayoutDocumentInternal(document, pageWidth, pageHeight,
@@ -1479,11 +1493,13 @@ public static class BlockLayout
 
             if (absPos == "fixed")
             {
-                // Fixed: relative to page origin
+                // Fixed: relative to the full physical page (not the content area), so
+                // "bottom: 0" / "right: 0" can reach the literal page edge and occupy the
+                // @page margin area reserved for it, matching how print CSS is normally used.
                 cbX = 0;
                 cbY = 0;
-                cbWidth = containingWidth;
-                cbHeight = FindPageHeight(parent);
+                cbWidth = _fullPageWidthPx > 0 ? _fullPageWidthPx : containingWidth;
+                cbHeight = _fullPageHeightPx > 0 ? _fullPageHeightPx : FindPageHeight(parent);
             }
             else
             {

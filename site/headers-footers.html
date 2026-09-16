@@ -80,14 +80,30 @@
 
       <h2 id="css-fixed">CSS fixed positioning (works today)</h2>
       <p>
-        Use <code>position: fixed</code> to place content at a fixed position on every rendered page.
-        Add matching body margins so the main content does not overlap the header or footer areas:
+        Use <code>position: fixed</code> to place content at a fixed position on every rendered
+        page. Its containing block is the full physical page, so <code>top: 0</code> /
+        <code>bottom: 0</code> reach the literal page edge and can sit inside the page margin.
       </p>
+      <div class="callout callout-warning">
+        <span class="callout-icon">⚠️</span>
+        <div>
+          Reserve room for a fixed header/footer with <code>@page margin-top</code>/
+          <code>margin-bottom</code> — <strong>not</strong> <code>body</code> margin or
+          <code>padding</code> on a content wrapper. Only <code>@page</code> margins are reapplied
+          on <em>every</em> physical page; a margin/padding on an ordinary flow element is applied
+          once to that element as a whole, so on a multi-page document your header/footer would
+          still collide with body text on every page but the one that element happens to start on.
+        </div>
+      </div>
       <div class="code-block"><pre><code><span class="pun">&lt;</span><span class="typ">style</span><span class="pun">&gt;</span>
+<span class="kw">@page</span> <span class="pun">{</span>
+    <span class="kw">margin-top</span><span class="pun">:</span> <span class="str">50px</span><span class="pun">;</span>    <span class="cmt">/* leave room for header, on every page */</span>
+    <span class="kw">margin-bottom</span><span class="pun">:</span> <span class="str">40px</span><span class="pun">;</span> <span class="cmt">/* leave room for footer, on every page */</span>
+<span class="pun">}</span>
 <span class="typ">.page-header</span> <span class="pun">{</span>
     <span class="kw">position</span><span class="pun">:</span> <span class="str">fixed</span><span class="pun">;</span>
     <span class="kw">top</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span> <span class="kw">left</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span> <span class="kw">right</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span>
-    <span class="kw">height</span><span class="pun">:</span> <span class="str">40px</span><span class="pun">;</span>
+    <span class="kw">height</span><span class="pun">:</span> <span class="str">40px</span><span class="pun">;</span>  <span class="cmt">/* must be &lt;= @page margin-top */</span>
     <span class="kw">font-size</span><span class="pun">:</span> <span class="str">10px</span><span class="pun">;</span>
     <span class="kw">color</span><span class="pun">:</span> <span class="str">#666</span><span class="pun">;</span>
     <span class="kw">border-bottom</span><span class="pun">:</span> <span class="str">1px solid #e5e7eb</span><span class="pun">;</span>
@@ -98,17 +114,14 @@
 <span class="typ">.page-footer</span> <span class="pun">{</span>
     <span class="kw">position</span><span class="pun">:</span> <span class="str">fixed</span><span class="pun">;</span>
     <span class="kw">bottom</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span> <span class="kw">left</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span> <span class="kw">right</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span>
-    <span class="kw">height</span><span class="pun">:</span> <span class="str">30px</span><span class="pun">;</span>
+    <span class="kw">height</span><span class="pun">:</span> <span class="str">30px</span><span class="pun">;</span>  <span class="cmt">/* must be &lt;= @page margin-bottom */</span>
     <span class="kw">font-size</span><span class="pun">:</span> <span class="str">9px</span><span class="pun">;</span>
     <span class="kw">color</span><span class="pun">:</span> <span class="str">#999</span><span class="pun">;</span>
     <span class="kw">border-top</span><span class="pun">:</span> <span class="str">1px solid #e5e7eb</span><span class="pun">;</span>
     <span class="kw">text-align</span><span class="pun">:</span> <span class="str">center</span><span class="pun">;</span>
     <span class="kw">line-height</span><span class="pun">:</span> <span class="str">30px</span><span class="pun">;</span>
 <span class="pun">}</span>
-<span class="typ">body</span> <span class="pun">{</span>
-    <span class="kw">margin-top</span><span class="pun">:</span> <span class="str">50px</span><span class="pun">;</span>    <span class="cmt">/* leave room for header */</span>
-    <span class="kw">margin-bottom</span><span class="pun">:</span> <span class="str">40px</span><span class="pun">;</span> <span class="cmt">/* leave room for footer */</span>
-<span class="pun">}</span>
+<span class="typ">body</span> <span class="pun">{</span> <span class="kw">margin</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span> <span class="pun">}</span>
 <span class="pun">&lt;/</span><span class="typ">style</span><span class="pun">&gt;</span>
 
 <span class="pun">&lt;</span><span class="typ">div</span> <span class="kw">class</span><span class="pun">=</span><span class="str">"page-header"</span><span class="pun">&gt;</span>My Company — Confidential<span class="pun">&lt;/</span><span class="typ">div</span><span class="pun">&gt;</span>

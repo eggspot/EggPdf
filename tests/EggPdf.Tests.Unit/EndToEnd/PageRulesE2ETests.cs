@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -417,5 +418,76 @@ public class PageRulesE2ETests
         string allText = string.Join("\n", pageContents);
         for (int i = 0; i < 40; i++)
             allText.Should().Contain($"ROW{i}");
+    }
+
+    [Fact]
+    public async Task Background_BoxSpanningMultiplePages_ClampsToVisiblePortionPerPage()
+    {
+        // A box taller than one physical page (already proven possible by the pagination fix
+        // above) used to have its background/border rectangle painted using its full,
+        // unclamped height on every page it touches — correct on the page it starts on, but
+        // wildly mispositioned on every continuation page, since box.Height there vastly
+        // exceeds what's actually visible. The visible symptom: instead of a full-page fill,
+        // only a small, misplaced sliver of color shows and the rest of the page stays blank.
+        var html = @"
+            <html><head><style>
+                @page { size: 400px 800px; margin-bottom: 200px; }
+                body { margin: 0; }
+                .box { width: 100%; min-height: 800px; background: #336699; box-sizing: border-box; }
+            </style></head><body>
+                <div class=""box"">Content</div>
+            </body></html>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var pageContents = ExtractPageContentStreams(pdf);
+        pageContents.Count.Should().BeGreaterThan(1, "an 800px box over a 600px content band must spill onto a second page");
+
+        const float pageHeightPt = 800f * 0.75f;
+        foreach (var content in pageContents)
+        {
+            foreach (Match m in Regex.Matches(content, @"([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) re f"))
+            {
+                float y = float.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+                float h = float.Parse(m.Groups[4].Value, CultureInfo.InvariantCulture);
+                y.Should().BeGreaterOrEqualTo(-1f, "a background rect must never start above the physical page it's painted on");
+                (y + h).Should().BeLessOrEqualTo(pageHeightPt + 1f,
+                    "a background rect must never extend beyond the physical page it's painted on");
+            }
+        }
+    }
+
+    [Fact]
+    public async Task PositionFixed_BottomZero_ReachesPhysicalPageBottomEdge()
+    {
+        // position:fixed's containing block must be the full physical page, not the content
+        // area (which is already shrunk by @page margin-bottom) — otherwise "bottom: 0" lands
+        // short of the true page edge, inside the content area instead of the margin area
+        // reserved for it, and collides with ordinary flowing body text placed near the bottom
+        // of the page.
+        var html = @"
+            <html><head><style>
+                @page { size: 400px 800px; margin-bottom: 100px; }
+                body { margin: 0; }
+                .footer { position: fixed; bottom: 0; left: 0; right: 0; height: 50px; background: #f00; }
+            </style></head><body>
+                <div class=""footer""></div>
+                <p>Hello</p>
+            </body></html>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var pageContents = ExtractPageContentStreams(pdf);
+        pageContents.Count.Should().Be(1);
+
+        const float expectedFooterHeightPt = 50f * 0.75f;
+        bool foundFooterAtPhysicalBottom = false;
+        foreach (Match m in Regex.Matches(pageContents[0], @"([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) re f"))
+        {
+            float y = float.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+            float h = float.Parse(m.Groups[4].Value, CultureInfo.InvariantCulture);
+            if (Math.Abs(y) < 0.5f && Math.Abs(h - expectedFooterHeightPt) < 0.5f)
+                foundFooterAtPhysicalBottom = true;
+        }
+        foundFooterAtPhysicalBottom.Should().BeTrue(
+            "a position:fixed footer with bottom:0 must reach the literal physical page bottom edge (y=0), not stop at the content area's own bottom edge");
     }
 }
