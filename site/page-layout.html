@@ -157,6 +157,17 @@
         where normal flow placed it rather than forced — there's no single "page bottom" to align
         to in that case, so pinning it would corrupt the layout instead of fixing it.
       </p>
+      <div class="callout callout-info">
+        <span class="callout-icon">ℹ️</span>
+        <div>
+          Combining this with a <code>position: fixed</code> footer (e.g. page numbers or a
+          branding bar below the pinned box)? Reserve room for that footer with
+          <code>@page margin-bottom</code>, sized to fit both the footer <em>and</em> the pinned
+          element's own height — not <code>body</code> margin or a wrapper's <code>padding</code>,
+          which don't reserve space per physical page. See
+          <a href="headers-footers.html#css-fixed">Headers &amp; Footers</a> for that pattern.
+        </div>
+      </div>
 
       <h2 id="flexbox-grid">Flexbox and Grid</h2>
       <p>
