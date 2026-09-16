@@ -25,10 +25,12 @@ File.WriteAllBytes("output.pdf", pdf);
 
 ## Core API
 
-There is no options object or configurable-converter class — `HtmlToPdf` is a static class, and
-page size/margins/orientation/headers/footers are all set with CSS in the HTML itself
-(`@page` for size/margin, `position: fixed` + `counter(page)`/`counter(pages)` for running
-headers/footers — see "Page size, margins, headers/footers" above):
+`HtmlToPdf` is a static class -- no configurable-converter instance to construct. Page
+size/margins/orientation/headers/footers are set with CSS in the HTML itself (`@page` for
+size/margin, `position: fixed` + `counter(page)`/`counter(pages)` for running headers/footers
+-- see "Page size, margins, headers/footers" above). A `PdfRenderOptions` object is available
+for callers who'd rather set C# properties than write CSS -- it's translated into the
+equivalent `@page` rule internally, not a separate layout path:
 
 ```csharp
 using EggPdf;
@@ -36,6 +38,14 @@ using EggPdf;
 byte[] pdf = await HtmlToPdf.RenderAsync(html);
 await HtmlToPdf.RenderToFileAsync(html, "output.pdf");
 await HtmlToPdf.RenderAsync(html, outputStream, cancellationToken);
+
+// Same output as setting @page in CSS -- PdfRenderOptions is a convenience wrapper
+byte[] pdf2 = await HtmlToPdf.RenderAsync(html, new PdfRenderOptions
+{
+    PageSize = "Letter", Orientation = "landscape",
+    MarginTop = 40, MarginBottom = 40,   // CSS pixels
+    Title = "Q4 Report",                 // PDF document metadata
+});
 
 // RC4-encrypted PDF (view-only protection / permission flags)
 byte[] encrypted = HtmlToPdf.Render(html, new EggPdf.Pdf.PdfEncryption

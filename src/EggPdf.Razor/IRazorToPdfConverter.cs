@@ -32,6 +32,21 @@ public class PdfRenderOptions
     /// <summary>Page orientation (portrait, landscape).</summary>
     public string? Orientation { get; set; }
 
+    /// <summary>Page margin in CSS pixels, applied to all four sides. Overridden per-side by MarginTop/Right/Bottom/Left.</summary>
+    public float? Margin { get; set; }
+
+    /// <summary>Top page margin in CSS pixels.</summary>
+    public float? MarginTop { get; set; }
+
+    /// <summary>Right page margin in CSS pixels.</summary>
+    public float? MarginRight { get; set; }
+
+    /// <summary>Bottom page margin in CSS pixels.</summary>
+    public float? MarginBottom { get; set; }
+
+    /// <summary>Left page margin in CSS pixels.</summary>
+    public float? MarginLeft { get; set; }
+
     /// <summary>Additional CSS to inject.</summary>
     public string? UserStyleSheet { get; set; }
 

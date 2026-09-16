@@ -140,13 +140,11 @@
 
       <h2 id="render-options">Render Options</h2>
       <p>
-        There's no separate options object — <code>HtmlToPdf.RenderAsync</code> takes only the
-        HTML string. Page size, margins, orientation, and running headers/footers are all set
-        with regular CSS inside that HTML: <code>@page</code> for size/margin, and
-        <code>position: fixed</code> (with <code>counter(page)</code>/<code>counter(pages)</code>
-        for page numbers) for content that repeats on every page. See
-        <a href="page-layout.html">Page Layout</a> and <a href="headers-footers.html">Headers &amp; Footers</a>
-        for the full reference.
+        Page size, margins, orientation, and running headers/footers are all set with regular
+        CSS: <code>@page</code> for size/margin, and <code>position: fixed</code> (with
+        <code>counter(page)</code>/<code>counter(pages)</code> for page numbers) for content that
+        repeats on every page. See <a href="page-layout.html">Page Layout</a> and
+        <a href="headers-footers.html">Headers &amp; Footers</a> for the full reference.
       </p>
       <div class="code-header">Program.cs</div>
       <div class="code-block"><pre><code><span class="kw">using</span> <span class="typ">EggPdf</span><span class="pun">;</span>
@@ -161,6 +159,16 @@
     """</span><span class="pun">;</span>
 
 <span class="kw">var</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="fn">RenderAsync</span><span class="pun">(</span><span class="var">html</span><span class="pun">);</span></code></pre></div>
+      <p>
+        Prefer C# properties for the page size/margins? Pass a <code>PdfRenderOptions</code>
+        instead — it's translated into the equivalent <code>@page</code> rule internally:
+      </p>
+      <div class="code-block"><pre><code><span class="kw">var</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="fn">RenderAsync</span><span class="pun">(</span><span class="var">html</span><span class="pun">,</span> <span class="kw">new</span> <span class="typ">PdfRenderOptions</span>
+<span class="pun">{</span>
+    <span class="var">PageSize</span> <span class="pun">=</span> <span class="str">"Letter"</span><span class="pun">,</span>
+    <span class="var">MarginTop</span> <span class="pun">=</span> <span class="num">40</span><span class="pun">,</span> <span class="var">MarginBottom</span> <span class="pun">=</span> <span class="num">40</span><span class="pun">,</span>
+    <span class="var">Title</span> <span class="pun">=</span> <span class="str">"My Document"</span><span class="pun">,</span>
+<span class="pun">});</span></code></pre></div>
 
       <h2 id="aspnet-core">ASP.NET Core Integration</h2>
       <p>Call EggPdf directly from a controller action to serve a PDF, no DI registration required for plain HTML rendering.</p>

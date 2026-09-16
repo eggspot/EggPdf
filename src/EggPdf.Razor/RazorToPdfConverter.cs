@@ -82,16 +82,22 @@ public class RazorToPdfConverter : IRazorToPdfConverter
     {
         if (options == null) return html;
 
-        // Inject user stylesheet if provided
-        if (!string.IsNullOrEmpty(options.UserStyleSheet))
+        // Delegate to the same @page/CSS translation EggPdf.HtmlToPdf.PdfRenderOptions uses,
+        // so PageSize/Orientation/Title/Author actually take effect here too -- previously
+        // only UserStyleSheet did anything; the rest were silently ignored.
+        var coreOptions = new EggPdf.PdfRenderOptions
         {
-            int headClose = html.IndexOf("</head>", StringComparison.OrdinalIgnoreCase);
-            if (headClose >= 0)
-                html = html.Insert(headClose, $"<style>{options.UserStyleSheet}</style>");
-            else
-                html = $"<html><head><style>{options.UserStyleSheet}</style></head><body>{html}</body></html>";
-        }
-
-        return html;
+            PageSize = options.PageSize,
+            Orientation = options.Orientation,
+            Margin = options.Margin,
+            MarginTop = options.MarginTop,
+            MarginRight = options.MarginRight,
+            MarginBottom = options.MarginBottom,
+            MarginLeft = options.MarginLeft,
+            Title = options.Title,
+            Author = options.Author,
+            UserStyleSheet = options.UserStyleSheet,
+        };
+        return EggPdf.HtmlToPdf.ApplyRenderOptions(html, coreOptions);
     }
 }

@@ -83,8 +83,32 @@
 <span class="pun">}</span></code></pre></div>
       <p>
         Any CSS you put inside <code>@page { }</code> applies to every page of the document.
-        EggPdf uses this as the single source of truth for page geometry — there are no separate
-        API options for size or margins.
+        EggPdf uses this as the single source of truth for page geometry internally — a
+        <code>PdfRenderOptions</code> object (below) is translated into an injected
+        <code>@page</code> rule, not a separate layout path.
+      </p>
+
+      <h3 id="pdfrenderoptions">PdfRenderOptions (C# convenience wrapper)</h3>
+      <p>
+        If you'd rather not write CSS by hand, pass a <code>PdfRenderOptions</code> to
+        <code>HtmlToPdf.Render</code>/<code>RenderAsync</code>. It's translated into the
+        equivalent <code>@page</code> rule (and a <code>&lt;title&gt;</code>/
+        <code>&lt;meta name="author"&gt;</code> tag for the two metadata fields) and appended to
+        the document's <code>&lt;head&gt;</code>, so it wins the cascade over any conflicting
+        <code>@page</code> rule already in the HTML:
+      </p>
+      <div class="code-block"><pre><code><span class="kw">var</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="kw">await</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="fn">RenderAsync</span><span class="pun">(</span><span class="var">html</span><span class="pun">,</span> <span class="kw">new</span> <span class="typ">PdfRenderOptions</span>
+<span class="pun">{</span>
+    <span class="var">PageSize</span> <span class="pun">=</span> <span class="str">"Letter"</span><span class="pun">,</span>
+    <span class="var">Orientation</span> <span class="pun">=</span> <span class="str">"landscape"</span><span class="pun">,</span>
+    <span class="var">MarginTop</span> <span class="pun">=</span> <span class="num">40</span><span class="pun">,</span>   <span class="cmt">// CSS pixels</span>
+    <span class="var">MarginBottom</span> <span class="pun">=</span> <span class="num">40</span><span class="pun">,</span>
+    <span class="var">Title</span> <span class="pun">=</span> <span class="str">"Q4 Report"</span><span class="pun">,</span>
+<span class="pun">});</span></code></pre></div>
+      <p>
+        <code>Title</code>/<code>Author</code> aren't options-only — the same PDF metadata is set
+        automatically from a plain <code>&lt;title&gt;</code>/<code>&lt;meta name="author"&gt;</code>
+        tag already in your HTML, with no options object needed.
       </p>
 
       <h2 id="page-sizes">Page sizes</h2>
