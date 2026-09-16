@@ -20,6 +20,27 @@ public class TableCellLayoutTests
     }
 
     [Fact]
+    public void DisplayTableCell_DirectChildOfDisplayTable_NoRowWrapper_SideBySide()
+    {
+        // The common "fake table via CSS display, no real <table>/<tr> markup" pattern used
+        // for equal-height columns. Real <table><tr><td> always gets an implicit table-row
+        // display from the UA stylesheet's tr mapping; a plain div with display:table whose
+        // children are display:table-cell has no such wrapper, so it must act as an implicit
+        // single row itself (CSS 2.1 anonymous table-row generation, simplified).
+        var root = LayoutTestHelper.Layout(
+            "<div style='display:table; width:600px'>" +
+            "<div class='cell' style='display:table-cell'>Left</div>" +
+            "<div class='cell' style='display:table-cell'>Right</div>" +
+            "</div>", 600, 800);
+
+        var cells = root.FindAll(b => b.Element?.GetAttribute("class") == "cell");
+        cells.Should().HaveCount(2);
+
+        cells[0].Y.Should().Be(cells[1].Y, "cells with no row wrapper must still lay out on the same row");
+        cells[1].X.Should().BeGreaterThan(cells[0].X, "the second cell must sit to the right of the first, not stacked below it");
+    }
+
+    [Fact]
     public void ThreeCells_EqualWidth()
     {
         var root = LayoutTestHelper.Layout(

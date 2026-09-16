@@ -359,11 +359,16 @@ internal static class PdfRenderer
                 // Text boxes are assigned to exactly one page: the page where their top falls.
                 // This prevents text from appearing duplicated when a text line straddles a page boundary.
                 // Non-text boxes (backgrounds, borders) use overlap check so they cover their full area.
+                // On the first page, a box can legitimately sit slightly above Y=0 (e.g. a large
+                // inline run's vertical-align: baseline shift pulling it just above its line's
+                // nominal top) -- there's no earlier page it could belong to instead, so excluding
+                // it here would silently drop it rather than just paint it near the top edge.
+                float bandTop = renderPageIndex == 0 ? float.NegativeInfinity : pageTopPx;
                 bool skip;
                 if (!string.IsNullOrEmpty(box.Text))
-                    skip = boxTop < pageTopPx || boxTop >= pageBottomPx;
+                    skip = boxTop < bandTop || boxTop >= pageBottomPx;
                 else
-                    skip = boxBottom <= pageTopPx || boxTop >= pageBottomPx;
+                    skip = boxBottom <= bandTop || boxTop >= pageBottomPx;
 
                 if (skip) continue;
 

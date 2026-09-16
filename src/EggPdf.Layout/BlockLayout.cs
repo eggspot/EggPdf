@@ -438,6 +438,15 @@ public static class BlockLayout
         Dictionary<HtmlElement, int>? rowCellColOffsets = null;
         int rowTotalColumns = 0;
 
+        // CSS 2.1 anonymous table-row generation (simplified): a display:table box whose
+        // direct children are display:table-cell, with no display:table-row wrapper between
+        // them, must still lay those cells out side-by-side as an implicit single row — the
+        // common "table div > cell divs" pattern used for equal-height columns without real
+        // <table> markup. Real UA stylesheets always insert a table-row layer for actual
+        // <table><tr><td> markup (see BasicStyleResolver's tr -> table-row mapping), so this
+        // only engages for synthetic table displays that skip the row element entirely.
+        bool actsAsImplicitTableRow = false;
+
         foreach (var childNode in element.ChildNodes)
         {
             if (childNode is HtmlElement childElem)
@@ -469,9 +478,13 @@ public static class BlockLayout
                         inlineLineHeight = 0;
                     }
 
-                    // Table row layout: cells go side-by-side (horizontal)
-                    if (IsTableRow(style.Display) && IsTableCell(childStyle.Display))
+                    // Table row layout: cells go side-by-side (horizontal). A display:table
+                    // box acts as an implicit single row for direct table-cell children that
+                    // have no table-row wrapper (anonymous row generation, simplified).
+                    bool isImplicitRow = style.Display == "table" && IsTableCell(childStyle.Display);
+                    if ((IsTableRow(style.Display) && IsTableCell(childStyle.Display)) || isImplicitRow)
                     {
+                        if (isImplicitRow) actsAsImplicitTableRow = true;
                         if (rowCellColOffsets == null)
                         {
                             rowCellColOffsets = new Dictionary<HtmlElement, int>();
@@ -481,7 +494,19 @@ public static class BlockLayout
                                 if (rowChild is HtmlElement rc)
                                 {
                                     rowCellColOffsets[rc] = running;
-                                    if (rc.TagName == "td" || rc.TagName == "th")
+                                    // Real <td>/<th> count towards the column total. For the
+                                    // implicit-row case, every direct element child counts too
+                                    // (rather than re-resolving each sibling's style here to
+                                    // confirm table-cell-ness): resolving the same element's
+                                    // style a second time, ahead of the normal per-child loop
+                                    // below, isn't reliable for stylesheet-driven CSS (selector
+                                    // matching state some resolvers keep isn't safe to query
+                                    // out of document order) even though it works for inline
+                                    // styles -- and a display:table box whose children aren't
+                                    // ALL cells is a degenerate case not worth the extra call.
+                                    // A div-based fake cell has no colspan attribute, so
+                                    // GetColspan naturally returns 1 for it.
+                                    if (rc.TagName == "td" || rc.TagName == "th" || isImplicitRow)
                                         running += GetColspan(rc);
                                 }
                             }
@@ -528,14 +553,14 @@ public static class BlockLayout
                         float cellX = box.X + box.PaddingLeft;
                         for (int ci = 0; ci < colOffset && ci < columnWidths.Length; ci++)
                             cellX += columnWidths[ci] + borderSpacing;
-                        // Update cell X and offset all children that were laid out with the old X
+                        // Update cell X and offset the whole subtree that was laid out with the
+                        // old X (grandchildren too -- a cell's content is rarely just one level
+                        // deep, e.g. nested divs of text, so a shift of only direct children
+                        // left everything below that level stuck at the pre-shift X).
                         float deltaX = cellX - childBox.X;
                         childBox.X = cellX;
                         if (Math.Abs(deltaX) > 0.01f)
-                        {
-                            for (int gi = 0; gi < childBox.Children.Count; gi++)
-                                childBox.Children[gi].X += deltaX;
-                        }
+                            FlexLayout.OffsetChildren(childBox, deltaX, 0);
 
                         // border-collapse: remove interior borders on shared edges
                         if (isCollapse)
@@ -1182,7 +1207,7 @@ public static class BlockLayout
         }
 
         // Post-pass: equalize table cell heights and apply vertical-align
-        if (IsTableRow(style.Display) && childY > 0)
+        if ((IsTableRow(style.Display) || actsAsImplicitTableRow) && childY > 0)
         {
             float rowHeight = childY;
             for (int ci = 0; ci < box.Children.Count; ci++)
@@ -2578,10 +2603,11 @@ public static class BlockLayout
             bool runBreakWord = runOverflowWrap == "break-word" || runOverflowWrap == "anywhere" ||
                                 runWordBreak == "break-all" || runWordBreak == "break-word";
 
-            // vertical-align: baseline (default) — smaller runs sit on the parent
-            // line's baseline, not the line top (ascent approximated at 0.8em)
-            float baselineShift = run.FontSize < parentFontSize
-                ? (parentFontSize - run.FontSize) * 0.8f : 0f;
+            // vertical-align: baseline (default) — every run sits on the parent line's
+            // baseline, not the line top (ascent approximated at 0.8em). A smaller run
+            // shifts down (positive); a larger run shifts up (negative) so its baseline
+            // still meets the smaller surrounding text instead of hanging below it.
+            float baselineShift = (parentFontSize - run.FontSize) * 0.8f;
 
             // Iterate words inline — avoids allocating a string[] upfront.
             int wPos = 0;
@@ -2636,6 +2662,12 @@ public static class BlockLayout
                             Element = (!elementAssigned && wrapperElement != null) ? wrapperElement : null,
                             Style = run.Style,
                             X = box.X + box.PaddingLeft + inlineX,
+                            // box.Y here is often still provisional (0) -- a block's final page
+                            // position is applied by its parent after this recursion returns, so
+                            // a negative shift can leave a momentarily-negative Y. That's fine: the
+                            // parent's later shift brings it back to a valid position except in the
+                            // (rare) case this content is genuinely the very first thing on page 1,
+                            // which PdfRenderer's page-assignment guards against dropping instead.
                             Y = box.Y + box.PaddingTop + childY + baselineShift,
                             Width = chunkWidth,
                             Height = lhRun,
@@ -2667,6 +2699,7 @@ public static class BlockLayout
                     Element = (!elementAssigned && wrapperElement != null) ? wrapperElement : null,
                     Style = run.Style,
                     X = box.X + box.PaddingLeft + inlineX,
+                    // See the chunkBox comment above about box.Y being provisional here.
                     Y = box.Y + box.PaddingTop + childY + baselineShift,
                     Width = wordWidth,
                     Height = lhRun,
