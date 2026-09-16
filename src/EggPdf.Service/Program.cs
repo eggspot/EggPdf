@@ -55,7 +55,9 @@ app.MapPost("/api/render", async (HttpContext ctx) =>
             return Results.BadRequest(new { error = "html field is required" });
 
         var sw = Stopwatch.StartNew();
-        var pdf = EggPdf.HtmlToPdf.Render(request.Html);
+        var pdf = request.Options != null
+            ? EggPdf.HtmlToPdf.Render(request.Html, request.Options.ToCoreOptions())
+            : EggPdf.HtmlToPdf.Render(request.Html);
         sw.Stop();
 
         ctx.Response.Headers["X-EggPdf-Duration-Ms"] = sw.ElapsedMilliseconds.ToString();
@@ -390,7 +392,26 @@ record RenderOptions
 {
     public string? PageSize { get; init; }
     public string? Orientation { get; init; }
+    public float? Margin { get; init; }
+    public float? MarginTop { get; init; }
+    public float? MarginRight { get; init; }
+    public float? MarginBottom { get; init; }
+    public float? MarginLeft { get; init; }
     public string? Title { get; init; }
+    public string? Author { get; init; }
+
+    public EggPdf.PdfRenderOptions ToCoreOptions() => new()
+    {
+        PageSize = PageSize,
+        Orientation = Orientation,
+        Margin = Margin,
+        MarginTop = MarginTop,
+        MarginRight = MarginRight,
+        MarginBottom = MarginBottom,
+        MarginLeft = MarginLeft,
+        Title = Title,
+        Author = Author,
+    };
 }
 
 record UrlRenderRequest

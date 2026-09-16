@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -144,6 +145,84 @@ public static class HtmlToPdf
         return Task.FromResult(RenderInternal(html ?? "", null, encryption));
     }
 
+    /// <summary>
+    /// Render HTML to PDF, applying <see cref="PdfRenderOptions"/> (page size, margins,
+    /// orientation, title/author metadata, extra CSS) by translating them into an injected
+    /// <c>@page</c> rule and &lt;head&gt; tags before parsing. The generated rule is appended
+    /// last in the HTML's &lt;head&gt;, so it wins the CSS cascade over any conflicting
+    /// <c>@page</c> rule already in the document.
+    /// </summary>
+    public static byte[] Render(string? html, PdfRenderOptions options)
+    {
+        return RenderInternal(ApplyRenderOptions(html ?? "", options), null);
+    }
+
+    /// <summary>Render HTML to PDF asynchronously, applying <see cref="PdfRenderOptions"/>.</summary>
+    public static Task<byte[]> RenderAsync(string? html, PdfRenderOptions options, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(Render(html, options));
+    }
+
+    /// <summary>
+    /// Translate <see cref="PdfRenderOptions"/> into CSS/HTML and inject it into the document's
+    /// &lt;head&gt; (creating a &lt;head&gt;/&lt;html&gt; wrapper if the input has none). Public so
+    /// other packages (EggPdf.Razor, EggPdf.Service) can apply the same options shape to HTML
+    /// they've already assembled by other means, rather than re-implementing this translation.
+    /// </summary>
+    public static string ApplyRenderOptions(string html, PdfRenderOptions? options)
+    {
+        if (options == null) return html;
+
+        var css = new StringBuilder();
+        bool hasSize = !string.IsNullOrEmpty(options.PageSize) || !string.IsNullOrEmpty(options.Orientation);
+        bool hasMargin = options.Margin.HasValue || options.MarginTop.HasValue || options.MarginRight.HasValue
+            || options.MarginBottom.HasValue || options.MarginLeft.HasValue;
+
+        if (hasSize || hasMargin)
+        {
+            css.Append("@page{");
+            if (hasSize)
+            {
+                css.Append("size:").Append(string.IsNullOrEmpty(options.PageSize) ? "A4" : options.PageSize);
+                if (!string.IsNullOrEmpty(options.Orientation)) css.Append(' ').Append(options.Orientation);
+                css.Append(';');
+            }
+            if (options.Margin.HasValue)
+                css.Append("margin:").Append(options.Margin.Value.ToString(CultureInfo.InvariantCulture)).Append("px;");
+            if (options.MarginTop.HasValue)
+                css.Append("margin-top:").Append(options.MarginTop.Value.ToString(CultureInfo.InvariantCulture)).Append("px;");
+            if (options.MarginRight.HasValue)
+                css.Append("margin-right:").Append(options.MarginRight.Value.ToString(CultureInfo.InvariantCulture)).Append("px;");
+            if (options.MarginBottom.HasValue)
+                css.Append("margin-bottom:").Append(options.MarginBottom.Value.ToString(CultureInfo.InvariantCulture)).Append("px;");
+            if (options.MarginLeft.HasValue)
+                css.Append("margin-left:").Append(options.MarginLeft.Value.ToString(CultureInfo.InvariantCulture)).Append("px;");
+            css.Append('}');
+        }
+        if (!string.IsNullOrEmpty(options.UserStyleSheet))
+            css.Append(options.UserStyleSheet);
+
+        string styleTag = css.Length > 0 ? $"<style>{css}</style>" : "";
+        string titleTag = !string.IsNullOrEmpty(options.Title)
+            ? $"<title>{System.Net.WebUtility.HtmlEncode(options.Title)}</title>" : "";
+        string authorTag = !string.IsNullOrEmpty(options.Author)
+            ? $"<meta name=\"author\" content=\"{System.Net.WebUtility.HtmlEncode(options.Author)}\">" : "";
+        string inject = titleTag + authorTag + styleTag;
+        if (inject.Length == 0) return html;
+
+        int headClose = html.IndexOf("</head>", StringComparison.OrdinalIgnoreCase);
+        if (headClose >= 0) return html.Insert(headClose, inject);
+
+        int htmlOpen = html.IndexOf("<html", StringComparison.OrdinalIgnoreCase);
+        if (htmlOpen >= 0)
+        {
+            int htmlTagEnd = html.IndexOf('>', htmlOpen);
+            if (htmlTagEnd >= 0) return html.Insert(htmlTagEnd + 1, $"<head>{inject}</head>");
+        }
+        return $"<head>{inject}</head>{html}";
+    }
+
     private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null)
     {
         // 1. Parse HTML -> DOM
@@ -199,6 +278,8 @@ public static class HtmlToPdf
 
             // 6. Resolve images (load data from src attributes)
             var pdfDoc = new PdfDocument { Encryption = encryption };
+            pdfDoc.Title = FindTitleTagText(document);
+            pdfDoc.Author = FindMetaContent(document, "author");
             ResolveImages(layoutRoot, pdfDoc);
 
             // 6b. Subset and embed TrueType fonts for non-standard fonts
@@ -293,6 +374,44 @@ public static class HtmlToPdf
         {
             return null; // malformed hex — leave the placeholder text as-is
         }
+    }
+
+    /// <summary>PDF document title metadata, from the HTML's own &lt;title&gt; tag (matches how browsers name a printed PDF).</summary>
+    private static string? FindTitleTagText(HtmlDocument document)
+    {
+        var head = document.Head;
+        if (head == null) return null;
+
+        foreach (var node in head.ChildNodes)
+        {
+            if (node is HtmlElement elem && elem.TagName == "title")
+            {
+                var sb = new StringBuilder();
+                foreach (var child in elem.ChildNodes)
+                    if (child is HtmlTextNode t) sb.Append(t.Data);
+                var text = sb.ToString().Trim();
+                return text.Length > 0 ? text : null;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>PDF document metadata (e.g. author) from a &lt;meta name="..." content="..."&gt; tag.</summary>
+    private static string? FindMetaContent(HtmlDocument document, string metaName)
+    {
+        var head = document.Head;
+        if (head == null) return null;
+
+        foreach (var node in head.ChildNodes)
+        {
+            if (node is HtmlElement elem && elem.TagName == "meta" &&
+                string.Equals(elem.GetAttribute("name"), metaName, StringComparison.OrdinalIgnoreCase))
+            {
+                var content = elem.GetAttribute("content");
+                return string.IsNullOrEmpty(content) ? null : content;
+            }
+        }
+        return null;
     }
 
     /// <summary>

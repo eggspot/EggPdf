@@ -102,7 +102,7 @@
           <thead><tr><th>Property</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
           <tbody>
             <tr><td><code>html</code></td><td><code>string</code></td><td>✅ Yes</td><td>The HTML document to render</td></tr>
-            <tr><td><code>options</code></td><td><code>object</code></td><td>No</td><td>Accepted but not yet applied to output — see the callout below</td></tr>
+            <tr><td><code>options</code></td><td><code>object</code></td><td>No</td><td>Page size, margins, orientation, title/author (see below)</td></tr>
           </tbody>
         </table>
       </div>
@@ -124,18 +124,25 @@
   <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;h1&gt;Hello, EggPdf!&lt;/h1&gt;&lt;p&gt;Pure C# PDF rendering.&lt;/p&gt;"</span>
 <span class="pun">}</span></code></pre></div>
 
-      <div class="callout callout-warning">
-        <span class="callout-icon">⚠️</span>
-        <div>
-          The request body's <code>options</code> field is currently parsed but has no effect on
-          the rendered output — this is a known gap, not documented (mis)behavior. Until it's
-          wired up, control page size, margins, orientation, and running headers/footers with CSS
-          inside the <code>html</code> string instead: <code>@page</code> for size/margin, and
-          <code>position: fixed</code> (with <code>counter(page)</code>/<code>counter(pages)</code>
-          for page numbers) for content that repeats on every page. See
-          <a href="page-layout.html">Page Layout</a> and <a href="headers-footers.html">Headers &amp; Footers</a>.
-        </div>
-      </div>
+      <p>
+        <code>options</code> mirrors <code>PdfRenderOptions</code> from the C# API — it's
+        translated into an injected <code>@page</code> rule (and a &lt;title&gt;/&lt;meta
+        name="author"&gt; tag for those two fields) internally, so it wins the CSS cascade over
+        anything conflicting already in <code>html</code>. Running headers/footers still need
+        CSS directly in the HTML — <code>position: fixed</code> with <code>counter(page)</code>/
+        <code>counter(pages)</code> for page numbers; see
+        <a href="headers-footers.html">Headers &amp; Footers</a>.
+      </p>
+      <h3>Example: page size, margins, and title via options</h3>
+      <div class="code-header">JSON Request Body</div>
+      <div class="code-block"><pre><code><span class="pun">{</span>
+  <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;h1&gt;Report&lt;/h1&gt;"</span><span class="pun">,</span>
+  <span class="str">"options"</span><span class="pun">:</span> <span class="pun">{</span>
+    <span class="str">"pageSize"</span><span class="pun">:</span> <span class="str">"A4"</span><span class="pun">,</span>
+    <span class="str">"marginTop"</span><span class="pun">:</span> <span class="num">60</span><span class="pun">,</span> <span class="str">"marginBottom"</span><span class="pun">:</span> <span class="num">60</span><span class="pun">,</span>
+    <span class="str">"title"</span><span class="pun">:</span> <span class="str">"Q4 Report"</span>
+  <span class="pun">}</span>
+<span class="pun">}</span></code></pre></div>
 
       <h3>Example: page size, margins, and a page-number footer via CSS</h3>
       <div class="code-header">JSON Request Body</div>

@@ -40,8 +40,7 @@ File.WriteAllBytes("output.pdf", pdf);
 
 ## Standard Usage
 
-Page size, margins, and orientation are set with regular CSS `@page` rules in the HTML itself —
-there's no separate options object:
+Page size, margins, and orientation are set with regular CSS `@page` rules in the HTML itself:
 
 ```csharp
 string html = @"
@@ -56,6 +55,19 @@ await EggPdf.HtmlToPdf.RenderToFileAsync(html, "report.pdf");
 
 // To a stream (e.g. an HTTP response body), with cancellation
 await EggPdf.HtmlToPdf.RenderAsync(html, Response.Body, HttpContext.RequestAborted);
+```
+
+Prefer C# properties over writing CSS? `PdfRenderOptions` is translated into the equivalent
+`@page` rule internally — it's not a separate layout path, just a convenience wrapper:
+
+```csharp
+byte[] pdf = await EggPdf.HtmlToPdf.RenderAsync(html, new EggPdf.PdfRenderOptions
+{
+    PageSize = "Letter",
+    Orientation = "landscape",
+    MarginTop = 40, MarginBottom = 40,   // CSS pixels
+    Title = "Q4 Report",                 // PDF document metadata
+});
 ```
 
 ## ASP.NET Core Integration
