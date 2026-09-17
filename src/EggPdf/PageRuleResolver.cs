@@ -39,15 +39,30 @@ internal static class PageRuleResolver
             {
                 var rule = sheet.PageRules[r];
 
-                // Only process generic @page rules (no selector like :first, :left)
-                if (!string.IsNullOrEmpty(rule.PageSelector))
-                    continue;
-
-                for (int d = 0; d < rule.Declarations.Count; d++)
+                // The base (unselected) @page rule sets page size/margins for the
+                // whole document -- this engine lays out in a single pass, so a
+                // :first/:left/:right rule's own size/margin declarations aren't
+                // applied (that would need a different page size mid-layout).
+                // Their margin-box declarations ARE honored, as a per-page-type
+                // override resolved at paint time (see MarginBoxRenderer).
+                Dictionary<string, PageMarginBoxSettings>? targetMarginBoxes;
+                if (string.IsNullOrEmpty(rule.PageSelector))
                 {
-                    var decl = rule.Declarations[d];
-                    ApplyDeclaration(settings, decl);
+                    for (int d = 0; d < rule.Declarations.Count; d++)
+                        ApplyDeclaration(settings, rule.Declarations[d]);
+                    targetMarginBoxes = settings.MarginBoxes;
                 }
+                else if (string.Equals(rule.PageSelector, ":first", StringComparison.OrdinalIgnoreCase))
+                    targetMarginBoxes = settings.FirstPageMarginBoxes;
+                else if (string.Equals(rule.PageSelector, ":left", StringComparison.OrdinalIgnoreCase))
+                    targetMarginBoxes = settings.LeftPageMarginBoxes;
+                else if (string.Equals(rule.PageSelector, ":right", StringComparison.OrdinalIgnoreCase))
+                    targetMarginBoxes = settings.RightPageMarginBoxes;
+                else
+                    targetMarginBoxes = null; // unrecognized page selector
+
+                if (targetMarginBoxes == null)
+                    continue;
 
                 // Collect margin-box content and basic text styling
                 for (int m = 0; m < rule.MarginBoxes.Count; m++)
@@ -79,7 +94,7 @@ internal static class PageRuleResolver
                         }
                     }
                     if (hasContent)
-                        settings.MarginBoxes[mb.Position] = mbSettings;
+                        targetMarginBoxes[mb.Position] = mbSettings;
                 }
             }
         }
@@ -288,6 +303,24 @@ internal class PageSettings
     /// center/right, top/bottom-left/right-corner, left/right-top/middle/bottom.
     /// </summary>
     public Dictionary<string, PageMarginBoxSettings> MarginBoxes { get; } =
+        new Dictionary<string, PageMarginBoxSettings>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Margin-box overrides from <c>@page :first</c> -- applied on physical
+    /// page 1 in place of the corresponding position's base box, if any.
+    /// Page size/margin declarations on a selector-scoped @page rule are not
+    /// applied: this engine lays out in a single pass, so a page-type-specific
+    /// page size isn't supported (only its margin-box content is).
+    /// </summary>
+    public Dictionary<string, PageMarginBoxSettings> FirstPageMarginBoxes { get; } =
+        new Dictionary<string, PageMarginBoxSettings>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Margin-box overrides from <c>@page :left</c> -- applied on even physical pages.</summary>
+    public Dictionary<string, PageMarginBoxSettings> LeftPageMarginBoxes { get; } =
+        new Dictionary<string, PageMarginBoxSettings>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Margin-box overrides from <c>@page :right</c> -- applied on odd physical pages (other than page 1, which :first takes priority for).</summary>
+    public Dictionary<string, PageMarginBoxSettings> RightPageMarginBoxes { get; } =
         new Dictionary<string, PageMarginBoxSettings>(StringComparer.OrdinalIgnoreCase);
 }
 

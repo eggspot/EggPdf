@@ -72,11 +72,10 @@
         <p>
           Two ways to add headers/footers: CSS fixed positioning (<code>position: fixed</code>
           content repeats on every page) and native <code>@page</code> margin boxes (see
-          <a href="#page-margin-boxes">below</a>) — both support page numbers via
+          <a href="#page-margin-boxes">below</a>), including <code>@page :first</code>/
+          <code>:left</code>/<code>:right</code> overrides — both support page numbers via
           <code>counter(page)</code>. Tables spanning multiple pages continue correctly, though
-          the column header row itself doesn't yet repeat on continuation pages, and
-          <code>@page :first</code>/<code>:left</code>/<code>:right</code> selector scoping
-          isn't supported yet, so a margin box applies the same way to every page.
+          the column header row itself doesn't yet repeat on continuation pages.
         </p>
       </div>
 
@@ -193,13 +192,18 @@
         <span class="kw">content</span><span class="pun">:</span> <span class="str">"Page " counter(page) " of " counter(pages)</span><span class="pun">;</span>
         <span class="kw">font-size</span><span class="pun">:</span> <span class="str">8pt</span><span class="pun">;</span>
     <span class="pun">}</span>
+<span class="pun">}</span>
+<span class="kw">@page</span> <span class="pun">:</span><span class="typ">first</span> <span class="pun">{</span>
+    <span class="kw">@top-center</span> <span class="pun">{</span> <span class="kw">content</span><span class="pun">:</span> <span class="str">none</span><span class="pun">;</span> <span class="pun">}</span> <span class="cmt">/* no header on the first page */</span>
 <span class="pun">}</span></code></pre></div>
       <p>
-        Not yet supported: <code>@page :first</code>/<code>:left</code>/<code>:right</code>
-        page-selector scoping — a margin box declared on the base <code>@page</code> rule
-        applies to every page the same way, so per-page-type overrides (like suppressing the
-        header on the first page) aren't possible yet. Track progress on
-        <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a>.
+        <code>@page :first</code>, <code>:left</code> and <code>:right</code> page-selector
+        scoping is also supported, for margin-box content only: <code>:first</code> overrides
+        apply to physical page 1, <code>:left</code>/<code>:right</code> alternate on even/odd
+        pages after that (a margin box with no override for the current page type falls back to
+        the base <code>@page</code> rule). Page <em>size</em> and <em>margin</em> declarations on
+        a selector-scoped rule are not applied — this engine lays out in a single pass, so a
+        different page size per page type isn't supported yet.
       </p>
 
     </main>

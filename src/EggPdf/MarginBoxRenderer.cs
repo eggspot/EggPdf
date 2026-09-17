@@ -10,6 +10,15 @@ namespace EggPdf;
 /// can be repainted per page exactly like position:fixed content -- PdfRenderer
 /// appends them to its fixedBoxes list, which already knows how to substitute
 /// the counter(page)/counter(pages) sentinels CssCounterContext emits.
+///
+/// Each box is tagged (via its ComputedStyle, the same internal-property
+/// convention used elsewhere, e.g. -eggpdf-pin-bottom) with its margin-box
+/// position and which page type it applies to -- "all" (from the base @page
+/// rule), or "first"/"left"/"right" (from a selector-scoped @page rule).
+/// BoxPainter.PaintFixedBoxes resolves, per physical page, which single box
+/// wins for each position: a page-type-specific box if one exists for that
+/// position (even an empty one, from an explicit `content: none` override),
+/// otherwise the "all" box.
 /// </summary>
 internal static class MarginBoxRenderer
 {
@@ -18,7 +27,8 @@ internal static class MarginBoxRenderer
     public static List<LayoutBox> Build(PageSettings settings, float pageWidthPx, float pageHeightPx)
     {
         var result = new List<LayoutBox>();
-        if (settings.MarginBoxes.Count == 0)
+        if (settings.MarginBoxes.Count == 0 && settings.FirstPageMarginBoxes.Count == 0 &&
+            settings.LeftPageMarginBoxes.Count == 0 && settings.RightPageMarginBoxes.Count == 0)
             return result;
 
         // A fresh counter context is enough here: margin-box content only ever
@@ -27,11 +37,26 @@ internal static class MarginBoxRenderer
         // document counter state from.
         var counterCtx = new CssCounterContext();
 
-        foreach (var kv in settings.MarginBoxes)
+        BuildForSet(settings.MarginBoxes, "all", counterCtx, settings, pageWidthPx, pageHeightPx, result);
+        BuildForSet(settings.FirstPageMarginBoxes, "first", counterCtx, settings, pageWidthPx, pageHeightPx, result);
+        BuildForSet(settings.LeftPageMarginBoxes, "left", counterCtx, settings, pageWidthPx, pageHeightPx, result);
+        BuildForSet(settings.RightPageMarginBoxes, "right", counterCtx, settings, pageWidthPx, pageHeightPx, result);
+
+        return result;
+    }
+
+    private static void BuildForSet(Dictionary<string, PageMarginBoxSettings> boxes, string applicability,
+        CssCounterContext counterCtx, PageSettings settings, float pageWidthPx, float pageHeightPx,
+        List<LayoutBox> result)
+    {
+        foreach (var kv in boxes)
         {
             var geometry = ComputeGeometry(kv.Key, pageWidthPx, pageHeightPx,
                 settings.MarginTop, settings.MarginRight, settings.MarginBottom, settings.MarginLeft);
             if (geometry == null)
+                continue;
+            var (bandX, bandY, bandWidth, bandHeight, textAlign) = geometry.Value;
+            if (bandWidth <= 0 || bandHeight <= 0)
                 continue;
 
             var mb = kv.Value;
@@ -42,22 +67,26 @@ internal static class MarginBoxRenderer
 
             var style = new ComputedStyle();
             style.Set("font-size", fontSize.ToString(System.Globalization.CultureInfo.InvariantCulture) + "px");
-            style.Set("text-align", geometry.Value.TextAlign);
+            style.Set("text-align", textAlign);
+            style.Set("-eggpdf-margin-box-position", kv.Key);
+            style.Set("-eggpdf-page-applicability", applicability);
             if (!string.IsNullOrEmpty(mb.Color)) style.Set("color", mb.Color!);
             if (!string.IsNullOrEmpty(mb.FontFamily)) style.Set("font-family", mb.FontFamily!);
             if (!string.IsNullOrEmpty(mb.FontWeight)) style.Set("font-weight", mb.FontWeight!);
 
+            // A page-type-specific rule whose content resolves empty (explicit
+            // `content: none`, or a blank literal) still needs a box: it marks
+            // "this position is intentionally suppressed for this page type",
+            // distinct from "no override was declared" (which falls back to
+            // the base box instead of suppressing it). PaintFixedBoxes tells
+            // the two apart by Text being null vs a real (possibly empty-after-
+            // trim) string -- so pass through null rather than "".
             var content = counterCtx.ResolveContent(mb.Content, element: null, style: style);
-            if (string.IsNullOrEmpty(content))
-                continue;
 
             float lineHeight = TextMeasurer.GetLineHeight(fontSize, null);
-            float contentWidth = TextMeasurer.MeasureWidth(content, fontSize,
-                style.FontFamily, style.FontWeight, style.Get("font-style"));
-
-            var (bandX, bandY, bandWidth, bandHeight, _) = geometry.Value;
-            if (bandWidth <= 0 || bandHeight <= 0)
-                continue;
+            float contentWidth = string.IsNullOrEmpty(content)
+                ? 0
+                : TextMeasurer.MeasureWidth(content, fontSize, style.FontFamily, style.FontWeight, style.Get("font-style"));
 
             float boxY = bandY + (bandHeight - lineHeight) / 2f;
             if (boxY < bandY) boxY = bandY;
@@ -65,7 +94,7 @@ internal static class MarginBoxRenderer
             result.Add(new LayoutBox
             {
                 Style = style,
-                Text = content,
+                Text = content, // null when suppressed/empty -- PaintFixedBoxes paints nothing but still "claims" this position
                 X = bandX,
                 Y = boxY,
                 Width = bandWidth,
@@ -74,8 +103,6 @@ internal static class MarginBoxRenderer
                 ContentHeight = lineHeight,
             });
         }
-
-        return result;
     }
 
     /// <summary>

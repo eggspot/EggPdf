@@ -49,9 +49,12 @@ public static class BoxPainter
     public static void PaintFixedBoxes(PdfPage page, List<LayoutBox> fixedBoxes,
         float pageHeightPt, float pageHeightPx, int pageIndex, int totalPages)
     {
-        for (int i = 0; i < fixedBoxes.Count; i++)
+        var effectiveBoxes = SelectEffectiveMarginBoxes(fixedBoxes, pageIndex);
+        for (int i = 0; i < effectiveBoxes.Count; i++)
         {
-            var box = fixedBoxes[i];
+            var box = effectiveBoxes[i];
+            if (box.Text == null && box.Style.Get("-eggpdf-margin-box-position") != null)
+                continue; // explicitly suppressed for this page type (content: none)
             string? originalText = box.Text;
             bool textSubstituted = false;
 
@@ -79,6 +82,51 @@ public static class BoxPainter
             if (textSubstituted)
                 box.Text = originalText;
         }
+    }
+
+    /// <summary>
+    /// Resolves, per physical page, which single box wins for each @page
+    /// margin-box position tagged by MarginBoxRenderer: page 1 prefers a
+    /// "first" box, even pages prefer "left", odd pages (other than 1)
+    /// prefer "right" -- falling back to the position's "all" (base @page
+    /// rule) box when no page-type-specific override was declared for it.
+    /// Boxes with no margin-box-position tag (ordinary position:fixed DOM
+    /// content) are untouched and always included.
+    /// </summary>
+    private static List<LayoutBox> SelectEffectiveMarginBoxes(List<LayoutBox> fixedBoxes, int pageIndex)
+    {
+        bool anyTagged = false;
+        for (int i = 0; i < fixedBoxes.Count; i++)
+        {
+            if (fixedBoxes[i].Style.Get("-eggpdf-margin-box-position") != null) { anyTagged = true; break; }
+        }
+        if (!anyTagged)
+            return fixedBoxes;
+
+        string specific = pageIndex == 1 ? "first" : (pageIndex % 2 == 0 ? "left" : "right");
+        var specificByPosition = new Dictionary<string, LayoutBox>(StringComparer.OrdinalIgnoreCase);
+        var allByPosition = new Dictionary<string, LayoutBox>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<LayoutBox>(fixedBoxes.Count);
+
+        foreach (var box in fixedBoxes)
+        {
+            var pos = box.Style.Get("-eggpdf-margin-box-position");
+            if (pos == null) { result.Add(box); continue; }
+
+            var applicability = box.Style.Get("-eggpdf-page-applicability") ?? "all";
+            if (string.Equals(applicability, specific, StringComparison.OrdinalIgnoreCase))
+                specificByPosition[pos] = box;
+            else if (string.Equals(applicability, "all", StringComparison.OrdinalIgnoreCase))
+                allByPosition[pos] = box;
+        }
+
+        foreach (var kv in allByPosition)
+            result.Add(specificByPosition.TryGetValue(kv.Key, out var over) ? over : kv.Value);
+        foreach (var kv in specificByPosition)
+            if (!allByPosition.ContainsKey(kv.Key))
+                result.Add(kv.Value);
+
+        return result;
     }
 
 
