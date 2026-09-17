@@ -59,16 +59,20 @@ public class PdfSignerTests
         (r2 + r3).Should().Be(signed.Length, "ranges must cover the file except the Contents hex");
         r2.Should().BeGreaterThan(r1, "the Contents gap sits between the two ranges");
 
-        // 2. Extract the CMS from /Contents <hex>
-        int hexStart = -1;
-        var cMatch = Regex.Match(text, @"/Contents <([0-9A-Fa-f0]+)>");
+        // 2. Extract the CMS from /Contents <hex>. The field is zero-padded
+        // to a fixed width — read the DER length header to find where the
+        // real CMS ends instead of trimming trailing zero hex chars, which
+        // can't tell padding apart from a genuine trailing 0x00 signature
+        // byte (this was flaky: it failed whenever the RSA signature itself
+        // happened to end in 0x00, corrupting the DER length).
+        var cMatch = Regex.Match(text, @"/Contents <([0-9A-Fa-f]+)>");
         cMatch.Success.Should().BeTrue();
-        hexStart = cMatch.Groups[1].Index;
-        var hex = cMatch.Groups[1].Value.TrimEnd('0');
-        if (hex.Length % 2 == 1) hex += "0";
-        var cms = new byte[hex.Length / 2];
-        for (int i = 0; i < cms.Length; i++)
-            cms[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
+        var fullHex = cMatch.Groups[1].Value;
+        var allBytes = new byte[fullHex.Length / 2];
+        for (int i = 0; i < allBytes.Length; i++)
+            allBytes[i] = Convert.ToByte(fullHex.Substring(i * 2, 2), 16);
+        var cms = new byte[DerTlvReader.ReadTotalLength(allBytes)];
+        Array.Copy(allBytes, cms, cms.Length);
 
         // 3. Verify the signature over the ByteRange content with a real validator
         var content = new byte[r1 + r3];
