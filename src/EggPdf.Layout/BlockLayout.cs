@@ -865,7 +865,7 @@ public static class BlockLayout
                     continue;
 
                 // Check if parent has mixed inline content (inline elements + text)
-                bool hasInlineSiblings = HasInlineElementSiblings(element);
+                bool hasInlineSiblings = HasInlineElementSiblings(element, style, resolver);
 
                 // If there are inline siblings, participate in inline flow
                 if (hasInlineSiblings && !preserveWhitespace)
@@ -2113,8 +2113,18 @@ public static class BlockLayout
                tens[(number % 100) / 10] + ones[number % 10];
     }
 
-    /// <summary>Check if an element has any inline element children (not just text nodes or br).</summary>
-    private static bool HasInlineElementSiblings(HtmlElement parent)
+    /// <summary>
+    /// Check if an element has any inline element children (not just text nodes or br).
+    /// A sibling explicitly styled as block-level (e.g. a &lt;span&gt; with CSS
+    /// <c>display: block</c>) is excluded even though its tag name defaults to inline --
+    /// the tag-name fallback alone previously routed such text through the word-by-word
+    /// inline-flow path, which has no text-align centering support (each word box's
+    /// Width equals its own ContentWidth, so PdfRenderer's centering never triggers).
+    /// A real block-level sibling belongs on its own line regardless, so excluding it here
+    /// lets the text instead take the "regular text with line wrapping" path, which does.
+    /// </summary>
+    private static bool HasInlineElementSiblings(HtmlElement parent, ComputedStyle parentStyle,
+        Func<HtmlElement, ComputedStyle?, ComputedStyle>? resolver)
     {
         foreach (var child in parent.ChildNodes)
         {
@@ -2129,6 +2139,11 @@ public static class BlockLayout
                     tag != "header" && tag != "footer" && tag != "main" && tag != "aside" &&
                     tag != "figure" && tag != "figcaption" && tag != "details" && tag != "summary")
                 {
+                    if (resolver != null)
+                    {
+                        var childStyle = resolver(e, parentStyle);
+                        if (IsBlockLevel(childStyle.Display)) continue;
+                    }
                     return true;
                 }
             }
