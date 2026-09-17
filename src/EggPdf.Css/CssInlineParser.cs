@@ -16,8 +16,12 @@ public static class CssInlineParser
         if (string.IsNullOrWhiteSpace(css))
             return declarations;
 
-        // Split by semicolons (simple approach for inline styles)
-        var parts = css.Split(';');
+        // Split by semicolons, but not ones inside parens (e.g. a function
+        // argument) or quotes (e.g. a literal string, or -- the case that
+        // exposed this -- a "data:image/png;base64,..." URI, which contains
+        // a semicolon that a naive css.Split(';') would wrongly treat as a
+        // declaration boundary, truncating the value).
+        var parts = SplitDeclarations(css);
 
         foreach (var part in parts)
         {
@@ -54,5 +58,33 @@ public static class CssInlineParser
         }
 
         return declarations;
+    }
+
+    /// <summary>Split on ';' at paren-depth 0 and outside quotes.</summary>
+    private static List<string> SplitDeclarations(string css)
+    {
+        var result = new List<string>();
+        int depth = 0;
+        char? quote = null;
+        int start = 0;
+        for (int i = 0; i < css.Length; i++)
+        {
+            char c = css[i];
+            if (quote.HasValue)
+            {
+                if (c == quote.Value) quote = null;
+                continue;
+            }
+            if (c == '\'' || c == '"') { quote = c; continue; }
+            if (c == '(') depth++;
+            else if (c == ')') { if (depth > 0) depth--; }
+            else if (c == ';' && depth == 0)
+            {
+                result.Add(css.Substring(start, i - start));
+                start = i + 1;
+            }
+        }
+        result.Add(css.Substring(start));
+        return result;
     }
 }

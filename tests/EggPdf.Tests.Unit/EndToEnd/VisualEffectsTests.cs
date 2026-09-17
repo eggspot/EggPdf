@@ -125,13 +125,36 @@ public class VisualEffectsTests
         await act.Should().NotThrowAsync();
     }
 
+    // 1x1 red pixel PNG as base64 (same fixture used by ImageTests.cs).
+    private const string RedPixelPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+
     [Fact]
-    public async Task ImageSet_StyleStored()
+    public async Task ImageSet_PrefersOneXCandidateAndActuallyEmbedsIt()
     {
-        // Verify image-set() value is stored in computed style without crashing cascade
-        var html = "<div style=\"background-image: image-set('img.png' 1x, 'img2x.png' 2x); width:100px; height:100px\">IS2</div>";
+        // PDF is a fixed 1x print context (no real screen density) — image-set()
+        // must resolve to a real, loadable URL, not just be stored inertly in the
+        // computed style. Listing the 2x candidate first proves selection is by
+        // density match, not "pick whichever comes first". The 2x candidate points
+        // at a path that doesn't exist, so if 1x weren't actually preferred/loaded,
+        // no image would end up embedded at all.
+        var html = $"<div style=\"background-image: image-set(url('missing-2x.png') 2x, url('data:image/png;base64,{RedPixelPng}') 1x); width:100px; height:100px\">IS</div>";
+
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
-        pdf.Should().NotBeEmpty();
+        var text = Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("/Subtype /Image", "the 1x candidate must resolve, load, and get embedded as a real image XObject");
+    }
+
+    [Fact]
+    public async Task ImageSet_QuotedUrlWithoutUrlWrapper_StillResolves()
+    {
+        // image-set() candidates may be bare quoted strings instead of url(...).
+        var html = $"<div style=\"background-image: image-set('data:image/png;base64,{RedPixelPng}' 1x); width:100px; height:100px\">IS2</div>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("/Subtype /Image", "a bare-quoted (non-url()) candidate must still resolve and embed");
     }
 
     [Fact]

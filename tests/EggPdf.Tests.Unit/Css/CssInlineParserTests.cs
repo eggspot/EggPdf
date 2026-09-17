@@ -103,4 +103,42 @@ public class CssInlineParserTests
 
         decls.Should().HaveCount(1);
     }
+
+    [Fact]
+    public void Parse_DataUriWithSemicolon_NotTruncatedAtInnerSemicolon()
+    {
+        // A naive css.Split(';') treats the semicolon inside "data:image/png;base64,..."
+        // as a declaration boundary, silently truncating the value -- found while
+        // implementing image-set() support, when a data-URI candidate inside a
+        // style="" attribute produced no background at all.
+        var decls = CssInlineParser.Parse(
+            "background-image: url('data:image/png;base64,AAAA=='); width: 100px");
+
+        decls.Should().HaveCount(2);
+        decls[0].Property.Should().Be("background-image");
+        decls[0].Value.Should().Be("url('data:image/png;base64,AAAA==')");
+        decls[1].Property.Should().Be("width");
+        decls[1].Value.Should().Be("100px");
+    }
+
+    [Fact]
+    public void Parse_SemicolonInsideDoubleQuotedValue_NotTruncated()
+    {
+        var decls = CssInlineParser.Parse("content: \"a;b\"; color: red");
+
+        decls.Should().HaveCount(2);
+        decls[0].Property.Should().Be("content");
+        decls[0].Value.Should().Be("\"a;b\"");
+        decls[1].Property.Should().Be("color");
+    }
+
+    [Fact]
+    public void Parse_NestedParensAroundSemicolon_NotTruncated()
+    {
+        var decls = CssInlineParser.Parse(
+            "background-image: image-set(url('a;b.png') 1x); color: red");
+
+        decls.Should().HaveCount(2);
+        decls[0].Value.Should().Be("image-set(url('a;b.png') 1x)");
+    }
 }

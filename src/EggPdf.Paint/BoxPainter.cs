@@ -1020,9 +1020,15 @@ public static class BoxPainter
             return;
         }
 
-        // Extract URL from "url(...)" or "url('...')" or "url("...")"
+        // Extract URL from "url(...)" or "url('...')" or "url("...")", or
+        // resolve an image-set(...) candidate list to its best URL.
         string? url = null;
-        if (bgImage.StartsWith("url(", StringComparison.OrdinalIgnoreCase))
+        if (bgImage.StartsWith("image-set(", StringComparison.OrdinalIgnoreCase) ||
+            bgImage.StartsWith("-webkit-image-set(", StringComparison.OrdinalIgnoreCase))
+        {
+            url = ResolveImageSet(bgImage);
+        }
+        else if (bgImage.StartsWith("url(", StringComparison.OrdinalIgnoreCase))
         {
             int start = 4;
             int end = bgImage.Length - 1;
@@ -2027,17 +2033,88 @@ public static class BoxPainter
         }
     }
 
-    /// <summary>Split string on a delimiter character, ignoring delimiters inside parentheses.</summary>
+    /// <summary>
+    /// Resolve a CSS image-set(...) (or -webkit-image-set(...)) value to its
+    /// best candidate URL. Mirrors BlockLayout.ResolveSrcset's "PDF is a fixed
+    /// 1x print context" preference: picks the candidate whose density
+    /// descriptor is closest to 1x (a descriptor-less candidate counts as 1x).
+    /// Returns null if no candidate has a resolvable URL.
+    /// </summary>
+    private static string? ResolveImageSet(string value)
+    {
+        int open = value.IndexOf('(');
+        int close = value.LastIndexOf(')');
+        if (open < 0 || close <= open) return null;
+        string inner = value.Substring(open + 1, close - open - 1);
+
+        string? bestUrl = null;
+        float bestDeltaFrom1x = float.MaxValue;
+
+        foreach (var rawCandidate in SplitTopLevel(inner, ','))
+        {
+            var candidate = rawCandidate.Trim();
+            if (candidate.Length == 0) continue;
+
+            string urlPart = candidate;
+            float density = 1f;
+            int lastSpace = candidate.LastIndexOf(' ');
+            if (lastSpace >= 0)
+            {
+                string descriptor = candidate.Substring(lastSpace + 1).Trim();
+                if (descriptor.EndsWith("x", StringComparison.OrdinalIgnoreCase) &&
+                    float.TryParse(descriptor.Substring(0, descriptor.Length - 1), NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out float d))
+                {
+                    density = d;
+                    urlPart = candidate.Substring(0, lastSpace).Trim();
+                }
+            }
+
+            string url = ExtractUrlToken(urlPart);
+            if (url.Length == 0) continue;
+
+            float delta = Math.Abs(density - 1f);
+            if (delta < bestDeltaFrom1x)
+            {
+                bestDeltaFrom1x = delta;
+                bestUrl = url;
+            }
+        }
+
+        return bestUrl;
+    }
+
+    /// <summary>Unwrap "url(...)" (with optional quotes) or a bare quoted string down to its raw URL.</summary>
+    private static string ExtractUrlToken(string token)
+    {
+        token = token.Trim();
+        if (token.StartsWith("url(", StringComparison.OrdinalIgnoreCase) && token.EndsWith(")"))
+            token = token.Substring(4, token.Length - 5).Trim();
+        if (token.Length >= 2 && ((token[0] == '\'' && token[token.Length - 1] == '\'') ||
+            (token[0] == '"' && token[token.Length - 1] == '"')))
+            token = token.Substring(1, token.Length - 2);
+        return token;
+    }
+
+    /// <summary>Split string on a delimiter character, ignoring delimiters inside parentheses or quotes.</summary>
     private static List<string> SplitTopLevel(string value, char delimiter)
     {
         var result = new List<string>();
         int depth = 0;
+        char? quote = null;
         int start = 0;
         for (int i = 0; i < value.Length; i++)
         {
-            if (value[i] == '(') depth++;
-            else if (value[i] == ')') depth--;
-            else if (value[i] == delimiter && depth == 0)
+            char c = value[i];
+            if (quote.HasValue)
+            {
+                if (c == quote.Value) quote = null;
+                continue;
+            }
+            if (c == '\'' || c == '"') { quote = c; continue; }
+            if (c == '(') depth++;
+            else if (c == ')') { if (depth > 0) depth--; }
+            else if (c == delimiter && depth == 0)
             {
                 result.Add(value.Substring(start, i - start));
                 start = i + 1;
