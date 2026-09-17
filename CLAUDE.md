@@ -70,14 +70,16 @@ src/
   EggPdf.Pdf/          -- PDF 1.7 writer (text, CID fonts, images, links, merging, RC4 encryption, CMS/PKCS#7 signing)
   EggPdf.Cli/          -- CLI tool: eggpdf input.html -o output.pdf
   EggPdf.Service/      -- REST API + WebUI (POST /api/render, GET /e2e, GET /)
+  EggPdf.AspNetCore/   -- ASP.NET Core middleware/DI integration (API key auth, service registration)
+  EggPdf.Razor/         -- Razor component/view -> PDF conversion
   EggPdf.Style/        -- (placeholder for future style resolution module)
-  EggPdf.Svg/          -- (placeholder for future SVG engine)
-  EggPdf.Paint/        -- (placeholder for future paint layer)
-  EggPdf.Fragmentation/ -- (placeholder for future fragmentation)
+  EggPdf.Svg/          -- SVG parser + renderer (inline <svg>, external .svg images)
+  EggPdf.Paint/        -- paints a laid-out box tree onto a PdfPage (text, backgrounds, borders, shadows, transforms)
+  EggPdf.Fragmentation/ -- pure pagination computation (page breaks, orphans/widows, fixed-position collection)
 
 tests/
-  EggPdf.Tests.Unit/   -- ~965 unit tests (parsers, CSS, fonts/webfonts, signing, PDF, PNG, E2E render checks)
-  EggPdf.Tests.Layout/ -- ~554 layout tests (block, inline, flex, float, table, grid, margins, lists)
+  EggPdf.Tests.Unit/   -- ~1058 unit tests (parsers, CSS, fonts/webfonts, signing, PDF, PNG, E2E render checks)
+  EggPdf.Tests.Layout/ -- ~580 layout tests (block, inline, flex, float, table, grid, margins, lists)
   EggPdf.Tests.E2E/    -- 20 Playwright tests (WebUI, API endpoints)
 
 benchmarks/
