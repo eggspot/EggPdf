@@ -332,6 +332,47 @@ internal static class PdfRenderer
             }
         }
 
+        // Repeat a <thead> at the top of every page a table's body continues onto.
+        // Independent of the pin-bottom shift above (applied additively): every box
+        // on a continuation page shifts down by the thead's height to make room,
+        // and the thead's own paintable boxes (cells/text/borders) are repainted
+        // there with a freshly computed page-local Y -- they still also paint once,
+        // normally, via allBoxes on the page they actually start on.
+        var tableHeaders = new List<PageFragmenter.TableHeaderInfo>();
+        PageFragmenter.CollectRepeatingTableHeaders(layoutRoot, tableHeaders);
+        var theadShiftDelta = new float[pageBounds.Count];
+        var theadRepeatsByPage = new Dictionary<int, List<(LayoutBox box, float adjustedY)>>();
+        foreach (var th in tableHeaders)
+        {
+            int theadPage = -1;
+            for (int pi = 0; pi < pageBounds.Count; pi++)
+            {
+                var (pTop, pBottom) = pageBounds[pi];
+                if (th.TheadBox.Y >= pTop && th.TheadBox.Y < pBottom) { theadPage = pi; break; }
+            }
+            if (theadPage < 0) continue;
+
+            List<(LayoutBox box, float adjustedY)>? theadPaintables = null;
+            for (int pi = theadPage + 1; pi < pageBounds.Count; pi++)
+            {
+                var (pTop, _) = pageBounds[pi];
+                if (pTop >= th.TableBottom) break; // table already ended before this page starts
+
+                if (theadPaintables == null)
+                {
+                    var raw = new List<LayoutBox>();
+                    PageFragmenter.CollectPaintableBoxes(th.TheadBox, raw);
+                    theadPaintables = new List<(LayoutBox, float)>(raw.Count);
+                    foreach (var b in raw)
+                        theadPaintables.Add((b, b.Y - th.TheadBox.Y + _marginTopPx));
+                }
+                if (!theadRepeatsByPage.TryGetValue(pi, out var list))
+                    theadRepeatsByPage[pi] = list = new List<(LayoutBox, float)>();
+                list.AddRange(theadPaintables);
+                theadShiftDelta[pi] += th.TheadBox.Height;
+            }
+        }
+
         // Render each page
         int renderPageIndex = 0;
         foreach (var (pageTopPx, pageBottomPx) in pageBounds)
@@ -345,6 +386,7 @@ internal static class PdfRenderer
 
             float shiftThreshold = pageShiftThresholdY[renderPageIndex];
             float shiftDelta = pageShiftDelta[renderPageIndex];
+            float theadDelta = theadShiftDelta[renderPageIndex];
 
             // Paint boxes that fall on this page
             foreach (var box in allBoxes)
@@ -371,6 +413,8 @@ internal static class PdfRenderer
                 float effectiveY = box.Y;
                 if (shiftDelta > 0 && box.Y >= shiftThreshold)
                     effectiveY += shiftDelta;
+                if (theadDelta > 0)
+                    effectiveY += theadDelta;
 
                 // Adjust Y coordinate relative to this page, offset by top margin
                 float adjustedY = effectiveY - pageTopPx + _marginTopPx;
@@ -399,6 +443,12 @@ internal static class PdfRenderer
                 {
                     BoxPainter.PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY);
                 }
+            }
+
+            if (theadRepeatsByPage.TryGetValue(renderPageIndex, out var repeats))
+            {
+                foreach (var (rbox, radjY) in repeats)
+                    BoxPainter.PaintBox(page, rbox, pageHeightPt, pageHeightPx, radjY);
             }
 
             BoxPainter.PaintFixedBoxes(page, fixedBoxes, pageHeightPt, pageHeightPx,

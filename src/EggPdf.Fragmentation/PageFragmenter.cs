@@ -18,6 +18,35 @@ public static class PageFragmenter
     // Pre-built border-style property keys indexed by side (0=top,1=right,2=bottom,3=left).
     private static readonly string[] BorderStyleKeys = { "border-top-style", "border-right-style", "border-bottom-style", "border-left-style" };
 
+    /// <summary>A table's &lt;thead&gt; box and the table's overall bottom Y, for repeat-on-continuation-page purposes.</summary>
+    public struct TableHeaderInfo
+    {
+        public LayoutBox TheadBox;
+        public float TableBottom;
+    }
+
+    /// <summary>
+    /// Find every &lt;table&gt; that has a &lt;thead&gt; child, so its header row(s)
+    /// can be repainted at the top of each page the table's body continues onto.
+    /// </summary>
+    public static void CollectRepeatingTableHeaders(LayoutBox box, List<TableHeaderInfo> result)
+    {
+        if (box.Element?.TagName == "table")
+        {
+            for (int i = 0; i < box.Children.Count; i++)
+            {
+                if (box.Children[i].Element?.TagName == "thead")
+                {
+                    result.Add(new TableHeaderInfo { TheadBox = box.Children[i], TableBottom = box.Y + box.Height });
+                    break;
+                }
+            }
+        }
+
+        for (int i = 0; i < box.Children.Count; i++)
+            CollectRepeatingTableHeaders(box.Children[i], result);
+    }
+
     public static void CollectPaintableBoxes(LayoutBox box, List<LayoutBox> result)
     {
         // A box is paintable if it has text, background, image, border, or is a link

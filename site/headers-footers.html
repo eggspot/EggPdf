@@ -74,8 +74,8 @@
           content repeats on every page) and native <code>@page</code> margin boxes (see
           <a href="#page-margin-boxes">below</a>), including <code>@page :first</code>/
           <code>:left</code>/<code>:right</code> overrides — both support page numbers via
-          <code>counter(page)</code>. Tables spanning multiple pages continue correctly, though
-          the column header row itself doesn't yet repeat on continuation pages.
+          <code>counter(page)</code>. Tables spanning multiple pages continue correctly, and the
+          <code>&lt;thead&gt;</code> row repeats at the top of every continuation page automatically.
         </p>
       </div>
 
@@ -164,9 +164,8 @@
   <span class="pun">&lt;/</span><span class="typ">tbody</span><span class="pun">&gt;</span>
 <span class="pun">&lt;/</span><span class="typ">table</span><span class="pun">&gt;</span></code></pre></div>
       <p>
-        Note: the <code>&lt;thead&gt;</code> row itself is not yet repeated at the top of each
-        continuation page — it currently appears once, on whichever page the table starts on.
-        Repeating column headers per page is on the roadmap.
+        The <code>&lt;thead&gt;</code> row itself repeats at the top of every continuation page
+        automatically — no extra markup needed.
       </p>
 
       <h2 id="page-margin-boxes">@page margin boxes</h2>
