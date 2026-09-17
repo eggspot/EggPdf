@@ -161,25 +161,21 @@ public class PdfDocument
         // Object numbering plan:
         // 1: Catalog
         // 2: Pages
-        // 3..N: Page objects (each page = page dict + content stream = 2 objects)
+        // 3..N: Page objects (each page = page dict + content stream = 2 objects;
+        //   link annotations are written inline in the page dict, not as their
+        //   own objects, so pages never reserve numbers for them)
         // Then: font resources, info dict
-        int nextObj = 1;
-        int catalogObj = nextObj++;
-        int pagesObj = nextObj++;
+        var alloc = new PdfObjectAllocator();
+        int catalogObj = alloc.Allocate();
+        int pagesObj = alloc.Allocate();
 
         // Pre-calculate page objects
-        var pageObjs = new List<(int pageDict, int contentStream, int? annotArray)>();
+        var pageObjs = new List<(int pageDict, int contentStream)>();
         foreach (var page in _pages)
         {
-            int pd = nextObj++;
-            int cs = nextObj++;
-            int? ann = page.Links.Count > 0 ? nextObj++ : null;
-            if (page.Links.Count > 0)
-            {
-                foreach (var _ in page.Links)
-                    nextObj++; // annotation objects
-            }
-            pageObjs.Add((pd, cs, ann));
+            int pd = alloc.Allocate();
+            int cs = alloc.Allocate();
+            pageObjs.Add((pd, cs));
         }
 
         // Font objects — Type1 (built-in) get 1 object, CIDFont (embedded) get 5 objects
@@ -189,17 +185,17 @@ public class PdfDocument
         {
             if (_embeddedFonts.ContainsKey(font))
             {
-                int type0 = nextObj++;
-                int cidFont = nextObj++;
-                int descriptor = nextObj++;
-                int stream = nextObj++;
-                int toUnicode = nextObj++;
+                int type0 = alloc.Allocate();
+                int cidFont = alloc.Allocate();
+                int descriptor = alloc.Allocate();
+                int stream = alloc.Allocate();
+                int toUnicode = alloc.Allocate();
                 fontObjs[font] = type0;
                 cidFontObjs[font] = (type0, cidFont, descriptor, stream, toUnicode);
             }
             else
             {
-                fontObjs[font] = nextObj++;
+                fontObjs[font] = alloc.Allocate();
             }
         }
 
@@ -210,35 +206,33 @@ public class PdfDocument
                 allExtGStates.Add(gs);
         var extGStateObjs = new Dictionary<string, int>();
         foreach (var gs in allExtGStates)
-            extGStateObjs[gs] = nextObj++;
+            extGStateObjs[gs] = alloc.Allocate();
 
         // Image XObject objects (each image = 1 object, + 1 SMask if alpha)
         var imageObjs = new Dictionary<string, int>();
         var imageSMaskObjs = new Dictionary<string, int>();
         foreach (var kv in _images)
         {
-            imageObjs[kv.Key] = nextObj++;
+            imageObjs[kv.Key] = alloc.Allocate();
             if (kv.Value.SMaskData != null)
-                imageSMaskObjs[kv.Key] = nextObj++;
+                imageSMaskObjs[kv.Key] = alloc.Allocate();
         }
 
         // Info dictionary
-        int infoObj = nextObj++;
+        int infoObj = alloc.Allocate();
 
         // Outline objects for bookmarks
         int outlineRootObj = 0;
         var outlineItemObjs = new List<int>();
         if (_bookmarks != null && _bookmarks.Count > 0)
         {
-            outlineRootObj = nextObj++;
+            outlineRootObj = alloc.Allocate();
             for (int i = 0; i < _bookmarks.Count; i++)
-                outlineItemObjs.Add(nextObj++);
+                outlineItemObjs.Add(alloc.Allocate());
         }
 
-        var offsets = new Dictionary<int, long>();
-
         // Write Catalog
-        offsets[catalogObj] = writer.Position;
+        alloc.RecordOffset(catalogObj, writer.Position);
         writer.WriteLine($"{catalogObj} 0 obj");
         if (outlineRootObj > 0)
             writer.WriteLine($"<< /Type /Catalog /Pages {pagesObj} 0 R /Outlines {outlineRootObj} 0 R >>");
@@ -247,7 +241,7 @@ public class PdfDocument
         writer.WriteLine("endobj");
 
         // Write Pages
-        offsets[pagesObj] = writer.Position;
+        alloc.RecordOffset(pagesObj, writer.Position);
         writer.WriteLine($"{pagesObj} 0 obj");
         var kids = string.Join(" ", pageObjs.ConvertAll(p => $"{p.pageDict} 0 R"));
         writer.WriteLine($"<< /Type /Pages /Kids [{kids}] /Count {_pages.Count} >>");
@@ -259,12 +253,12 @@ public class PdfDocument
             if (cidFontObjs.TryGetValue(kv.Key, out var cid))
             {
                 // Write CIDFont Type 2 (embedded TrueType)
-                WriteCIDFont(writer, offsets, kv.Key, cid, _embeddedFonts[kv.Key], enc);
+                WriteCIDFont(writer, alloc, kv.Key, cid, _embeddedFonts[kv.Key], enc);
             }
             else
             {
                 // Write built-in Type1 font
-                offsets[kv.Value] = writer.Position;
+                alloc.RecordOffset(kv.Value, writer.Position);
                 writer.WriteLine($"{kv.Value} 0 obj");
                 writer.WriteLine($"<< /Type /Font /Subtype /Type1 /BaseFont /{kv.Key} /Encoding /WinAnsiEncoding >>");
                 writer.WriteLine("endobj");
@@ -274,7 +268,7 @@ public class PdfDocument
         // Write ExtGState objects for opacity and blend modes
         foreach (var kv in extGStateObjs)
         {
-            offsets[kv.Value] = writer.Position;
+            alloc.RecordOffset(kv.Value, writer.Position);
             writer.WriteLine($"{kv.Value} 0 obj");
 
             if (kv.Key.StartsWith("GSBM_"))
@@ -304,7 +298,7 @@ public class PdfDocument
 
             byte[] compressedSmask = EncryptBytes(enc, CompressZlib(smaskData), kv.Value);
 
-            offsets[kv.Value] = writer.Position;
+            alloc.RecordOffset(kv.Value, writer.Position);
             writer.WriteLine($"{kv.Value} 0 obj");
             writer.WriteLine($"<< /Type /XObject /Subtype /Image /Width {img.Width} /Height {img.Height}");
             writer.WriteLine($"/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length {compressedSmask.Length} >>");
@@ -320,7 +314,7 @@ public class PdfDocument
         {
             var img = _images[kv.Key];
 
-            offsets[kv.Value] = writer.Position;
+            alloc.RecordOffset(kv.Value, writer.Position);
             writer.WriteLine($"{kv.Value} 0 obj");
 
             if (img.Format == PdfImageFormat.Jpeg)
@@ -380,12 +374,12 @@ public class PdfDocument
         for (int i = 0; i < _pages.Count; i++)
         {
             var page = _pages[i];
-            var (pageDictObj, contentStreamObj, annotArrayObj) = pageObjs[i];
+            var (pageDictObj, contentStreamObj) = pageObjs[i];
 
             // Content stream
             var contentBytes = Latin1Encoding.GetBytes(page.ContentStream.ToString());
 
-            offsets[contentStreamObj] = writer.Position;
+            alloc.RecordOffset(contentStreamObj, writer.Position);
             writer.WriteLine($"{contentStreamObj} 0 obj");
             if (CompressContentStreams)
             {
@@ -405,27 +399,8 @@ public class PdfDocument
             writer.WriteLine("endstream");
             writer.WriteLine("endobj");
 
-            // Link annotations
-            var annotRefs = new List<string>();
-            if (page.Links.Count > 0)
-            {
-                int annotStartObj = annotArrayObj!.Value + 1 - page.Links.Count; // wrong calc, let me fix
-                // Actually we need to track annotation object numbers properly
-            }
-
-            // Write annotation objects
-            var annotObjNumbers = new List<int>();
-            if (page.Links.Count > 0)
-            {
-                foreach (var link in page.Links)
-                {
-                    // Find next annotation obj number
-                    // We already allocated them sequentially after annotArrayObj
-                }
-            }
-
             // Page dictionary
-            offsets[pageDictObj] = writer.Position;
+            alloc.RecordOffset(pageDictObj, writer.Position);
             writer.WriteLine($"{pageDictObj} 0 obj");
             var pageDict = new StringBuilder();
             pageDict.Append("<< /Type /Page");
@@ -476,11 +451,11 @@ public class PdfDocument
         // Write outline objects (bookmarks)
         if (_bookmarks != null && _bookmarks.Count > 0 && outlineRootObj > 0)
         {
-            WriteOutlineObjects(writer, offsets, pageObjs, outlineRootObj, outlineItemObjs, enc);
+            WriteOutlineObjects(writer, alloc, pageObjs, outlineRootObj, outlineItemObjs, enc);
         }
 
         // Info dictionary
-        offsets[infoObj] = writer.Position;
+        alloc.RecordOffset(infoObj, writer.Position);
         writer.WriteLine($"{infoObj} 0 obj");
         var info = new StringBuilder();
         info.Append($"<< /Producer {PdfString(enc, "EggPdf", infoObj)}");
@@ -495,14 +470,14 @@ public class PdfDocument
 
         // Cross-reference table
         long xrefOffset = writer.Position;
-        int totalObjects = nextObj;
+        int totalObjects = alloc.Count + 1;
         writer.WriteLine("xref");
         writer.WriteLine($"0 {totalObjects}");
         writer.WriteLine("0000000000 65535 f ");
 
         for (int obj = 1; obj < totalObjects; obj++)
         {
-            if (offsets.TryGetValue(obj, out long offset))
+            if (alloc.TryGetOffset(obj, out long offset))
                 writer.WriteLine($"{offset:D10} 00000 n ");
             else
                 writer.WriteLine("0000000000 00000 f ");
@@ -544,8 +519,8 @@ public class PdfDocument
     /// </summary>
     private void WriteOutlineObjects(
         PdfStreamWriter writer,
-        Dictionary<int, long> offsets,
-        List<(int pageDict, int contentStream, int? annotArray)> pageObjs,
+        PdfObjectAllocator alloc,
+        List<(int pageDict, int contentStream)> pageObjs,
         int outlineRootObj,
         List<int> outlineItemObjs,
         EncryptionParams? enc)
@@ -637,7 +612,7 @@ public class PdfDocument
         int rootLast = topLevelChildren.Count > 0 ? topLevelChildren[topLevelChildren.Count - 1] : 0;
         int totalTopLevel = topLevelChildren.Count;
 
-        offsets[outlineRootObj] = writer.Position;
+        alloc.RecordOffset(outlineRootObj, writer.Position);
         writer.WriteLine($"{outlineRootObj} 0 obj");
         writer.WriteLine($"<< /Type /Outlines /First {outlineItemObjs[rootFirst]} 0 R /Last {outlineItemObjs[rootLast]} 0 R /Count {totalTopLevel} >>");
         writer.WriteLine("endobj");
@@ -673,7 +648,7 @@ public class PdfDocument
 
             entry.Append(" >>");
 
-            offsets[objNum] = writer.Position;
+            alloc.RecordOffset(objNum, writer.Position);
             writer.WriteLine($"{objNum} 0 obj");
             writer.WriteLine(entry.ToString());
             writer.WriteLine("endobj");
@@ -724,7 +699,7 @@ public class PdfDocument
     }
 
     /// <summary>Write a CIDFont Type 2 (embedded TrueType) with all required objects.</summary>
-    private void WriteCIDFont(PdfStreamWriter writer, Dictionary<int, long> offsets,
+    private void WriteCIDFont(PdfStreamWriter writer, PdfObjectAllocator alloc,
         string fontName, (int type0, int cidFont, int descriptor, int stream, int toUnicode) objs,
         EmbeddedFontData fontData, EncryptionParams? enc)
     {
@@ -749,7 +724,7 @@ public class PdfDocument
         byte[] toUnicodeCompressed = EncryptBytes(enc, CompressZlib(toUnicodeData), objs.toUnicode);
 
         // 4. Write font stream (subset TrueType data)
-        offsets[objs.stream] = writer.Position;
+        alloc.RecordOffset(objs.stream, writer.Position);
         writer.WriteLine($"{objs.stream} 0 obj");
         writer.WriteLine($"<< /Length {compressed.Length} /Length1 {fontData.SubsetData.Length} /Filter /FlateDecode >>");
         writer.WriteLine("stream");
@@ -763,7 +738,7 @@ public class PdfDocument
         int descent = fontData.UnitsPerEm > 0 ? fontData.Descent * 1000 / fontData.UnitsPerEm : fontData.Descent;
         int flags = 32; // Nonsymbolic
 
-        offsets[objs.descriptor] = writer.Position;
+        alloc.RecordOffset(objs.descriptor, writer.Position);
         writer.WriteLine($"{objs.descriptor} 0 obj");
         writer.WriteLine($"<< /Type /FontDescriptor /FontName /{fontName}");
         writer.WriteLine($"/Flags {flags} /Ascent {ascent} /Descent {descent}");
@@ -773,7 +748,7 @@ public class PdfDocument
         writer.WriteLine("endobj");
 
         // 6. Write CIDFont dictionary
-        offsets[objs.cidFont] = writer.Position;
+        alloc.RecordOffset(objs.cidFont, writer.Position);
         writer.WriteLine($"{objs.cidFont} 0 obj");
         writer.WriteLine($"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{fontName}");
         writer.WriteLine($"/CIDSystemInfo << /Registry {PdfString(enc, "Adobe", objs.cidFont)} /Ordering {PdfString(enc, "Identity", objs.cidFont)} /Supplement 0 >>");
@@ -783,7 +758,7 @@ public class PdfDocument
         writer.WriteLine("endobj");
 
         // 7. Write ToUnicode CMap
-        offsets[objs.toUnicode] = writer.Position;
+        alloc.RecordOffset(objs.toUnicode, writer.Position);
         writer.WriteLine($"{objs.toUnicode} 0 obj");
         writer.WriteLine($"<< /Length {toUnicodeCompressed.Length} /Filter /FlateDecode >>");
         writer.WriteLine("stream");
@@ -793,7 +768,7 @@ public class PdfDocument
         writer.WriteLine("endobj");
 
         // 8. Write Type0 font (the top-level font reference)
-        offsets[objs.type0] = writer.Position;
+        alloc.RecordOffset(objs.type0, writer.Position);
         writer.WriteLine($"{objs.type0} 0 obj");
         writer.WriteLine($"<< /Type /Font /Subtype /Type0 /BaseFont /{fontName}");
         writer.WriteLine($"/Encoding /Identity-H");
