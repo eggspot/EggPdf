@@ -289,8 +289,9 @@ public static class HtmlToPdf
             float pageWidthPt = pageWidthPx * PdfCoordinates.PxToPt;
             float pageHeightPt = pageHeightPx * PdfCoordinates.PxToPt;
 
+            var marginBoxes = MarginBoxRenderer.Build(pageSettings, pageWidthPx, pageHeightPx);
             PdfRenderer.Render(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx,
-                pageSettings.MarginLeft, pageSettings.MarginTop, pageSettings.MarginBottom);
+                pageSettings.MarginLeft, pageSettings.MarginTop, pageSettings.MarginBottom, marginBoxes);
 
             return pdfDoc.ToByteArray();
         }

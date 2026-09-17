@@ -49,18 +49,37 @@ internal static class PageRuleResolver
                     ApplyDeclaration(settings, decl);
                 }
 
-                // Collect margin-box content
+                // Collect margin-box content and basic text styling
                 for (int m = 0; m < rule.MarginBoxes.Count; m++)
                 {
                     var mb = rule.MarginBoxes[m];
-                    string? content = null;
+                    var mbSettings = new PageMarginBoxSettings();
+                    bool hasContent = false;
                     for (int d = 0; d < mb.Declarations.Count; d++)
                     {
-                        if (mb.Declarations[d].Property == "content")
-                            content = mb.Declarations[d].Value;
+                        var decl = mb.Declarations[d];
+                        switch (decl.Property)
+                        {
+                            case "content":
+                                mbSettings.Content = decl.Value;
+                                hasContent = true;
+                                break;
+                            case "font-size":
+                                mbSettings.FontSize = decl.Value;
+                                break;
+                            case "color":
+                                mbSettings.Color = decl.Value;
+                                break;
+                            case "font-family":
+                                mbSettings.FontFamily = decl.Value;
+                                break;
+                            case "font-weight":
+                                mbSettings.FontWeight = decl.Value;
+                                break;
+                        }
                     }
-                    if (content != null)
-                        settings.MarginBoxContent[mb.Position] = content;
+                    if (hasContent)
+                        settings.MarginBoxes[mb.Position] = mbSettings;
                 }
             }
         }
@@ -264,9 +283,21 @@ internal class PageSettings
     public float ContentHeightPx => PageHeightPx - MarginTop - MarginBottom;
 
     /// <summary>
-    /// CSS @page margin-box content values keyed by position name
-    /// (e.g. "bottom-center" → "counter(page)").
+    /// CSS @page margin boxes keyed by position name (e.g. "bottom-center"),
+    /// one of the 16 positions the Paged Media spec defines: top/bottom-left/
+    /// center/right, top/bottom-left/right-corner, left/right-top/middle/bottom.
     /// </summary>
-    public Dictionary<string, string> MarginBoxContent { get; } =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, PageMarginBoxSettings> MarginBoxes { get; } =
+        new Dictionary<string, PageMarginBoxSettings>(StringComparer.OrdinalIgnoreCase);
+}
+
+/// <summary>A single @page margin box's raw content and basic text styling.</summary>
+internal struct PageMarginBoxSettings
+{
+    /// <summary>Raw (unresolved) CSS content value, e.g. <c>"Page " counter(page)</c>.</summary>
+    public string? Content;
+    public string? FontSize;
+    public string? Color;
+    public string? FontFamily;
+    public string? FontWeight;
 }

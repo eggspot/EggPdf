@@ -25,7 +25,8 @@ internal static class PdfRenderer
 
     public static void Render(LayoutBox layoutRoot, PdfDocument pdfDoc,
         float pageWidthPt, float pageHeightPt, float pageHeightPx,
-        float marginLeftPx = 0, float marginTopPx = 0, float marginBottomPx = 0)
+        float marginLeftPx = 0, float marginTopPx = 0, float marginBottomPx = 0,
+        List<LayoutBox>? marginBoxes = null)
     {
         BoxPainter.MarginLeftPx = marginLeftPx;
         _marginTopPx = marginTopPx;
@@ -34,7 +35,7 @@ internal static class PdfRenderer
 
         try
         {
-            RenderCore(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx);
+            RenderCore(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx, marginBoxes);
         }
         finally
         {
@@ -54,7 +55,8 @@ internal static class PdfRenderer
     }
 
     private static void RenderCore(LayoutBox layoutRoot, PdfDocument pdfDoc,
-        float pageWidthPt, float pageHeightPt, float pageHeightPx)
+        float pageWidthPt, float pageHeightPt, float pageHeightPx,
+        List<LayoutBox>? marginBoxes = null)
     {
         // Collect all leaf boxes (boxes with text or background)
         var allPaintableBoxes = new List<LayoutBox>();
@@ -76,6 +78,12 @@ internal static class PdfRenderer
             else
                 allBoxes.Add(allPaintableBoxes[fi]);
         }
+
+        // @page margin box content (@top-center, @bottom-right, etc.) repeats
+        // per physical page exactly like position:fixed content, including
+        // counter(page)/counter(pages) sentinel substitution.
+        if (marginBoxes != null && marginBoxes.Count > 0)
+            fixedBoxes.AddRange(marginBoxes);
 
         // Sort by z-index stacking order: non-positioned first (doc order),
         // then positioned elements sorted by z-index ascending (higher = painted later = on top)

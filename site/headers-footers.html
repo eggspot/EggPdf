@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Headers &amp; Footers — EggPdf | Eggspot</title>
-  <meta name="description" content="Add headers and footers to EggPdf PDFs using CSS fixed positioning or the planned @page margin box API.">
+  <meta name="description" content="Add headers and footers to EggPdf PDFs using CSS fixed positioning or @page margin boxes.">
   <link rel="canonical" href="https://eggspot.github.io/EggPdf/headers-footers.html">
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
   <link rel="apple-touch-icon" href="assets/favicon.svg">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://eggspot.github.io/EggPdf/headers-footers.html">
   <meta property="og:title" content="Headers &amp; Footers — EggPdf">
-  <meta property="og:description" content="Add headers and footers to EggPdf PDFs using CSS fixed positioning or the planned @page margin box API.">
+  <meta property="og:description" content="Add headers and footers to EggPdf PDFs using CSS fixed positioning or @page margin boxes.">
   <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -39,7 +39,7 @@
 <div class="page-header">
   <div class="container">
     <h1>Headers &amp; Footers</h1>
-    <p>Add running headers and footers using CSS positioning or @page margin boxes (planned).</p>
+    <p>Add running headers and footers using CSS positioning or @page margin boxes.</p>
   </div>
 </div>
 
@@ -70,15 +70,17 @@
       <h2 id="status">Current status</h2>
       <div class="callout callout-info">
         <p>
-          Native header/footer support via <code>@page</code> margin boxes is on the roadmap.
-          Today the practical approach is CSS fixed positioning: <code>position: fixed</code>
-          content (including page numbers via <code>counter(page)</code>) repeats on every page.
-          Tables spanning multiple pages continue correctly, though the column header row itself
-          doesn't yet repeat on continuation pages.
+          Two ways to add headers/footers: CSS fixed positioning (<code>position: fixed</code>
+          content repeats on every page) and native <code>@page</code> margin boxes (see
+          <a href="#page-margin-boxes">below</a>) — both support page numbers via
+          <code>counter(page)</code>. Tables spanning multiple pages continue correctly, though
+          the column header row itself doesn't yet repeat on continuation pages, and
+          <code>@page :first</code>/<code>:left</code>/<code>:right</code> selector scoping
+          isn't supported yet, so a margin box applies the same way to every page.
         </p>
       </div>
 
-      <h2 id="css-fixed">CSS fixed positioning (works today)</h2>
+      <h2 id="css-fixed">CSS fixed positioning</h2>
       <p>
         Use <code>position: fixed</code> to place content at a fixed position on every rendered
         page. Its containing block is the full physical page, so <code>top: 0</code> /
@@ -168,10 +170,16 @@
         Repeating column headers per page is on the roadmap.
       </p>
 
-      <h2 id="page-margin-boxes">@page margin boxes (planned)</h2>
+      <h2 id="page-margin-boxes">@page margin boxes</h2>
       <p>
-        When margin box support ships, headers and footers will use standard CSS <code>@page</code>
-        margin box syntax — the same as Chrome's print stylesheet support:
+        Headers and footers can also use standard CSS <code>@page</code> margin box syntax —
+        the same as Chrome's print stylesheet support. All 16 margin-box positions are
+        supported (<code>@top-left</code>/<code>-center</code>/<code>-right</code>,
+        <code>@bottom-left</code>/<code>-center</code>/<code>-right</code>, the four
+        <code>-corner</code> boxes, and the six <code>@left-*</code>/<code>@right-*</code> side
+        boxes), with <code>content</code> (literal strings, <code>counter(page)</code>,
+        <code>counter(pages)</code>, <code>attr()</code>) plus basic <code>font-size</code>,
+        <code>color</code>, <code>font-family</code> and <code>font-weight</code> styling:
       </p>
       <div class="code-block"><pre><code><span class="kw">@page</span> <span class="pun">{</span>
     <span class="kw">margin</span><span class="pun">:</span> <span class="str">2cm 2cm 3cm 2cm</span><span class="pun">;</span> <span class="cmt">/* extra bottom space for footer */</span>
@@ -185,12 +193,12 @@
         <span class="kw">content</span><span class="pun">:</span> <span class="str">"Page " counter(page) " of " counter(pages)</span><span class="pun">;</span>
         <span class="kw">font-size</span><span class="pun">:</span> <span class="str">8pt</span><span class="pun">;</span>
     <span class="pun">}</span>
-<span class="pun">}</span>
-<span class="kw">@page</span> <span class="pun">:</span><span class="typ">first</span> <span class="pun">{</span>
-    <span class="kw">@top-center</span> <span class="pun">{</span> <span class="kw">content</span><span class="pun">:</span> <span class="str">none</span><span class="pun">;</span> <span class="pun">}</span> <span class="cmt">/* no header on first page */</span>
 <span class="pun">}</span></code></pre></div>
       <p>
-        This is not yet implemented. Track progress on
+        Not yet supported: <code>@page :first</code>/<code>:left</code>/<code>:right</code>
+        page-selector scoping — a margin box declared on the base <code>@page</code> rule
+        applies to every page the same way, so per-page-type overrides (like suppressing the
+        header on the first page) aren't possible yet. Track progress on
         <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a>.
       </p>
 
