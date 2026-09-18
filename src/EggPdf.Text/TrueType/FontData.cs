@@ -40,6 +40,17 @@ public class FontData
     /// </summary>
     internal System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<ushort, ushort>>? GsubFeatures { get; set; }
 
+    /// <summary>
+    /// COLR (v0) color-glyph layers: base glyph ID -> ordered list of (layer glyph ID,
+    /// palette index). Palette index -1 means "use the current text/foreground color"
+    /// (COLR's 0xFFFF sentinel). Populated from the font's COLR table; see <see cref="TtfParser"/>.
+    /// COLRv1 (gradients, paint graphs) is not supported.
+    /// </summary>
+    internal System.Collections.Generic.Dictionary<ushort, System.Collections.Generic.List<(ushort layerGlyphId, int paletteIndex)>>? ColrLayers { get; set; }
+
+    /// <summary>CPAL palette 0 colors, indexed by palette color index (see <see cref="ColrLayers"/>).</summary>
+    internal (byte r, byte g, byte b, byte a)[]? CpalPalette { get; set; }
+
     /// <summary>Raw font file bytes (for PDF embedding).</summary>
     public byte[] RawData { get; set; } = System.Array.Empty<byte>();
 

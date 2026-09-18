@@ -145,6 +145,9 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - `font-feature-settings` (e.g. `"zero" 1`, `"smcp" 1`) applies single-glyph OpenType
   features (stylistic sets, small caps, oldstyle/tabular figures) from the font's GSUB
   table -- ligature/contextual substitution is not applied
+- Color/emoji fonts (COLR v0 + CPAL) render each glyph's real color layers -- COLRv1
+  (gradients, paint graphs -- e.g. current Segoe UI Emoji) is not supported and falls
+  back to the glyph's outline in the current text color
 
 ### Business
 - Digital signatures — one-call X.509 signing (`PdfSigner.Sign(pdf, cert)`, detached CMS/PKCS#7) or external-CMS two-step flow for HSMs

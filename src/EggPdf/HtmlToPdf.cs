@@ -904,7 +904,8 @@ public static class HtmlToPdf
                 subset.AdvanceWidths,
                 fontData.UnitsPerEm,
                 fontData.Ascent,
-                fontData.Descent);
+                fontData.Descent,
+                subset.ColorLayersByCodepoint);
 
             // Codepoints the chosen font cannot shape (e.g. ⚠ in text fonts):
             // embed a symbol-capable fallback the renderer can switch to mid-run.

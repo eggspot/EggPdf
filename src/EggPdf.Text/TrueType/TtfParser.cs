@@ -86,6 +86,12 @@ public static class TtfParser
         if (tables.TryGetValue("GSUB", out var gsub))
             ParseGsubSingleSubstitution(data, (int)gsub.offset, (int)gsub.length, font);
 
+        // Parse CPAL/COLR for color-glyph (emoji) support
+        if (tables.TryGetValue("CPAL", out var cpal))
+            ParseCpal(data, (int)cpal.offset, (int)cpal.length, font);
+        if (tables.TryGetValue("COLR", out var colr))
+            ParseColr(data, (int)colr.offset, (int)colr.length, font);
+
         return font;
     }
 
@@ -625,6 +631,85 @@ public static class TtfParser
                 font.GsubFeatures[kv.Key] = featureMap;
             }
         }
+    }
+
+    /// <summary>Parse the CPAL table's palette 0 into (r,g,b,a) colors. CPAL stores colors BGRA.</summary>
+    private static void ParseCpal(byte[] data, int offset, int length, FontData font)
+    {
+        if (offset + 12 > data.Length) return;
+
+        int pos = offset;
+        ushort version = ReadUInt16(data, ref pos);
+        ushort numPaletteEntries = ReadUInt16(data, ref pos);
+        ushort numPalettes = ReadUInt16(data, ref pos);
+        ushort numColorRecords = ReadUInt16(data, ref pos);
+        uint colorRecordsArrayOffset = ReadUInt32(data, ref pos);
+
+        if (numPalettes == 0 || numPaletteEntries == 0) return;
+        if (pos + 2 > data.Length) return;
+        ushort firstPaletteIndex = ReadUInt16(data, ref pos); // colorRecordIndices[0]
+
+        int crPos = offset + (int)colorRecordsArrayOffset + firstPaletteIndex * 4;
+        var colors = new (byte r, byte g, byte b, byte a)[numPaletteEntries];
+        for (int i = 0; i < numPaletteEntries; i++)
+        {
+            if (crPos + 4 > data.Length) break;
+            byte b = data[crPos], g = data[crPos + 1], r = data[crPos + 2], a = data[crPos + 3];
+            colors[i] = (r, g, b, a);
+            crPos += 4;
+        }
+        font.CpalPalette = colors;
+    }
+
+    /// <summary>
+    /// Parse a COLRv0 table into base-glyph -> ordered color-layer lists (glyph ID +
+    /// CPAL palette index, or -1 for "use current text color", COLR's 0xFFFF sentinel).
+    /// COLRv1 (gradients, paint graphs -- a much larger, compositing-based format) is
+    /// not supported: a v1 table's version field is simply not 0, so this quietly no-ops.
+    /// </summary>
+    private static void ParseColr(byte[] data, int offset, int length, FontData font)
+    {
+        if (offset + 14 > data.Length) return;
+
+        int pos = offset;
+        ushort version = ReadUInt16(data, ref pos);
+        if (version != 0) return; // COLRv1 not supported
+
+        ushort numBaseGlyphRecords = ReadUInt16(data, ref pos);
+        uint baseGlyphRecordsOffset = ReadUInt32(data, ref pos);
+        uint layerRecordsOffset = ReadUInt32(data, ref pos);
+        ushort numLayerRecords = ReadUInt16(data, ref pos);
+
+        int bgBase = offset + (int)baseGlyphRecordsOffset;
+        int lrBase = offset + (int)layerRecordsOffset;
+
+        var map = new System.Collections.Generic.Dictionary<ushort, System.Collections.Generic.List<(ushort, int)>>();
+
+        for (int i = 0; i < numBaseGlyphRecords; i++)
+        {
+            int rp = bgBase + i * 6;
+            if (rp + 6 > data.Length) break;
+            int tmp = rp;
+            ushort glyphId = ReadUInt16(data, ref tmp);
+            ushort firstLayerIndex = ReadUInt16(data, ref tmp);
+            ushort numLayers = ReadUInt16(data, ref tmp);
+
+            var layers = new System.Collections.Generic.List<(ushort, int)>();
+            for (int li = 0; li < numLayers; li++)
+            {
+                int layerIndex = firstLayerIndex + li;
+                if (layerIndex >= numLayerRecords) break;
+                int lp = lrBase + layerIndex * 4;
+                if (lp + 4 > data.Length) break;
+                int tmp2 = lp;
+                ushort layerGlyphId = ReadUInt16(data, ref tmp2);
+                ushort paletteIndex = ReadUInt16(data, ref tmp2);
+                layers.Add((layerGlyphId, paletteIndex == 0xFFFF ? -1 : paletteIndex));
+            }
+            if (layers.Count > 0) map[glyphId] = layers;
+        }
+
+        if (map.Count > 0) font.ColrLayers = map;
     }
 
     private static System.Collections.Generic.List<ushort>? ParseCoverage(byte[] data, int offset)

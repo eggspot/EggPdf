@@ -31,6 +31,15 @@ public class TtfSubsetter
 
         /// <summary>Advance widths indexed by new glyph ID.</summary>
         public ushort[] AdvanceWidths { get; set; } = Array.Empty<ushort>();
+
+        /// <summary>
+        /// COLR/CPAL color-glyph layers per codepoint, resolved to actual colors and
+        /// remapped to new (subset) glyph IDs. A layer with <c>useTextColor</c> true
+        /// should be painted in the caller's current text fill color instead of a
+        /// fixed palette color (COLR's "foreground color" sentinel, palette index 0xFFFF).
+        /// Null/absent when the font has no COLR table or the text uses no color glyphs.
+        /// </summary>
+        public Dictionary<int, List<(ushort newGlyphId, float r, float g, float b, bool useTextColor)>>? ColorLayersByCodepoint { get; set; }
     }
 
     /// <summary>
@@ -76,6 +85,19 @@ public class TtfSubsetter
             }
         }
 
+        // COLR color-glyph layers reference separate glyph IDs (not composite
+        // components), so they must be pulled into the subset explicitly or their
+        // outlines would be silently dropped.
+        if (font.ColrLayers != null)
+        {
+            foreach (var oldGid in codepointMap.Values)
+            {
+                if (font.ColrLayers.TryGetValue(oldGid, out var colrLayers))
+                    foreach (var layer in colrLayers)
+                        neededGlyphs.Add(layer.layerGlyphId);
+            }
+        }
+
         // Resolve composite glyphs (glyphs that reference other glyphs)
         if (tables.TryGetValue("glyf", out var glyfTable) && tables.TryGetValue("loca", out var locaTable))
         {
@@ -97,6 +119,37 @@ public class TtfSubsetter
         {
             if (oldToNew.TryGetValue(kv.Value, out var newId))
                 cpToNewGid[kv.Key] = newId;
+        }
+
+        // Resolve COLR layers to actual colors (via CPAL) and remapped new glyph IDs
+        Dictionary<int, List<(ushort newGlyphId, float r, float g, float b, bool useTextColor)>>? colorLayersByCp = null;
+        if (font.ColrLayers != null)
+        {
+            foreach (var kv in codepointMap)
+            {
+                if (!font.ColrLayers.TryGetValue(kv.Value, out var colrLayers)) continue;
+
+                var resolved = new List<(ushort, float, float, float, bool)>();
+                foreach (var layer in colrLayers)
+                {
+                    if (!oldToNew.TryGetValue(layer.layerGlyphId, out var newLayerGid)) continue;
+
+                    if (layer.paletteIndex < 0)
+                    {
+                        resolved.Add((newLayerGid, 0f, 0f, 0f, true)); // use caller's text color
+                    }
+                    else if (font.CpalPalette != null && layer.paletteIndex < font.CpalPalette.Length)
+                    {
+                        var c = font.CpalPalette[layer.paletteIndex];
+                        resolved.Add((newLayerGid, c.r / 255f, c.g / 255f, c.b / 255f, false));
+                    }
+                }
+                if (resolved.Count > 0)
+                {
+                    colorLayersByCp ??= new Dictionary<int, List<(ushort, float, float, float, bool)>>();
+                    colorLayersByCp[kv.Key] = resolved;
+                }
+            }
         }
 
         // Extract glyph data and build new glyf + loca
@@ -154,6 +207,7 @@ public class TtfSubsetter
             CodepointToNewGlyphId = cpToNewGid,
             OldToNewGlyphId = oldToNew,
             AdvanceWidths = newWidths,
+            ColorLayersByCodepoint = colorLayersByCp,
         };
     }
 

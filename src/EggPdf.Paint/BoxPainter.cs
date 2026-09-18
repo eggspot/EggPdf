@@ -601,7 +601,15 @@ public static class BoxPainter
                 page.SetOpacity(textAlpha);
 
             // Use CIDFont glyph IDs for embedded fonts, or WinAnsi for built-in fonts
-            if (CurrentPdfDoc != null && CurrentPdfDoc.IsEmbeddedFont(fontName))
+            if (CurrentPdfDoc != null && CurrentPdfDoc.IsEmbeddedFont(fontName) && CurrentPdfDoc.ContainsColorGlyphs(fontName, paintText))
+            {
+                // COLR/CPAL color-glyph (emoji) runs step one codepoint at a time: PDF's
+                // text-showing operator paints a whole string in one fill color, but a
+                // color glyph needs several same-position layers each in their own color.
+                PaintColorGlyphRun(page, paintText, pdfX, pdfY, fontName, pdfFontSize, letterSpacing,
+                    color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0);
+            }
+            else if (CurrentPdfDoc != null && CurrentPdfDoc.IsEmbeddedFont(fontName))
             {
                 var glyphIds = CurrentPdfDoc.GetGlyphIds(fontName, paintText);
                 if (glyphIds != null && glyphIds.Length > 0)
@@ -1867,6 +1875,40 @@ public static class BoxPainter
 
         if (barW <= 0 || barH <= 0) return;
         page.AddRectangle(barX, barY, barW, barH, r, g, b);
+    }
+
+    /// <summary>
+    /// Paint a text run that contains at least one COLR/CPAL color glyph (emoji), one
+    /// codepoint at a time. Non-color glyphs paint as a single normal CID glyph; color
+    /// glyphs paint via <see cref="PdfPage.AddColorGlyphLayers"/>. Each step advances by
+    /// the base glyph's own hmtx advance width (COLR layers are decorative, not real
+    /// advancing glyphs) plus letter-spacing. Word-spacing and cross-font glyph fallback
+    /// are not applied in this path -- both are edge cases for emoji-bearing runs, which
+    /// are already resolved by a single dedicated font/family in practice.
+    /// </summary>
+    private static void PaintColorGlyphRun(PdfPage page, string text, float startX, float pdfY,
+        string fontName, float pdfFontSize, float letterSpacing, float textR, float textG, float textB)
+    {
+        float x = startX;
+        for (int i = 0; i < text.Length; i++)
+        {
+            int cp = text[i];
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                cp = char.ConvertToUtf32(text[i], text[i + 1]);
+                i++;
+            }
+
+            CurrentPdfDoc!.TryGetGlyphId(fontName, cp, out var gid);
+
+            if (CurrentPdfDoc.TryGetColorLayers(fontName, cp, out var layers) && layers != null && layers.Count > 0)
+                page.AddColorGlyphLayers(layers, x, pdfY, fontName, pdfFontSize, textR, textG, textB);
+            else
+                page.AddTextCID(new[] { gid }, x, pdfY, fontName, pdfFontSize, textR, textG, textB, 0, 0);
+
+            CurrentPdfDoc.TryGetGlyphAdvancePt(fontName, gid, pdfFontSize, out var advance);
+            x += advance + letterSpacing;
+        }
     }
 
     /// <summary>

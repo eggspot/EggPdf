@@ -102,6 +102,36 @@ public class PdfPage
         ContentStream.AppendOpLine("ET");
     }
 
+    /// <summary>
+    /// Paint a COLR/CPAL color-glyph's layers stacked at one position, each in its
+    /// own color. A "0 0 Td" between layers resets the text matrix back to the line
+    /// matrix (unchanged by a zero move) without touching the position Tj advanced it
+    /// to, so every layer paints at the same spot. <c>useTextColor</c> layers use the
+    /// caller's current text fill color instead of a fixed palette color (COLR's
+    /// "foreground color" sentinel).
+    /// </summary>
+    public void AddColorGlyphLayers(List<(ushort glyphId, float r, float g, float b, bool useTextColor)> layers,
+        float x, float y, string fontName, float fontSize, float textR, float textG, float textB)
+    {
+        if (layers == null || layers.Count == 0) return;
+
+        UsedFonts.Add(fontName);
+        ContentStream.Append($"BT /{fontName} {F(fontSize)} Tf ");
+        ContentStream.Append($"{F(x)} {F(y)} Td ");
+        foreach (var layer in layers)
+        {
+            float r = layer.useTextColor ? textR : layer.r;
+            float g = layer.useTextColor ? textG : layer.g;
+            float b = layer.useTextColor ? textB : layer.b;
+            ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} rg");
+            ContentStream.Append('<');
+            ContentStream.Append(layer.glyphId.ToString("X4"));
+            ContentStream.Append("> Tj ");
+            ContentStream.Append("0 0 Td ");
+        }
+        ContentStream.AppendOpLine("ET");
+    }
+
     /// <summary>Append raw PDF content stream commands (for SVG rendering etc.).</summary>
     public void AppendRawContent(string commands)
     {

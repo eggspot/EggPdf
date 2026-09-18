@@ -41,7 +41,8 @@ public class PdfDocument
 
     /// <summary>Register an embedded TrueType font for CIDFont Type 2 embedding.</summary>
     public void AddEmbeddedFont(string fontName, byte[] subsetData, Dictionary<int, ushort> codepointToGid, ushort[] widths,
-        int unitsPerEm, int ascent, int descent)
+        int unitsPerEm, int ascent, int descent,
+        Dictionary<int, List<(ushort newGlyphId, float r, float g, float b, bool useTextColor)>>? colorLayers = null)
     {
         _embeddedFonts[fontName] = new EmbeddedFontData
         {
@@ -51,6 +52,7 @@ public class PdfDocument
             UnitsPerEm = unitsPerEm,
             Ascent = ascent,
             Descent = descent,
+            ColorLayers = colorLayers,
         };
     }
 
@@ -64,6 +66,52 @@ public class PdfDocument
         gid = 0;
         return _embeddedFonts.TryGetValue(fontName, out var fontData) &&
                fontData.CodepointToGlyphId.TryGetValue(codepoint, out gid);
+    }
+
+    /// <summary>True if any codepoint in text has COLR color-glyph layers in this embedded font.</summary>
+    public bool ContainsColorGlyphs(string fontName, string text)
+    {
+        if (!_embeddedFonts.TryGetValue(fontName, out var fontData) || fontData.ColorLayers == null || fontData.ColorLayers.Count == 0)
+            return false;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            int cp = text[i];
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                cp = char.ConvertToUtf32(text[i], text[i + 1]);
+                i++;
+            }
+            if (fontData.ColorLayers.ContainsKey(cp)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Look up a codepoint's COLR color-glyph layers (already resolved to colors and new glyph IDs).</summary>
+    public bool TryGetColorLayers(string fontName, int codepoint,
+        out List<(ushort newGlyphId, float r, float g, float b, bool useTextColor)>? layers)
+    {
+        layers = null;
+        return _embeddedFonts.TryGetValue(fontName, out var fontData) &&
+               fontData.ColorLayers != null &&
+               fontData.ColorLayers.TryGetValue(codepoint, out layers);
+    }
+
+    /// <summary>Glyph advance width in PDF user-space points, for manual per-glyph positioning (color-glyph runs).</summary>
+    public bool TryGetGlyphAdvancePt(string fontName, ushort glyphId, float fontSizePt, out float advancePt)
+    {
+        advancePt = 0;
+        if (!_embeddedFonts.TryGetValue(fontName, out var fontData) || fontData.UnitsPerEm <= 0)
+            return false;
+
+        ushort w;
+        if (glyphId < fontData.Widths.Length)
+            w = fontData.Widths[glyphId];
+        else
+            w = fontData.Widths.Length > 0 ? fontData.Widths[fontData.Widths.Length - 1] : (ushort)0;
+
+        advancePt = w / (float)fontData.UnitsPerEm * fontSizePt;
+        return true;
     }
 
     public ushort[]? GetGlyphIds(string fontName, string text)
@@ -870,6 +918,7 @@ internal class EmbeddedFontData
     public int UnitsPerEm { get; set; }
     public int Ascent { get; set; }
     public int Descent { get; set; }
+    public Dictionary<int, List<(ushort newGlyphId, float r, float g, float b, bool useTextColor)>>? ColorLayers { get; set; }
 }
 
 /// <summary>Helper for tracking byte positions while writing.</summary>
