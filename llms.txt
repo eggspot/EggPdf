@@ -149,7 +149,7 @@ netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0
 - Full Unicode text: Vietnamese and extended Latin, per-codepoint symbol-font fallback (⚠ ✔ …)
 - Browser-parity text layout: real font metrics for measurement, baseline placement, letter-spacing, word-break:break-all
 - SVG (vector, not rasterized)
-- Image formats: JPEG, PNG (incl. 1/2/4-bit grayscale QR codes), GIF, WebP, BMP, Base64
+- Image formats: JPEG, PNG (incl. 1/2/4-bit grayscale QR codes), GIF, WebP (lossless/VP8L only -- lossy/VP8 and VP8X extended containers are not decoded, don't claim full WebP support), BMP, Base64
 - Bookmarks, links, TOC
 - Running headers/footers via `position: fixed` (repeats on every physical page) or native `@page` margin boxes (`@top-center`, `@bottom-right`, etc., all 16 positions, including `@page :first`/`:left`/`:right` content overrides); `counter(page)`/`counter(pages)` resolve per page
 - Pin content to the bottom of the page it lands on (e.g. a signature block after variable-length content): `-eggpdf-pin-bottom: page`

@@ -1,6 +1,7 @@
 using System;
 using System.Text;
 using System.Threading.Tasks;
+using EggPdf.Tests.Unit.Pdf;
 using FluentAssertions;
 using Xunit;
 
@@ -20,6 +21,56 @@ public class ImageTests
 
         pdf.Should().NotBeEmpty();
         Encoding.ASCII.GetString(pdf, 0, 8).Should().StartWith("%PDF");
+    }
+
+    /// <summary>Builds a minimal RIFF/WEBP container wrapping a hand-constructed 2x1 VP8L (lossless) payload.</summary>
+    private static byte[] BuildWebPLossless2x1()
+    {
+        var w = new Vp8LTestBitWriter();
+        w.WriteBits(1, 14); w.WriteBits(0, 14); // width-1=1 (width=2), height-1=0 (height=1)
+        w.WriteBits(0, 1); w.WriteBits(0, 3);   // alpha_is_used=0, version=0
+        w.WriteBits(0, 1); w.WriteBits(0, 1); w.WriteBits(0, 1); // no transforms, no color cache, no meta-huffman
+
+        var green = w.WriteSimpleTwoSymbol(0, 255); // pixel0=green0 (black), pixel1=green255
+        w.WriteSimpleSingleSymbol(255); // red: always 255
+        w.WriteSimpleSingleSymbol(0);   // blue: always 0
+        w.WriteSimpleSingleSymbol(255); // alpha: always opaque
+        w.WriteSimpleSingleSymbol(0);   // distance unused
+
+        w.WriteBits((uint)green.bitForA, 1); // pixel0: green=0 -> (R255,G0,B0,A255) = pure red
+        w.WriteBits((uint)green.bitForB, 1); // pixel1: green=255 -> (R255,G255,B0,A255) = yellow
+
+        var vp8l = w.ToVp8LPayload();
+        int chunkSize = vp8l.Length;
+        bool pad = chunkSize % 2 == 1;
+        int riffSize = 4 /* "WEBP" */ + 8 /* "VP8L" + size */ + chunkSize + (pad ? 1 : 0);
+
+        using var ms = new System.IO.MemoryStream();
+        void WriteAscii(string s) => ms.Write(Encoding.ASCII.GetBytes(s), 0, s.Length);
+        void WriteU32(int v) => ms.Write(new byte[] { (byte)v, (byte)(v >> 8), (byte)(v >> 16), (byte)(v >> 24) }, 0, 4);
+
+        WriteAscii("RIFF");
+        WriteU32(riffSize);
+        WriteAscii("WEBP");
+        WriteAscii("VP8L");
+        WriteU32(chunkSize);
+        ms.Write(vp8l, 0, vp8l.Length);
+        if (pad) ms.WriteByte(0);
+        return ms.ToArray();
+    }
+
+    [Fact]
+    public async Task ImgWithLosslessWebP_DecodesAndEmbedsRealPixels()
+    {
+        var webp = BuildWebPLossless2x1();
+        var b64 = Convert.ToBase64String(webp);
+        var html = $"<img src='data:image/webp;base64,{b64}' width='100' height='50'>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("/Subtype /Image", "the VP8L payload must actually decode and embed as a real image XObject");
+        text.Should().Contain("/Width 2", "the decoded image must keep its real VP8L dimensions (2x1), not the <img> display size");
     }
 
     [Fact]

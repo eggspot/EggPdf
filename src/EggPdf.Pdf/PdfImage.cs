@@ -123,6 +123,40 @@ public class PdfImage
             return FromRgb(name, result.Width, result.Height, result.PixelData);
     }
 
+    /// <summary>
+    /// Create image from WebP data. Only the lossless (VP8L) codec is
+    /// decoded, via Vp8LDecoder, for a simple (non-VP8X) container -- a
+    /// direct "VP8L" chunk at offset 12. Lossy (VP8) WebP would need a full
+    /// intra/inter DCT video-codec decoder, and VP8X (extended, used for
+    /// lossy+alpha or ICCP/EXIF/XMP metadata) needs its own chunk parsing;
+    /// neither is implemented, so those degrade gracefully to no image
+    /// rather than rendering garbage.
+    /// </summary>
+    public static PdfImage? FromWebP(string name, byte[] webpData)
+    {
+        if (!WebPDecoder.IsWebP(webpData) || webpData.Length < 20)
+            return null;
+
+        bool isVp8L = webpData[12] == 'V' && webpData[13] == 'P' && webpData[14] == '8' && webpData[15] == 'L';
+        if (!isVp8L)
+            return null;
+
+        uint chunkSize = (uint)(webpData[16] | (webpData[17] << 8) | (webpData[18] << 16) | (webpData[19] << 24));
+        long payloadEnd = 20L + chunkSize;
+        if (chunkSize == 0 || payloadEnd > webpData.Length)
+            return null;
+
+        var payload = new byte[chunkSize];
+        Array.Copy(webpData, 20, payload, 0, (int)chunkSize);
+
+        var decoded = Vp8LDecoder.Decode(payload);
+        if (decoded == null)
+            return null;
+
+        var (width, height, argb) = decoded.Value;
+        return FromRgba(name, width, height, argb);
+    }
+
     /// <summary>Create image from raw RGB pixel data.</summary>
     public static PdfImage FromRgb(string name, int width, int height, byte[] rgbData)
     {

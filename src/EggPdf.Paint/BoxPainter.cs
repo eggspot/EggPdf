@@ -1058,6 +1058,8 @@ public static class BoxPainter
             pdfImage = PdfImage.FromJpeg(imgName, data);
         else if (data.Length >= 4 && data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46)
             pdfImage = PdfImage.FromGif(imgName, data);
+        else if (WebPDecoder.IsWebP(data))
+            pdfImage = PdfImage.FromWebP(imgName, data);
 
         if (pdfImage == null) return;
 

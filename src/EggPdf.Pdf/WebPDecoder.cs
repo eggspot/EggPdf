@@ -3,12 +3,13 @@ using System;
 namespace EggPdf.Pdf;
 
 /// <summary>
-/// Basic WebP image format detection and metadata extraction.
-/// WebP uses RIFF container with VP8 (lossy) or VP8L (lossless) codec.
-/// Full VP8 decoding requires significant code (~5000 lines);
-/// this provides format detection and dimension extraction.
-/// For rendering, WebP images are passed through as-is with dimensions
-/// noted, and the renderer falls back to a placeholder if needed.
+/// WebP image format detection and dimension extraction. WebP uses a RIFF
+/// container with a VP8 (lossy) or VP8L (lossless) codec, or a VP8X
+/// (extended, e.g. lossy+alpha) wrapper around either. Real pixel decoding
+/// is handled separately by <see cref="Vp8LDecoder"/> and only covers the
+/// simple (non-VP8X) VP8L case -- lossy VP8 would need a full intra/inter
+/// DCT video-codec decoder, which isn't implemented; that case (and VP8X)
+/// degrades gracefully to no image rather than rendering garbage.
 /// </summary>
 public static class WebPDecoder
 {

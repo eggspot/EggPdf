@@ -755,6 +755,10 @@ public static class HtmlToPdf
         {
             return PdfImage.FromBmp(imgName, data); // BMP signature ("BM")
         }
+        if (WebPDecoder.IsWebP(data))
+        {
+            return PdfImage.FromWebP(imgName, data); // RIFF/WEBP signature (VP8L lossless only)
+        }
         return null;
     }
 
