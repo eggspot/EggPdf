@@ -62,6 +62,22 @@ internal static class PdfRenderer
         var allPaintableBoxes = new List<LayoutBox>();
         PageFragmenter.CollectPaintableBoxes(layoutRoot, allPaintableBoxes);
 
+        // Ancestor map for clip-scope reconstruction (overflow:hidden / contain:paint,
+        // strict). Painting isn't a recursive tree walk -- allBoxes below gets z-index
+        // sorted, so a box's position in the paint list no longer reflects document
+        // nesting -- so a clipping ancestor must be looked up explicitly per box via this
+        // map (built from the real tree) rather than inferred from list order. Skipped
+        // entirely (a cheap allocation-free tree scan instead) for the common case of no
+        // clipping anywhere in the document, so documents without it don't pay for it.
+        Dictionary<LayoutBox, LayoutBox>? ancestorMap = null;
+        Dictionary<LayoutBox, List<LayoutBox>>? clipAncestorCache = null;
+        if (TreeHasPaintClip(layoutRoot))
+        {
+            ancestorMap = new Dictionary<LayoutBox, LayoutBox>();
+            BuildAncestorMap(layoutRoot, null, ancestorMap);
+            clipAncestorCache = new Dictionary<LayoutBox, List<LayoutBox>>();
+        }
+
         // position:fixed content repeats identically on every physical page: its containing
         // block is the page origin (0,0), not the document flow (see BlockLayout's
         // LayoutAbsoluteChildren), so its Y/X are already page-local rather than document-
@@ -388,6 +404,51 @@ internal static class PdfRenderer
             float shiftDelta = pageShiftDelta[renderPageIndex];
             float theadDelta = theadShiftDelta[renderPageIndex];
 
+            // Paint a box wrapped in clip rects for each overflow:hidden/contain:paint,strict
+            // ancestor (see BuildAncestorMap/GetClipAncestors), each ancestor's own bounds
+            // reproduced with the same page-Y adjustment/clamping this loop applies to any
+            // box, so the clip lands where that ancestor is actually painted on this page.
+            void PaintWithAncestorClips(LayoutBox target, float adjY, Action paint)
+            {
+                if (ancestorMap == null)
+                {
+                    paint();
+                    return;
+                }
+
+                if (!clipAncestorCache!.TryGetValue(target, out var clipAncestors))
+                    clipAncestorCache[target] = clipAncestors = GetClipAncestors(target, ancestorMap);
+
+                if (clipAncestors.Count == 0)
+                {
+                    paint();
+                    return;
+                }
+
+                page.SaveState();
+                foreach (var ancestor in clipAncestors)
+                {
+                    float aEffectiveY = ancestor.Y;
+                    if (shiftDelta > 0 && ancestor.Y >= shiftThreshold) aEffectiveY += shiftDelta;
+                    if (theadDelta > 0) aEffectiveY += theadDelta;
+
+                    float aVisibleTop = Math.Max(aEffectiveY, pageTopPx);
+                    float aVisibleBottom = Math.Min(aEffectiveY + ancestor.Height, pageBottomPx);
+                    float aClampedHeight = Math.Max(0f, aVisibleBottom - aVisibleTop);
+                    if (aClampedHeight <= 0) continue; // ancestor not visible on this page
+
+                    float aAdjustedY = aVisibleTop - pageTopPx + _marginTopPx;
+                    float aEffectiveX = ancestor.X + BoxPainter.MarginLeftPx;
+                    float clipXpt = aEffectiveX * PdfCoordinates.PxToPt;
+                    float clipYpt = (pageHeightPx - aAdjustedY - aClampedHeight) * PdfCoordinates.PxToPt;
+                    float clipWpt = ancestor.Width * PdfCoordinates.PxToPt;
+                    float clipHpt = aClampedHeight * PdfCoordinates.PxToPt;
+                    page.AddClipRect(clipXpt, clipYpt, clipWpt, clipHpt);
+                }
+                paint();
+                page.RestoreState();
+            }
+
             // Paint boxes that fall on this page
             foreach (var box in allBoxes)
             {
@@ -436,19 +497,22 @@ internal static class PdfRenderer
                     float clampedAdjustedY = visibleTop - pageTopPx + _marginTopPx;
                     float originalHeight = box.Height;
                     box.Height = clampedHeight;
-                    BoxPainter.PaintBox(page, box, pageHeightPt, pageHeightPx, clampedAdjustedY);
+                    PaintWithAncestorClips(box, clampedAdjustedY,
+                        () => BoxPainter.PaintBox(page, box, pageHeightPt, pageHeightPx, clampedAdjustedY));
                     box.Height = originalHeight;
                 }
                 else
                 {
-                    BoxPainter.PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY);
+                    PaintWithAncestorClips(box, adjustedY,
+                        () => BoxPainter.PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY));
                 }
             }
 
             if (theadRepeatsByPage.TryGetValue(renderPageIndex, out var repeats))
             {
                 foreach (var (rbox, radjY) in repeats)
-                    BoxPainter.PaintBox(page, rbox, pageHeightPt, pageHeightPx, radjY);
+                    PaintWithAncestorClips(rbox, radjY,
+                        () => BoxPainter.PaintBox(page, rbox, pageHeightPt, pageHeightPx, radjY));
             }
 
             BoxPainter.PaintFixedBoxes(page, fixedBoxes, pageHeightPt, pageHeightPx,
@@ -495,5 +559,46 @@ internal static class PdfRenderer
             }
             pdfDoc.SetBookmarks(bookmarks);
         }
+    }
+
+    /// <summary>Cheap, allocation-free scan for whether clip-scope tracking is needed at all.</summary>
+    private static bool TreeHasPaintClip(LayoutBox box)
+    {
+        if (HasPaintClip(box.Style)) return true;
+        foreach (var child in box.Children)
+            if (TreeHasPaintClip(child)) return true;
+        return false;
+    }
+
+    private static void BuildAncestorMap(LayoutBox box, LayoutBox? parent, Dictionary<LayoutBox, LayoutBox> map)
+    {
+        if (parent != null) map[box] = parent;
+        foreach (var child in box.Children)
+            BuildAncestorMap(child, box, map);
+    }
+
+    private static bool HasPaintClip(ComputedStyle style)
+    {
+        var overflow = style.Get("overflow");
+        if (overflow == "hidden" || overflow == "clip") return true;
+
+        var contain = style.Get("contain");
+        return !string.IsNullOrEmpty(contain) &&
+            (contain!.IndexOf("paint", StringComparison.OrdinalIgnoreCase) >= 0 ||
+             contain.IndexOf("strict", StringComparison.OrdinalIgnoreCase) >= 0);
+    }
+
+    /// <summary>Ancestors (outermost first) of <paramref name="box"/> that establish a paint clip.</summary>
+    private static List<LayoutBox> GetClipAncestors(LayoutBox box, Dictionary<LayoutBox, LayoutBox> ancestorMap)
+    {
+        var result = new List<LayoutBox>();
+        var current = box;
+        while (ancestorMap.TryGetValue(current, out var parent))
+        {
+            if (HasPaintClip(parent.Style)) result.Add(parent);
+            current = parent;
+        }
+        result.Reverse();
+        return result;
     }
 }
