@@ -194,6 +194,36 @@
         across pages.
       </p>
 
+      <h2 id="floats">Floats and shape-outside</h2>
+      <p>
+        <code>float: left</code> / <code>float: right</code> narrow sibling inline content per
+        line, the same as a browser &mdash; a paragraph next to a floated image indents around it,
+        not just past its top edge. <code>shape-outside: circle()</code> and
+        <code>ellipse()</code> refine the exclusion to the shape's actual per-line extent instead
+        of the float's full rectangular bounding box; <code>polygon()</code>,
+        <code>inset()</code>, and <code>url()</code> shapes are recognized but fall back to the
+        float's plain rectangular exclusion. <code>clear: left</code> / <code>right</code> /
+        <code>both</code> pushes content below active floats as expected.
+      </p>
+      <div class="code-block"><pre><code><span class="cmt">/* Text wraps around the image, narrowing near its top/bottom via shape-outside */</span>
+<span class="pun">.</span><span class="var">pull-image</span> <span class="pun">{</span>
+    <span class="var">float</span><span class="pun">:</span> <span class="var">left</span><span class="pun">;</span>
+    <span class="var">width</span><span class="pun">:</span> <span class="str">150px</span><span class="pun">;</span>
+    <span class="var">shape-outside</span><span class="pun">:</span> <span class="fn">circle</span><span class="pun">(</span><span class="str">50%</span><span class="pun">);</span>
+    <span class="var">margin</span><span class="pun">:</span> <span class="str">0 16px 8px 0</span><span class="pun">;</span>
+<span class="pun">}</span></code></pre></div>
+
+      <h2 id="overflow-clip">overflow: hidden and contain: paint</h2>
+      <p>
+        <code>overflow: hidden</code> / <code>overflow: clip</code> and
+        <code>contain: paint</code> / <code>contain: strict</code> clip an element's painted
+        content &mdash; including descendants painted separately from the element itself &mdash;
+        to its bounds, not just its own background and border. <code>contain</code>'s other
+        values (<code>layout</code>, <code>style</code>, <code>content</code> alone) are
+        recalculation-isolation hints with no analog in a single-pass renderer and are accepted
+        as a no-op.
+      </p>
+
     </main>
   </div>
 </div>
