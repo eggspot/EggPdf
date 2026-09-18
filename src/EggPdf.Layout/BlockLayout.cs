@@ -144,6 +144,51 @@ public static partial class BlockLayout
         // just the box model, so it flows out too).
         var (fontSize, borderBox, position) = ResolveBoxModel(box, element, style, parent, containingWidth, parentStyle);
 
+        // content-visibility: hidden -- unlike display:none, the element's own box (size,
+        // background, border) still exists and is already resolved above; only its
+        // descendants are skipped (they contribute nothing to its size, matching the
+        // spec's implied size containment for an unsized element). Height still needs
+        // resolving here since normal flow/flex/grid child-layout (which usually does it)
+        // never runs.
+        if (style.Get("content-visibility") == "hidden")
+        {
+            float? cvHeight = ResolveOptionalLength(style.Height, 0, fontSize);
+            if (cvHeight.HasValue)
+            {
+                if (borderBox)
+                {
+                    box.Height = cvHeight.Value;
+                    box.ContentHeight = Math.Max(0, cvHeight.Value - box.PaddingTop - box.PaddingBottom);
+                }
+                else
+                {
+                    box.ContentHeight = cvHeight.Value;
+                    box.Height = cvHeight.Value + box.PaddingTop + box.PaddingBottom;
+                }
+            }
+            else
+            {
+                var cvAspectRatio = AspectRatioLayout.ParseAspectRatio(style.Get("aspect-ratio"));
+                if (cvAspectRatio.HasValue && cvAspectRatio.Value > 0)
+                {
+                    box.Height = box.Width / cvAspectRatio.Value;
+                    box.ContentHeight = Math.Max(0, box.Height - box.PaddingTop - box.PaddingBottom);
+                }
+                else
+                {
+                    box.Height = box.PaddingTop + box.PaddingBottom;
+                    box.ContentHeight = 0;
+                }
+            }
+
+            float? cvMinHeight = ResolveOptionalLength(style.Get("min-height"), 0, fontSize);
+            float? cvMaxHeight = ResolveOptionalLength(style.Get("max-height"), 0, fontSize);
+            if (cvMinHeight.HasValue && box.Height < cvMinHeight.Value) box.Height = cvMinHeight.Value;
+            if (cvMaxHeight.HasValue && box.Height > cvMaxHeight.Value) box.Height = cvMaxHeight.Value;
+
+            return box;
+        }
+
         // Flex layout: delegate to FlexLayout when display is flex
         if (style.Display == "flex")
         {

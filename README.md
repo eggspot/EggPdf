@@ -121,6 +121,11 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   variants, `perspective()`) -- PDF has no 3D rendering, so 3D functions are intentionally
   flattened to an equivalent 2D matrix (e.g. `rotateX`/`rotateY` become an orthographic
   Y/X compression, `translateZ`/`scaleZ`/`perspective()` have no 2D effect), not skipped
+- `content-visibility: hidden` skips laying out and painting descendants (the element's own
+  box, background and border still render, sized as if it had no content); `contain: paint`/
+  `contain: strict` clip the element's own painting to its bounds. `contain`'s other values
+  (`layout`, `style`, `content` alone) are recalculation-isolation hints with no analog in a
+  single-pass renderer and are accepted as a no-op rather than rejected
 - Webfonts: remote `<link>` stylesheets (Google Fonts) and `@font-face` over http(s), data: URIs, or files
 - SVG rendering (vector output, not rasterized) -- `<circle>`/`<ellipse>`/`<rect>`/`<polygon>`/
   `<polyline>`/`<path>`, `filter="url(#id)"` with a single `<feGaussianBlur>` (rasterized +

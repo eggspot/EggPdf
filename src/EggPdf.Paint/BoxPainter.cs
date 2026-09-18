@@ -147,9 +147,22 @@ public static class BoxPainter
         // writing-mode: vertical-rl / vertical-lr — rotate box 90° clockwise around its center
         bool hasWritingModeTransform = ApplyWritingModeTransform(page, box, pageHeightPx, adjustedY, effectiveX);
 
-        // Overflow:hidden clipping
+        // Overflow:hidden clipping (also triggered by contain:paint/contain:strict, which
+        // implies paint containment -- descendant painting must not escape the box bounds).
+        // NOTE: PaintBox is invoked once per box from a flat, pre-collected paint list (see
+        // PageFragmenter.CollectPaintableBoxes / PdfRenderer's paint loop), not as a
+        // recursive tree walk -- this SaveState/AddClipRect/RestoreState pair opens and
+        // closes entirely within this one call, so it only clips content painted directly
+        // by THIS box (background, border, box-shadow, its own text/pseudo-content). It
+        // does not clip separately-painted child boxes, which is a real, pre-existing
+        // architectural limitation shared with plain overflow:hidden, not something new
+        // to contain:paint.
         var overflow = box.Style.Get("overflow");
-        bool hasClip = overflow == "hidden" || overflow == "clip";
+        var containValue = box.Style.Get("contain");
+        bool hasContainPaint = !string.IsNullOrEmpty(containValue) &&
+            (containValue!.IndexOf("paint", StringComparison.OrdinalIgnoreCase) >= 0 ||
+             containValue.IndexOf("strict", StringComparison.OrdinalIgnoreCase) >= 0);
+        bool hasClip = overflow == "hidden" || overflow == "clip" || hasContainPaint;
         if (hasClip)
         {
             float clipX = effectiveX * PdfCoordinates.PxToPt;
