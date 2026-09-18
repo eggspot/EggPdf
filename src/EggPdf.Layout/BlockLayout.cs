@@ -417,10 +417,25 @@ public static partial class BlockLayout
                         if (childBox.ContentWidth < 0) childBox.ContentWidth = 0;
                         childBox.Y = box.Y + box.PaddingTop;
 
-                        // Calculate X from sum of preceding column widths
-                        float cellX = box.X + box.PaddingLeft;
-                        for (int ci = 0; ci < colOffset && ci < columnWidths.Length; ci++)
-                            cellX += columnWidths[ci] + borderSpacing;
+                        // Calculate X from sum of preceding column widths. In an RTL table,
+                        // columns lay out right-to-left -- the first column in DOM/table-model
+                        // order (colOffset 0) renders at the right edge, not the left, so the
+                        // offset accumulated from preceding columns is measured from the right.
+                        bool tableIsRTL = childStyle.Get("direction") == "rtl";
+                        float cellX;
+                        if (tableIsRTL)
+                        {
+                            float offsetFromRight = 0;
+                            for (int ci = 0; ci < colOffset && ci < columnWidths.Length; ci++)
+                                offsetFromRight += columnWidths[ci] + borderSpacing;
+                            cellX = box.X + box.PaddingLeft + box.ContentWidth - offsetFromRight - cellWidth;
+                        }
+                        else
+                        {
+                            cellX = box.X + box.PaddingLeft;
+                            for (int ci = 0; ci < colOffset && ci < columnWidths.Length; ci++)
+                                cellX += columnWidths[ci] + borderSpacing;
+                        }
                         // Update cell X and offset the whole subtree that was laid out with the
                         // old X (grandchildren too -- a cell's content is rarely just one level
                         // deep, e.g. nested divs of text, so a shift of only direct children
@@ -1311,11 +1326,14 @@ public static partial class BlockLayout
             {
                 var effectiveMarkerStyle = markerStyle ?? style;
                 float markerWidth = TextMeasurer.MeasureWidth(markerText + " ", fontSize, null);
+                // An outside marker hangs off the side the text starts from: the left in LTR,
+                // but the right in RTL (direction is inherited, so `style` already carries it).
+                bool markerIsRTL = style.Get("direction") == "rtl";
                 var markerBox = new LayoutBox
                 {
                     Style = effectiveMarkerStyle,
                     IsListMarker = true,
-                    X = box.X - markerWidth,
+                    X = markerIsRTL ? box.X + box.Width : box.X - markerWidth,
                     Y = box.Y + box.PaddingTop,
                     Width = markerWidth,
                     Height = fontSize * DefaultLineHeight,

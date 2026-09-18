@@ -121,6 +121,10 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   (`polygon()`/`inset()`/`url()` fall back to the float's plain rectangular bounds)
 - `overflow: hidden`/`clip` and `contain: paint`/`contain: strict` actually clip descendant
   painted content to the element's bounds, not just its own background/border
+- `direction: rtl` / `dir="rtl"`: logical properties (margin/padding/border-width/border-color/
+  border-style/inset/border-radius corners, `float: inline-start`/`inline-end`) resolve to their
+  mirrored physical values; table columns lay out right-to-left and list markers hang on the
+  right, matching a browser
 - CSS Custom Properties (`var()`)
 - `@media print` support
 - 2D and 3D CSS transforms (`translate`/`rotate`/`scale`/`matrix` and their `X`/`Y`/`Z`/`3d`

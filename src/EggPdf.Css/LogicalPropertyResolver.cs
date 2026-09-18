@@ -38,11 +38,31 @@ public static class LogicalPropertyResolver
         MapShorthand(style, "padding-inline", isRTL ? "padding-right" : "padding-left", isRTL ? "padding-left" : "padding-right");
         MapShorthand(style, "padding-block", "padding-top", "padding-bottom");
 
-        // Border logical properties
+        // Border logical properties (width, color, and style -- all three physical
+        // sub-properties a logical border-inline-start/end/block-start/end can imply)
         MapProperty(style, "border-inline-start-width", isRTL ? "border-right-width" : "border-left-width", isVertical);
         MapProperty(style, "border-inline-end-width", isRTL ? "border-left-width" : "border-right-width", isVertical);
         MapProperty(style, "border-block-start-width", "border-top-width", isVertical);
         MapProperty(style, "border-block-end-width", "border-bottom-width", isVertical);
+        MapProperty(style, "border-inline-start-color", isRTL ? "border-right-color" : "border-left-color", isVertical);
+        MapProperty(style, "border-inline-end-color", isRTL ? "border-left-color" : "border-right-color", isVertical);
+        MapProperty(style, "border-block-start-color", "border-top-color", isVertical);
+        MapProperty(style, "border-block-end-color", "border-bottom-color", isVertical);
+        MapProperty(style, "border-inline-start-style", isRTL ? "border-right-style" : "border-left-style", isVertical);
+        MapProperty(style, "border-inline-end-style", isRTL ? "border-left-style" : "border-right-style", isVertical);
+        MapProperty(style, "border-block-start-style", "border-top-style", isVertical);
+        MapProperty(style, "border-block-end-style", "border-bottom-style", isVertical);
+
+        // Logical border-radius corners. Scoped to horizontal-tb (the common case): a
+        // vertical-writing-mode + RTL/LTR combination for corner radii is a genuinely rare
+        // pairing and is left unmapped rather than guessed at.
+        if (!isVertical)
+        {
+            MapProperty(style, "border-start-start-radius", isRTL ? "border-top-right-radius" : "border-top-left-radius", false);
+            MapProperty(style, "border-start-end-radius", isRTL ? "border-top-left-radius" : "border-top-right-radius", false);
+            MapProperty(style, "border-end-start-radius", isRTL ? "border-bottom-right-radius" : "border-bottom-left-radius", false);
+            MapProperty(style, "border-end-end-radius", isRTL ? "border-bottom-left-radius" : "border-bottom-right-radius", false);
+        }
 
         // Size logical properties
         MapProperty(style, "inline-size", isVertical ? "height" : "width", false);
@@ -62,6 +82,12 @@ public static class LogicalPropertyResolver
         var textAlign = style.Get("text-align");
         if (textAlign == "start") style.Set("text-align", isRTL ? "right" : "left");
         else if (textAlign == "end") style.Set("text-align", isRTL ? "left" : "right");
+
+        // float: inline-start/inline-end -- resolved here so every consumer of the `float`
+        // property downstream (layout, painting) only ever sees "left"/"right"/"none".
+        var floatValue = style.Get("float");
+        if (floatValue == "inline-start") style.Set("float", isRTL ? "right" : "left");
+        else if (floatValue == "inline-end") style.Set("float", isRTL ? "left" : "right");
     }
 
     private static void MapProperty(ComputedStyle style, string logicalProp, string physicalProp, bool isVertical)

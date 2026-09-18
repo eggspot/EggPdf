@@ -132,4 +132,35 @@ public class LogicalPropertyTests
         p!.Style.Get("text-align").Should().Be("right",
             "text-align:end in LTR should resolve to right");
     }
+
+    // ===== direction:rtl ==========================================================
+
+    [Fact]
+    public void MarginInlineStart_RTL_MapsToMarginRight()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0; direction:rtl; width:400px'>" +
+            "<div style='margin-inline-start:30px; width:100px; height:20px'>A</div></body>", 400, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        // In RTL, margin-inline-start = margin-right, so the block stays flush left but its
+        // right edge is pushed in by 30px -- verified via the resolved physical property
+        // rather than X (an RTL div's own position doesn't depend on its own margin-right).
+        div!.Style.Get("margin-right").Should().Be("30px",
+            "margin-inline-start:30px in RTL should resolve to margin-right");
+    }
+
+    [Fact]
+    public void FloatInlineStart_RTL_FloatsRight()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0; direction:rtl; width:300px'>" +
+            "<div style='float:inline-start; width:100px; height:50px'>F</div></body>", 300, 600);
+        var div = root.FindByTag("div");
+        div.Should().NotBeNull();
+        // float:inline-start in RTL resolves to float:right -- the box sits at the container's
+        // right edge (300 - 100 = 200), not the left.
+        div!.X.Should().BeApproximately(200f, 1f,
+            "float:inline-start in RTL must resolve to float:right");
+    }
 }
