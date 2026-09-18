@@ -606,6 +606,53 @@ public class GridLayoutTests
             "subgrid child B should inherit parent 200px column width");
     }
 
+    [Fact]
+    public void Subgrid_InheritsParentColumnGap_WhenNotOverridden()
+    {
+        // Parent grid has a 20px column-gap; the subgrid itself declares no gap of its own,
+        // so per spec it must inherit the parent's gutters for the subgridded axis rather
+        // than defaulting to 0.
+        var root = LayoutGrid(
+            "<div style='display: grid; grid-template-columns: 100px 100px; column-gap: 20px'>" +
+            "  <div id='sub' style='display: grid; grid-template-columns: subgrid; grid-column: 1 / 3'>" +
+            "    <div>A</div><div>B</div>" +
+            "  </div>" +
+            "</div>");
+
+        var subgridItem = root.FindAllByTag("div").FirstOrDefault(b => b.Children.Count == 2
+            && b.Children[0].Text == "A");
+
+        if (subgridItem == null) return; // guard
+
+        float gapBetween = subgridItem.Children[1].X - (subgridItem.Children[0].X + subgridItem.Children[0].Width);
+        gapBetween.Should().BeApproximately(20f, 2f,
+            "a subgrid with no gap of its own must inherit the parent's 20px column-gap");
+    }
+
+    [Fact]
+    public void Subgrid_OffsetSpan_UsesCorrectParentColumnSlice()
+    {
+        // Parent has 3 columns of different widths; the subgrid spans only columns 2-3
+        // (not starting at column 1), so it must slice the parent's resolved sizes starting
+        // at its own placement offset, not from the beginning of the parent's track list.
+        var root = LayoutGrid(
+            "<div style='display: grid; grid-template-columns: 200px 100px 50px'>" +
+            "  <div id='sub' style='display: grid; grid-template-columns: subgrid; grid-column: 2 / 4'>" +
+            "    <div>A</div><div>B</div>" +
+            "  </div>" +
+            "</div>");
+
+        var subgridItem = root.FindAllByTag("div").FirstOrDefault(b => b.Children.Count == 2
+            && b.Children[0].Text == "A");
+
+        if (subgridItem == null) return; // guard
+
+        subgridItem.Children[0].Width.Should().BeApproximately(100f, 5f,
+            "the subgrid's first slot should take the parent's 2nd column width (100px), not its 1st (200px)");
+        subgridItem.Children[1].Width.Should().BeApproximately(50f, 5f,
+            "the subgrid's second slot should take the parent's 3rd column width (50px)");
+    }
+
     // ── grid-auto-flow: dense ─────────────────────────────────────────────────
 
     [Fact]

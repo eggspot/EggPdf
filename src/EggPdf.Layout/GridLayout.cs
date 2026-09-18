@@ -144,6 +144,11 @@ public static class GridLayout
                     foreach (var kv in childStyle.All)
                         overriddenStyle.Set(kv.Key, kv.Value);
                     overriddenStyle.Set("grid-template-columns", sb.ToString());
+                    // Per spec, a subgrid inherits the parent's gutters for the subgridded
+                    // axis unless it declares its own -- without this, the child's own
+                    // (uninherited) column-gap/gap defaults to 0 and items lose their gap.
+                    if (string.IsNullOrEmpty(childStyle.Get("column-gap")) && string.IsNullOrEmpty(childStyle.Get("gap")))
+                        overriddenStyle.Set("column-gap", columnGap.ToString("F2", CultureInfo.InvariantCulture) + "px");
                     childStyle = overriddenStyle;
                     item.Style = childStyle;
                 }
@@ -162,6 +167,8 @@ public static class GridLayout
                     foreach (var kv in childStyle.All)
                         overriddenStyle.Set(kv.Key, kv.Value);
                     overriddenStyle.Set("grid-template-rows", sb.ToString());
+                    if (string.IsNullOrEmpty(childStyle.Get("row-gap")) && string.IsNullOrEmpty(childStyle.Get("gap")))
+                        overriddenStyle.Set("row-gap", rowGap.ToString("F2", CultureInfo.InvariantCulture) + "px");
                     childStyle = overriddenStyle;
                     item.Style = childStyle;
                 }
