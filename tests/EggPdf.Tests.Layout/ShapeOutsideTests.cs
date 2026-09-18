@@ -5,9 +5,12 @@ using Xunit;
 namespace EggPdf.Tests.Layout;
 
 /// <summary>
-/// Tests for shape-outside on floats.
-/// Full per-line shape wrapping requires a more advanced float model; these tests
-/// verify property storage, shape-margin application, and no-crash behaviour.
+/// Tests for shape-outside on floats: property storage, shape-margin application, and
+/// no-crash behaviour. Real per-line wrapping around circle()/ellipse() shapes (the
+/// exclusion narrowing near a float's top/bottom edge) is covered by
+/// <see cref="FloatTextWrapTests"/> and <see cref="FloatContextTests"/>; polygon()/
+/// inset()/url() are recognized and stored but fall back to the float's plain
+/// rectangular exclusion (see ShapeOutsideParser).
 /// </summary>
 public class ShapeOutsideTests
 {

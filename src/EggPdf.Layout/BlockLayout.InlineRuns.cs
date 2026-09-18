@@ -99,10 +99,44 @@ public static partial class BlockLayout
     /// <summary>Layout inline runs as word-level boxes with style-aware wrapping.</summary>
     private static void LayoutInlineRuns(List<InlineRun> runs, LayoutBox box, HtmlElement? wrapperElement,
         ref float inlineX, ref float childY, ref float inlineLineHeight, float containerWidth,
-        ComputedStyle parentStyle, float parentFontSize)
+        ComputedStyle parentStyle, float parentFontSize, FloatContext? floats = null, float floatOriginY = 0f)
     {
         bool elementAssigned = false;
         bool prevRunTrailingSpace = false;
+
+        // Float-aware wrapping (including shape-outside): when floats are active, the left
+        // inset and right wrap boundary are queried per line at that line's absolute Y
+        // instead of the flat containerWidth used otherwise. atLineStart tracks "nothing
+        // placed on the current line yet" explicitly rather than inferring it from
+        // inlineX > 0, since a float-inset line legitimately starts with inlineX > 0 (the
+        // classic case this whole mechanism exists for: text starting indented beside a
+        // floated image). When floats is null (the overwhelming majority of documents,
+        // which don't use float at all), every helper below degenerates to exactly the
+        // original flat-width behavior.
+        bool floatsActive = floats != null;
+        bool atLineStart = inlineX <= 0f;
+        float absContainerLeft = box.X + box.PaddingLeft;
+        float absContainerRight = absContainerLeft + containerWidth;
+
+        // Local functions can't capture the ref parameters inlineX/childY, so the current
+        // value is passed in explicitly and (for the inset) returned back to the caller.
+        float RightLimit(float lineHeight, float currentChildY)
+        {
+            if (!floatsActive) return containerWidth;
+            float absY = floatOriginY + box.PaddingTop + currentChildY;
+            float rightOffset = floats!.GetRightOffset(absY, lineHeight, absContainerRight);
+            float limit = containerWidth - rightOffset;
+            return limit > 0 ? limit : 0;
+        }
+
+        float ApplyLeftInsetIfNeeded(float lineHeight, float currentInlineX, float currentChildY)
+        {
+            if (!floatsActive || !atLineStart || currentInlineX > 0) return currentInlineX;
+            float absY = floatOriginY + box.PaddingTop + currentChildY;
+            float startX = floats!.GetContentStartX(absY, lineHeight, absContainerLeft);
+            float inset = startX - absContainerLeft;
+            return inset > 0 ? inset : currentInlineX;
+        }
 
         for (int ri = 0; ri < runs.Count; ri++)
         {
@@ -111,11 +145,12 @@ public static partial class BlockLayout
             if (run.Text == "\n")
             {
                 float lh = TextMeasurer.GetLineHeight(run.FontSize, run.Style.Get("line-height"));
-                if (inlineX > 0)
+                if (!(floatsActive ? atLineStart : inlineX <= 0))
                 {
                     childY += Math.Max(inlineLineHeight, lh);
                     inlineX = 0;
                     inlineLineHeight = 0;
+                    atLineStart = true;
                 }
                 else
                 {
@@ -175,25 +210,37 @@ public static partial class BlockLayout
                 string word = text.Substring(wPos, wEnd - wPos);
                 wPos = wEnd;
 
+                // Apply the float-based left inset before measuring/placing, if this is a
+                // fresh, not-yet-indented line (no-op when floats is null).
+                inlineX = ApplyLeftInsetIfNeeded(Math.Max(inlineLineHeight, lhRun), inlineX, childY);
+
                 // A boundary space also comes from the PREVIOUS run's trailing
                 // whitespace ("đến <strong>bản</strong>": the space belongs to the
                 // text run, not the strong run).
-                bool needSpace = inlineX > 0 && (!firstWord || run.HasLeadingSpace || prevRunTrailingSpace);
+                bool notAtLineStart = floatsActive ? !atLineStart : inlineX > 0;
+                bool needSpace = notAtLineStart && (!firstWord || run.HasLeadingSpace || prevRunTrailingSpace);
                 var wordText = needSpace ? " " + word : word;
                 float wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                float rightLimit = RightLimit(Math.Max(inlineLineHeight, lhRun), childY);
 
                 // Wrap to next line if doesn't fit
-                if (inlineX > 0 && inlineX + wordWidth > containerWidth)
+                if (notAtLineStart && inlineX + wordWidth > rightLimit)
                 {
                     childY += inlineLineHeight;
                     inlineX = 0;
                     inlineLineHeight = 0;
+                    atLineStart = true;
+                    inlineX = ApplyLeftInsetIfNeeded(lhRun, inlineX, childY);
                     wordText = word; // no space prefix after wrap
                     wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                    rightLimit = RightLimit(lhRun, childY);
                 }
 
                 // break-all / break-word: a word wider than the line splits into
-                // character chunks that each fit (e.g. long URLs in captions)
+                // character chunks that each fit (e.g. long URLs in captions). Uses the
+                // flat containerWidth even when floats are active -- a narrow enough edge
+                // case (long unbreakable text beside a float) that per-chunk float-aware
+                // re-querying isn't worth the added complexity here.
                 if (runBreakWord && wordWidth > containerWidth && wordText.Length > 1)
                 {
                     int start = 0;
@@ -233,6 +280,7 @@ public static partial class BlockLayout
                             elementAssigned = true;
                         box.Children.Add(chunkBox);
                         inlineX += chunkWidth;
+                        atLineStart = false;
                         if (lhRun > inlineLineHeight)
                             inlineLineHeight = lhRun;
 
@@ -242,6 +290,7 @@ public static partial class BlockLayout
                             childY += inlineLineHeight > 0 ? inlineLineHeight : lhRun;
                             inlineX = 0;
                             inlineLineHeight = 0;
+                            atLineStart = true;
                         }
                     }
                     firstWord = false;
@@ -267,6 +316,7 @@ public static partial class BlockLayout
 
                 box.Children.Add(textBox);
                 inlineX += wordWidth;
+                atLineStart = false;
                 if (lhRun > inlineLineHeight)
                     inlineLineHeight = lhRun;
                 firstWord = false;

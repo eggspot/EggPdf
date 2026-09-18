@@ -129,7 +129,8 @@ public static partial class BlockLayout
     }
 
     internal static LayoutBox CreateBox(HtmlElement element, ComputedStyle style,
-        LayoutBox parent, float containingWidth, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
+        LayoutBox parent, float containingWidth, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle,
+        FloatContext? ambientFloats = null, float floatOriginY = 0f)
     {
         var box = new LayoutBox { Element = element, Style = style };
 
@@ -203,7 +204,7 @@ public static partial class BlockLayout
                 position, fontSize, borderBox);
         }
 
-        return LayoutNormalFlowChildren(box, element, style, parent, containingWidth, resolver, parentStyle, fontSize, borderBox, position);
+        return LayoutNormalFlowChildren(box, element, style, parent, containingWidth, resolver, parentStyle, fontSize, borderBox, position, ambientFloats, floatOriginY);
     }
 
     /// <summary>
@@ -220,7 +221,8 @@ public static partial class BlockLayout
     /// </summary>
     private static LayoutBox LayoutNormalFlowChildren(LayoutBox box, HtmlElement element, ComputedStyle style,
         LayoutBox parent, float containingWidth, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver,
-        ComputedStyle? parentStyle, float fontSize, bool borderBox, string? position)
+        ComputedStyle? parentStyle, float fontSize, bool borderBox, string? position, FloatContext? ambientFloats = null,
+        float floatOriginY = 0f)
     {
         // Check for multi-column layout
         bool isMultiColumn = MultiColumnLayout.IsMultiColumn(style);
@@ -258,9 +260,15 @@ public static partial class BlockLayout
         bool hasBlockChild = false;   // for O(1) margin-collapse first-child check
 
         // Float tracking: record the bottom (relative to content area) of active floats
-        // so that clear: left/right/both and float stacking work correctly.
+        // so that clear: left/right/both and float stacking work correctly. floatCtx also
+        // narrows sibling text per line (see the shared-instance-through-ambientFloats
+        // reasoning below) -- floats reuse the ambient context from an outer, non-BFC-
+        // establishing block (this box's own inline content, plus normal-flow block
+        // children's own descendants, all see floats registered earlier in the same BFC),
+        // or start a fresh one when this box itself is a BFC root (no ambientFloats given).
         float leftFloatBottom = 0f;
         float rightFloatBottom = 0f;
+        var floatCtx = ambientFloats ?? new FloatContext();
 
         // Collect absolutely/fixed positioned children for deferred layout
         var absChildren = new System.Collections.Generic.List<(HtmlElement elem, ComputedStyle style, string pos)>();
@@ -440,10 +448,33 @@ public static partial class BlockLayout
                     else
                     {
                         // Normal block layout: stack vertically
-                        var childBox = CreateBox(childElem, childStyle, box, childContainingWidth, resolver, style);
-
                         var floatValue = childStyle.Get("float");
                         bool isFloatChild = floatValue == "left" || floatValue == "right";
+
+                        // clear: resolved BEFORE recursing into the child (rather than after,
+                        // as previously) so floatOriginY -- passed into the child's own
+                        // recursive layout below -- reflects the post-clear Y. box.Y is
+                        // unreliable here (provisional/still 0 while this box's own ancestor
+                        // chain hasn't been fully positioned -- see ResolveAbsolutePositions),
+                        // so anything that needs this box's real position for a float lookup
+                        // must be threaded down explicitly via floatOriginY instead.
+                        if (!isFloatChild)
+                        {
+                            var clearValue = childStyle.Get("clear");
+                            if (clearValue == "both" || clearValue == "left")
+                                childY = Math.Max(childY, leftFloatBottom);
+                            if (clearValue == "both" || clearValue == "right")
+                                childY = Math.Max(childY, rightFloatBottom);
+                        }
+
+                        // A float is a new BFC root: its own descendants must not see the
+                        // outer floats (isolated, fresh context if it turns out to need one),
+                        // but every other normal-flow child stays in the same BFC and must
+                        // see floats registered earlier in document order via floatCtx.
+                        float childFloatOriginY = floatOriginY + box.PaddingTop + childY;
+                        var childBox = CreateBox(childElem, childStyle, box, childContainingWidth, resolver, style,
+                            ambientFloats: isFloatChild ? null : floatCtx,
+                            floatOriginY: isFloatChild ? 0f : childFloatOriginY);
 
                         if (isFloatChild)
                         {
@@ -457,6 +488,21 @@ public static partial class BlockLayout
                                 childBox.X = box.X + box.PaddingLeft + childBox.MarginLeft;
 
                             box.Children.Add(childBox);
+
+                            // Register with floatCtx so later sibling content's line-wrapping
+                            // narrows around it. shape-outside gives it a non-rectangular
+                            // exclusion (circle()/ellipse() only -- see ShapeOutsideParser);
+                            // unsupported/absent shapes keep the plain rectangular exclusion.
+                            // The registered Y uses the reliable floatOriginY-based origin, not
+                            // childBox.Y (which is only relative-to-box.Y, itself possibly still
+                            // provisional -- see the childFloatOriginY comment above).
+                            float floatRegY = floatOriginY + box.PaddingTop + childY;
+                            var shape = ShapeOutsideParser.Parse(childStyle.Get("shape-outside"),
+                                childBox.Width, childBox.Height, fontSize);
+                            if (floatValue == "left")
+                                floatCtx.AddLeftFloat(childBox.X, floatRegY, childBox.Width, childBox.Height, shape);
+                            else
+                                floatCtx.AddRightFloat(childBox.X, floatRegY, childBox.Width, childBox.Height, shape);
 
                             // Record float bottom (relative to content area) for clear tracking.
                             // shape-margin expands the exclusion zone below the float.
@@ -474,12 +520,8 @@ public static partial class BlockLayout
                         }
                         else
                         {
-                            // clear: move childY below active floats
-                            var clearValue = childStyle.Get("clear");
-                            if (clearValue == "both" || clearValue == "left")
-                                childY = Math.Max(childY, leftFloatBottom);
-                            if (clearValue == "both" || clearValue == "right")
-                                childY = Math.Max(childY, rightFloatBottom);
+                            // clear was already resolved above (before CreateBox recursed into
+                            // this child), so childY here is already post-clear.
 
                             // Margin collapsing between adjacent block siblings
                             float effectiveTopMargin = hasBlockChild
@@ -743,7 +785,7 @@ public static partial class BlockLayout
                     if (runs.Count > 0)
                     {
                         LayoutInlineRuns(runs, box, childElem, ref inlineX, ref childY, ref inlineLineHeight,
-                            childContainingWidth, style, fontSize);
+                            childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY);
                     }
                     else
                     {
@@ -830,6 +872,108 @@ public static partial class BlockLayout
                     // NBSP is rendered content, not a collapsible boundary space
                     char ilLastChar = textNode.Data.Length > 0 ? textNode.Data[textNode.Data.Length - 1] : '\0';
                     prevTextEndedWithSpace = ilLastChar != NonBreakingSpace && char.IsWhiteSpace(ilLastChar);
+                    continue;
+                }
+
+                // Float-aware fallback: TextMeasurer.WrapText below wraps this whole text
+                // node at one flat width, which can't express a per-line boundary that
+                // varies with active floats/shape-outside. When floats are active, place
+                // words one at a time instead (skipping this branch's secondary features --
+                // first-letter/initial-letter, line-clamp, text-wrap:balance, hyphenation --
+                // a documented simplification for the rare combination of those with floats).
+                if (floatCtx.HasFloats)
+                {
+                    var fatFontFamily = style.FontFamily;
+                    var fatFontWeight = style.FontWeight;
+                    var fatFontStyle = style.Get("font-style");
+                    float fatLineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
+                    float fatLetterSpacing = ResolveLength(style.Get("letter-spacing"), 0, fontSize);
+                    var fatWhiteSpace = style.Get("white-space") ?? "normal";
+                    bool fatPreserve = fatWhiteSpace == "pre" || fatWhiteSpace == "pre-wrap" || fatWhiteSpace == "pre-line";
+                    var fatText = ApplyTextTransformForMeasure(fatPreserve ? textNode.Data : TrimHtmlText(textNode.Data), style);
+
+                    float absContainerLeft = box.X + box.PaddingLeft;
+                    float absContainerRight = absContainerLeft + childContainingWidth;
+
+                    // Words on the same visual line are accumulated into ONE LayoutBox
+                    // (flushed on wrap/end) rather than one box per word -- callers that
+                    // search rendered PDF text for a multi-word phrase (e.g. "Cleared
+                    // content") must find it as one contiguous string, matching how the
+                    // non-float WrapText path emits a single string per line.
+                    string fatLineText = "";
+                    float fatLineBoxX = 0f, fatLineBoxY = 0f;
+                    bool fatLineHasContent = false;
+
+                    void FlushFatLine()
+                    {
+                        if (!fatLineHasContent) return;
+                        float lineWidth = (box.X + box.PaddingLeft + inlineX) - fatLineBoxX;
+                        box.Children.Add(new LayoutBox
+                        {
+                            Style = style,
+                            X = fatLineBoxX,
+                            Y = fatLineBoxY,
+                            Width = lineWidth,
+                            Height = fatLineHeight,
+                            ContentWidth = lineWidth,
+                            ContentHeight = fatLineHeight,
+                            Text = fatLineText
+                        });
+                        fatLineText = "";
+                        fatLineHasContent = false;
+                    }
+
+                    var fatWords = fatText.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var word in fatWords)
+                    {
+                        if (inlineX == 0)
+                        {
+                            float absY = floatOriginY + box.PaddingTop + childY;
+                            float startX = floatCtx.GetContentStartX(absY, fatLineHeight, absContainerLeft);
+                            float inset = startX - absContainerLeft;
+                            if (inset > 0) inlineX = inset;
+                        }
+
+                        var wordWithSpace = (inlineX > 0 ? " " : "") + word;
+                        float wordWidth = TextMeasurer.MeasureWidth(wordWithSpace, fontSize, fatFontFamily, fatFontWeight, fatFontStyle, fatLetterSpacing);
+
+                        float absYForLimit = floatOriginY + box.PaddingTop + childY;
+                        float rightOffset = floatCtx.GetRightOffset(absYForLimit, fatLineHeight, absContainerRight);
+                        float rightLimit = childContainingWidth - rightOffset;
+                        if (rightLimit < 0) rightLimit = 0;
+
+                        if (inlineX > 0 && inlineX + wordWidth > rightLimit)
+                        {
+                            FlushFatLine();
+                            childY += inlineLineHeight;
+                            inlineX = 0;
+                            inlineLineHeight = 0;
+
+                            float absY2 = floatOriginY + box.PaddingTop + childY;
+                            float startX2 = floatCtx.GetContentStartX(absY2, fatLineHeight, absContainerLeft);
+                            float inset2 = startX2 - absContainerLeft;
+                            if (inset2 > 0) inlineX = inset2;
+
+                            wordWithSpace = word;
+                            wordWidth = TextMeasurer.MeasureWidth(word, fontSize, fatFontFamily, fatFontWeight, fatFontStyle, fatLetterSpacing);
+                        }
+
+                        if (!fatLineHasContent)
+                        {
+                            fatLineBoxX = box.X + box.PaddingLeft + inlineX;
+                            fatLineBoxY = box.Y + box.PaddingTop + childY;
+                            fatLineHasContent = true;
+                        }
+                        fatLineText += wordWithSpace;
+
+                        inlineX += wordWidth;
+                        if (fatLineHeight > inlineLineHeight)
+                            inlineLineHeight = fatLineHeight;
+                    }
+                    FlushFatLine();
+
+                    char fatLastChar = textNode.Data.Length > 0 ? textNode.Data[textNode.Data.Length - 1] : '\0';
+                    prevTextEndedWithSpace = fatLastChar != NonBreakingSpace && char.IsWhiteSpace(fatLastChar);
                     continue;
                 }
 
