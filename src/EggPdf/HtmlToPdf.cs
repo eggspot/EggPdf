@@ -55,7 +55,8 @@ public static class HtmlToPdf
 
     /// <summary>Subset a font for the given codepoints, via the process-wide cache.</summary>
     private static Text.TrueType.TtfSubsetter.SubsetResult? SubsetCached(
-        Text.TrueType.FontData font, System.Collections.Generic.HashSet<int> codepoints)
+        Text.TrueType.FontData font, System.Collections.Generic.HashSet<int> codepoints,
+        List<string>? activeFeatures = null)
     {
         if (font.RawData == null) return null;
 
@@ -65,12 +66,23 @@ public static class HtmlToPdf
 
         // FNV-1a over the sorted codepoints; font identity via reference hash +
         // length (FontData instances are process-wide singletons from the font
-        // caches, so reference identity is stable for a given font).
+        // caches, so reference identity is stable for a given font). Active GSUB
+        // feature tags are folded in too -- ParseActiveTags always returns them
+        // sorted, so the same logical feature set hashes identically regardless
+        // of declaration order.
         ulong h = 14695981039346656037UL;
         for (int i = 0; i < sorted.Length; i++)
         {
             h ^= (uint)sorted[i];
             h *= 1099511628211UL;
+        }
+        if (activeFeatures != null)
+        {
+            for (int i = 0; i < activeFeatures.Count; i++)
+            {
+                foreach (char c in activeFeatures[i]) { h ^= c; h *= 1099511628211UL; }
+                h ^= '|'; h *= 1099511628211UL;
+            }
         }
         var key = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(font.RawData).ToString("x8")
             + ":" + font.RawData.Length + ":" + h.ToString("x16");
@@ -81,7 +93,7 @@ public static class HtmlToPdf
             return cached;
         }
 
-        var subset = Text.TrueType.TtfSubsetter.Subset(font, sorted);
+        var subset = Text.TrueType.TtfSubsetter.Subset(font, sorted, activeFeatures);
         if (subset == null || subset.FontData.Length == 0) return subset;
 
         if (SubsetCache.Count >= SubsetCacheMaxEntries) SubsetCache.Clear();
@@ -810,7 +822,8 @@ public static class HtmlToPdf
         // Collect (fontName, codepoints) plus the raw font-family list per font name
         var fontCodepoints = new Dictionary<string, HashSet<int>>();
         var fontFamilyLists = new Dictionary<string, string>();
-        CollectTextCodepoints(root, fontCodepoints, fontFamilyLists);
+        var fontFeatureTags = new Dictionary<string, List<string>>();
+        CollectTextCodepoints(root, fontCodepoints, fontFamilyLists, fontFeatureTags);
 
         if (fontCodepoints.Count == 0) return;
 
@@ -875,8 +888,11 @@ public static class HtmlToPdf
             if (fontData == null || fontData.RawData == null || fontData.RawData.Length == 0)
                 continue;
 
-            // Subset the font to only include used glyphs (process-wide cache)
-            var subset = SubsetCached(fontData, codepoints);
+            // Subset the font to only include used glyphs (process-wide cache).
+            // GSUB-substituted glyphs (font-feature-settings) are baked into the subset
+            // here, so the embedded CID map already points at the right glyph outlines.
+            fontFeatureTags.TryGetValue(pdfFontName, out var activeFeatures);
+            var subset = SubsetCached(fontData, codepoints, activeFeatures);
             if (subset == null || subset.FontData.Length == 0)
                 continue;
 
@@ -1170,12 +1186,13 @@ public static class HtmlToPdf
     }
 
     private static void CollectTextCodepoints(LayoutBox box, Dictionary<string, HashSet<int>> fontCodepoints,
-        Dictionary<string, string> fontFamilyLists)
+        Dictionary<string, string> fontFamilyLists, Dictionary<string, List<string>> fontFeatureTags)
     {
         if (!string.IsNullOrEmpty(box.Text))
         {
+            var fontFeatureSettings = box.Style?.Get("font-feature-settings");
             string fontName = Layout.StandardFontMetrics.ResolvePdfFontName(
-                box.Style?.FontFamily, box.Style?.FontWeight, box.Style?.Get("font-style"));
+                box.Style?.FontFamily, box.Style?.FontWeight, box.Style?.Get("font-style"), fontFeatureSettings);
 
             if (!fontCodepoints.TryGetValue(fontName, out var codepoints))
             {
@@ -1188,6 +1205,12 @@ public static class HtmlToPdf
             var familyList = box.Style?.FontFamily;
             if (!string.IsNullOrEmpty(familyList) && !fontFamilyLists.ContainsKey(fontName))
                 fontFamilyLists[fontName] = familyList!;
+
+            // Remember which GSUB features (if any) this composite font-name key needs,
+            // so embedding substitutes the same glyphs that will be painted.
+            var activeFeatures = Text.TrueType.FontFeatureSettings.ParseActiveTags(fontFeatureSettings);
+            if (activeFeatures.Count > 0 && !fontFeatureTags.ContainsKey(fontName))
+                fontFeatureTags[fontName] = activeFeatures;
 
             AddCodepoints(codepoints, box.Text!);
 
@@ -1222,7 +1245,7 @@ public static class HtmlToPdf
         }
 
         foreach (var child in box.Children)
-            CollectTextCodepoints(child, fontCodepoints, fontFamilyLists);
+            CollectTextCodepoints(child, fontCodepoints, fontFamilyLists, fontFeatureTags);
     }
 
     /// <summary>Add every codepoint of a string (surrogate-pair aware) to the set.</summary>

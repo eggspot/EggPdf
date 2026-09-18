@@ -466,7 +466,8 @@ public static class BoxPainter
             }
 
             string fontName = StandardFontMetrics.ResolvePdfFontName(
-                box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"));
+                box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"),
+                box.Style.Get("font-feature-settings"));
 
             float pdfFontSize = fontSize * PdfCoordinates.PxToPt;
             float textX = effectiveX + box.PaddingLeft;
@@ -817,13 +818,16 @@ public static class BoxPainter
             page.RestoreState();
     }
 
-    /// <summary>Strip a "-W###" weight suffix so built-in font fallbacks stay valid.</summary>
+    /// <summary>
+    /// Strip a "-W###" weight suffix (and any trailing suffix after it, e.g. a
+    /// "-Feat-..." font-feature-settings marker) so built-in font fallbacks stay valid.
+    /// </summary>
     private static string StripWeightSuffix(string fontName)
     {
         int idx = fontName.LastIndexOf("-W", StringComparison.Ordinal);
-        if (idx <= 0 || idx + 2 >= fontName.Length) return fontName;
-        for (int i = idx + 2; i < fontName.Length; i++)
-            if (!char.IsDigit(fontName[i])) return fontName;
+        if (idx <= 0 || idx + 2 >= fontName.Length || !char.IsDigit(fontName[idx + 2])) return fontName;
+        int i = idx + 2;
+        while (i < fontName.Length && char.IsDigit(fontName[i])) i++;
         return fontName.Substring(0, idx);
     }
 

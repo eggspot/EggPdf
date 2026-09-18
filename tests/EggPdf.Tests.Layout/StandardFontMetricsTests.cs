@@ -49,4 +49,33 @@ public class StandardFontMetricsTests
         arialWidth.Should().BeApproximately(helveticaBase, 0.01f,
             "Arial metrics should match Helvetica (metric-compatible fonts)");
     }
+
+    [Fact]
+    public void ResolvePdfFontName_NoFontFeatureSettings_UnaffectedByOptionalParam()
+    {
+        var result = StandardFontMetrics.ResolvePdfFontName("Arial, sans-serif", "bold", null, null);
+        result.Should().Be("Arial-Bold");
+    }
+
+    [Fact]
+    public void ResolvePdfFontName_ActiveFontFeatureSettings_AppendsDeterministicSuffix()
+    {
+        var result = StandardFontMetrics.ResolvePdfFontName("Arial, sans-serif", null, null, "\"zero\" 1, \"smcp\" on");
+        result.Should().Be("Arial-Feat-smcp-zero");
+    }
+
+    [Fact]
+    public void ResolvePdfFontName_DifferentFeatureSettings_ProduceDistinctNames()
+    {
+        var a = StandardFontMetrics.ResolvePdfFontName("Arial, sans-serif", null, null, "\"zero\" 1");
+        var b = StandardFontMetrics.ResolvePdfFontName("Arial, sans-serif", null, null, "\"smcp\" 1");
+        a.Should().NotBe(b, "distinct font-feature-settings values must not collide on the same embedded-font entry");
+    }
+
+    [Fact]
+    public void ResolvePdfFontName_NormalFontFeatureSettings_NoSuffixAppended()
+    {
+        var result = StandardFontMetrics.ResolvePdfFontName("Arial, sans-serif", "bold", null, "normal");
+        result.Should().Be("Arial-Bold");
+    }
 }

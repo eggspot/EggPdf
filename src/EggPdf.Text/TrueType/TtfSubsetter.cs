@@ -35,16 +35,19 @@ public class TtfSubsetter
 
     /// <summary>
     /// Subset a TrueType font to include only glyphs for the given codepoints.
-    /// Always includes glyph 0 (.notdef).
+    /// Always includes glyph 0 (.notdef). When <paramref name="activeFeatures"/> is
+    /// given, each codepoint resolves through its GSUB single-substitution glyph
+    /// (see <see cref="FontData.GetGlyphId(int, IReadOnlyList{string}?)"/>) so the
+    /// subset embeds and maps to the feature-substituted glyph, not the original.
     /// </summary>
-    public static SubsetResult? Subset(FontData font, IEnumerable<int> codepoints)
+    public static SubsetResult? Subset(FontData font, IEnumerable<int> codepoints, IReadOnlyList<string>? activeFeatures = null)
     {
         if (font.RawData == null || font.RawData.Length < 12)
             return null;
 
         try
         {
-            return SubsetInternal(font, codepoints);
+            return SubsetInternal(font, codepoints, activeFeatures);
         }
         catch
         {
@@ -52,7 +55,7 @@ public class TtfSubsetter
         }
     }
 
-    private static SubsetResult SubsetInternal(FontData font, IEnumerable<int> codepoints)
+    private static SubsetResult SubsetInternal(FontData font, IEnumerable<int> codepoints, IReadOnlyList<string>? activeFeatures)
     {
         var data = font.RawData;
 
@@ -65,7 +68,7 @@ public class TtfSubsetter
 
         foreach (var cp in codepoints)
         {
-            var gid = font.GetGlyphId(cp);
+            var gid = font.GetGlyphId(cp, activeFeatures);
             if (gid > 0)
             {
                 neededGlyphs.Add(gid);

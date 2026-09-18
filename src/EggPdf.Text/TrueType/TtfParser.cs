@@ -82,6 +82,10 @@ public static class TtfParser
         if (tables.TryGetValue("GPOS", out var gpos))
             ParseGposPairKerning(data, (int)gpos.offset, (int)gpos.length, font);
 
+        // Parse GSUB table for single-substitution features (font-feature-settings)
+        if (tables.TryGetValue("GSUB", out var gsub))
+            ParseGsubSingleSubstitution(data, (int)gsub.offset, (int)gsub.length, font);
+
         return font;
     }
 
@@ -500,6 +504,125 @@ public static class TtfParser
 
                 if (xAdvance != 0)
                     font.Kern!.Add(leftGlyph, secondGlyph, xAdvance);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Parse GSUB single-substitution features (Lookup Type 1: one glyph in, one glyph
+    /// out -- e.g. "zero" slashed-zero, "smcp" small caps, "tnum"/"onum" figure styles,
+    /// simple stylistic sets). Populates <see cref="FontData.GsubFeatures"/> keyed by
+    /// feature tag. Ligatures, contextual, and chaining substitutions (Lookup Types
+    /// 2-8) are far more complex and are skipped, matching the GPOS pair-kerning
+    /// parser above: this covers the common single-glyph-swap case, not the full spec.
+    /// </summary>
+    private static void ParseGsubSingleSubstitution(byte[] data, int offset, int length, FontData font)
+    {
+        if (offset + 10 > data.Length) return;
+
+        int pos = offset;
+        uint gsubVersion = ReadUInt32(data, ref pos);
+        ushort scriptListOffset = ReadUInt16(data, ref pos);
+        ushort featureListOffset = ReadUInt16(data, ref pos);
+        ushort lookupListOffset = ReadUInt16(data, ref pos);
+
+        int featureListPos = offset + featureListOffset;
+        int lookupListPos = offset + lookupListOffset;
+        if (featureListPos + 2 > data.Length || lookupListPos + 2 > data.Length) return;
+
+        // Map each feature tag to its lookup indices
+        int fpos = featureListPos;
+        ushort featureCount = ReadUInt16(data, ref fpos);
+        var lookupsByFeature = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>>();
+
+        for (int f = 0; f < featureCount; f++)
+        {
+            if (fpos + 6 > data.Length) break;
+            string featureTag = ReadTag(data, ref fpos);
+            ushort featureOffset = ReadUInt16(data, ref fpos);
+
+            int ftPos = featureListPos + featureOffset;
+            if (ftPos + 4 > data.Length) continue;
+            ftPos += 2; // skip featureParams
+            ushort lookupCount = ReadUInt16(data, ref ftPos);
+
+            if (!lookupsByFeature.TryGetValue(featureTag, out var indices))
+                lookupsByFeature[featureTag] = indices = new System.Collections.Generic.List<int>();
+            for (int li = 0; li < lookupCount; li++)
+            {
+                if (ftPos + 2 > data.Length) break;
+                indices.Add(ReadUInt16(data, ref ftPos));
+            }
+        }
+
+        if (lookupsByFeature.Count == 0) return;
+
+        int llPos = lookupListPos;
+        ushort lookupCount2 = ReadUInt16(data, ref llPos);
+
+        foreach (var kv in lookupsByFeature)
+        {
+            System.Collections.Generic.Dictionary<ushort, ushort>? featureMap = null;
+
+            foreach (int lookupIdx in kv.Value)
+            {
+                if (lookupIdx >= lookupCount2) continue;
+
+                int lookupOffsetPos = lookupListPos + 2 + lookupIdx * 2;
+                if (lookupOffsetPos + 2 > data.Length) continue;
+                int tmpPos = lookupOffsetPos;
+                ushort lookupOffset = ReadUInt16(data, ref tmpPos);
+
+                int lookupPos = lookupListPos + lookupOffset;
+                if (lookupPos + 6 > data.Length) continue;
+
+                int lPos = lookupPos;
+                ushort lookupType = ReadUInt16(data, ref lPos);
+                ushort lookupFlag = ReadUInt16(data, ref lPos);
+                ushort subtableCount = ReadUInt16(data, ref lPos);
+
+                if (lookupType != 1) continue; // Only single substitution (type 1)
+
+                for (int st = 0; st < subtableCount; st++)
+                {
+                    if (lPos + 2 > data.Length) break;
+                    ushort subtableOffset = ReadUInt16(data, ref lPos);
+
+                    int stPos = lookupPos + subtableOffset;
+                    if (stPos + 4 > data.Length) continue;
+
+                    int stSave = stPos;
+                    ushort substFormat = ReadUInt16(data, ref stPos);
+                    ushort coverageOffset = ReadUInt16(data, ref stPos);
+                    var coveredGlyphs = ParseCoverage(data, stSave + coverageOffset);
+                    if (coveredGlyphs == null || coveredGlyphs.Count == 0) continue;
+
+                    if (substFormat == 1)
+                    {
+                        short delta = ReadInt16(data, ref stPos);
+                        featureMap ??= new System.Collections.Generic.Dictionary<ushort, ushort>();
+                        foreach (var g in coveredGlyphs)
+                            featureMap[g] = (ushort)((g + delta) & 0xFFFF);
+                    }
+                    else if (substFormat == 2)
+                    {
+                        ushort glyphCount = ReadUInt16(data, ref stPos);
+                        featureMap ??= new System.Collections.Generic.Dictionary<ushort, ushort>();
+                        for (int gi = 0; gi < glyphCount && gi < coveredGlyphs.Count; gi++)
+                        {
+                            if (stPos + 2 > data.Length) break;
+                            ushort substGlyph = ReadUInt16(data, ref stPos);
+                            featureMap[coveredGlyphs[gi]] = substGlyph;
+                        }
+                    }
+                    // Other formats don't exist for Lookup Type 1; nothing else to handle.
+                }
+            }
+
+            if (featureMap != null && featureMap.Count > 0)
+            {
+                font.GsubFeatures ??= new System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<ushort, ushort>>();
+                font.GsubFeatures[kv.Key] = featureMap;
             }
         }
     }

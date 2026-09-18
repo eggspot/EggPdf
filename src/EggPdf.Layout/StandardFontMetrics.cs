@@ -130,9 +130,22 @@ public static class StandardFontMetrics
     }
 
     /// <summary>
-    /// Map a CSS font-family + weight + style to a PDF standard font name.
+    /// Map a CSS font-family + weight + style to a PDF standard font name. When
+    /// <paramref name="fontFeatureSettings"/> has active tags, a deterministic suffix is
+    /// appended (see <see cref="EggPdf.Text.TrueType.FontFeatureSettings"/>) so distinct
+    /// feature declarations on the same family/weight/style get distinct embedded-font
+    /// entries -- font-feature-settings changes which glyph a codepoint maps to, so it
+    /// cannot share a single cached glyph map the way plain kerning/positioning can.
     /// </summary>
-    public static string ResolvePdfFontName(string? fontFamily, string? fontWeight, string? fontStyle)
+    public static string ResolvePdfFontName(string? fontFamily, string? fontWeight, string? fontStyle,
+        string? fontFeatureSettings = null)
+    {
+        var baseName = ResolvePdfFontNameCore(fontFamily, fontWeight, fontStyle);
+        var suffix = EggPdf.Text.TrueType.FontFeatureSettings.BuildFontNameSuffix(fontFeatureSettings);
+        return suffix.Length == 0 ? baseName : baseName + suffix;
+    }
+
+    private static string ResolvePdfFontNameCore(string? fontFamily, string? fontWeight, string? fontStyle)
     {
         bool bold = fontWeight == "bold" || fontWeight == "700" || fontWeight == "800" || fontWeight == "900";
         bool italic = fontStyle == "italic" || fontStyle == "oblique";

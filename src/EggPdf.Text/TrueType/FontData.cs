@@ -32,6 +32,14 @@ public class FontData
     /// <summary>Kerning pairs: (leftGlyphId, rightGlyphId) -> x-advance adjustment in font units.</summary>
     internal KernData? Kern { get; set; }
 
+    /// <summary>
+    /// GSUB single-substitution (Lookup Type 1) glyph maps, keyed by OpenType feature
+    /// tag (e.g. "zero", "smcp", "tnum") -> (original glyph ID -> substitute glyph ID).
+    /// Populated from the font's GSUB table; see <see cref="TtfParser"/>. Only covers
+    /// single-glyph-swap features, not ligatures or contextual substitution.
+    /// </summary>
+    internal System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<ushort, ushort>>? GsubFeatures { get; set; }
+
     /// <summary>Raw font file bytes (for PDF embedding).</summary>
     public byte[] RawData { get; set; } = System.Array.Empty<byte>();
 
@@ -39,6 +47,25 @@ public class FontData
     public ushort GetGlyphId(int codepoint)
     {
         return Cmap?.GetGlyphId(codepoint) ?? 0;
+    }
+
+    /// <summary>
+    /// Get glyph ID for a Unicode codepoint, applying any active GSUB single-substitution
+    /// features (from CSS <c>font-feature-settings</c>) in order. Each active tag's
+    /// substitution (if the font has one for the current glyph) is applied in sequence.
+    /// </summary>
+    public ushort GetGlyphId(int codepoint, System.Collections.Generic.IReadOnlyList<string>? activeFeatures)
+    {
+        ushort gid = GetGlyphId(codepoint);
+        if (gid == 0 || activeFeatures == null || activeFeatures.Count == 0 || GsubFeatures == null)
+            return gid;
+
+        for (int i = 0; i < activeFeatures.Count; i++)
+        {
+            if (GsubFeatures.TryGetValue(activeFeatures[i], out var map) && map.TryGetValue(gid, out var substituted))
+                gid = substituted;
+        }
+        return gid;
     }
 
     /// <summary>Get advance width for a glyph ID (in font units).</summary>

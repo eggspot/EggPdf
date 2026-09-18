@@ -142,6 +142,9 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Full Unicode: Vietnamese and extended Latin out of the box
 - Browser-parity metrics: text measured with the real font, baselines like Chrome
 - Automatic hyphenation
+- `font-feature-settings` (e.g. `"zero" 1`, `"smcp" 1`) applies single-glyph OpenType
+  features (stylistic sets, small caps, oldstyle/tabular figures) from the font's GSUB
+  table -- ligature/contextual substitution is not applied
 
 ### Business
 - Digital signatures — one-call X.509 signing (`PdfSigner.Sign(pdf, cert)`, detached CMS/PKCS#7) or external-CMS two-step flow for HSMs
