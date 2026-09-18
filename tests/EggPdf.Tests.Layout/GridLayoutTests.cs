@@ -667,18 +667,99 @@ public class GridLayoutTests
     }
 
     [Fact]
-    public void GridAutoFlow_Dense_FillsGaps()
+    public void GridAutoFlow_Dense_BackfillsGapLeftBySkippedFullRowItem()
     {
-        // With dense packing: B (1-wide) should fill the gap left by A (2-wide span in row 1)
+        // Item "one" takes row0/col0. The span-3 item can't fit the remaining 2 columns of
+        // row0, so it skips ahead to row1 (filling it entirely) -- leaving row0/col1-2 empty.
+        // With `dense`, the auto-placement cursor restarts from the grid origin for every
+        // item, so "three" (1x1 auto) backfills row0/col1 instead of continuing on to row2.
         var root = LayoutGrid(
-            "<div style='display:grid; grid-template-columns: 100px 100px 100px; grid-auto-flow: row dense'>" +
-            "<div style='grid-column: span 2'>A</div>" +
-            "<div>B</div>" +
-            "<div>C</div>" +
-            "<div>D</div>" +
+            "<div style='display:grid; grid-template-columns: 100px 100px 100px; " +
+            "grid-auto-flow: row dense; width:300px'>" +
+            "<div id='one'>1</div>" +
+            "<div style='grid-column: span 3'>full</div>" +
+            "<div id='three'>3</div>" +
             "</div>");
-        var grid = root.FindAllByTag("div")[0];
-        // Just verifying no crash and all items are laid out
-        grid.Children.Count.Should().Be(4);
+
+        var one = root.FindById("one");
+        var three = root.FindById("three");
+        one.Should().NotBeNull();
+        three.Should().NotBeNull();
+
+        three!.Y.Should().BeApproximately(one!.Y, 1f,
+            "dense packing must backfill the gap left in row0/col1 instead of moving to a new row");
+        three.X.Should().BeGreaterThan(one.X + 50f,
+            "the backfilled item lands in the second column, not the first");
+    }
+
+    [Fact]
+    public void GridAutoFlow_Sparse_LeavesGapAndContinuesForward()
+    {
+        // Regression guard: WITHOUT `dense` (the default), the same layout must NOT backfill
+        // the gap -- "three" continues from the cursor after the skipped-ahead full-row item,
+        // landing in a new row well below "one".
+        var root = LayoutGrid(
+            "<div style='display:grid; grid-template-columns: 100px 100px 100px; width:300px'>" +
+            "<div id='one'>1</div>" +
+            "<div style='grid-column: span 3'>full</div>" +
+            "<div id='three'>3</div>" +
+            "</div>");
+
+        var one = root.FindById("one");
+        var three = root.FindById("three");
+        one.Should().NotBeNull();
+        three.Should().NotBeNull();
+
+        three!.Y.Should().BeGreaterThan(one!.Y + 10f,
+            "sparse (default) packing must not backfill row0 -- it continues forward past the full row");
+    }
+
+    // ── grid-auto-rows / grid-auto-columns ──────────────────────────────────────
+
+    [Fact]
+    public void GridAutoRows_SizesImplicitRows()
+    {
+        // No grid-template-rows -- both rows are entirely implicit and must be sized from
+        // grid-auto-rows instead of the previous hardcoded content-based "auto" default.
+        var root = LayoutGrid(
+            "<div style='display:grid; grid-template-columns: 100px; grid-auto-rows: 50px; width:100px'>" +
+            "<div id='a'>A</div>" +
+            "<div id='b'>B</div>" +
+            "</div>");
+
+        var a = root.FindById("a");
+        var b = root.FindById("b");
+        a.Should().NotBeNull();
+        b.Should().NotBeNull();
+        (b!.Y - a!.Y).Should().BeApproximately(50f, 2f,
+            "the implicit row track must be sized from grid-auto-rows, not content height");
+    }
+
+    [Fact]
+    public void GridAutoColumns_SizesAndGrowsImplicitColumnsInColumnFlow()
+    {
+        // No grid-template-columns -- grid-auto-flow:column must grow a new implicit column
+        // (rather than collapsing overflow items back into column 0) once the two explicit
+        // rows are full, and size that new column from grid-auto-columns.
+        var root = LayoutGrid(
+            "<div style='display:grid; grid-auto-flow: column; grid-auto-columns: 80px; " +
+            "grid-template-rows: 40px 40px; width:400px'>" +
+            "<div id='a'>A</div>" +
+            "<div id='b'>B</div>" +
+            "<div id='c'>C</div>" +
+            "</div>");
+
+        var a = root.FindById("a");
+        var b = root.FindById("b");
+        var c = root.FindById("c");
+        a.Should().NotBeNull();
+        b.Should().NotBeNull();
+        c.Should().NotBeNull();
+
+        // A and B fill the single explicit column's two rows; C must land in a new, second
+        // column sized at exactly grid-auto-columns (80px) -- not the first column's width.
+        c!.X.Should().BeGreaterThan(a!.X, "C must be placed in a newly-grown column, not overlap column 0");
+        c.Width.Should().BeApproximately(80f, 1f,
+            "the newly-grown implicit column must be sized from grid-auto-columns");
     }
 }

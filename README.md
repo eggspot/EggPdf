@@ -114,7 +114,8 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 
 ### HTML & CSS
 - Full HTML5 parsing (WHATWG spec-compliant)
-- CSS 2.1 complete + CSS3 (Flexbox with auto margins & baseline alignment, Grid, Multi-column)
+- CSS 2.1 complete + CSS3 (Flexbox with auto margins & baseline alignment, Grid incl.
+  `grid-auto-flow: dense` and `grid-auto-rows`/`grid-auto-columns`, Multi-column)
 - `float: left`/`right` narrows sibling inline content per line (real text wrap-around, not just
   positioning), including `shape-outside: circle()`/`ellipse()` for a non-rectangular exclusion
   (`polygon()`/`inset()`/`url()` fall back to the float's plain rectangular bounds)

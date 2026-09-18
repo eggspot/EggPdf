@@ -11,7 +11,7 @@ namespace EggPdf.Layout;
 /// Handles grid-template-columns, grid-template-rows, grid-template-areas,
 /// gap, grid-auto-flow, grid-column/row placement, and spanning.
 /// </summary>
-public static class GridLayout
+public static partial class GridLayout
 {
     private const float DefaultFontSize = 16f;
 
@@ -32,6 +32,7 @@ public static class GridLayout
         string? templateAreas = style.Get("grid-template-areas");
         string autoFlow = style.Get("grid-auto-flow") ?? "row";
         bool flowColumn = autoFlow.IndexOf("column", StringComparison.OrdinalIgnoreCase) >= 0;
+        bool isDense = autoFlow.IndexOf("dense", StringComparison.OrdinalIgnoreCase) >= 0;
 
         // Resolve gap
         float columnGap = ResolveGap(style, true, container.ContentWidth, fontSize);
@@ -55,6 +56,15 @@ public static class GridLayout
         // Parse column and row track definitions
         var columnTracks = ParseTrackList(resolvedColumns, container.ContentWidth, fontSize);
         var rowTracks = ParseTrackList(resolvedRows, container.ContentWidth, fontSize);
+
+        // grid-auto-rows / grid-auto-columns size tracks the auto-placement algorithm creates
+        // implicitly (a row beyond grid-template-rows, or -- in grid-auto-flow:column -- a
+        // column beyond grid-template-columns). A list cycles: "50px 80px" alternates between
+        // implicit tracks. Absent, implicit tracks keep their previous defaults (auto rows,
+        // 1fr columns) via the empty-list fallback below.
+        var autoRowTracks = ParseTrackList(style.Get("grid-auto-rows"), 0, fontSize);
+        var autoColumnTracks = ParseTrackList(style.Get("grid-auto-columns"), container.ContentWidth, fontSize);
+        bool columnsAreImplicit = string.IsNullOrEmpty(resolvedColumns);
 
         // If no explicit columns defined, determine from items
         if (columnTracks.Count == 0)
@@ -84,8 +94,24 @@ public static class GridLayout
         // Resolve explicit placement from item properties and areas
         ResolveExplicitPlacement(items, areaMap, numColumns);
 
-        // Auto-place remaining items
-        AutoPlaceItems(items, numColumns, flowColumn, rowTracks.Count);
+        // Auto-place remaining items. grid-auto-flow:column with no explicit
+        // grid-template-columns may need to grow beyond the initial column count (a new
+        // implicit column per exhausted set of explicit rows) -- AutoPlaceItems returns the
+        // resolved column count, unchanged unless that growth path was taken.
+        numColumns = AutoPlaceItems(items, numColumns, flowColumn, rowTracks.Count, isDense,
+            allowColumnGrowth: flowColumn && columnsAreImplicit);
+
+        // Extend columnTracks to match any columns AutoPlaceItems grew into, sized from
+        // grid-auto-columns (cycling through a multi-value list) or 1fr if unspecified --
+        // the same default implicit columns already used before growth was supported.
+        int newColumnIndex = 0;
+        while (columnTracks.Count < numColumns)
+        {
+            columnTracks.Add(autoColumnTracks.Count > 0
+                ? autoColumnTracks[newColumnIndex % autoColumnTracks.Count]
+                : new TrackDefinition { Type = TrackType.Fr, Value = 1 });
+            newColumnIndex++;
+        }
 
         // Determine number of rows needed
         int numRows = rowTracks.Count;
@@ -95,10 +121,15 @@ public static class GridLayout
             if (neededRows > numRows) numRows = neededRows;
         }
 
-        // Add implicit row tracks if needed
+        // Add implicit row tracks if needed, sized from grid-auto-rows (cycling through a
+        // multi-value list) or the previous content-based "auto" default if unspecified.
+        int newRowIndex = 0;
         while (rowTracks.Count < numRows)
         {
-            rowTracks.Add(new TrackDefinition { Type = TrackType.Auto, Value = 0 });
+            rowTracks.Add(autoRowTracks.Count > 0
+                ? autoRowTracks[newRowIndex % autoRowTracks.Count]
+                : new TrackDefinition { Type = TrackType.Auto, Value = 0 });
+            newRowIndex++;
         }
 
         // Resolve track sizes
@@ -607,182 +638,6 @@ public static class GridLayout
                 item.ColumnStart = numColumns - 1;
             if (item.ColumnStart >= 0 && item.ColumnStart + item.ColumnSpan > numColumns)
                 item.ColumnSpan = numColumns - item.ColumnStart;
-        }
-    }
-
-    /// <summary>Auto-place items that don't have explicit placement.</summary>
-    private static void AutoPlaceItems(List<GridItem> items, int numColumns, bool flowColumn, int explicitRowCount)
-    {
-        // Build an occupancy grid
-        // First pass: determine grid size from explicitly placed items
-        int maxRow = 0;
-        for (int i = 0; i < items.Count; i++)
-        {
-            if (items[i].RowStart >= 0)
-            {
-                int rowEnd = items[i].RowStart + items[i].RowSpan;
-                if (rowEnd > maxRow) maxRow = rowEnd;
-            }
-        }
-
-        // Estimate enough rows for auto-placed items
-        int estimatedRows = maxRow + items.Count; // generous estimate
-        if (estimatedRows < 1) estimatedRows = 1;
-
-        // Occupancy grid: true = occupied
-        var grid = new bool[estimatedRows, numColumns];
-
-        // Mark explicitly placed items
-        for (int i = 0; i < items.Count; i++)
-        {
-            var item = items[i];
-            if (item.ColumnStart >= 0 && item.RowStart >= 0)
-            {
-                MarkOccupied(grid, item.RowStart, item.ColumnStart, item.RowSpan, item.ColumnSpan, numColumns, estimatedRows);
-            }
-        }
-
-        // Auto-place remaining items
-        int cursorRow = 0;
-        int cursorCol = 0;
-
-        for (int i = 0; i < items.Count; i++)
-        {
-            var item = items[i];
-
-            // Skip already fully placed items
-            if (item.ColumnStart >= 0 && item.RowStart >= 0)
-                continue;
-
-            // Item has explicit column but auto row
-            if (item.ColumnStart >= 0 && item.RowStart < 0)
-            {
-                // Find first available row at this column
-                for (int r = 0; r < estimatedRows; r++)
-                {
-                    if (CanPlace(grid, r, item.ColumnStart, item.RowSpan, item.ColumnSpan, numColumns, estimatedRows))
-                    {
-                        item.RowStart = r;
-                        MarkOccupied(grid, r, item.ColumnStart, item.RowSpan, item.ColumnSpan, numColumns, estimatedRows);
-                        break;
-                    }
-                }
-                if (item.RowStart < 0)
-                {
-                    item.RowStart = estimatedRows - 1;
-                }
-                continue;
-            }
-
-            // Item has explicit row but auto column
-            if (item.RowStart >= 0 && item.ColumnStart < 0)
-            {
-                for (int c = 0; c < numColumns; c++)
-                {
-                    if (CanPlace(grid, item.RowStart, c, item.RowSpan, item.ColumnSpan, numColumns, estimatedRows))
-                    {
-                        item.ColumnStart = c;
-                        MarkOccupied(grid, item.RowStart, c, item.RowSpan, item.ColumnSpan, numColumns, estimatedRows);
-                        break;
-                    }
-                }
-                if (item.ColumnStart < 0) item.ColumnStart = 0;
-                continue;
-            }
-
-            // Fully auto placement
-            if (flowColumn)
-            {
-                // Column-wise: fill rows in a column, then advance to next column
-                // When explicit template rows exist, limit rows per column
-                int maxRowsPerCol = explicitRowCount > 0 ? explicitRowCount : estimatedRows;
-                bool placed = false;
-                for (int c = cursorCol; c < numColumns && !placed; c++)
-                {
-                    for (int r = (c == cursorCol ? cursorRow : 0); r < maxRowsPerCol; r++)
-                    {
-                        if (CanPlace(grid, r, c, item.RowSpan, item.ColumnSpan, numColumns, estimatedRows))
-                        {
-                            item.RowStart = r;
-                            item.ColumnStart = c;
-                            MarkOccupied(grid, r, c, item.RowSpan, item.ColumnSpan, numColumns, estimatedRows);
-                            cursorRow = r + item.RowSpan;
-                            cursorCol = c;
-                            if (cursorRow >= maxRowsPerCol)
-                            {
-                                cursorRow = 0;
-                                cursorCol = c + 1;
-                            }
-                            placed = true;
-                            break;
-                        }
-                    }
-                }
-                if (!placed)
-                {
-                    // Fallback: place at end
-                    item.RowStart = estimatedRows - 1;
-                    item.ColumnStart = 0;
-                }
-            }
-            else
-            {
-                // Row-wise (default): advance column, then wrap to next row
-                bool placed = false;
-                for (int r = cursorRow; r < estimatedRows && !placed; r++)
-                {
-                    for (int c = (r == cursorRow ? cursorCol : 0); c <= numColumns - item.ColumnSpan; c++)
-                    {
-                        if (CanPlace(grid, r, c, item.RowSpan, item.ColumnSpan, numColumns, estimatedRows))
-                        {
-                            item.RowStart = r;
-                            item.ColumnStart = c;
-                            MarkOccupied(grid, r, c, item.RowSpan, item.ColumnSpan, numColumns, estimatedRows);
-                            cursorRow = r;
-                            cursorCol = c + item.ColumnSpan;
-                            if (cursorCol >= numColumns)
-                            {
-                                cursorCol = 0;
-                                cursorRow = r + 1;
-                            }
-                            placed = true;
-                            break;
-                        }
-                    }
-                }
-                if (!placed)
-                {
-                    item.RowStart = estimatedRows - 1;
-                    item.ColumnStart = 0;
-                }
-            }
-        }
-    }
-
-    /// <summary>Check if a span can be placed at the given position.</summary>
-    private static bool CanPlace(bool[,] grid, int row, int col, int rowSpan, int colSpan, int numCols, int numRows)
-    {
-        if (col + colSpan > numCols) return false;
-        if (row + rowSpan > numRows) return false;
-        for (int r = row; r < row + rowSpan; r++)
-        {
-            for (int c = col; c < col + colSpan; c++)
-            {
-                if (grid[r, c]) return false;
-            }
-        }
-        return true;
-    }
-
-    /// <summary>Mark cells as occupied.</summary>
-    private static void MarkOccupied(bool[,] grid, int row, int col, int rowSpan, int colSpan, int numCols, int numRows)
-    {
-        for (int r = row; r < row + rowSpan && r < numRows; r++)
-        {
-            for (int c = col; c < col + colSpan && c < numCols; c++)
-            {
-                grid[r, c] = true;
-            }
         }
     }
 

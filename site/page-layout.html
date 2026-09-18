@@ -193,6 +193,15 @@
         <code>break-inside: avoid</code> to individual items to prevent them from being split
         across pages.
       </p>
+      <p>
+        <code>grid-auto-flow: row dense</code> / <code>column dense</code> backfills earlier
+        gaps left by items that couldn't fit the current row/column, matching a browser instead
+        of always placing items forward from the last cursor position.
+        <code>grid-auto-rows</code> / <code>grid-auto-columns</code> size the implicit tracks
+        the auto-placement algorithm creates beyond an explicit
+        <code>grid-template-rows</code>/<code>grid-template-columns</code> (a value list cycles
+        across successive implicit tracks).
+      </p>
 
       <h2 id="floats">Floats and shape-outside</h2>
       <p>
