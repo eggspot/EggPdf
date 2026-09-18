@@ -156,6 +156,13 @@ dotnet run --project src/EggPdf.Service -c Release -- --urls http://localhost:55
 - No LINQ in hot paths -- use `for` loops
 - Remove unused code -- no dead methods, unused usings, or orphaned helpers. Keep the codebase clean.
 - Test naming: `Feature_Condition_ExpectedBehavior`
+- Keep files focused. Don't grow an existing file back into a monolith by tacking a new
+  self-contained feature onto the end of it -- when adding a substantial new chunk of
+  logic (roughly 150+ lines, or a clearly separate concern) to a class that already
+  exists, split it into a new `ClassName.Feature.cs` file using `partial class`/`partial
+  static class`, the same way `BlockLayout.*.cs`, `PdfRenderer` (-> `PageFragmenter`/
+  `BoxPainter`), and `SvgRenderer.Blur.cs` are split. Do this as you write the feature,
+  not as a later cleanup pass.
 
 ## Docs Stay in Sync
 
