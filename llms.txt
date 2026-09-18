@@ -144,6 +144,7 @@ netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0
 
 - Full HTML5 (WHATWG spec)
 - CSS 2.1 + Flexbox (incl. auto margins, align-items:baseline), Grid, Multi-column, Custom Properties
+- 2D/3D transforms: 3D functions (rotateX/Y/Z, translate3d, scale3d, matrix3d, perspective) are intentionally flattened to an equivalent 2D matrix since PDF has no 3D rendering, not skipped
 - @media print, @page rules
 - Webfonts: remote <link> stylesheets (Google Fonts) and @font-face over http(s)/data:/file, weight-accurate faces 300–900
 - Full Unicode text: Vietnamese and extended Latin, per-codepoint symbol-font fallback (⚠ ✔ …)

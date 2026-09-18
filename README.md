@@ -117,6 +117,10 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - CSS 2.1 complete + CSS3 (Flexbox with auto margins & baseline alignment, Grid, Multi-column)
 - CSS Custom Properties (`var()`)
 - `@media print` support
+- 2D and 3D CSS transforms (`translate`/`rotate`/`scale`/`matrix` and their `X`/`Y`/`Z`/`3d`
+  variants, `perspective()`) -- PDF has no 3D rendering, so 3D functions are intentionally
+  flattened to an equivalent 2D matrix (e.g. `rotateX`/`rotateY` become an orthographic
+  Y/X compression, `translateZ`/`scaleZ`/`perspective()` have no 2D effect), not skipped
 - Webfonts: remote `<link>` stylesheets (Google Fonts) and `@font-face` over http(s), data: URIs, or files
 - SVG rendering (vector output, not rasterized) -- `<circle>`/`<ellipse>`/`<rect>`/`<polygon>`/
   `<polyline>`/`<path>`, `filter="url(#id)"` with a single `<feGaussianBlur>` (rasterized +

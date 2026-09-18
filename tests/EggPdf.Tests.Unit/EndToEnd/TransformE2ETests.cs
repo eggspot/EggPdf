@@ -256,6 +256,39 @@ public class TransformE2ETests
         text.Should().Contain(" cm", "matrix3d should emit a cm operator");
     }
 
+    [Fact]
+    public async Task Rotate3d_PureZAxis_MatchesRotateZ()
+    {
+        // rotate3d(0, 0, 1, angle) is a pure Z-axis rotation -- the flattened 2D matrix
+        // must come out byte-identical to rotateZ(angle), both taking the same
+        // transform-origin-composition path (hence the shared translate component too).
+        var html3d = "<div style='transform: rotate3d(0, 0, 1, 45deg); width: 50px; height: 50px'>R3D</div>";
+        var htmlZ = "<div style='transform: rotateZ(45deg); width: 50px; height: 50px'>RZ2</div>";
+
+        var pdf3d = await HtmlToPdf.RenderAsync(html3d);
+        var pdfZ = await HtmlToPdf.RenderAsync(htmlZ);
+
+        static string ExtractCmLine(string pdfText)
+        {
+            var idx = pdfText.IndexOf(" cm", StringComparison.Ordinal);
+            var lineStart = pdfText.LastIndexOf('\n', idx) + 1;
+            return pdfText.Substring(lineStart, idx - lineStart);
+        }
+
+        var cm3d = ExtractCmLine(Encoding.ASCII.GetString(pdf3d));
+        var cmZ = ExtractCmLine(Encoding.ASCII.GetString(pdfZ));
+        cm3d.Should().Be(cmZ, "rotate3d around the pure Z axis must produce the same rotation matrix as rotateZ");
+    }
+
+    [Fact]
+    public async Task ScaleZ_NoVisualEffect_DoesNotCrash()
+    {
+        // scaleZ only affects the Z axis; in 2D PDF it has no visual effect
+        var act = async () => await HtmlToPdf.RenderAsync(
+            "<div style='transform: scaleZ(3); width: 100px; height: 100px'>SZ</div>");
+        await act.Should().NotThrowAsync("scaleZ should not crash");
+    }
+
     private static int CountSubstring(string text, string pattern)
     {
         int count = 0;
