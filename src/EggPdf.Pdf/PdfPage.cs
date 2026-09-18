@@ -445,6 +445,18 @@ public class PdfPage
         ContentStream.AppendOpLine("Q");
     }
 
+    /// <summary>
+    /// Mark an image resource name as used on this page without emitting new content --
+    /// for content assembled externally (e.g. SvgRenderer's rasterized blur layers) whose
+    /// "/{name} Do" operator is already embedded in a raw content fragment appended
+    /// separately via <see cref="AppendRawContent"/>.
+    /// </summary>
+    public void RegisterUsedImage(string imageName)
+    {
+        if (_usedImageSet.Add(imageName))
+            UsedImages.Add(imageName);
+    }
+
     /// <summary>Add a stroked line between two points.</summary>
     public void AddLine(float x1, float y1, float x2, float y2, float r, float g, float b, float lineWidth)
     {

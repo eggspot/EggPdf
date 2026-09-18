@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using EggPdf.Pdf;
 
 namespace EggPdf.Svg;
 
@@ -9,23 +10,31 @@ namespace EggPdf.Svg;
 /// Renders inline SVG elements to PDF drawing commands.
 /// Converts SVG shapes (rect, circle, ellipse, line, polyline, polygon, path)
 /// to PDF path operators, with support for fill, stroke, transforms, and viewBox.
+/// feGaussianBlur rasterization lives in SvgRenderer.Blur.cs.
 /// </summary>
-public static class SvgRenderer
+public static partial class SvgRenderer
 {
     /// <summary>
-    /// Render an SVG element tree to PDF content stream commands.
-    /// Returns the PDF content stream fragment to insert into the page.
+    /// Render an SVG element tree to PDF content stream commands. Returns the content
+    /// stream fragment to insert into the page, plus the names of any images it
+    /// references (rasterized blur layers -- see <see cref="RenderBlurredShape"/>) so the
+    /// caller can register them on the page's resource dictionary without breaking the
+    /// document-order z-ordering a direct page.AddImage call mid-render would cause.
     /// </summary>
-    public static string Render(SvgElement svg, float targetX, float targetY, float targetWidth, float targetHeight)
+    public static (string commands, List<string> usedImages) Render(SvgElement svg, float targetX, float targetY,
+        float targetWidth, float targetHeight, PdfDocument? pdfDoc = null)
     {
         var sb = new StringBuilder();
+        var usedImages = new List<string>();
 
         // Save graphics state
         sb.AppendLine("q");
 
         // Apply viewBox transform if present
         float vbX = 0, vbY = 0, vbW = targetWidth, vbH = targetHeight;
-        if (svg.Attributes.TryGetValue("viewBox", out var viewBox) && !string.IsNullOrEmpty(viewBox))
+        // Tag/attribute names are lowercased uniformly by this parser (no HTML5 "foreign
+        // content" case-preservation for SVG), so "viewBox" arrives as "viewbox".
+        if (svg.Attributes.TryGetValue("viewbox", out var viewBox) && !string.IsNullOrEmpty(viewBox))
         {
             var parts = viewBox.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length >= 4)
@@ -48,24 +57,33 @@ public static class SvgRenderer
         float ty = targetY + targetHeight + vbY * scaleY; // PDF Y is bottom-up
         sb.AppendLine($"{F(scaleX)} 0 0 {F(-scaleY)} {F(tx)} {F(ty)} cm");
 
-        // Render child elements
-        RenderChildren(svg, sb);
+        // Collect <filter> definitions containing a single <feGaussianBlur> (the common
+        // case -- multi-primitive filter graphs are out of scope, see RenderBlurredShape).
+        var blurFilters = new Dictionary<string, float>();
+        CollectBlurFilters(svg, blurFilters);
+
+        // Render child elements, tracking the cumulative local-to-PDF matrix (needed only
+        // for blurred shapes, which are rasterized outside the normal vector path flow).
+        var viewBoxMatrix = new Matrix2D(scaleX, 0, 0, -scaleY, tx, ty);
+        RenderChildren(svg, sb, pdfDoc, blurFilters, usedImages, viewBoxMatrix);
 
         // Restore graphics state
         sb.AppendLine("Q");
 
-        return sb.ToString();
+        return (sb.ToString(), usedImages);
     }
 
-    private static void RenderChildren(SvgElement parent, StringBuilder sb)
+    private static void RenderChildren(SvgElement parent, StringBuilder sb, PdfDocument? pdfDoc,
+        Dictionary<string, float> blurFilters, List<string> usedImages, Matrix2D matrix)
     {
         foreach (var child in parent.Children)
         {
-            RenderElement(child, sb);
+            RenderElement(child, sb, pdfDoc, blurFilters, usedImages, matrix);
         }
     }
 
-    private static void RenderElement(SvgElement el, StringBuilder sb)
+    private static void RenderElement(SvgElement el, StringBuilder sb, PdfDocument? pdfDoc,
+        Dictionary<string, float> blurFilters, List<string> usedImages, Matrix2D matrix)
     {
         // Handle transform attribute
         bool hasTransform = el.Attributes.TryGetValue("transform", out var transformStr) && !string.IsNullOrEmpty(transformStr);
@@ -73,13 +91,24 @@ public static class SvgRenderer
         {
             sb.AppendLine("q");
             ApplyTransform(sb, transformStr!);
+            matrix = MatrixMultiply(ParseTransformToMatrix(transformStr!), matrix);
+        }
+
+        // A blur filter rasterizes the shape instead of emitting normal vector operators
+        // -- PDF's text/path painting operators always use one flat color per call, but a
+        // real Gaussian blur needs a bitmap to convolve.
+        if (blurFilters.Count > 0 && pdfDoc != null && TryResolveBlurFilter(el, blurFilters, out float stdDeviation))
+        {
+            RenderBlurredShape(el, sb, pdfDoc, usedImages, stdDeviation, matrix);
+            if (hasTransform) sb.AppendLine("Q");
+            return;
         }
 
         switch (el.TagName)
         {
             case "g":
             case "svg":
-                RenderChildren(el, sb);
+                RenderChildren(el, sb, pdfDoc, blurFilters, usedImages, matrix);
                 break;
             case "rect":
                 RenderRect(el, sb);
@@ -109,6 +138,7 @@ public static class SvgRenderer
             case "defs":
             case "clipPath":
             case "mask":
+            case "filter":
                 // Skip definitions (used by reference)
                 break;
             case "use":
@@ -116,7 +146,7 @@ public static class SvgRenderer
                 break;
             default:
                 // Unknown element — render children
-                RenderChildren(el, sb);
+                RenderChildren(el, sb, pdfDoc, blurFilters, usedImages, matrix);
                 break;
         }
 

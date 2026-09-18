@@ -118,7 +118,10 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - CSS Custom Properties (`var()`)
 - `@media print` support
 - Webfonts: remote `<link>` stylesheets (Google Fonts) and `@font-face` over http(s), data: URIs, or files
-- SVG rendering (vector output, not rasterized)
+- SVG rendering (vector output, not rasterized) -- `<circle>`/`<ellipse>`/`<rect>`/`<polygon>`/
+  `<polyline>`/`<path>`, `filter="url(#id)"` with a single `<feGaussianBlur>` (rasterized +
+  blurred + re-embedded as an image, since PDF has no vector blur primitive; multi-primitive
+  filter graphs are not supported and render unblurred)
 - All image formats (JPEG, PNG incl. 1-bit QR codes, GIF, WebP -- lossless/VP8L only, lossy/VP8 not yet decoded --, SVG, Base64)
 - Responsive images: `<img srcset>`/`<picture>` and CSS `image-set()` resolve to their best candidate (PDF is treated as a fixed 1x print context)
 - Cloudflare email obfuscation (`data-cfemail`) decoded automatically
