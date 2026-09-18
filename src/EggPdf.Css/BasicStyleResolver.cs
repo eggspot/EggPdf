@@ -138,6 +138,26 @@ public class BasicStyleResolver
                 style.Set(kv.Key, kv.Value);
         }
 
+        // 1a. checkbox/radio: fixed native control size, no padding -- painted as a real
+        // vector square/circle (see BoxPainter.PaintCheckboxOrRadio), not sized by glyph text.
+        if (element.TagName == "input")
+        {
+            var inputType = (element.GetAttribute("type") ?? "text").ToLowerInvariant();
+            if (inputType == "checkbox" || inputType == "radio")
+            {
+                style.Set("width", "13px");
+                style.Set("height", "13px");
+                style.Set("min-height", "0px");
+                style.Set("padding-top", "0px");
+                style.Set("padding-right", "0px");
+                style.Set("padding-bottom", "0px");
+                style.Set("padding-left", "0px");
+                style.Set("border-color", "#767676");
+                if (inputType == "radio")
+                    style.Set("border-radius", "50%");
+            }
+        }
+
         // Default display for unknown elements
         if (!style.Has("display"))
             style.Set("display", "inline");

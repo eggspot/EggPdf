@@ -354,11 +354,13 @@ public class VisualEffectsTests
     }
 
     [Fact]
-    public async Task AccentColor_DoesNotCrash_OnCheckbox()
+    public async Task AccentColor_Checkbox_FillsCheckedBoxWithAccentColor()
     {
         var html = "<input type='checkbox' checked style='accent-color: purple'>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("accent-color on checkbox must not crash");
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+        // purple = #800080 = (128,0,128) -> 128/255 = 0.50
+        text.Should().Contain("0.50 0.00 0.50 rg", "accent-color must set the checked checkbox's fill color");
     }
 
     // ── background-blend-mode (rendering) ────────────────────────────────────

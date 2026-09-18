@@ -23,16 +23,9 @@ public static partial class BlockLayout
 
             if (inputType == "checkbox" || inputType == "radio")
             {
-                // appearance: none / -webkit-appearance: none — suppress native glyph
-                var appearanceVal = style.Get("appearance") ?? style.Get("-webkit-appearance");
-                bool suppressGlyph = appearanceVal == "none";
-                if (!suppressGlyph)
-                {
-                    bool isChecked = element.HasAttribute("checked");
-                    text = inputType == "checkbox"
-                        ? (isChecked ? "\u2611" : "\u2610")   // ☑ / ☐
-                        : (isChecked ? "\u25c9" : "\u25cb");  // ◉ / ○
-                }
+                // Rendered as a real vector square/circle by BoxPainter.PaintCheckboxOrRadio
+                // (which respects appearance:none); the box itself stays empty here, sized by
+                // the UA default width/height (13px square).
             }
             else if (inputType == "submit" || inputType == "button" || inputType == "reset")
             {

@@ -311,11 +311,29 @@ public static class BoxPainter
                 PaintBorders(page, box, effectiveX, pageHeightPt, pageHeightPx, adjustedY, hasRadius, tlrPt, trrPt, brrPt, blrPt);
         }
 
-        // Paint <progress> and <meter> fill bars
+        // Paint native-style form controls: <progress>/<meter> fill bars, checkbox/radio
+        // vector square/circle indicators, and the <select> dropdown arrow.
         var elemTagName = box.Element?.TagName;
         if (elemTagName == "progress" || elemTagName == "meter")
         {
             PaintProgressOrMeter(page, box, elemTagName, effectiveX, pageHeightPx, adjustedY, box.Style.Get("accent-color"));
+        }
+        else if (elemTagName == "input")
+        {
+            var inputTypeAttr = (box.Element?.GetAttribute("type") ?? "text").ToLowerInvariant();
+            if (inputTypeAttr == "checkbox" || inputTypeAttr == "radio")
+            {
+                var appearanceVal = box.Style.Get("appearance") ?? box.Style.Get("-webkit-appearance");
+                if (appearanceVal != "none")
+                    PaintCheckboxOrRadio(page, box, inputTypeAttr, effectiveX, pageHeightPx, adjustedY,
+                        box.Style.Get("accent-color"), hasRadius, tlrPt, trrPt, brrPt, blrPt);
+            }
+        }
+        else if (elemTagName == "select")
+        {
+            var appearanceVal = box.Style.Get("appearance") ?? box.Style.Get("-webkit-appearance");
+            if (appearanceVal != "none")
+                PaintSelectDropdownArrow(page, box, effectiveX, pageHeightPx, adjustedY);
         }
 
         // Paint outline (outside border, doesn't affect layout)
@@ -1845,6 +1863,72 @@ public static class BoxPainter
 
         if (barW <= 0 || barH <= 0) return;
         page.AddRectangle(barX, barY, barW, barH, r, g, b);
+    }
+
+    /// <summary>
+    /// Paint the checked-state indicator for a checkbox (accent-filled square + white
+    /// checkmark) or radio button (accent-filled inner dot). The unchecked state needs no
+    /// extra painting -- it relies on the control's own CSS border/background (radio gets a
+    /// circular border via the UA default border-radius:50% on a square box).
+    /// </summary>
+    private static void PaintCheckboxOrRadio(PdfPage page, LayoutBox box, string inputType,
+        float effectiveX, float pageHeightPx, float adjustedY, string? accentColorStr,
+        bool hasRadius, float tlrPt, float trrPt, float brrPt, float blrPt)
+    {
+        if (box.Width <= 0 || box.Height <= 0) return;
+        if (box.Element == null || !box.Element.HasAttribute("checked")) return;
+
+        Color? accentColor = !string.IsNullOrEmpty(accentColorStr) ? ParseColor(accentColorStr) : null;
+        float accR = accentColor.HasValue ? accentColor.Value.R / 255f : 0.26f;
+        float accG = accentColor.HasValue ? accentColor.Value.G / 255f : 0.55f;
+        float accB = accentColor.HasValue ? accentColor.Value.B / 255f : 0.96f;
+
+        float pdfX = effectiveX * PdfCoordinates.PxToPt;
+        float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+        float pdfW = box.Width * PdfCoordinates.PxToPt;
+        float pdfH = box.Height * PdfCoordinates.PxToPt;
+
+        if (inputType == "radio")
+        {
+            float dotR = Math.Min(pdfW, pdfH) * 0.24f;
+            float cx = pdfX + pdfW / 2f, cy = pdfY + pdfH / 2f;
+            page.AddRoundedRectangle(cx - dotR, cy - dotR, dotR * 2f, dotR * 2f,
+                accR, accG, accB, dotR, dotR, dotR, dotR);
+            return;
+        }
+
+        // Checked checkbox: fill the whole control (respecting its own border-radius) with
+        // the accent color, then draw a white checkmark on top.
+        if (hasRadius)
+            page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH, accR, accG, accB, tlrPt, trrPt, brrPt, blrPt);
+        else
+            page.AddRectangle(pdfX, pdfY, pdfW, pdfH, accR, accG, accB);
+
+        float[] xs = { pdfX + pdfW * 0.22f, pdfX + pdfW * 0.42f, pdfX + pdfW * 0.80f };
+        float[] ys = { pdfY + pdfH * 0.48f, pdfY + pdfH * 0.22f, pdfY + pdfH * 0.78f };
+        page.AddStrokedPolyline(xs, ys, 1f, 1f, 1f, Math.Max(1f, pdfW * 0.12f));
+    }
+
+    /// <summary>Paint the small downward-pointing dropdown arrow on the right side of a &lt;select&gt; box.</summary>
+    private static void PaintSelectDropdownArrow(PdfPage page, LayoutBox box, float effectiveX, float pageHeightPx, float adjustedY)
+    {
+        const float arrowW = 8f, arrowH = 5f, rightInset = 8f;
+        if (box.Width < arrowW + rightInset || box.Height < arrowH) return;
+
+        float rightX = box.Width - rightInset;
+        float centerYDown = box.Height / 2f;
+
+        float apexX = effectiveX + (rightX - arrowW / 2f);
+        float apexY = pageHeightPx - adjustedY - (centerYDown + arrowH / 2f);
+        float leftX = effectiveX + (rightX - arrowW);
+        float topY = pageHeightPx - adjustedY - (centerYDown - arrowH / 2f);
+        float rightPx = effectiveX + rightX;
+
+        page.AddFilledTriangle(
+            apexX * PdfCoordinates.PxToPt, apexY * PdfCoordinates.PxToPt,
+            leftX * PdfCoordinates.PxToPt, topY * PdfCoordinates.PxToPt,
+            rightPx * PdfCoordinates.PxToPt, topY * PdfCoordinates.PxToPt,
+            0.35f, 0.35f, 0.35f);
     }
 
     /// <summary>Parse column-rule shorthand: "2px solid red" -> width, style, color parts.</summary>

@@ -86,48 +86,65 @@ public class FormElementTests
     }
 
     // ── appearance ──────────────────────────────────────────────────────────
+    // Checkbox/radio are painted as real vector squares/circles by
+    // BoxPainter.PaintCheckboxOrRadio (see EggPdf.Tests.Unit FormControlsTests for the
+    // paint-level coverage), not injected Unicode glyph text. At the layout level, the box
+    // should stay empty (no text child) and be a fixed 13x13px native-style control size.
 
     [Fact]
-    public void Checkbox_Checked_UsesUnicodeGlyph()
+    public void Checkbox_Checked_NoGlyphText_FixedSize()
     {
         var root = LayoutTestHelper.Layout(
             "<input type='checkbox' checked>", 600, 800);
         var input = root.FindByTag("input");
         input.Should().NotBeNull();
 
-        // Default appearance should use a Unicode glyph (☑ U+2611) not ASCII [x]
-        bool hasUnicodeGlyph = HasDescendantText(root, "\u2611");
-        hasUnicodeGlyph.Should().BeTrue("checked checkbox should use Unicode ☑ glyph");
+        bool hasGlyphText = HasDescendantText(root, "☑") || HasDescendantText(root, "☐");
+        hasGlyphText.Should().BeFalse("checkbox must not inject Unicode glyph text; it is painted as a vector shape");
+        input!.Width.Should().BeApproximately(13f, 0.01f, "checkbox must be a fixed 13x13px native-style square");
+        input.Height.Should().BeApproximately(13f, 0.01f, "checkbox must be a fixed 13x13px native-style square");
     }
 
     [Fact]
-    public void Checkbox_Unchecked_UsesUnicodeGlyph()
+    public void Checkbox_Unchecked_NoGlyphText_FixedSize()
     {
         var root = LayoutTestHelper.Layout(
             "<input type='checkbox'>", 600, 800);
+        var input = root.FindByTag("input");
+        input.Should().NotBeNull();
 
-        bool hasUnicodeGlyph = HasDescendantText(root, "\u2610");
-        hasUnicodeGlyph.Should().BeTrue("unchecked checkbox should use Unicode ☐ glyph");
+        bool hasGlyphText = HasDescendantText(root, "☑") || HasDescendantText(root, "☐");
+        hasGlyphText.Should().BeFalse("unchecked checkbox must not inject Unicode glyph text");
+        input!.Width.Should().BeApproximately(13f, 0.01f);
+        input.Height.Should().BeApproximately(13f, 0.01f);
     }
 
     [Fact]
-    public void Radio_Checked_UsesUnicodeGlyph()
+    public void Radio_Checked_NoGlyphText_FixedSize()
     {
         var root = LayoutTestHelper.Layout(
             "<input type='radio' checked>", 600, 800);
+        var input = root.FindByTag("input");
+        input.Should().NotBeNull();
 
-        bool hasUnicodeGlyph = HasDescendantText(root, "\u25c9");
-        hasUnicodeGlyph.Should().BeTrue("checked radio should use Unicode ◉ glyph");
+        bool hasGlyphText = HasDescendantText(root, "◉") || HasDescendantText(root, "○");
+        hasGlyphText.Should().BeFalse("checked radio must not inject Unicode glyph text; it is painted as a vector circle");
+        input!.Width.Should().BeApproximately(13f, 0.01f, "radio must be a fixed 13x13px native-style circle");
+        input.Height.Should().BeApproximately(13f, 0.01f, "radio must be a fixed 13x13px native-style circle");
     }
 
     [Fact]
-    public void Radio_Unchecked_UsesUnicodeGlyph()
+    public void Radio_Unchecked_NoGlyphText_FixedSize()
     {
         var root = LayoutTestHelper.Layout(
             "<input type='radio'>", 600, 800);
+        var input = root.FindByTag("input");
+        input.Should().NotBeNull();
 
-        bool hasUnicodeGlyph = HasDescendantText(root, "\u25cb");
-        hasUnicodeGlyph.Should().BeTrue("unchecked radio should use Unicode ○ glyph");
+        bool hasGlyphText = HasDescendantText(root, "◉") || HasDescendantText(root, "○");
+        hasGlyphText.Should().BeFalse("unchecked radio must not inject Unicode glyph text");
+        input!.Width.Should().BeApproximately(13f, 0.01f);
+        input.Height.Should().BeApproximately(13f, 0.01f);
     }
 
     [Fact]
@@ -136,8 +153,9 @@ public class FormElementTests
         var root = LayoutTestHelper.Layout(
             "<input type='checkbox' checked style='appearance: none; -webkit-appearance: none'>", 600, 800);
 
-        // With appearance:none, no glyph text should be rendered (author controls everything)
-        bool hasGlyph = HasDescendantText(root, "\u2611") || HasDescendantText(root, "[x]");
+        // With appearance:none, no glyph text should be rendered (author controls everything);
+        // the paint layer separately skips the vector shape too (see BoxPainter dispatch).
+        bool hasGlyph = HasDescendantText(root, "☑") || HasDescendantText(root, "[x]");
         hasGlyph.Should().BeFalse("appearance:none should suppress the default checkbox glyph");
     }
 

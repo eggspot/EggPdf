@@ -423,6 +423,25 @@ public class PdfPage
         ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
     }
 
+    /// <summary>Add an open stroked polyline through the given points (e.g. a checkmark icon).</summary>
+    public void AddStrokedPolyline(float[] xs, float[] ys, float r, float g, float b, float lineWidth)
+    {
+        if (xs == null || ys == null || xs.Length < 2 || xs.Length != ys.Length) return;
+        ContentStream.AppendOpLine($"{F(lineWidth)} w");
+        ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} RG");
+        ContentStream.AppendOpLine($"{F(xs[0])} {F(ys[0])} m");
+        for (int i = 1; i < xs.Length; i++)
+            ContentStream.AppendOpLine($"{F(xs[i])} {F(ys[i])} l");
+        ContentStream.AppendOpLine("S");
+    }
+
+    /// <summary>Add a filled triangle (e.g. a select dropdown arrow indicator).</summary>
+    public void AddFilledTriangle(float x1, float y1, float x2, float y2, float x3, float y3, float r, float g, float b)
+    {
+        ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} rg");
+        ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l {F(x3)} {F(y3)} l h f");
+    }
+
     /// <summary>
     /// Add a text-decoration line with the given CSS style
     /// (solid, dashed, dotted, double, wavy).
