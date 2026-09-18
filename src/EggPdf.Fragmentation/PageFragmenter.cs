@@ -74,7 +74,8 @@ public static class PageFragmenter
                         hasBorder || hasBgImage || hasColumnRule ||
                         !string.IsNullOrEmpty(box.Style.BackgroundColor) &&
                         box.Style.BackgroundColor != "transparent" ||
-                        box.Element?.TagName == "a";
+                        box.Element?.TagName == "a" ||
+                        box.Element?.TagName == "svg";
 
         if (hasPaint)
             result.Add(box);

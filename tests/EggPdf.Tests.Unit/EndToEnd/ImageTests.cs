@@ -132,15 +132,43 @@ public class ImageTests
     }
 
     [Fact]
-    public async Task SvgInline_DoesNotCrash()
+    public async Task SvgInline_RendersActualShapeContent()
     {
         var html = @"
             <svg width='100' height='100'>
                 <circle cx='50' cy='50' r='40' fill='red'/>
             </svg>";
 
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("1.00 0.00 0.00 rg", "the circle's red fill must actually paint");
+        text.Should().Contain(" c ", "the circle must emit real Bezier curve path operators, not just not crash");
+    }
+
+    [Fact]
+    public async Task SvgInline_WithoutWrapper_StillGetsPaintedNotCulled()
+    {
+        // Regression: an <svg> box has no text/background/border of its own, so the
+        // page-fragmenter's "does this box paint anything" check must special-case it,
+        // or the whole element gets silently dropped before BoxPainter ever sees it.
+        var html = "<svg width='50' height='50'><rect x='0' y='0' width='50' height='50' fill='blue'/></svg>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        Encoding.Latin1.GetString(pdf).Should().Contain("0.00 0.00 1.00 rg");
+    }
+
+    [Fact]
+    public async Task SvgInline_WidthHeightAttributes_SizeTheBox()
+    {
+        // Regression: <svg> has no UA display default beyond "inline" (no replaced-element
+        // handling), so its width/height attributes were previously ignored entirely,
+        // collapsing the box to 0x0 via the generic empty-inline-element fallback.
+        var html = "<svg width='60' height='40'><rect x='0' y='0' width='60' height='40' fill='green'/></svg>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.Latin1.GetString(pdf);
+        text.Should().Contain("60.00 40.00", "the svg box must be sized from its width/height attributes, not collapse to 0x0");
     }
 
     [Fact]

@@ -577,6 +577,52 @@ public static partial class BlockLayout
                             inlineLineHeight = imgHeight;
                     }
                 }
+                else if (childElem.TagName == "svg")
+                {
+                    // <svg> is a replaced element like <img>: width/height attributes size
+                    // it even though it has no UA default beyond display:inline (no "svg"
+                    // entry in BasicStyleResolver), and its "text content" (circle/rect/...)
+                    // isn't HTML the generic inline-text path would ever find.
+                    // SVG's own default viewport (no width/height given) is 300x150.
+                    float svgWidth = ResolveImgDimension(childStyle.Width, childElem.GetAttribute("width"), childContainingWidth, fontSize, 300);
+                    float svgHeight = ResolveImgDimension(childStyle.Height, childElem.GetAttribute("height"), 0, fontSize, 150);
+
+                    bool svgIsBlock = IsBlockLevel(childStyle.Display);
+
+                    if (inlineX > 0 && (svgIsBlock || inlineX + svgWidth > childContainingWidth))
+                    {
+                        childY += inlineLineHeight;
+                        inlineX = 0;
+                        inlineLineHeight = 0;
+                    }
+
+                    var svgBox = new LayoutBox
+                    {
+                        Element = childElem,
+                        Style = childStyle,
+                        X = box.X + box.PaddingLeft + inlineX,
+                        Y = box.Y + box.PaddingTop + childY,
+                        Width = svgWidth,
+                        Height = svgHeight,
+                        ContentWidth = svgWidth,
+                        ContentHeight = svgHeight,
+                    };
+                    box.Children.Add(svgBox);
+
+                    if (svgIsBlock)
+                    {
+                        childY += svgHeight;
+                        inlineX = 0;
+                        inlineLineHeight = 0;
+                        hasBlockChild = true;
+                    }
+                    else
+                    {
+                        inlineX += svgWidth;
+                        if (svgHeight > inlineLineHeight)
+                            inlineLineHeight = svgHeight;
+                    }
+                }
                 else if (childStyle.Display == "inline-block")
                 {
                     // Inline-block: create a box that flows inline but has block internals
