@@ -16,7 +16,7 @@ namespace EggPdf.Paint;
 /// visual effect. Split out of PdfRenderer.cs, which mixed this with
 /// pagination logic (now in EggPdf.Fragmentation) in one file.
 /// </summary>
-public static class BoxPainter
+public static partial class BoxPainter
 {
     // Static arrays to avoid per-call heap allocations in hot paths
     private static readonly string[] BorderSides = { "top", "right", "bottom", "left" };
@@ -1068,10 +1068,16 @@ public static class BoxPainter
         // Extract URL from "url(...)" or "url('...')" or "url("...")", or
         // resolve an image-set(...) candidate list to its best URL.
         string? url = null;
+        string? imageFunctionFallbackColor = null;
         if (bgImage.StartsWith("image-set(", StringComparison.OrdinalIgnoreCase) ||
             bgImage.StartsWith("-webkit-image-set(", StringComparison.OrdinalIgnoreCase))
         {
             url = ResolveImageSet(bgImage);
+        }
+        else if (bgImage.StartsWith("image(", StringComparison.OrdinalIgnoreCase))
+        {
+            bool imageFnIsRTL = box.Style.Get("direction") == "rtl";
+            (url, imageFunctionFallbackColor) = ResolveImageFunction(bgImage, imageFnIsRTL);
         }
         else if (bgImage.StartsWith("url(", StringComparison.OrdinalIgnoreCase))
         {
@@ -1087,11 +1093,19 @@ public static class BoxPainter
             }
         }
 
-        if (string.IsNullOrEmpty(url)) return;
+        if (string.IsNullOrEmpty(url))
+        {
+            PaintImageFunctionFallback(page, box, imageFunctionFallbackColor, effectiveX, pageHeightPx, adjustedY);
+            return;
+        }
 
         // Load image data
         var data = LoadBackgroundImageData(url);
-        if (data == null || data.Length == 0) return;
+        if (data == null || data.Length == 0)
+        {
+            PaintImageFunctionFallback(page, box, imageFunctionFallbackColor, effectiveX, pageHeightPx, adjustedY);
+            return;
+        }
 
         // Register image with PDF document
         string imgName = "BgImg" + url.GetHashCode().ToString("X8");

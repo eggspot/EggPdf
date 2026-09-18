@@ -143,6 +143,10 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   filter graphs are not supported and render unblurred)
 - All image formats (JPEG, PNG incl. 1-bit QR codes, GIF, WebP -- lossless/VP8L only, lossy/VP8 not yet decoded --, SVG, Base64)
 - Responsive images: `<img srcset>`/`<picture>` and CSS `image-set()` resolve to their best candidate (PDF is treated as a fixed 1x print context)
+- CSS Images Level 4 `image()`: resolves `ltr`/`rtl`-tagged candidates against the element's
+  computed direction and paints a trailing `<color>` fallback when no image resolves. `paint()`
+  (the CSS Houdini Paint API) is not supported and never will be by this engine -- it requires
+  running an author-supplied JS paint worklet, and EggPdf has no JavaScript engine by design
 - Cloudflare email obfuscation (`data-cfemail`) decoded automatically
 
 ### PDF

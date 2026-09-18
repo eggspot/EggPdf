@@ -157,6 +157,61 @@ public class VisualEffectsTests
         text.Should().Contain("/Subtype /Image", "a bare-quoted (non-url()) candidate must still resolve and embed");
     }
 
+    // ── CSS Images Level 4 image() ───────────────────────────────────────────
+
+    [Fact]
+    public async Task ImageFunction_PlainUrl_ResolvesAndEmbeds()
+    {
+        var html = $"<div style=\"background-image: image(url('data:image/png;base64,{RedPixelPng}')); width:100px; height:100px\">I</div>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("/Subtype /Image", "image(url(...)) with no direction tags must resolve and embed like a plain url()");
+    }
+
+    [Fact]
+    public async Task ImageFunction_RtlTag_PicksRtlCandidateInRtlContext()
+    {
+        // The ltr candidate points at a path that doesn't exist; only the rtl candidate is a
+        // real, loadable data: URL. In an RTL context, if the rtl-tagged candidate weren't
+        // actually selected, nothing would end up embedded.
+        var html = $"<div style=\"direction: rtl; background-image: " +
+            $"image(ltr url('missing-ltr.png'), rtl url('data:image/png;base64,{RedPixelPng}')); " +
+            "width:100px; height:100px\">I</div>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("/Subtype /Image", "the rtl-tagged candidate must be selected under direction:rtl");
+    }
+
+    [Fact]
+    public async Task ImageFunction_LtrTag_PicksLtrCandidateByDefault()
+    {
+        var html = $"<div style=\"background-image: " +
+            $"image(ltr url('data:image/png;base64,{RedPixelPng}'), rtl url('missing-rtl.png')); " +
+            "width:100px; height:100px\">I</div>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("/Subtype /Image", "the ltr-tagged candidate must be selected in the default (ltr) direction");
+    }
+
+    [Fact]
+    public async Task ImageFunction_ColorFallback_PaintsSolidFillWhenUrlMissing()
+    {
+        // No image-src at all, just a <color> fallback -- must paint the solid color, not crash
+        // or paint nothing.
+        var html = "<div style=\"background-image: image(red); width:50px; height:50px\">I</div>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.Latin1.GetString(pdf);
+
+        text.Should().Contain("1.00 0.00 0.00 rg", "image()'s color fallback must paint as a solid red fill");
+    }
+
     [Fact]
     public async Task BackgroundClip_Text_DoesNotCrash()
     {

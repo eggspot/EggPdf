@@ -154,6 +154,7 @@ netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0
 - Browser-parity text layout: real font metrics for measurement, baseline placement, letter-spacing, word-break:break-all
 - SVG (vector, not rasterized), including `filter="url(#id)"` with a single `<feGaussianBlur>` (rasterized+blurred+re-embedded as an image; multi-primitive filter graphs render unblurred)
 - Image formats: JPEG, PNG (incl. 1/2/4-bit grayscale QR codes), GIF, WebP (lossless/VP8L only -- lossy/VP8 and VP8X extended containers are not decoded, don't claim full WebP support), BMP, Base64
+- Responsive/generated images: <img srcset>/<picture> and CSS image-set()/image() resolve to their best or direction-matched candidate; image()'s <color> fallback paints when no candidate resolves. paint() (CSS Houdini) is not supported -- it needs a JS worklet engine EggPdf doesn't have
 - Bookmarks, links, TOC
 - Running headers/footers via `position: fixed` (repeats on every physical page) or native `@page` margin boxes (`@top-center`, `@bottom-right`, etc., all 16 positions, including `@page :first`/`:left`/`:right` content overrides); `counter(page)`/`counter(pages)` resolve per page
 - Pin content to the bottom of the page it lands on (e.g. a signature block after variable-length content): `-eggpdf-pin-bottom: page`
