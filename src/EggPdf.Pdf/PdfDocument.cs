@@ -10,7 +10,7 @@ namespace EggPdf.Pdf;
 /// <summary>
 /// Generates a valid PDF 1.7 document. Handles object numbering, xref table, and trailer.
 /// </summary>
-public class PdfDocument
+public partial class PdfDocument
 {
     // Cache Latin1 encoding instance (ISO 8859-1, code page 28591) for content stream bytes
     private static readonly Encoding Latin1Encoding = Encoding.GetEncoding(28591);
@@ -919,6 +919,10 @@ internal class EmbeddedFontData
     public int Ascent { get; set; }
     public int Descent { get; set; }
     public Dictionary<int, List<(ushort newGlyphId, float r, float g, float b, bool useTextColor)>>? ColorLayers { get; set; }
+    /// <summary>Source font kept for glyph-level shaping at paint time (complex scripts only).</summary>
+    public EggPdf.Text.TrueType.FontData? ShapingFont { get; set; }
+    /// <summary>Original glyph ID -> subset glyph ID, for glyphs reached through shaping rather than cmap.</summary>
+    public Dictionary<ushort, ushort>? OldToNewGlyphId { get; set; }
 }
 
 /// <summary>Helper for tracking byte positions while writing.</summary>

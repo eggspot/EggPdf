@@ -24,6 +24,14 @@ public static class TextMeasurer
     [ThreadStatic]
     public static Func<string?, string?, string?, EggPdf.Text.TrueType.FontData?>? FontDataProvider;
 
+    /// <summary>
+    /// Optional per-render provider resolving (font-family list, weight, style, text) to a real
+    /// font able to shape that text's script (Thai, Indic, Arabic with marks). Consulted only for
+    /// text needing glyph-level shaping, so Latin-only documents never invoke it.
+    /// </summary>
+    [ThreadStatic]
+    public static Func<string?, string?, string?, string, EggPdf.Text.TrueType.FontData?>? ComplexFontProvider;
+
     /// <summary>Measure the width of text in pixels using standard font metrics.</summary>
     public static float MeasureWidth(string text, float fontSize, string? fontFamily)
     {
@@ -51,6 +59,22 @@ public static class TextMeasurer
         // are narrower than isolated ones and lam-alef ligatures merge two letters into one.
         // No-op (single early-exit scan) for non-Arabic text.
         text = EggPdf.Text.ArabicShaper.Shape(text);
+
+        // Complex scripts (Thai, Indic, Arabic with marks): width is the sum of GSUB/GPOS-shaped
+        // advances (conjuncts collapse glyphs, marks are zero-width), not per-codepoint widths.
+        if (ComplexFontProvider != null && EggPdf.Text.OpenType.ComplexTextShaper.NeedsShaping(text))
+        {
+            var complexFont = ComplexFontProvider(fontFamily, fontWeight, fontStyle, text);
+            if (complexFont != null && complexFont.UnitsPerEm > 0)
+            {
+                var shaped = EggPdf.Text.OpenType.ComplexTextShaper.Shape(complexFont, text, baseRtl: false);
+                long units = 0;
+                for (int gi = 0; gi < shaped.Length; gi++) units += shaped[gi].XAdvance;
+                float shapedWidth = units * fontSize / complexFont.UnitsPerEm;
+                if (letterSpacing != 0) shapedWidth += letterSpacing * shaped.Length;
+                return shapedWidth;
+            }
+        }
 
         float width;
         int glyphCount = 0;
@@ -262,6 +286,23 @@ public static class TextMeasurer
 
         if (words.Length == 0) { lines.Add(""); return lines; }
 
+        // Thai has no spaces between words: offer syllable-boundary break opportunities inside
+        // Thai "words" so a long paragraph wraps. Split segments rejoin with no space.
+        bool[]? noSpaceBefore = null;
+        if (!preserveSpaces && EggPdf.Text.ThaiLineBreaker.ContainsThai(text))
+        {
+            var expanded = new List<string>(words.Length + 8);
+            var flags = new List<bool>(words.Length + 8);
+            foreach (var w in words)
+            {
+                if (!EggPdf.Text.ThaiLineBreaker.ContainsThai(w)) { expanded.Add(w); flags.Add(false); continue; }
+                var segments = EggPdf.Text.ThaiLineBreaker.Split(w);
+                for (int s = 0; s < segments.Count; s++) { expanded.Add(segments[s]); flags.Add(s > 0); }
+            }
+            words = expanded.ToArray();
+            noSpaceBefore = flags.ToArray();
+        }
+
         var currentLine = words[0];
         float currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
         // Measure separator width once; reused every iteration to avoid per-word allocation checks.
@@ -301,16 +342,17 @@ public static class TextMeasurer
             string word = words[i];
             float wordWidth = MeasureWidth(word, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
             // Check width without building candidate string — only concat when it fits.
-            float candidateWidth = currentLineWidth + spaceWidth + wordWidth;
+            bool joinNoSpace = noSpaceBefore != null && noSpaceBefore[i];
+            float candidateWidth = currentLineWidth + (joinNoSpace ? 0f : spaceWidth) + wordWidth;
 
             if (candidateWidth <= maxWidth)
             {
-                currentLine = preserveSpaces ? currentLine + word : currentLine + " " + word;
+                currentLine = preserveSpaces || joinNoSpace ? currentLine + word : currentLine + " " + word;
                 currentLineWidth = candidateWidth;
             }
             else
             {
-                string separator = preserveSpaces ? "" : " ";
+                string separator = preserveSpaces || joinNoSpace ? "" : " ";
                 bool hyphenUsed = false;
                 if (enableHyphenation)
                 {

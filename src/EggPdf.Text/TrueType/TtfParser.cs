@@ -30,6 +30,14 @@ public static class TtfParser
 
         // Offset table
         uint sfVersion = ReadUInt32(data, ref pos);
+        // TrueType Collection ('ttcf'): use the first face. Table offsets inside a collection
+        // are absolute from the start of the file, so only the directory position changes.
+        if (sfVersion == 0x74746366)
+        {
+            pos = 12;
+            pos = (int)ReadUInt32(data, ref pos);
+            sfVersion = ReadUInt32(data, ref pos);
+        }
         // Accept TrueType (0x00010000) or OpenType ('OTTO')
         if (sfVersion != 0x00010000 && sfVersion != 0x4F54544F)
             return null;

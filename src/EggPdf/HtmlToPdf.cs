@@ -21,7 +21,7 @@ namespace EggPdf;
 /// headers/footers are configured with CSS inside the HTML itself (<c>@page</c> for size/margin,
 /// <c>position: fixed</c> for repeating headers/footers) rather than through an options object.
 /// </summary>
-public static class HtmlToPdf
+public static partial class HtmlToPdf
 {
     private const float DefaultPageWidthPx = 595.28f;   // A4 width
     private const float DefaultPageHeightPx = 841.89f;  // A4 height
@@ -56,7 +56,7 @@ public static class HtmlToPdf
     /// <summary>Subset a font for the given codepoints, via the process-wide cache.</summary>
     private static Text.TrueType.TtfSubsetter.SubsetResult? SubsetCached(
         Text.TrueType.FontData font, System.Collections.Generic.HashSet<int> codepoints,
-        List<string>? activeFeatures = null)
+        List<string>? activeFeatures = null, HashSet<ushort>? extraGlyphs = null)
     {
         if (font.RawData == null) return null;
 
@@ -84,6 +84,15 @@ public static class HtmlToPdf
                 h ^= '|'; h *= 1099511628211UL;
             }
         }
+        // Shaper-produced glyph IDs (order-independent XOR/sum fold) join the cache identity.
+        if (extraGlyphs != null && extraGlyphs.Count > 0)
+        {
+            ulong sum = 0, xor = 0;
+            foreach (var g in extraGlyphs) { sum += g; xor ^= (ulong)g * 0x9E3779B97F4A7C15UL; }
+            h ^= sum; h *= 1099511628211UL;
+            h ^= xor; h *= 1099511628211UL;
+            h ^= (ulong)extraGlyphs.Count; h *= 1099511628211UL;
+        }
         var key = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(font.RawData).ToString("x8")
             + ":" + font.RawData.Length + ":" + h.ToString("x16");
 
@@ -93,7 +102,7 @@ public static class HtmlToPdf
             return cached;
         }
 
-        var subset = Text.TrueType.TtfSubsetter.Subset(font, sorted, activeFeatures);
+        var subset = Text.TrueType.TtfSubsetter.Subset(font, sorted, activeFeatures, extraGlyphs);
         if (subset == null || subset.FontData.Length == 0) return subset;
 
         if (SubsetCache.Count >= SubsetCacheMaxEntries) SubsetCache.Clear();
@@ -279,6 +288,9 @@ public static class HtmlToPdf
             };
         }
 
+        // Complex-script text (Thai, Indic, Arabic with marks) measures with real shaped advances.
+        TextMeasurer.ComplexFontProvider = CreateComplexFontProvider(fontFaces);
+
         try
         {
             // 5. Layout (uses cascade resolver for full CSS support)
@@ -310,6 +322,7 @@ public static class HtmlToPdf
         finally
         {
             TextMeasurer.FontDataProvider = null;
+            TextMeasurer.ComplexFontProvider = null;
         }
     }
 
@@ -823,7 +836,11 @@ public static class HtmlToPdf
         var fontCodepoints = new Dictionary<string, HashSet<int>>();
         var fontFamilyLists = new Dictionary<string, string>();
         var fontFeatureTags = new Dictionary<string, List<string>>();
-        CollectTextCodepoints(root, fontCodepoints, fontFamilyLists, fontFeatureTags);
+        var complexTexts = new Dictionary<string, HashSet<string>>();
+        CollectTextCodepoints(root, fontCodepoints, fontFamilyLists, fontFeatureTags, complexTexts);
+
+        if (complexTexts.Count > 0)
+            EmbedComplexScriptFonts(complexTexts, fontFamilyLists, pdfDoc, fontFaces);
 
         if (fontCodepoints.Count == 0) return;
 
@@ -1187,13 +1204,23 @@ public static class HtmlToPdf
     }
 
     private static void CollectTextCodepoints(LayoutBox box, Dictionary<string, HashSet<int>> fontCodepoints,
-        Dictionary<string, string> fontFamilyLists, Dictionary<string, List<string>> fontFeatureTags)
+        Dictionary<string, string> fontFamilyLists, Dictionary<string, List<string>> fontFeatureTags,
+        Dictionary<string, HashSet<string>> complexTexts)
     {
         if (!string.IsNullOrEmpty(box.Text))
         {
             var fontFeatureSettings = box.Style?.Get("font-feature-settings");
             string fontName = Layout.StandardFontMetrics.ResolvePdfFontName(
                 box.Style?.FontFamily, box.Style?.FontWeight, box.Style?.Get("font-style"), fontFeatureSettings);
+
+            // Complex-script boxes (Thai, Indic, Arabic with marks) are shaped glyph-by-glyph and
+            // embedded under their own "<font>-CX<script>" key; collect the exact strings painted.
+            if (RegisterComplexText(box, fontName, fontFamilyLists, complexTexts))
+            {
+                foreach (var complexChild in box.Children)
+                    CollectTextCodepoints(complexChild, fontCodepoints, fontFamilyLists, fontFeatureTags, complexTexts);
+                return;
+            }
 
             if (!fontCodepoints.TryGetValue(fontName, out var codepoints))
             {
@@ -1251,7 +1278,7 @@ public static class HtmlToPdf
         }
 
         foreach (var child in box.Children)
-            CollectTextCodepoints(child, fontCodepoints, fontFamilyLists, fontFeatureTags);
+            CollectTextCodepoints(child, fontCodepoints, fontFamilyLists, fontFeatureTags, complexTexts);
     }
 
     /// <summary>Add every codepoint of a string (surrogate-pair aware) to the set.</summary>

@@ -7,6 +7,8 @@ using EggPdf.Layout;
 using EggPdf.Pdf;
 using EggPdf.Svg;
 using EggPdf.Text;
+using EggPdf.Text.OpenType;
+using EggPdf.Text.TrueType;
 
 namespace EggPdf.Paint;
 
@@ -438,6 +440,10 @@ public static partial class BoxPainter
             // ligatures) -- must run on logical-order text, i.e. before the bidi reorder below.
             paintText = ArabicShaper.Shape(paintText);
 
+            // Complex scripts are shaped glyph-by-glyph from the logical text (bidi-ordered by the
+            // shaper itself); keep it before the visual reorder below, which serves the fallback path.
+            string logicalPaintText = paintText;
+
             // Apply BiDi reordering for RTL text
             if (BidiAlgorithm.ContainsRTL(paintText))
             {
@@ -485,6 +491,18 @@ public static partial class BoxPainter
             string fontName = StandardFontMetrics.ResolvePdfFontName(
                 box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"),
                 box.Style.Get("font-feature-settings"));
+
+            // Complex-script text (Thai, Indic, Arabic with marks) paints from its own embedded
+            // script-capable font, registered under "<font>-CX<script>" at embed time. If that font
+            // wasn't embedded (no covering font installed), fall back to the normal path.
+            string? complexSuffix = ComplexTextShaper.FontKeySuffix(logicalPaintText);
+            FontData? complexShapingFont = null;
+            if (complexSuffix != null && CurrentPdfDoc != null &&
+                CurrentPdfDoc.TryGetShapingFont(fontName + complexSuffix, out var shapingFont))
+            {
+                fontName += complexSuffix;
+                complexShapingFont = shapingFont;
+            }
 
             float pdfFontSize = fontSize * PdfCoordinates.PxToPt;
             float textX = effectiveX + box.PaddingLeft;
@@ -618,7 +636,13 @@ public static partial class BoxPainter
                 page.SetOpacity(textAlpha);
 
             // Use CIDFont glyph IDs for embedded fonts, or WinAnsi for built-in fonts
-            if (CurrentPdfDoc != null && CurrentPdfDoc.IsEmbeddedFont(fontName) && CurrentPdfDoc.ContainsColorGlyphs(fontName, paintText))
+            if (complexShapingFont != null && CurrentPdfDoc != null)
+            {
+                PaintShapedRun(page, CurrentPdfDoc, fontName, complexShapingFont, logicalPaintText,
+                    box.Style.Get("direction") == "rtl", pdfX, pdfY, pdfFontSize,
+                    color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0, letterSpacing);
+            }
+            else if (CurrentPdfDoc != null && CurrentPdfDoc.IsEmbeddedFont(fontName) && CurrentPdfDoc.ContainsColorGlyphs(fontName, paintText))
             {
                 // COLR/CPAL color-glyph (emoji) runs step one codepoint at a time: PDF's
                 // text-showing operator paints a whole string in one fill color, but a

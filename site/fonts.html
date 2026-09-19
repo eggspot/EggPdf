@@ -179,9 +179,29 @@
         peh, tcheh, jeh, keheh, gaf and yeh.
       </p>
       <p>
-        Not supported: stacked-diacritic positioning (GPOS mark attachment), Indic scripts
-        (Devanagari, Bengali, &hellip; need reordering and conjunct formation), Thai mark stacking,
-        and Arabic-script letters outside the set above.
+        Arabic-script letters outside that set (for example Urdu tteh, ddal, rreh) are not shaped.
+      </p>
+
+      <h2 id="complex-scripts">Thai and Indic scripts, diacritics</h2>
+      <p>
+        Text in Thai, Lao and the Indic scripts (Devanagari, Bengali, Gujarati, Gurmukhi, Oriya,
+        Tamil, Telugu, Kannada, Malayalam), and Arabic with diacritics, is shaped through the font's
+        own OpenType tables. Mark attachment places stacked Thai vowels and tone marks and Arabic
+        harakat; Indic syllables are reordered (pre-base vowel signs move in front of their
+        consonant, a syllable-initial RA + virama becomes a reph placed after the base) and the
+        font's half forms and conjuncts (such as <code>क्ष</code>) are applied.
+      </p>
+      <p>
+        This needs a font that contains the script. EggPdf tries your <code>font-family</code> list
+        and <code>@font-face</code> fonts first, then well-known script fonts (Nirmala UI, Leelawadee
+        UI, Noto Sans &hellip;). That text is embedded in its own font, so Latin text keeps the
+        typeface you asked for. Long Thai paragraphs wrap at syllable boundaries; this is a
+        heuristic, since real Thai word breaking needs a dictionary.
+      </p>
+      <p>
+        Not supported: GPOS cursive attachment, reph repositioning for Kannada, Telugu and
+        Malayalam, Sinhala, Khmer, Myanmar and Tibetan, and Thai wrapping inside mixed inline
+        elements.
       </p>
 
     </main>

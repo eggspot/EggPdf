@@ -21,7 +21,7 @@ internal static class PdfContentStreamExtensions
 /// <summary>
 /// Represents a single PDF page with content operations.
 /// </summary>
-public class PdfPage
+public partial class PdfPage
 {
     internal float WidthPt { get; }
     internal float HeightPt { get; }

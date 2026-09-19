@@ -66,7 +66,8 @@ src/
   EggPdf.Html/         -- HTML5 parser (tokenizer, tree builder, DOM types)
   EggPdf.Css/          -- CSS parser + cascade + selectors + inline parser
   EggPdf.Layout/       -- layout engine (block, inline, flex, table cells horizontal)
-  EggPdf.Text/         -- TrueType parser, system font discovery, line breaking, font resolver
+  EggPdf.Text/         -- TrueType parser, system font discovery, line breaking, font resolver,
+                          OpenType GSUB/GPOS shaping for complex scripts (OpenType/), Arabic joining
   EggPdf.Pdf/          -- PDF 1.7 writer (text, CID fonts, images, links, merging, RC4 encryption, CMS/PKCS#7 signing)
   EggPdf.Cli/          -- CLI tool: eggpdf input.html -o output.pdf
   EggPdf.Service/      -- REST API + WebUI (POST /api/render, GET /e2e, GET /)

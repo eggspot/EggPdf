@@ -51,6 +51,12 @@ public class FontData
     /// <summary>CPAL palette 0 colors, indexed by palette color index (see <see cref="ColrLayers"/>).</summary>
     internal (byte r, byte g, byte b, byte a)[]? CpalPalette { get; set; }
 
+    private OpenType.OpenTypeFont? _openType;
+
+    /// <summary>GSUB/GPOS/GDEF layout data, parsed lazily on first complex-script shape (thread-safe).</summary>
+    internal OpenType.OpenTypeFont OpenTypeLayout
+        => System.Threading.LazyInitializer.EnsureInitialized(ref _openType, () => OpenType.OpenTypeFont.Load(RawData))!;
+
     /// <summary>Raw font file bytes (for PDF embedding).</summary>
     public byte[] RawData { get; set; } = System.Array.Empty<byte>();
 

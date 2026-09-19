@@ -49,14 +49,15 @@ public class TtfSubsetter
     /// (see <see cref="FontData.GetGlyphId(int, IReadOnlyList{string}?)"/>) so the
     /// subset embeds and maps to the feature-substituted glyph, not the original.
     /// </summary>
-    public static SubsetResult? Subset(FontData font, IEnumerable<int> codepoints, IReadOnlyList<string>? activeFeatures = null)
+    public static SubsetResult? Subset(FontData font, IEnumerable<int> codepoints, IReadOnlyList<string>? activeFeatures = null,
+        IEnumerable<ushort>? extraGlyphs = null)
     {
         if (font.RawData == null || font.RawData.Length < 12)
             return null;
 
         try
         {
-            return SubsetInternal(font, codepoints, activeFeatures);
+            return SubsetInternal(font, codepoints, activeFeatures, extraGlyphs);
         }
         catch
         {
@@ -64,7 +65,8 @@ public class TtfSubsetter
         }
     }
 
-    private static SubsetResult SubsetInternal(FontData font, IEnumerable<int> codepoints, IReadOnlyList<string>? activeFeatures)
+    private static SubsetResult SubsetInternal(FontData font, IEnumerable<int> codepoints, IReadOnlyList<string>? activeFeatures,
+        IEnumerable<ushort>? extraGlyphs)
     {
         var data = font.RawData;
 
@@ -84,6 +86,13 @@ public class TtfSubsetter
                 codepointMap[cp] = gid;
             }
         }
+
+        // Glyphs the complex-script shaper produced (ligatures, conjuncts, reph forms, marks) have
+        // no codepoint of their own -- they are reached only through GSUB -- so they are requested
+        // by glyph ID and painted via OldToNewGlyphId rather than the codepoint map.
+        if (extraGlyphs != null)
+            foreach (var g in extraGlyphs)
+                if (g < font.NumGlyphs) neededGlyphs.Add(g);
 
         // COLR color-glyph layers reference separate glyph IDs (not composite
         // components), so they must be pulled into the subset explicitly or their
@@ -159,10 +168,14 @@ public class TtfSubsetter
 
         // Build new hmtx
         var newWidths = new ushort[numNewGlyphs];
+        var newLsb = new short[numNewGlyphs];
         foreach (var kv in oldToNew)
+        {
             newWidths[kv.Value] = font.GetAdvanceWidth(kv.Key);
+            newLsb[kv.Value] = ReadLeftSideBearing(data, tables, kv.Key);
+        }
 
-        byte[] newHmtx = BuildHmtx(newWidths);
+        byte[] newHmtx = BuildHmtx(newWidths, newLsb);
 
         // Build new cmap table
         byte[] newCmap = BuildCmap(cpToNewGid);
@@ -218,6 +231,9 @@ public class TtfSubsetter
     private static Dictionary<string, (uint offset, uint length)> ParseTableDirectory(byte[] data)
     {
         int pos = 4; // skip sfVersion
+        // TrueType Collection: read the first face's directory (table offsets stay absolute).
+        if (data.Length > 16 && data[0] == 't' && data[1] == 't' && data[2] == 'c' && data[3] == 'f')
+            pos = (int)ReadU32(data, 12) + 4;
         ushort numTables = ReadU16(data, pos); pos += 2;
         pos += 6; // skip searchRange, entrySelector, rangeShift
 
@@ -398,16 +414,34 @@ public class TtfSubsetter
         }
     }
 
-    private static byte[] BuildHmtx(ushort[] widths)
+    private static byte[] BuildHmtx(ushort[] widths, short[] leftSideBearings)
     {
-        // Each entry: advanceWidth (u16) + leftSideBearing (i16 = 0)
+        // Each entry: advanceWidth (u16) + leftSideBearing (i16). The lsb must be the glyph's real
+        // one: rasterizers place an outline at (xMin - lsb), so a zero lsb shifts every glyph whose
+        // outline doesn't start at x=0 -- most visibly zero-width combining marks, whose outlines
+        // sit at large negative x.
         var buf = new byte[widths.Length * 4];
         for (int i = 0; i < widths.Length; i++)
         {
             WriteU16(buf, i * 4, widths[i]);
-            WriteI16(buf, i * 4 + 2, 0);
+            WriteI16(buf, i * 4 + 2, leftSideBearings[i]);
         }
         return buf;
+    }
+
+    /// <summary>Read a glyph's left side bearing from the source font's hmtx (0 if unavailable).</summary>
+    private static short ReadLeftSideBearing(byte[] data, Dictionary<string, (uint offset, uint length)> tables, ushort glyphId)
+    {
+        if (!tables.TryGetValue("hmtx", out var hmtx) || !tables.TryGetValue("hhea", out var hhea))
+            return 0;
+        int numHMetrics = ReadU16(data, (int)hhea.offset + 34);
+        if (numHMetrics <= 0) return 0;
+
+        long pos = glyphId < numHMetrics
+            ? hmtx.offset + 4L * glyphId + 2
+            : hmtx.offset + 4L * numHMetrics + 2L * (glyphId - numHMetrics);
+        if (pos < 0 || pos + 2 > data.Length || pos + 2 > hmtx.offset + hmtx.length) return 0;
+        return ReadI16(data, (int)pos);
     }
 
     private static byte[] BuildCmap(Dictionary<int, ushort> cpToGid)

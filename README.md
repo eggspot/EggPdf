@@ -170,9 +170,18 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   (standard Arabic plus Persian peh/tcheh/jeh/keheh/gaf/yeh), with lam-alef ligatures and
   harakat ignored for joining, mapped onto Unicode Arabic Presentation Forms -- needs a font that
   carries those glyphs (Arial, Tahoma, Segoe UI, Noto Naskh do); otherwise text degrades to the
-  unjoined base letters. Not supported: GPOS mark positioning (stacked diacritics), Indic script
-  reordering/conjuncts (Devanagari, Bengali, ...), Thai mark stacking, and Arabic-script letters
-  outside the set above (e.g. Urdu ٹ ڈ ڑ)
+  unjoined base letters. Arabic-script letters outside the set above (e.g. Urdu ٹ ڈ ڑ) are not shaped
+- Complex-script shaping through the font's own GSUB/GPOS tables (Arabic with diacritics, Thai/Lao,
+  Indic): mark-to-base / mark-to-ligature / mark-to-mark positioning (stacked Thai tone marks and
+  vowels, Arabic harakat), Thai SARA AM decomposition, and Indic syllable handling -- pre-base
+  vowel signs move in front of their consonant, syllable-initial RA + virama becomes a reph placed
+  after the base, and half forms/conjuncts (e.g. क्ष) come from the font's GSUB features. Covers
+  Devanagari, Bengali, Gujarati, Gurmukhi, Oriya, Tamil, Telugu, Kannada and Malayalam with a font
+  that has the script (Nirmala UI, Leelawadee UI, Noto Sans ..., or your `@font-face`); such text
+  is embedded in its own script-capable font, so Latin text keeps its requested typeface. Long Thai
+  paragraphs wrap at syllable boundaries (heuristic -- true word breaking needs a dictionary).
+  Not supported: cursive attachment (GPOS 3), reph repositioning for Kannada/Telugu/Malayalam,
+  Sinhala, Khmer, Myanmar, Tibetan, and Thai wrapping inside mixed inline elements
 - Browser-parity metrics: text measured with the real font, baselines like Chrome
 - Automatic hyphenation
 - `font-feature-settings` (e.g. `"zero" 1`, `"smcp" 1`) applies single-glyph OpenType
