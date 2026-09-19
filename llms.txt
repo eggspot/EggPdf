@@ -151,6 +151,7 @@ netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0
 - @media print, @page rules
 - Webfonts: remote <link> stylesheets (Google Fonts) and @font-face over http(s)/data:/file, weight-accurate faces 300–900
 - Full Unicode text: Vietnamese and extended Latin, per-codepoint symbol-font fallback (⚠ ✔ …)
+- Arabic contextual shaping (isolated/initial/medial/final joining forms + lam-alef ligatures, standard Arabic and Persian peh/tcheh/jeh/keheh/gaf/yeh) via Unicode Arabic Presentation Forms -- needs a font with those glyphs, else degrades to unjoined base letters. NOT supported: GPOS mark positioning, Indic reordering/conjuncts (Devanagari, Bengali, …), Thai mark stacking, other Arabic-script letters (e.g. Urdu ٹ ڈ ڑ) -- don't claim full complex-script support
 - Browser-parity text layout: real font metrics for measurement, baseline placement, letter-spacing, word-break:break-all
 - SVG (vector, not rasterized), including `filter="url(#id)"` with a single `<feGaussianBlur>` (rasterized+blurred+re-embedded as an image; multi-primitive filter graphs render unblurred)
 - Image formats: JPEG, PNG (incl. 1/2/4-bit grayscale QR codes), GIF, WebP (lossless/VP8L only -- lossy/VP8 and VP8X extended containers are not decoded, don't claim full WebP support), BMP, Base64

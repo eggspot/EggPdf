@@ -434,6 +434,10 @@ public static partial class BoxPainter
             if (isSmallCaps && !string.IsNullOrEmpty(paintText))
                 paintText = paintText.ToUpperInvariant();
 
+            // Arabic contextual shaping (isolated/initial/medial/final forms, lam-alef
+            // ligatures) -- must run on logical-order text, i.e. before the bidi reorder below.
+            paintText = ArabicShaper.Shape(paintText);
+
             // Apply BiDi reordering for RTL text
             if (BidiAlgorithm.ContainsRTL(paintText))
             {
@@ -882,6 +886,13 @@ public static partial class BoxPainter
                 {
                     font = fallbackFont;
                     gid = fbGid;
+                }
+                else if (ArabicShaper.TryGetBaseForm(cp, out var baseText) &&
+                         TryAppendBaseFormGlyphs(baseText, mainFont, fallbackFont, runs, current, ref currentFont))
+                {
+                    // Neither font has this Arabic presentation-form glyph: the base letter(s)
+                    // were appended instead (disconnected but legible, not a .notdef box).
+                    continue;
                 }
                 else
                 {

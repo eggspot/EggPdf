@@ -169,6 +169,21 @@
         algorithm to pick the closest available variant rather than substituting a different typeface.
       </p>
 
+      <h2 id="arabic">Arabic text</h2>
+      <p>
+        Arabic letters are shaped into their contextual isolated / initial / medial / final forms,
+        including lam-alef ligatures, and laid out right-to-left. Shaping maps onto Unicode Arabic
+        Presentation Forms, so the font must carry those glyphs (Arial, Tahoma, Segoe UI and Noto
+        Naskh Arabic do); if it doesn't, text falls back to the unjoined base letters instead of
+        showing missing-glyph boxes. Supported letters are the standard Arabic block plus Persian
+        peh, tcheh, jeh, keheh, gaf and yeh.
+      </p>
+      <p>
+        Not supported: stacked-diacritic positioning (GPOS mark attachment), Indic scripts
+        (Devanagari, Bengali, &hellip; need reordering and conjunct formation), Thai mark stacking,
+        and Arabic-script letters outside the set above.
+      </p>
+
     </main>
   </div>
 </div>

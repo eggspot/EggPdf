@@ -47,6 +47,11 @@ public static class TextMeasurer
     {
         if (string.IsNullOrEmpty(text)) return 0;
 
+        // Measure the contextual (shaped) form the renderer will paint -- Arabic medial forms
+        // are narrower than isolated ones and lam-alef ligatures merge two letters into one.
+        // No-op (single early-exit scan) for non-Arabic text.
+        text = EggPdf.Text.ArabicShaper.Shape(text);
+
         float width;
         int glyphCount = 0;
 

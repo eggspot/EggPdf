@@ -1215,6 +1215,11 @@ public static class HtmlToPdf
 
             AddCodepoints(codepoints, box.Text!);
 
+            // The renderer shapes Arabic into contextual presentation forms at paint time; the
+            // subset needs those glyphs too (the base letters stay in as the missing-glyph fallback).
+            if (Text.ArabicShaper.ContainsArabic(box.Text))
+                AddCodepoints(codepoints, Text.ArabicShaper.Shape(box.Text!));
+
             // The renderer applies text-transform / small-caps at paint time, so the
             // subset must also cover the transformed characters.
             var textTransform = box.Style?.Get("text-transform");

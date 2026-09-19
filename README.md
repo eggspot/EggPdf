@@ -166,6 +166,13 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Weight-accurate faces: `font-weight: 300–900` each select their own variant
 - Font fallback chain + per-codepoint symbol-font fallback (⚠ ✔ …)
 - Full Unicode: Vietnamese and extended Latin out of the box
+- Arabic contextual shaping: letters take their isolated/initial/medial/final joining forms
+  (standard Arabic plus Persian peh/tcheh/jeh/keheh/gaf/yeh), with lam-alef ligatures and
+  harakat ignored for joining, mapped onto Unicode Arabic Presentation Forms -- needs a font that
+  carries those glyphs (Arial, Tahoma, Segoe UI, Noto Naskh do); otherwise text degrades to the
+  unjoined base letters. Not supported: GPOS mark positioning (stacked diacritics), Indic script
+  reordering/conjuncts (Devanagari, Bengali, ...), Thai mark stacking, and Arabic-script letters
+  outside the set above (e.g. Urdu ٹ ڈ ڑ)
 - Browser-parity metrics: text measured with the real font, baselines like Chrome
 - Automatic hyphenation
 - `font-feature-settings` (e.g. `"zero" 1`, `"smcp" 1`) applies single-glyph OpenType
