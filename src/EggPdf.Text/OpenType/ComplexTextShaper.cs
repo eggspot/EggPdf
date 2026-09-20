@@ -25,9 +25,10 @@ public readonly struct PositionedGlyph
 /// generic ligature/kerning for whatever else shares the string. Input is logical-order text;
 /// output is in visual order with mark attachments resolved into per-glyph offsets.
 /// </summary>
-public static class ComplexTextShaper
+public static partial class ComplexTextShaper
 {
-    private const uint MaskGlobal = 1, MaskReph = 2;
+    private const uint MaskGlobal = 1, MaskReph = 2, MaskRephFormed = 4,
+        MaskIsol = 8, MaskFina = 16, MaskMedi = 32, MaskInit = 64;
 
     public static bool NeedsShaping(string? text) => ComplexScripts.NeedsShaping(text);
 
@@ -44,9 +45,12 @@ public static class ComplexTextShaper
         {
             char c = text[i];
             if (c < 'ؐ') continue;
-            if (c >= 'ऀ' && c <= 'ൿ') return "-CX" + ComplexScripts.GetIndic(c)!.Base.ToString("X4");
+            if (c >= 'ऀ' && c <= '෿') return "-CX" + ComplexScripts.GetIndic(c)!.Base.ToString("X4");
             if (c >= '฀' && c <= '໿') return "-CXT";
-            if (ComplexScripts.IsArabicMark(c)) return "-CXA";
+            if (c >= 'ༀ' && c <= '࿿') return "-CXTB";
+            if (c >= 'က' && c <= '႟') return "-CXM";
+            if (c >= 'ក' && c <= '៿') return "-CXK";
+            if (ComplexScripts.IsArabicLetterBlock(c)) return "-CXA";
         }
         return null;
     }
@@ -56,6 +60,9 @@ public static class ComplexTextShaper
     {
         if (suffix == "-CXT") return 0x0E01;
         if (suffix == "-CXA") return 0x0628;
+        if (suffix == "-CXTB") return 0x0F40;
+        if (suffix == "-CXM") return 0x1000;
+        if (suffix == "-CXK") return 0x1780;
         if (suffix.Length > 3 && int.TryParse(suffix.Substring(3), System.Globalization.NumberStyles.HexNumber,
                 System.Globalization.CultureInfo.InvariantCulture, out int block))
             return block + 0x15;
@@ -89,6 +96,15 @@ public static class ComplexTextShaper
                 return new[] { "Nirmala", "Gautami", "Noto Sans Telugu", "NotoSansTelugu", "Lohit-Telugu" };
             case "-CX0C80":
                 return new[] { "Nirmala", "Tunga", "Noto Sans Kannada", "NotoSansKannada", "Lohit-Kannada" };
+            case "-CXTB":
+                return new[] { "himalaya", "Microsoft Himalaya", "Noto Serif Tibetan", "NotoSerifTibetan", "Noto Sans Tibetan",
+                    "NotoSansTibetan", "Jomolhari", "Kailasa" };
+            case "-CXM":
+                return new[] { "mmrtext", "Myanmar Text", "Noto Sans Myanmar", "NotoSansMyanmar", "Padauk", "Myanmar MN" };
+            case "-CXK":
+                return new[] { "LeelawUI", "Leelawadee", "Noto Sans Khmer", "NotoSansKhmer", "Khmer UI", "Khmer OS", "DaunPenh" };
+            case "-CX0D80":
+                return new[] { "Nirmala", "Iskoola Pota", "iskpota", "Noto Sans Sinhala", "NotoSansSinhala" };
             case "-CX0D00":
                 return new[] { "Nirmala", "Kartika", "Noto Sans Malayalam", "NotoSansMalayalam", "Lohit-Malayalam" };
             default:
@@ -170,6 +186,7 @@ public static class ComplexTextShaper
             {
                 var g = run.Glyphs[i];
                 if (g.AttachTo >= 0) g.AttachTo += offset;
+                if (g.CursiveParentPlusOne > 0) g.CursiveParentPlusOne += offset;
                 all.Glyphs.Add(g);
             }
             a = b;
@@ -219,6 +236,7 @@ public static class ComplexTextShaper
         {
             var g = buf.Glyphs[idx[newPos]];
             if (g.AttachTo >= 0) g.AttachTo = newIndexOf[g.AttachTo];
+            if (g.CursiveParentPlusOne > 0) g.CursiveParentPlusOne = newIndexOf[g.CursiveParentPlusOne - 1] + 1;
             ordered.Add(g);
         }
         buf.Glyphs.Clear();
@@ -238,6 +256,13 @@ public static class ComplexTextShaper
         if (state[i] != 0) return;
         state[i] = 1;
         var g = buf.Glyphs[i];
+        int cp = g.CursiveParentPlusOne - 1;
+        if (cp >= 0 && cp < buf.Count && cp != i && state[cp] != 1)
+        {
+            Resolve(buf, cp, state);
+            g.YOffset += buf.Glyphs[cp].YOffset + g.CursiveDy;
+            buf.Glyphs[i] = g;
+        }
         int t = g.AttachTo;
         if (t >= 0 && t < buf.Count && t != i && state[t] != 1)
         {
@@ -279,17 +304,50 @@ public static class ComplexTextShaper
             case ScriptKind.Arabic:
                 scriptTags = new[] { "arab", "DFLT" };
                 break;
+            case ScriptKind.Tibetan:
+                scriptTags = new[] { "tibt", "DFLT" };
+                break;
+            case ScriptKind.Khmer:
+                ReorderKhmer(cps, clusters);
+                scriptTags = new[] { "khmr", "DFLT" };
+                break;
+            case ScriptKind.Myanmar:
+                ReorderMyanmar(cps, clusters);
+                scriptTags = new[] { "mym2", "mymr", "DFLT" };
+                break;
             default:
                 scriptTags = new[] { "latn", "DFLT" };
                 break;
         }
 
+        bool positionalForms = false;
         int count = indicChars?.Count ?? cps.Count;
         for (int i = 0; i < count; i++)
         {
             int cp = indicChars != null ? indicChars[i].Cp : cps[i];
             int cluster = indicChars != null ? indicChars[i].Cluster : clusters[i];
             ushort gid = font.GetGlyphId(cp);
+
+            // Arabic letter shaped to a presentation form the font lacks: use the base letter(s)
+            // and let the font's own isol/init/medi/fina features select the positional glyph.
+            if (kind == ScriptKind.Arabic && gid == 0 &&
+                ArabicShaper.TryGetFormInfo(cp, out var formBase, out var forms))
+            {
+                for (int k = 0; k < formBase.Length; k++)
+                {
+                    uint formMask = forms[k] == ArabicShaper.ArabicForm.Isolated ? MaskIsol
+                        : forms[k] == ArabicShaper.ArabicForm.Final ? MaskFina
+                        : forms[k] == ArabicShaper.ArabicForm.Initial ? MaskInit : MaskMedi;
+                    buf.Glyphs.Add(new ShapedGlyph
+                    {
+                        Id = font.GetGlyphId(formBase[k]), Cluster = cluster, Codepoint = formBase[k],
+                        AttachTo = -1, LigComp = -1, Mask = MaskGlobal | formMask, Syl = -1,
+                    });
+                }
+                positionalForms = true;
+                continue;
+            }
+
             if (gid == 0 && IsDefaultIgnorable(cp)) continue;
             var g = new ShapedGlyph
             {
@@ -317,16 +375,29 @@ public static class ComplexTextShaper
                 foreach (var f in new[] { "nukt", "akhn" })
                     ApplyStage(gsub, ls, buf, new[] { f }, uint.MaxValue);
                 ApplyStage(gsub, ls, buf, new[] { "rphf" }, MaskReph);
+                if (indic != null && indic.HasReph)
+                    MarkFormedRephs(font, indic, buf);
                 foreach (var f in new[] { "rkrf", "pref", "blwf", "abvf", "half", "pstf", "vatu", "cjct" })
                     ApplyStage(gsub, ls, buf, new[] { f }, uint.MaxValue);
                 if (indic != null && indic.HasReph)
                     FinalizeReph(font, indic, buf, ot.Gdef);
                 ApplyStage(gsub, ls, buf, new[] { "init", "pres", "abvs", "blws", "psts", "haln", "calt", "clig" }, uint.MaxValue);
             }
+            else if (kind == ScriptKind.Khmer || kind == ScriptKind.Myanmar)
+            {
+                ApplySoutheastAsianFeatures(kind, gsub, ls, buf);
+            }
             else
             {
                 ApplyStage(gsub, ls, buf, new[] { "ccmp", "locl" }, uint.MaxValue);
-                ApplyStage(gsub, ls, buf, new[] { "rlig", "calt", "rclt", "clig", "liga" }, uint.MaxValue);
+                if (positionalForms)
+                {
+                    ApplyStage(gsub, ls, buf, new[] { "isol" }, MaskIsol);
+                    ApplyStage(gsub, ls, buf, new[] { "fina" }, MaskFina);
+                    ApplyStage(gsub, ls, buf, new[] { "medi" }, MaskMedi);
+                    ApplyStage(gsub, ls, buf, new[] { "init" }, MaskInit);
+                }
+                ApplyStage(gsub, ls, buf, new[] { "rlig", "calt", "rclt", "clig", "liga", "mset" }, uint.MaxValue);
             }
         }
         else if (kind == ScriptKind.Indic && indic != null && indic.HasReph)
@@ -344,7 +415,10 @@ public static class ComplexTextShaper
         var gpos = ot.Gpos;
         var gposScript = gpos?.Layout.FindScript(scriptTags);
         if (gpos != null && gposScript?.Default != null)
-            ApplyStage(gpos, gposScript.Default, buf, new[] { "kern", "dist", "mark", "mkmk", "abvm", "blwm" }, uint.MaxValue);
+        {
+            gpos.Rtl = kind == ScriptKind.Arabic;
+            ApplyStage(gpos, gposScript.Default, buf, new[] { "curs", "kern", "dist", "mark", "mkmk", "abvm", "blwm" }, uint.MaxValue);
+        }
 
         return buf;
     }
@@ -406,7 +480,6 @@ public static class ComplexTextShaper
     /// </summary>
     private static void FinalizeReph(FontData font, IndicScriptInfo indic, GlyphBuffer buf, Gdef? gdef)
     {
-        ushort raGid = font.GetGlyphId(indic.Ra);
         int i = 0;
         while (i < buf.Count)
         {
@@ -417,7 +490,7 @@ public static class ComplexTextShaper
             int end = i;
 
             var head = buf.Glyphs[start];
-            if (head.Role != IndicRole.Reph || head.Id == raGid) continue;
+            if (head.Role != IndicRole.Reph || (head.Mask & MaskRephFormed) == 0) continue;
 
             int baseIdx = -1;
             for (int k = end - 1; k > start; k--)
@@ -427,18 +500,67 @@ public static class ComplexTextShaper
             }
             if (baseIdx < 0) continue;
 
-            int moveCount = (start + 1 < end && buf.Glyphs[start + 1].Role == IndicRole.RephHalant) ? 2 : 1;
-            int dest = baseIdx + 1;
-            while (dest < end)
-            {
-                byte r = buf.Glyphs[dest].Role;
-                if (r == IndicRole.Nukta || r == IndicRole.MatraAboveBelow) dest++; else break;
-            }
+            int moveCount = 1;
+            while (moveCount < 3 && start + moveCount < end && buf.Glyphs[start + moveCount].Role == IndicRole.RephHalant)
+                moveCount++;
+
+            int dest = RephDestination(indic.RephPos, buf, start, baseIdx, end);
 
             var moving = buf.Glyphs.GetRange(start, moveCount);
             buf.Glyphs.RemoveRange(start, moveCount);
             buf.Glyphs.InsertRange(dest - moveCount, moving);
         }
+    }
+
+    /// <summary>
+    /// Flag the RA glyphs the rphf feature actually turned into a reph. Only those are moved
+    /// later: another feature may also rewrite RA (e.g. Malayalam's chillu), which must stay put.
+    /// </summary>
+    private static void MarkFormedRephs(FontData font, IndicScriptInfo indic, GlyphBuffer buf)
+    {
+        for (int i = 0; i < buf.Count; i++)
+        {
+            var g = buf.Glyphs[i];
+            if (g.Role == IndicRole.Reph && g.Id != font.GetGlyphId(g.Codepoint))
+            {
+                g.Mask |= MaskRephFormed;
+                buf.Glyphs[i] = g;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Index (in the pre-removal buffer) where a reph is inserted, following each script's reph
+    /// position: right after the base, after above/below marks, after below-base consonant forms,
+    /// or at the end of the syllable before its trailing modifiers.
+    /// </summary>
+    private static int RephDestination(RephPosition pos, GlyphBuffer buf, int start, int baseIdx, int end)
+    {
+        int dest = baseIdx + 1;
+        switch (pos)
+        {
+            case RephPosition.AfterMain:
+                while (dest < end && buf.Glyphs[dest].Role == IndicRole.Nukta) dest++;
+                break;
+            case RephPosition.BeforeSub:
+                while (dest < end && (buf.Glyphs[dest].Role == IndicRole.Nukta || buf.Glyphs[dest].Role == IndicRole.MatraAboveBelow)) dest++;
+                break;
+            case RephPosition.AfterSub:
+            case RephPosition.BeforePost:
+                while (dest < end)
+                {
+                    byte r = buf.Glyphs[dest].Role;
+                    if (r == IndicRole.Nukta || r == IndicRole.MatraAboveBelow || r == IndicRole.Halant ||
+                        r == IndicRole.Consonant || r == IndicRole.Joiner) dest++;
+                    else break;
+                }
+                break;
+            case RephPosition.AfterPost:
+                dest = end;
+                while (dest > baseIdx + 1 && buf.Glyphs[dest - 1].Role == IndicRole.Modifier) dest--;
+                break;
+        }
+        return dest;
     }
 
     private static bool IsMarkChar(int cp)

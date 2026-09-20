@@ -254,3 +254,90 @@ internal sealed class MarkBasePos : LookupSubtable
         return true;
     }
 }
+
+/// <summary>
+/// GPOS Lookup Type 3: cursive attachment. Aligns the previous glyph's exit anchor with this
+/// glyph's entry anchor along the writing direction (adjusting advances/offsets), and records a
+/// parent link so the cross-stream (y) offset chains through the run -- as HarfBuzz does.
+/// </summary>
+internal sealed class CursivePos : LookupSubtable
+{
+    private OtReader _r;
+    private int _off;
+    private Coverage _cov = null!;
+    private int[] _entry = System.Array.Empty<int>(), _exit = System.Array.Empty<int>();
+
+    public static CursivePos? Parse(OtReader r, int off)
+    {
+        if (r.U16(off) != 1) return null;
+        var cov = Coverage.Parse(r, off + r.U16(off + 2));
+        if (cov == null) return null;
+        int n = r.U16(off + 4);
+        var entry = new int[n];
+        var exit = new int[n];
+        for (int i = 0; i < n; i++)
+        {
+            int e = r.U16(off + 6 + 4 * i), x = r.U16(off + 6 + 4 * i + 2);
+            entry[i] = e == 0 ? 0 : off + e;
+            exit[i] = x == 0 ? 0 : off + x;
+        }
+        return new CursivePos { _r = r, _off = off, _cov = cov, _entry = entry, _exit = exit };
+    }
+
+    private bool ReadAnchor(int anchorOff, out int x, out int y)
+    {
+        x = y = 0;
+        if (anchorOff == 0) return false;
+        int format = _r.U16(anchorOff);
+        if (format < 1 || format > 3) return false;
+        x = _r.I16(anchorOff + 2);
+        y = _r.I16(anchorOff + 4);
+        return true;
+    }
+
+    public override bool Apply(OtEngine eng, GlyphBuffer buf, int pos, out int next)
+    {
+        next = pos + 1;
+        var cur = buf.Glyphs[pos];
+        int ci = _cov.IndexOf(cur.Id);
+        if (ci < 0 || ci >= _entry.Length || !ReadAnchor(_entry[ci], out int entryX, out int entryY)) return false;
+
+        int j = eng.Filter.Previous(buf, pos);
+        if (j < 0) return false;
+        var prev = buf.Glyphs[j];
+        int pi = _cov.IndexOf(prev.Id);
+        if (pi < 0 || pi >= _exit.Length || !ReadAnchor(_exit[pi], out int exitX, out int exitY)) return false;
+
+        if (!eng.Rtl)
+        {
+            prev.XAdvance = exitX + prev.XOffset;
+            int d = entryX + cur.XOffset;
+            cur.XAdvance -= d;
+            cur.XOffset -= d;
+        }
+        else
+        {
+            int d = exitX + prev.XOffset;
+            prev.XAdvance -= d;
+            prev.XOffset -= d;
+            cur.XAdvance = entryX + cur.XOffset;
+        }
+
+        // Chain the cross-stream offset: the child follows its parent's y offset plus the anchor delta.
+        int yDelta = entryY - exitY;
+        if (!eng.Filter.RightToLeftLookup)
+        {
+            // child = previous glyph, parent = current glyph, deltas negated
+            prev.CursiveParentPlusOne = pos + 1;
+            prev.CursiveDy = -yDelta;
+        }
+        else
+        {
+            cur.CursiveParentPlusOne = j + 1;
+            cur.CursiveDy = yDelta;
+        }
+        buf.Glyphs[j] = prev;
+        buf.Glyphs[pos] = cur;
+        return true;
+    }
+}

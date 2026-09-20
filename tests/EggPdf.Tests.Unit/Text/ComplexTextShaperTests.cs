@@ -113,6 +113,102 @@ public class ComplexTextShaperTests
     }
 
     [Fact]
+    public void Kannada_Reph_FollowsTheBaseConsonant()
+    {
+        var font = Load("Nirmala.ttc");
+        if (font == null) return;
+
+        var glyphs = ComplexTextShaper.Shape(font, "ರ್ಕ", baseRtl: false); // ra + virama + ka
+        glyphs.Should().HaveCount(2);
+        glyphs[0].GlyphId.Should().Be(font.GetGlyphId(0x0C95), "the base consonant comes first");
+        glyphs[1].GlyphId.Should().NotBe(font.GetGlyphId(0x0CB0), "RA + virama became a reph glyph after the base");
+    }
+
+    [Fact]
+    public void Malayalam_ChilluRa_StaysInLogicalPosition()
+    {
+        var font = Load("Nirmala.ttc");
+        if (font == null) return;
+
+        // ka + (ra virama zwj = chillu-r) + ma: the chillu is NOT a reph and must not move to the end.
+        var glyphs = ComplexTextShaper.Shape(font, "കര്‍മ", baseRtl: false);
+        glyphs.Length.Should().BeGreaterThan(2);
+        glyphs[0].GlyphId.Should().Be(font.GetGlyphId(0x0D15));
+        glyphs.Last().GlyphId.Should().Be(font.GetGlyphId(0x0D2E), "the following consonant stays last");
+    }
+
+    [Fact]
+    public void Sinhala_Kombuva_MovesBeforeConsonant()
+    {
+        var font = Load("Nirmala.ttc");
+        if (font == null) return;
+
+        // ka + two-part vowel sign o (kombuva + aela): the kombuva part is written before the consonant.
+        var glyphs = ComplexTextShaper.Shape(font, "කො", baseRtl: false);
+        glyphs[0].GlyphId.Should().Be(font.GetGlyphId(0x0DD9));
+    }
+
+    [Fact]
+    public void Khmer_PreBaseVowel_MovesBeforeConsonant()
+    {
+        var font = Load("LeelawUI.ttf");
+        if (font == null) return;
+
+        var glyphs = ComplexTextShaper.Shape(font, "កេ", baseRtl: false); // ka + sign E
+        glyphs[0].GlyphId.Should().Be(font.GetGlyphId(0x17C1), "sign E is written before its consonant");
+    }
+
+    [Fact]
+    public void Myanmar_EVowel_MovesBeforeConsonant()
+    {
+        var font = Load("mmrtext.ttf");
+        if (font == null) return;
+
+        var glyphs = ComplexTextShaper.Shape(font, "ကေ", baseRtl: false);
+        glyphs[0].GlyphId.Should().Be(font.GetGlyphId(0x1031), "the e-vowel is written before its consonant");
+    }
+
+    [Fact]
+    public void Myanmar_Kinzi_IsPlacedAfterBaseAsAMark()
+    {
+        var font = Load("mmrtext.ttf");
+        if (font == null) return;
+
+        var glyphs = ComplexTextShaper.Shape(font, "င်္က", baseRtl: false); // kinzi + ka
+        glyphs.Should().HaveCount(2);
+        glyphs[0].GlyphId.Should().Be(font.GetGlyphId(0x1000), "the base comes first so GPOS can attach the kinzi to it");
+        glyphs[1].XAdvance.Should().Be(0, "the kinzi is a zero-width mark");
+    }
+
+    [Fact]
+    public void Tibetan_Stack_FormsFewerGlyphsThanCodepoints()
+    {
+        var font = Load("himalaya.ttf");
+        if (font == null) return;
+
+        // ka + subjoined ya + vowel sign i
+        var glyphs = ComplexTextShaper.Shape(font, "ཀྱི", baseRtl: false);
+        glyphs.Length.Should().BeLessThan(4);
+        glyphs.Length.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public void Arabic_FontWithoutPresentationForms_UsesGsubPositionalForms()
+    {
+        var font = Load("DUBAI-REGULAR.TTF");
+        if (font == null) return;
+
+        // Dubai lacks some Arabic Presentation Forms glyphs (e.g. isolated alef): shaping must fall
+        // back to the base letters plus the font's own positional features, never emitting .notdef.
+        var text = ArabicShaper.Shape("الببب");
+        text.Any(c => font.GetGlyphId(c) == 0).Should().BeTrue("the precondition: some shaped form has no glyph in this font");
+
+        var glyphs = ComplexTextShaper.Shape(font, text, baseRtl: true);
+        glyphs.Should().HaveCount(5);
+        glyphs.Should().OnlyContain(g => g.GlyphId != 0, "no glyph may fall back to .notdef");
+    }
+
+    [Fact]
     public void LatinTextThroughShaper_KeepsGlyphCountAndAdvances()
     {
         var font = Load("arial.ttf");
@@ -125,7 +221,7 @@ public class ComplexTextShaperTests
 
     [Theory]
     [InlineData("hello", false)]
-    [InlineData("با", false)]
+    [InlineData("با", true)]
     [InlineData("ก", true)]
     [InlineData("क", true)]
     [InlineData("بَ", true)]

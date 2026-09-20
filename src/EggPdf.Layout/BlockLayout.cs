@@ -761,7 +761,7 @@ public static partial class BlockLayout
                     float ibAlignOffset = 0;
                     if (inlineX == 0 && ibWidth < childContainingWidth)
                     {
-                        var parentTextAlign = style.Get("text-align");
+                        var parentTextAlign = LogicalPropertyResolver.PhysicalTextAlign(style);
                         if (parentTextAlign == "center")
                             ibAlignOffset = (childContainingWidth - ibWidth) / 2;
                         else if (parentTextAlign == "right")
@@ -852,9 +852,16 @@ public static partial class BlockLayout
                     // stays glued to the end of a "word" and reaches the glyph layer as a raw
                     // control character with no printable glyph (renders as a tofu box).
                     var words = ilTextData.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    // Thai has no inter-word spaces: offer syllable-boundary pieces that rejoin space-free.
+                    bool[]? ilNoSpace = null;
+                    if (EggPdf.Text.ThaiLineBreaker.ContainsThai(ilTextData))
+                        words = ExpandThaiWords(words, out ilNoSpace);
+                    int ilWordIndex = -1;
                     foreach (var word in words)
                     {
-                        var wordWithSpace = (inlineX > 0 ? " " : "") + word;
+                        ilWordIndex++;
+                        bool ilJoin = ilNoSpace != null && ilNoSpace[ilWordIndex];
+                        var wordWithSpace = (inlineX > 0 && !ilJoin ? " " : "") + word;
                         float wordWidth = TextMeasurer.MeasureWidth(wordWithSpace, fontSize, ilFontFamily, ilFontWeight, ilFontStyle, ilLetterSpacing);
 
                         // Wrap to next line if word doesn't fit

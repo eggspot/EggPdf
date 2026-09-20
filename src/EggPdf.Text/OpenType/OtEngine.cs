@@ -14,6 +14,8 @@ internal sealed class OtEngine
 
     /// <summary>Filter of the lookup currently being applied (nested lookups push/pop their own).</summary>
     public LookupFilter Filter;
+    /// <summary>Shaping direction of the current run (cursive attachment aligns exit/entry anchors by it).</summary>
+    public bool Rtl;
     private int _depth;
     private const int MaxDepth = 6;
 
@@ -43,7 +45,8 @@ internal sealed class OtEngine
                 case 6: return MarkBasePos.Parse(r, off, MarkBasePos.Kind.Mark);
                 case 7: return ContextSubtable.Parse(r, off, chain: false);
                 case 8: return ContextSubtable.Parse(r, off, chain: true);
-                default: return null; // cursive attachment (3) is not applied
+                case 3: return CursivePos.Parse(r, off);
+                default: return null;
             }
         }
         switch (type)

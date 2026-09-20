@@ -118,7 +118,7 @@ public class LogicalPropertyTests
             "<p style='text-align:start; width:200px'>Hello</p>", 400, 600);
         var p = root.FindByTag("p");
         p.Should().NotBeNull();
-        p!.Style.Get("text-align").Should().Be("left",
+        EggPdf.Css.LogicalPropertyResolver.PhysicalTextAlign(p!.Style).Should().Be("left",
             "text-align:start in LTR should resolve to left");
     }
 
@@ -129,7 +129,7 @@ public class LogicalPropertyTests
             "<p style='text-align:end; width:200px'>Hello</p>", 400, 600);
         var p = root.FindByTag("p");
         p.Should().NotBeNull();
-        p!.Style.Get("text-align").Should().Be("right",
+        EggPdf.Css.LogicalPropertyResolver.PhysicalTextAlign(p!.Style).Should().Be("right",
             "text-align:end in LTR should resolve to right");
     }
 
@@ -162,5 +162,60 @@ public class LogicalPropertyTests
         // right edge (300 - 100 = 200), not the left.
         div!.X.Should().BeApproximately(200f, 1f,
             "float:inline-start in RTL must resolve to float:right");
+    }
+
+    [Fact]
+    public void TextAlign_Default_RTL_ResolvesToRight()
+    {
+        // The initial text-align is `start`: right in an RTL subtree, even though the (LTR) root's
+        // computed value is what descendants inherit.
+        var root = LayoutTestHelper.Layout(
+            "<body dir='rtl'><p style='width:200px'>Hello</p></body>", 400, 600);
+        var p = root.FindByTag("p");
+        p.Should().NotBeNull();
+        EggPdf.Css.LogicalPropertyResolver.PhysicalTextAlign(p!.Style).Should().Be("right");
+    }
+
+    [Fact]
+    public void TextAlign_Start_InheritedIntoRtlChild_ResolvesToRight()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='text-align:start'><p dir='rtl'>Hello</p></div>", 400, 600);
+        var p = root.FindByTag("p");
+        EggPdf.Css.LogicalPropertyResolver.PhysicalTextAlign(p!.Style).Should().Be("right",
+            "start resolves against the child's own direction, not the ancestor's");
+    }
+
+    [Fact]
+    public void TextAlign_Default_LTR_Unchanged()
+    {
+        var root = LayoutTestHelper.Layout("<p style='width:200px'>Hello</p>", 400, 600);
+        // Unset in LTR stays unset/left: no alignment shift is applied.
+        var value = EggPdf.Css.LogicalPropertyResolver.PhysicalTextAlign(root.FindByTag("p")!.Style);
+        (value == null || value == "left").Should().BeTrue();
+    }
+
+    [Fact]
+    public void DirAttribute_Rtl_SetsDirectionAndInheritsToDescendants()
+    {
+        var root = LayoutTestHelper.Layout("<div dir='rtl'><p>Hello</p></div>", 400, 600);
+        root.FindByTag("p")!.Style.Get("direction").Should().Be("rtl");
+    }
+
+    [Fact]
+    public void DirAttribute_DoesNotOverrideAuthorDirection()
+    {
+        var root = LayoutTestHelper.Layout("<p dir='rtl' style='direction:ltr'>Hello</p>", 400, 600);
+        root.FindByTag("p")!.Style.Get("direction").Should().Be("ltr", "author CSS beats the dir attribute");
+    }
+
+    [Fact]
+    public void DirAttribute_Rtl_FloatInlineStartFloatsRight()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0' dir='rtl'><div style='width:300px'>" +
+            "<div style='float:inline-start; width:100px; height:50px'>F</div></div></body>", 300, 600);
+        var floated = root.FindAllByTag("div")[1];
+        floated.X.Should().BeApproximately(200f, 1f);
     }
 }

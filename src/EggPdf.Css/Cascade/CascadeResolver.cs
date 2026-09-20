@@ -205,6 +205,17 @@ public class CascadeResolver
         if (element.HasAttribute("hidden"))
             style.Set("display", "none");
 
+        // 6.1. The dir attribute is the HTML UA rule `[dir=rtl] { direction: rtl }` (and ltr): it
+        //      sits below author/inline CSS, so it only applies when nothing declared `direction`.
+        if (!style.Has("direction"))
+        {
+            var dirAttr = element.GetAttribute("dir");
+            if (string.Equals(dirAttr, "rtl", System.StringComparison.OrdinalIgnoreCase))
+                style.Set("direction", "rtl");
+            else if (string.Equals(dirAttr, "ltr", System.StringComparison.OrdinalIgnoreCase))
+                style.Set("direction", "ltr");
+        }
+
         // 6.5. Resolve CSS-wide keywords: inherit, initial, unset, revert
         ResolveCssWideKeywords(style, parentStyle, element);
 

@@ -31,6 +31,8 @@ internal static class IndicSyllables
         [0x0B4B] = new[] { 0x0B47, 0x0B3E }, [0x0B4C] = new[] { 0x0B47, 0x0B57 },
         [0x0BCA] = new[] { 0x0BC6, 0x0BBE }, [0x0BCB] = new[] { 0x0BC7, 0x0BBE }, [0x0BCC] = new[] { 0x0BC6, 0x0BD7 },
         [0x0D4A] = new[] { 0x0D46, 0x0D3E }, [0x0D4B] = new[] { 0x0D47, 0x0D3E }, [0x0D4C] = new[] { 0x0D46, 0x0D57 },
+        [0x0DDA] = new[] { 0x0DD9, 0x0DCA }, [0x0DDC] = new[] { 0x0DD9, 0x0DCF },
+        [0x0DDD] = new[] { 0x0DD9, 0x0DCF, 0x0DCA }, [0x0DDE] = new[] { 0x0DD9, 0x0DDF },
     };
 
     private static bool IsJoiner(int cp) => cp == 0x200C || cp == 0x200D;
@@ -74,16 +76,31 @@ internal static class IndicSyllables
             var syllable = new List<IndicChar>();
             int prematraInsertAt = 0;
 
-            if (s.IsConsonant(cp))
+            bool dotReph = s.RephChar != 0 && cp == s.RephChar && i2 + 1 < n && s.IsConsonant(chars[i2 + 1].Cp);
+            if (s.IsConsonant(cp) || dotReph)
             {
                 int j = i2;
                 var cons = new List<int>();          // indices into syllable of consonants (excluding reph)
-                if (s.HasReph && cp == s.Ra && j + 2 < n && s.IsVirama(chars[j + 1].Cp) && s.IsConsonant(chars[j + 2].Cp))
+                if (dotReph)
                 {
                     syllable.Add(WithRole(chars[j], IndicRole.Reph));
-                    syllable.Add(WithRole(chars[j + 1], IndicRole.RephHalant));
-                    j += 2;
-                    prematraInsertAt = 2;
+                    j++;
+                    prematraInsertAt = 1;
+                }
+                else if (s.HasReph && s.Ra != 0 && cp == s.Ra && j + 1 < n && s.IsVirama(chars[j + 1].Cp))
+                {
+                    // Implicit-reph scripts form a reph from RA + virama before a consonant;
+                    // Telugu and Malayalam only from RA + virama + ZWJ.
+                    bool zwjFollows = j + 2 < n && chars[j + 2].Cp == 0x200D;
+                    bool rephForms = s.RephNeedsZwj ? zwjFollows : (j + 2 < n && s.IsConsonant(chars[j + 2].Cp));
+                    if (rephForms)
+                    {
+                        syllable.Add(WithRole(chars[j], IndicRole.Reph));
+                        syllable.Add(WithRole(chars[j + 1], IndicRole.RephHalant));
+                        j += 2;
+                        if (s.RephNeedsZwj) { syllable.Add(WithRole(chars[j], IndicRole.RephHalant)); j++; }
+                        prematraInsertAt = syllable.Count;
+                    }
                 }
 
                 while (j < n && s.IsConsonant(chars[j].Cp))
@@ -109,7 +126,10 @@ internal static class IndicSyllables
                     while (b > 0)
                     {
                         int cpB = syllable[cons[b]].Cp;
-                        bool afterHalant = cons[b] > 0 && syllable[cons[b] - 1].Role == IndicRole.Halant;
+                        // RA/YA subjoined through "virama ZWJ RA" (Sinhala) count as after-halant too.
+                        int prev = cons[b] - 1;
+                        while (prev >= 0 && syllable[prev].Role == IndicRole.Joiner) prev--;
+                        bool afterHalant = prev >= 0 && syllable[prev].Role == IndicRole.Halant;
                         if (afterHalant && (cpB == s.Ra || (s.YaPostBase != 0 && cpB == s.YaPostBase))) b--;
                         else break;
                     }

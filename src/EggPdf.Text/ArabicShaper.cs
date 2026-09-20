@@ -38,6 +38,43 @@ public static class ArabicShaper
         ['ا'] = ('ﻻ', 'ﻼ'),
     };
     private static readonly Dictionary<int, string> Reverse = BuildReverse();
+    private static readonly Dictionary<int, (string baseText, ArabicForm[] forms)> FormInfo = BuildFormInfo();
+
+    /// <summary>The positional form a presentation-form codepoint stands for.</summary>
+    public enum ArabicForm { Isolated, Final, Initial, Medial }
+
+    /// <summary>
+    /// For an Arabic presentation-form codepoint, the base letter(s) and the positional form each
+    /// takes -- how a font that lacks presentation-form glyphs is shaped through its own
+    /// isol/init/medi/fina GSUB features instead. A lam-alef ligature expands to lam + alef.
+    /// </summary>
+    public static bool TryGetFormInfo(int codepoint, out string baseText, out ArabicForm[] forms)
+    {
+        if (FormInfo.TryGetValue(codepoint, out var info)) { baseText = info.baseText; forms = info.forms; return true; }
+        baseText = ""; forms = System.Array.Empty<ArabicForm>();
+        return false;
+    }
+
+    private static Dictionary<int, (string, ArabicForm[])> BuildFormInfo()
+    {
+        var map = new Dictionary<int, (string, ArabicForm[])>();
+        foreach (var kv in Table)
+        {
+            string b = kv.Key.ToString();
+            var f = kv.Value;
+            map[f.Isolated] = (b, new[] { ArabicForm.Isolated });
+            if (f.Final != 0) map[f.Final] = (b, new[] { ArabicForm.Final });
+            if (f.Initial != 0) map[f.Initial] = (b, new[] { ArabicForm.Initial });
+            if (f.Medial != 0) map[f.Medial] = (b, new[] { ArabicForm.Medial });
+        }
+        foreach (var kv in LamAlef)
+        {
+            string pair = "ل" + kv.Key;
+            map[kv.Value.iso] = (pair, new[] { ArabicForm.Initial, ArabicForm.Final });
+            map[kv.Value.fin] = (pair, new[] { ArabicForm.Medial, ArabicForm.Final });
+        }
+        return map;
+    }
 
     private static Dictionary<char, Forms> BuildTable()
     {

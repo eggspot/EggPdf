@@ -508,7 +508,7 @@ public static partial class BoxPainter
             float textX = effectiveX + box.PaddingLeft;
 
             // Text alignment
-            var textAlign = box.Style.TextAlign;
+            var textAlign = LogicalPropertyResolver.PhysicalTextAlign(box.Style);
             float justifyExtraWordSpacing = 0;
             if (!string.IsNullOrEmpty(textAlign) && box.ContentWidth < box.Width)
             {

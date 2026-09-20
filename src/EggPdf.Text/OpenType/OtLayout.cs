@@ -22,6 +22,9 @@ internal struct ShapedGlyph
     /// <summary>Per-glyph feature mask bits (script shapers restrict some features to some glyphs).</summary>
     public uint Mask;
     public bool IsMarkHint;
+    /// <summary>Parent glyph index + 1 for cursive attachment (0 = none); y-offset follows the parent's.</summary>
+    public int CursiveParentPlusOne;
+    public int CursiveDy;
     /// <summary>Indic syllable role (see <see cref="IndicRole"/>); 0 for glyphs outside Indic syllables.</summary>
     public byte Role;
     /// <summary>Syllable index within the run, or -1.</summary>
@@ -240,6 +243,9 @@ internal readonly struct LookupFilter
         }
         return g.IsMarkHint ? Gdef.ClassMark : Gdef.ClassBase;
     }
+
+    /// <summary>The lookup's RightToLeft flag (cursive attachment chains child-to-parent by it).</summary>
+    public bool RightToLeftLookup => (_flag & 0x01) != 0;
 
     public bool Skip(in ShapedGlyph g)
     {

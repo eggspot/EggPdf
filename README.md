@@ -121,7 +121,7 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   (`polygon()`/`inset()`/`url()` fall back to the float's plain rectangular bounds)
 - `overflow: hidden`/`clip` and `contain: paint`/`contain: strict` actually clip descendant
   painted content to the element's bounds, not just its own background/border
-- `direction: rtl` / `dir="rtl"`: logical properties (margin/padding/border-width/border-color/
+- `direction: rtl` / the `dir` attribute: default `text-align` follows the direction; logical properties (margin/padding/border-width/border-color/
   border-style/inset/border-radius corners, `float: inline-start`/`inline-end`) resolve to their
   mirrored physical values; table columns lay out right-to-left and list markers hang on the
   right, matching a browser
@@ -167,21 +167,23 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Font fallback chain + per-codepoint symbol-font fallback (⚠ ✔ …)
 - Full Unicode: Vietnamese and extended Latin out of the box
 - Arabic contextual shaping: letters take their isolated/initial/medial/final joining forms
-  (standard Arabic plus Persian peh/tcheh/jeh/keheh/gaf/yeh), with lam-alef ligatures and
-  harakat ignored for joining, mapped onto Unicode Arabic Presentation Forms -- needs a font that
-  carries those glyphs (Arial, Tahoma, Segoe UI, Noto Naskh do); otherwise text degrades to the
-  unjoined base letters. Arabic-script letters outside the set above (e.g. Urdu ٹ ڈ ڑ) are not shaped
-- Complex-script shaping through the font's own GSUB/GPOS tables (Arabic with diacritics, Thai/Lao,
-  Indic): mark-to-base / mark-to-ligature / mark-to-mark positioning (stacked Thai tone marks and
-  vowels, Arabic harakat), Thai SARA AM decomposition, and Indic syllable handling -- pre-base
-  vowel signs move in front of their consonant, syllable-initial RA + virama becomes a reph placed
-  after the base, and half forms/conjuncts (e.g. क्ष) come from the font's GSUB features. Covers
-  Devanagari, Bengali, Gujarati, Gurmukhi, Oriya, Tamil, Telugu, Kannada and Malayalam with a font
-  that has the script (Nirmala UI, Leelawadee UI, Noto Sans ..., or your `@font-face`); such text
-  is embedded in its own script-capable font, so Latin text keeps its requested typeface. Long Thai
-  paragraphs wrap at syllable boundaries (heuristic -- true word breaking needs a dictionary).
-  Not supported: cursive attachment (GPOS 3), reph repositioning for Kannada/Telugu/Malayalam,
-  Sinhala, Khmer, Myanmar, Tibetan, and Thai wrapping inside mixed inline elements
+  (standard Arabic plus Persian peh/tcheh/jeh/keheh/gaf/yeh) with lam-alef ligatures, harakat
+  ignored for joining. Arabic-script letters outside that set (e.g. Urdu ٹ ڈ ڑ) are not shaped
+- Complex-script shaping through the font's own GSUB/GPOS tables: Arabic (joining forms via the
+  font's presentation-form glyphs or, for modern fonts without them, its own init/medi/fina
+  features; diacritics; cursive attachment), Thai/Lao, Tibetan, Khmer, Myanmar, Sinhala and the
+  Indic scripts (Devanagari, Bengali, Gujarati, Gurmukhi, Oriya, Tamil, Telugu, Kannada,
+  Malayalam). That covers mark-to-base / mark-to-ligature / mark-to-mark positioning, Thai SARA AM,
+  Indic and Khmer/Myanmar syllable reordering (pre-base vowel signs, reph placed per script,
+  coeng-ro, kinzi) and the font's half forms, conjuncts and subscripts. Needs a font that has the
+  script (Nirmala UI, Leelawadee UI, Myanmar Text, Noto Sans ..., or your `@font-face`); such text is
+  embedded in its own script-capable font, so Latin text keeps its requested typeface. Verified
+  against Chrome's rendering for Devanagari, Bengali, Gujarati, Gurmukhi, Oriya, Tamil, Telugu,
+  Kannada, Malayalam, Sinhala, Khmer, Myanmar, Tibetan, Thai and Arabic. Long Thai paragraphs wrap
+  at syllable boundaries (a heuristic -- true word breaking needs a dictionary). Not supported:
+  line breaking inside Lao, Khmer and Myanmar text (they have no spaces either), full UAX #9 bidi
+  (neutral characters next to numbers can order differently from Chrome), and scripts beyond
+  those listed
 - Browser-parity metrics: text measured with the real font, baselines like Chrome
 - Automatic hyphenation
 - `font-feature-settings` (e.g. `"zero" 1`, `"smcp" 1`) applies single-glyph OpenType

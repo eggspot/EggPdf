@@ -78,16 +78,30 @@ public static class LogicalPropertyResolver
         MapProperty(style, "inset-block-start", "top", isVertical);
         MapProperty(style, "inset-block-end", "bottom", isVertical);
 
-        // text-align logical values
-        var textAlign = style.Get("text-align");
-        if (textAlign == "start") style.Set("text-align", isRTL ? "right" : "left");
-        else if (textAlign == "end") style.Set("text-align", isRTL ? "left" : "right");
+        // text-align: start/end are deliberately NOT rewritten here. `text-align` is inherited, so
+        // rewriting on the (LTR) root would hand every descendant the already-physical "left",
+        // and a `dir="rtl"` subtree could never right-align. Consumers resolve per element with
+        // PhysicalTextAlign instead.
 
         // float: inline-start/inline-end -- resolved here so every consumer of the `float`
         // property downstream (layout, painting) only ever sees "left"/"right"/"none".
         var floatValue = style.Get("float");
         if (floatValue == "inline-start") style.Set("float", isRTL ? "right" : "left");
         else if (floatValue == "inline-end") style.Set("float", isRTL ? "left" : "right");
+    }
+
+    /// <summary>
+    /// The element's text-align as a physical value: <c>start</c>/<c>end</c> (and an unset value in an
+    /// RTL context, whose initial value is <c>start</c>) resolve against the element's own direction.
+    /// </summary>
+    public static string? PhysicalTextAlign(ComputedStyle style)
+    {
+        var value = style.Get("text-align");
+        bool rtl = style.Get("direction") == "rtl";
+        if (string.IsNullOrEmpty(value)) return rtl ? "right" : value;
+        if (value == "start") return rtl ? "right" : "left";
+        if (value == "end") return rtl ? "left" : "right";
+        return value;
     }
 
     private static void MapProperty(ComputedStyle style, string logicalProp, string physicalProp, bool isVertical)

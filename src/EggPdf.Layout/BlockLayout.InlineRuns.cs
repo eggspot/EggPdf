@@ -198,17 +198,30 @@ public static partial class BlockLayout
             // still meets the smaller surrounding text instead of hanging below it.
             float baselineShift = (parentFontSize - run.FontSize) * 0.8f;
 
-            // Iterate words inline — avoids allocating a string[] upfront.
+            // Iterate words inline — avoids allocating a string[] upfront. Thai has no spaces
+            // between words, so a Thai run is pre-split into syllable-boundary pieces that rejoin
+            // without a space (the same heuristic the plain-text wrapper uses).
+            var thaiPieces = EggPdf.Text.ThaiLineBreaker.ContainsThai(text) ? SplitThaiWords(text) : null;
+            int thaiIndex = 0;
             int wPos = 0;
             bool firstWord = true;
-            while (wPos < text.Length)
+            while (thaiPieces != null ? thaiIndex < thaiPieces.Count : wPos < text.Length)
             {
-                while (wPos < text.Length && text[wPos] == ' ') wPos++;
-                if (wPos >= text.Length) break;
-                int wEnd = text.IndexOf(' ', wPos);
-                if (wEnd < 0) wEnd = text.Length;
-                string word = text.Substring(wPos, wEnd - wPos);
-                wPos = wEnd;
+                string word;
+                bool joinNoSpace = false;
+                if (thaiPieces != null)
+                {
+                    (word, joinNoSpace) = thaiPieces[thaiIndex++];
+                }
+                else
+                {
+                    while (wPos < text.Length && text[wPos] == ' ') wPos++;
+                    if (wPos >= text.Length) break;
+                    int wEnd = text.IndexOf(' ', wPos);
+                    if (wEnd < 0) wEnd = text.Length;
+                    word = text.Substring(wPos, wEnd - wPos);
+                    wPos = wEnd;
+                }
 
                 // Apply the float-based left inset before measuring/placing, if this is a
                 // fresh, not-yet-indented line (no-op when floats is null).
@@ -218,7 +231,7 @@ public static partial class BlockLayout
                 // whitespace ("đến <strong>bản</strong>": the space belongs to the
                 // text run, not the strong run).
                 bool notAtLineStart = floatsActive ? !atLineStart : inlineX > 0;
-                bool needSpace = notAtLineStart && (!firstWord || run.HasLeadingSpace || prevRunTrailingSpace);
+                bool needSpace = notAtLineStart && !joinNoSpace && (!firstWord || run.HasLeadingSpace || prevRunTrailingSpace);
                 var wordText = needSpace ? " " + word : word;
                 float wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                 float rightLimit = RightLimit(Math.Max(inlineLineHeight, lhRun), childY);
@@ -326,6 +339,39 @@ public static partial class BlockLayout
             char lastRunChar = run.Text.Length > 0 ? run.Text[run.Text.Length - 1] : '\0';
             prevRunTrailingSpace = lastRunChar != NonBreakingSpace && char.IsWhiteSpace(lastRunChar);
         }
+    }
+
+
+    /// <summary>
+    /// Split a run into words on spaces, then split Thai words at syllable-boundary break
+    /// opportunities. Pieces after the first of a Thai word carry <c>noSpace</c> so they rejoin
+    /// the previous piece without a space.
+    /// </summary>
+    private static string[] ExpandThaiWords(string[] words, out bool[] noSpace)
+    {
+        var pieces = new List<string>(words.Length + 8);
+        var flags = new List<bool>(words.Length + 8);
+        foreach (var word in words)
+        {
+            if (!EggPdf.Text.ThaiLineBreaker.ContainsThai(word)) { pieces.Add(word); flags.Add(false); continue; }
+            var segments = EggPdf.Text.ThaiLineBreaker.Split(word);
+            for (int i = 0; i < segments.Count; i++) { pieces.Add(segments[i]); flags.Add(i > 0); }
+        }
+        noSpace = flags.ToArray();
+        return pieces.ToArray();
+    }
+
+    /// <summary>As <see cref="ExpandThaiWords"/> but for one run's text: split on spaces first.</summary>
+    private static List<(string word, bool noSpace)> SplitThaiWords(string text)
+    {
+        var pieces = new List<(string, bool)>();
+        foreach (var word in text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!EggPdf.Text.ThaiLineBreaker.ContainsThai(word)) { pieces.Add((word, false)); continue; }
+            var segments = EggPdf.Text.ThaiLineBreaker.Split(word);
+            for (int i = 0; i < segments.Count; i++) pieces.Add((segments[i], i > 0));
+        }
+        return pieces;
     }
 
 }
