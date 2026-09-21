@@ -525,7 +525,8 @@ public static partial class BlockLayout
                             // provisional -- see the childFloatOriginY comment above).
                             float floatRegY = floatOriginY + box.PaddingTop + childY;
                             var shape = ShapeOutsideParser.Parse(childStyle.Get("shape-outside"),
-                                childBox.Width, childBox.Height, fontSize);
+                                childBox.Width, childBox.Height, fontSize,
+                                ShapeOutsideParser.ParseThreshold(childStyle.Get("shape-image-threshold")));
                             if (floatValue == "left")
                                 floatCtx.AddLeftFloat(childBox.X, floatRegY, childBox.Width, childBox.Height, shape);
                             else
@@ -612,6 +613,25 @@ public static partial class BlockLayout
                     // Image element: use width/height attributes or CSS
                     float imgWidth = ResolveImgDimension(childStyle.Width, childElem.GetAttribute("width"), childContainingWidth, fontSize, 150);
                     float imgHeight = ResolveImgDimension(childStyle.Height, childElem.GetAttribute("height"), 0, fontSize, 150);
+
+                    // A floated <img> leaves normal flow: pinned to the container edge, registered so
+                    // following text wraps around it (also around its shape-outside)
+                    var imgFloatSide = childStyle.Get("float");
+                    if (imgFloatSide == "left" || imgFloatSide == "right")
+                    {
+                        if (inlineX > 0)
+                        {
+                            childY += inlineLineHeight;
+                            inlineX = 0;
+                            inlineLineHeight = 0;
+                        }
+                        AddFloatedImage(box, childElem, childStyle, imgFloatSide, imgWidth, imgHeight,
+                            ResolveSrcset(childElem.GetAttribute("srcset"), imgWidth) ?? childElem.GetAttribute("src"),
+                            childContainingWidth, fontSize, floatCtx, floatOriginY, ref childY,
+                            ref leftFloatBottom, ref rightFloatBottom);
+                        lastWasTextNode = false;
+                        continue;
+                    }
 
                     // display:block images occupy their own line
                     bool imgIsBlock = IsBlockLevel(childStyle.Display);

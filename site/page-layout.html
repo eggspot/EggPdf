@@ -219,9 +219,10 @@
         line, the same as a browser &mdash; a paragraph next to a floated image indents around it,
         not just past its top edge. <code>shape-outside: circle()</code>,
         <code>ellipse()</code>, <code>polygon()</code> and <code>inset()</code> refine the exclusion to the shape's actual per-line extent instead
-        of the float's full rectangular bounding box (rounded <code>inset()</code> corners are treated as square);
-        <code>url()</code> image shapes fall back to the
-        float's plain rectangular exclusion. <code>clear: left</code> / <code>right</code> /
+        of the float's full rectangular bounding box (rounded <code>inset()</code> corners included);
+        <code>url()</code> shapes follow the image's alpha above <code>shape-image-threshold</code>
+        (a JPEG has no alpha, so it keeps the float's plain rectangular exclusion). Floated
+        <code>&lt;img&gt;</code> elements wrap text the same way. <code>clear: left</code> / <code>right</code> /
         <code>both</code> pushes content below active floats as expected.
       </p>
       <div class="code-block"><pre><code><span class="cmt">/* Text wraps around the image, narrowing near its top/bottom via shape-outside */</span>

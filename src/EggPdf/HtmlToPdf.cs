@@ -297,6 +297,9 @@ public static partial class HtmlToPdf
             };
         }
 
+        // shape-outside: url() needs the image's alpha at layout time, before images are otherwise decoded
+        BlockLayout.ShapeImageLoader = LoadShapeImageAlpha;
+
         // Complex-script text (Thai, Indic, Arabic with marks) measures with real shaped advances.
         TextMeasurer.ComplexFontProvider = CreateComplexFontProvider(fontFaces);
 
@@ -343,6 +346,7 @@ public static partial class HtmlToPdf
         {
             TextMeasurer.FontDataProvider = null;
             TextMeasurer.ComplexFontProvider = null;
+            BlockLayout.ShapeImageLoader = null;
         }
     }
 
@@ -802,7 +806,7 @@ public static partial class HtmlToPdf
         }
         if (WebPDecoder.IsWebP(data))
         {
-            return PdfImage.FromWebP(imgName, data); // RIFF/WEBP signature (VP8L lossless only)
+            return PdfImage.FromWebP(imgName, data); // RIFF/WEBP signature (VP8, VP8L, VP8X)
         }
         return null;
     }

@@ -7,8 +7,9 @@ namespace EggPdf.Layout;
 /// A parsed `shape-outside` descriptor -- circle(), ellipse(), polygon() or inset() -- in
 /// coordinates local to the float's own border box (its "reference box"; other geometry-box
 /// keywords like margin-box/padding-box are not supported, border-box is used unconditionally).
-/// url()/image alpha shapes are not supported (image pixels are not known at layout time): a
-/// float with one keeps its plain rectangular exclusion, as does an unparseable value.
+/// url() shapes need the image's alpha channel, supplied at layout time by
+/// <see cref="ShapeOutsideParser.ImageLoader"/>; without a loader (or when decoding fails) a float keeps its plain
+/// rectangular exclusion, as does an unparseable value.
 /// </summary>
 internal readonly struct ShapeOutsideDescriptor
 {
@@ -16,17 +17,26 @@ internal readonly struct ShapeOutsideDescriptor
     public readonly float Rx, Ry;
     /// <summary>polygon()/inset() vertices as x0,y0,x1,y1,... (null for circle/ellipse).</summary>
     private readonly float[]? _points;
+    /// <summary>url() shapes: per image row, the leftmost/rightmost x (float-local) holding a pixel above the threshold, NaN for empty rows.</summary>
+    private readonly float[]? _rowLeft, _rowRight;
+    private readonly float _height;
 
     public ShapeOutsideDescriptor(float cx, float cy, float rx, float ry)
     {
         Cx = cx; Cy = cy; Rx = rx; Ry = ry;
-        _points = null;
+        _points = null; _rowLeft = _rowRight = null; _height = 0;
     }
 
     public ShapeOutsideDescriptor(float[] polygonPoints)
     {
         Cx = Cy = Rx = Ry = 0;
-        _points = polygonPoints;
+        _points = polygonPoints; _rowLeft = _rowRight = null; _height = 0;
+    }
+
+    public ShapeOutsideDescriptor(float[] rowLeft, float[] rowRight, float height)
+    {
+        Cx = Cy = Rx = Ry = 0;
+        _points = null; _rowLeft = rowLeft; _rowRight = rowRight; _height = height;
     }
 
     /// <summary>
@@ -36,6 +46,7 @@ internal readonly struct ShapeOutsideDescriptor
     /// </summary>
     public float? RightEdgeInRange(float top, float bottom)
     {
+        if (_rowLeft != null) return RowExtent(top, bottom, right: true);
         if (_points != null)
             return PolygonExtent(top, bottom, out _, out float max) ? max : (float?)null;
 
@@ -47,11 +58,30 @@ internal readonly struct ShapeOutsideDescriptor
     /// <summary>The shape's leftmost X (local to the float's left edge) in the local Y range, or null if absent.</summary>
     public float? LeftEdgeInRange(float top, float bottom)
     {
+        if (_rowLeft != null) return RowExtent(top, bottom, right: false);
         if (_points != null)
             return PolygonExtent(top, bottom, out float min, out _) ? min : (float?)null;
 
         float? best = null;
         SampleEllipse(top, bottom, -1, ref best);
+        return best;
+    }
+
+    /// <summary>Extreme edge over the image rows a line box [top, bottom] covers; null when they are all empty.</summary>
+    private float? RowExtent(float top, float bottom, bool right)
+    {
+        int rows = _rowLeft!.Length;
+        if (rows == 0 || _height <= 0f) return null;
+        int first = Math.Max(0, (int)Math.Floor(top / _height * rows));
+        int last = Math.Min(rows - 1, Math.Max(first, (int)Math.Ceiling(bottom / _height * rows) - 1));
+
+        float? best = null;
+        for (int r = first; r <= last; r++)
+        {
+            float v = right ? _rowRight![r] : _rowLeft[r];
+            if (float.IsNaN(v)) continue;
+            if (!best.HasValue || (right ? v > best.Value : v < best.Value)) best = v;
+        }
         return best;
     }
 
@@ -116,12 +146,16 @@ internal readonly struct ShapeOutsideDescriptor
 
 internal static partial class ShapeOutsideParser
 {
+    /// <summary>Supplies an image's alpha channel (width, height, one byte per pixel) for <c>shape-outside: url()</c>; set per render.</summary>
+    [ThreadStatic]
+    public static Func<string, (int width, int height, byte[] alpha)?>? ImageLoader;
+
     /// <summary>
     /// Parse a `shape-outside` value into a descriptor local to the float's own border box
     /// (width x height). Returns null for unsupported shapes (url, none) or an unparseable
     /// value -- callers fall back to the plain rectangular float exclusion in that case.
     /// </summary>
-    public static ShapeOutsideDescriptor? Parse(string? value, float width, float height, float fontSize)
+    public static ShapeOutsideDescriptor? Parse(string? value, float width, float height, float fontSize, float imageThreshold = 0f)
     {
         if (string.IsNullOrEmpty(value)) return null;
         var v = value!.Trim();
@@ -130,6 +164,8 @@ internal static partial class ShapeOutsideParser
             return ParsePolygon(v, width, height, fontSize);
         if (v.StartsWith("inset(", StringComparison.OrdinalIgnoreCase))
             return ParseInset(v, width, height, fontSize);
+        if (v.StartsWith("url(", StringComparison.OrdinalIgnoreCase))
+            return ParseUrl(v, width, height, imageThreshold);
 
         bool isEllipse = v.StartsWith("ellipse(", StringComparison.OrdinalIgnoreCase);
         bool isCircle = !isEllipse && v.StartsWith("circle(", StringComparison.OrdinalIgnoreCase);

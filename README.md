@@ -116,9 +116,10 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Full HTML5 parsing (WHATWG spec-compliant)
 - CSS 2.1 complete + CSS3 (Flexbox with auto margins & baseline alignment, Grid incl.
   `grid-auto-flow: dense` and `grid-auto-rows`/`grid-auto-columns`, Multi-column)
-- `float: left`/`right` narrows sibling inline content per line (real text wrap-around, not just
-  positioning), including `shape-outside: circle()`/`ellipse()`/`polygon()`/`inset()` for a non-rectangular exclusion
-  (`url()` image shapes fall back to the float's plain rectangular bounds)
+- `float: left`/`right` (on blocks and `<img>`) narrows sibling inline content per line (real text
+  wrap-around, not just positioning), including `shape-outside: circle()`/`ellipse()`/`polygon()`/
+  `inset()` (rounded corners included) and `url()` image shapes (the image's alpha above
+  `shape-image-threshold`; JPEG has no alpha, so it falls back to the float's rectangular bounds)
 - `overflow: hidden`/`clip` and `contain: paint`/`contain: strict` actually clip descendant
   painted content to the element's bounds, not just its own background/border
 - `direction: rtl` / the `dir` attribute: default `text-align` follows the direction; logical properties (margin/padding/border-width/border-color/
