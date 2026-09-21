@@ -137,6 +137,58 @@ public class VariableFontInstancerTests
     }
 
     [Fact]
+    public void InstanceFor_WidthAxis_NarrowsTheFont_AndIsCached()
+    {
+        var font = Load("bahnschrift.ttf");
+        if (font == null) return;
+
+        var axes = new Dictionary<string, float> { ["wdth"] = 75 };
+        var narrow = VariableFontInstancer.InstanceFor(font, 400, axes);
+
+        narrow.Should().NotBeSameAs(font);
+        (narrow.MeasureTextWidth("Hamburgefonstiv") / (double)narrow.UnitsPerEm)
+            .Should().BeLessThan(font.MeasureTextWidth("Hamburgefonstiv") / (double)font.UnitsPerEm * 0.8);
+        VariableFontInstancer.InstanceFor(font, 400, new Dictionary<string, float> { ["wdth"] = 75 }).Should().BeSameAs(narrow);
+    }
+
+    [Fact]
+    public void InstanceFor_ExplicitWghtAxis_OverridesTheCssWeight()
+    {
+        var font = Load("bahnschrift.ttf");
+        if (font == null) return;
+
+        var viaAxis = VariableFontInstancer.InstanceFor(font, 400, new Dictionary<string, float> { ["wght"] = 700 });
+        var viaWeight = VariableFontInstancer.InstanceFor(font, 700, null);
+        GlyphBox(viaAxis, viaAxis.GetGlyphId('I')).Should().Be(GlyphBox(viaWeight, viaWeight.GetGlyphId('I')));
+    }
+
+    [Fact]
+    public void InstanceFor_AxesTheFontLacks_ReturnTheFontUnchanged()
+    {
+        var arial = Load("arial.ttf");
+        if (arial == null) return;
+        VariableFontInstancer.InstanceFor(arial, 400, new Dictionary<string, float> { ["wdth"] = 75 }).Should().BeSameAs(arial);
+    }
+
+    [Fact]
+    public async Task FontStretch_OnAnInstalledVariableFont_NarrowsTextSoItWrapsLater()
+    {
+        if (Load("bahnschrift.ttf") == null) return;
+
+        string Html(string stretch) => "<html><head><style>@page{size:600px 400px;margin:0}body{margin:0}" +
+            "div{width:210px;font-family:Bahnschrift;font-size:30px;line-height:40px;font-stretch:" + stretch + "}</style></head>" +
+            "<body><div>Hamburg fonstiv</div></body></html>";
+
+        int Lines(string pdf) => System.Text.RegularExpressions.Regex.Matches(pdf, @"(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?) Td")
+            .Select(m => m.Groups[2].Value).Distinct().Count();
+
+        var normal = Encoding.Latin1.GetString(await HtmlToPdf.RenderAsync(Html("100%")));
+        var condensed = Encoding.Latin1.GetString(await HtmlToPdf.RenderAsync(Html("75%")));
+
+        Lines(normal).Should().BeGreaterThan(Lines(condensed), "at 75% width the two words fit on one 210px line");
+    }
+
+    [Fact]
     public void InstanceForWeight_CompositeGlyph_FollowsItsComponents()
     {
         var font = Load("bahnschrift.ttf");

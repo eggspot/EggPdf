@@ -202,7 +202,9 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Variable fonts (TrueType `glyf` outlines with fvar/gvar/avar/HVAR, e.g. Bahnschrift, Inter, Roboto Flex):
   `font-weight` drives the `wght` axis, so `@font-face` with `font-weight: 100 900` (or an installed
   variable font) renders intermediate weights as real instances, verified against Chrome's outlines;
-  `font-stretch`/`font-variation-settings` on other axes and CFF2-flavoured variable fonts are not applied
+  `font-stretch` (`wdth`), `font-style: oblique <angle>` (`slnt`) and `font-variation-settings`
+  (any axis, e.g. `"opsz"`, `"GRAD"`) drive the matching axes and the text is measured with them;
+  CFF2-flavoured variable fonts are not applied
 - Color/emoji fonts (COLR v0 + CPAL) render each glyph's real color layers -- COLRv1
   (gradients, paint graphs -- e.g. current Segoe UI Emoji) is not supported and falls
   back to the glyph's outline in the current text color

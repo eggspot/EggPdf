@@ -164,10 +164,10 @@ public static class StandardFontMetrics
         {
             bold = false; // the weight suffix carries the variant instead
             var baseName = ResolveBaseFontName(fontFamily, false, italic);
-            return baseName + "-W" + numericWeight;
+            return baseName + EggPdf.Css.FontVariationMarker.NameSuffix(fontFamily) + "-W" + numericWeight;
         }
 
-        return ResolveBaseFontName(fontFamily, bold, italic);
+        return ResolveBaseFontName(fontFamily, bold, italic) + EggPdf.Css.FontVariationMarker.NameSuffix(fontFamily);
     }
 
     /// <summary>

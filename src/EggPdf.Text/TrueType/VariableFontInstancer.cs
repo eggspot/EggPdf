@@ -22,8 +22,8 @@ public static partial class VariableFontInstancer
         public Axis(string tag, float min, float def, float max) { Tag = tag; Min = min; Default = def; Max = max; }
     }
 
-    private static readonly ConditionalWeakTable<FontData, Dictionary<int, FontData?>> WeightCache =
-        new ConditionalWeakTable<FontData, Dictionary<int, FontData?>>();
+    private static readonly ConditionalWeakTable<FontData, Dictionary<string, FontData?>> InstanceCache =
+        new ConditionalWeakTable<FontData, Dictionary<string, FontData?>>();
 
     /// <summary>The variation axes of <paramref name="font"/>, or an empty list for a static font.</summary>
     public static IReadOnlyList<Axis> GetAxes(FontData font)
@@ -37,31 +37,47 @@ public static partial class VariableFontInstancer
     /// weight (clamped to the axis range) and re-parsed; any other font is returned unchanged. Results are
     /// cached per font and weight.
     /// </summary>
-    public static FontData InstanceForWeight(FontData font, int weight)
+    public static FontData InstanceForWeight(FontData font, int weight) => InstanceFor(font, weight, null);
+
+    /// <summary>
+    /// The font at a CSS weight plus explicit design-axis values (wdth, slnt, opsz, custom tags; an explicit
+    /// <c>wght</c> in <paramref name="axes"/> overrides <paramref name="weight"/>). Only axes the font actually has
+    /// take part; a font with none of them is returned unchanged. Results are cached per font and settings.
+    /// </summary>
+    public static FontData InstanceFor(FontData font, int weight, IReadOnlyDictionary<string, float>? axes)
     {
         if (font.RawData == null || font.RawData.Length == 0) return font;
 
-        var perFont = WeightCache.GetOrCreateValue(font);
+        var key = new System.Text.StringBuilder().Append(weight);
+        if (axes != null)
+            foreach (var kv in new SortedDictionary<string, float>(new Dictionary<string, float>(axes), StringComparer.Ordinal))
+                key.Append('|').Append(kv.Key).Append('=').Append(kv.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+        var cacheKey = key.ToString();
+
+        var perFont = InstanceCache.GetOrCreateValue(font);
         lock (perFont)
         {
-            if (perFont.TryGetValue(weight, out var cached)) return cached ?? font;
+            if (perFont.TryGetValue(cacheKey, out var cached)) return cached ?? font;
 
             FontData? instance = null;
             var sfnt = Sfnt.TryRead(font.RawData);
             if (sfnt != null && sfnt.Has("fvar") && sfnt.Has("gvar"))
             {
-                bool hasWeight = false;
-                foreach (var axis in ReadAxes(sfnt)) hasWeight |= axis.Tag == "wght";
-                if (hasWeight)
+                var requested = new Dictionary<string, float> { ["wght"] = weight };
+                if (axes != null) foreach (var kv in axes) requested[kv.Key] = kv.Value;
+
+                bool usable = false;
+                foreach (var axis in ReadAxes(sfnt)) usable |= requested.ContainsKey(axis.Tag);
+                if (usable)
                 {
-                    var bytes = Instantiate(font.RawData, new Dictionary<string, float> { ["wght"] = weight });
+                    var bytes = Instantiate(font.RawData, requested);
                     if (bytes != null)
                     {
                         try { instance = TtfParser.Parse(bytes); } catch (Exception) { instance = null; }
                     }
                 }
             }
-            perFont[weight] = instance;
+            perFont[cacheKey] = instance;
             return instance ?? font;
         }
     }

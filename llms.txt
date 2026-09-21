@@ -163,7 +163,7 @@ netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0
 - Tables spanning any number of pages without row loss, with `<thead>` repeating at the top of every continuation page
 - TrueType/OpenType embedding with subsetting
 - `font-feature-settings` single-glyph OpenType features (stylistic sets, small caps, oldstyle/tabular figures) via the font's GSUB table -- ligatures/contextual substitution not applied
-- Variable fonts (glyf-flavoured: fvar/gvar/avar/HVAR): font-weight drives the wght axis (instanced per weight, incl. @font-face `font-weight: 100 900` ranges); other axes / font-variation-settings / CFF2 are not applied
+- Variable fonts (glyf-flavoured: fvar/gvar/avar/HVAR): font-weight drives the wght axis (instanced per weight, incl. @font-face `font-weight: 100 900` ranges); font-stretch (wdth), oblique angle (slnt) and font-variation-settings (any axis) drive the matching axes; CFF2 variable fonts are not applied
 - Color/emoji fonts: COLR v0 + CPAL color layers render in their real colors; COLRv1 (gradients/paint graphs, e.g. current Segoe UI Emoji) falls back to a monochrome outline
 - Digital signatures: one-call X.509 signing (detached CMS/PKCS#7, adbe.pkcs7.detached) or external-CMS two-step flow
 - Encryption: RC4 40/128-bit with owner/user passwords and permission flags — one-call `HtmlToPdf.Render(html, new PdfEncryption {...})` or REST /api/encrypt; all streams and strings encrypted per the PDF 1.7 Standard security handler

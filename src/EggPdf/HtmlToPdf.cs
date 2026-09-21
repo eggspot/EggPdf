@@ -270,7 +270,8 @@ public static partial class HtmlToPdf
         // 4b. When @font-face webfonts are declared, measure text with the real
         // font metrics so layout matches the glyphs the PDF paints.
         var fontFaces = BuildFontFaceMap(stylesheets);
-        if (fontFaces.Count > 0)
+        bool usesVariations = UsesFontVariations(html, stylesheets);
+        if (fontFaces.Count > 0 || usesVariations)
         {
             PrefetchWebFonts(fontFaces);
             var measureResolver = SharedFontResolver;
@@ -282,7 +283,15 @@ public static partial class HtmlToPdf
                 if (measureCache.TryGetValue(key, out var cached)) return cached;
 
                 bool italic = fontStyle == "italic" || fontStyle == "oblique";
-                var data = TryResolveFontFace(family, fontFaces, ParseFontWeight(weight), italic, measureResolver);
+                int numericWeight = ParseFontWeight(weight);
+                var data = TryResolveFontFace(family, fontFaces, numericWeight, italic, measureResolver);
+                if (data == null && family.IndexOf("__vf:", StringComparison.Ordinal) >= 0)
+                {
+                    // No webfont: measure an installed variable font at its axes too, so wrapping matches the embedded instance
+                    var cleanFamily = Css.FontVariationMarker.Split(family, out var axes);
+                    var system = TryResolveSystemFont(cleanFamily, measureResolver, numericWeight >= 600, italic);
+                    if (system != null) data = Text.TrueType.VariableFontInstancer.InstanceFor(system, numericWeight, axes);
+                }
                 measureCache[key] = data;
                 return data;
             };
@@ -869,6 +878,7 @@ public static partial class HtmlToPdf
             int targetWeight = ParseWeightSuffix(pdfFontName) ?? (bold ? 700 : 400);
             if (targetWeight >= 600) bold = true;
             fontFamilyLists.TryGetValue(pdfFontName, out var familyList);
+            var systemFamilyList = Css.FontVariationMarker.Split(familyList, out var variationAxes);
 
             // 1. Webfont: first family in the list with a declared @font-face wins,
             //    mirroring the browser's font selection.
@@ -884,7 +894,7 @@ public static partial class HtmlToPdf
             // 3. System fonts: real families from the list, then metric-compatible
             //    substitutes for the standard font class.
             if (fontData == null)
-                fontData = TryResolveSystemFont(familyList, fontResolver, bold, italic);
+                fontData = TryResolveSystemFont(systemFamilyList, fontResolver, bold, italic);
 
             if (fontData == null)
             {
@@ -918,7 +928,7 @@ public static partial class HtmlToPdf
                 continue;
 
             // System variable fonts (e.g. Bahnschrift) follow the requested weight too
-            fontData = Text.TrueType.VariableFontInstancer.InstanceForWeight(fontData, targetWeight);
+            fontData = Text.TrueType.VariableFontInstancer.InstanceFor(fontData, targetWeight, variationAxes);
 
             // Subset the font to only include used glyphs (process-wide cache).
             // GSUB-substituted glyphs (font-feature-settings) are baked into the subset
@@ -1002,7 +1012,9 @@ public static partial class HtmlToPdf
     {
         if (string.IsNullOrEmpty(familyList) || fontFaces.Count == 0) return null;
 
-        var families = familyList!.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+        // Variable-font axes (font-stretch, font-variation-settings, ...) ride along as a marker entry
+        familyList = Css.FontVariationMarker.Split(familyList, out var axes);
+        var families = familyList.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
         foreach (var rawFamily in families)
         {
             var family = rawFamily.Trim().Trim('"', '\'').ToLowerInvariant();
@@ -1044,8 +1056,8 @@ public static partial class HtmlToPdf
                     }
                 }
 
-                // A variable font is instanced at the requested weight (no-op for static fonts)
-                if (fontData != null) return Text.TrueType.VariableFontInstancer.InstanceForWeight(fontData, targetWeight);
+                // A variable font is instanced at the requested weight and axes (no-op for static fonts)
+                if (fontData != null) return Text.TrueType.VariableFontInstancer.InstanceFor(fontData, targetWeight, axes);
             }
         }
 
