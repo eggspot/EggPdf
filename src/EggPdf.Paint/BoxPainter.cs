@@ -556,7 +556,7 @@ public static partial class BoxPainter
             // following line with their descenders.
             float lineBoxHeight = box.Height > 0 ? box.Height : fontSize * 1.2f;
             float baselineOffset = TextMeasurer.GetBaselineOffset(fontSize, lineBoxHeight,
-                box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"));
+                box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"), box.Text);
             float pdfY = (pageHeightPx - adjustedY - box.PaddingTop - baselineOffset) * PdfCoordinates.PxToPt;
 
             // Vertical-align baseline shift (sup/sub/super/sub)

@@ -125,22 +125,65 @@ public static class TextMeasurer
     /// 0.86em/0.14em approximation for built-in fonts).
     /// </summary>
     public static float GetBaselineOffset(float fontSize, float lineBoxHeight,
-        string? fontFamily, string? fontWeight, string? fontStyle)
+        string? fontFamily, string? fontWeight, string? fontStyle, string? text = null)
     {
         float asc = 0.86f, desc = 0.14f;
-        var fd = FontDataProvider?.Invoke(fontFamily, fontWeight, fontStyle);
-        if (fd != null && fd.UnitsPerEm > 0 && fd.Ascent > 0)
+        var complex = text == null ? null : ComplexMetrics(fontFamily, fontWeight, fontStyle, text);
+        if (complex.HasValue)
         {
-            float a = (float)fd.Ascent / fd.UnitsPerEm;
-            float d = Math.Abs((float)fd.Descent) / fd.UnitsPerEm;
-            if (a >= 0.5f && a <= 1.2f && d <= 0.6f)
+            asc = complex.Value.ascent;
+            desc = complex.Value.descent;
+        }
+        else
+        {
+            var fd = FontDataProvider?.Invoke(fontFamily, fontWeight, fontStyle);
+            if (fd != null && fd.UnitsPerEm > 0 && fd.Ascent > 0)
             {
-                asc = a;
-                desc = d;
+                float a = (float)fd.Ascent / fd.UnitsPerEm;
+                float d = Math.Abs((float)fd.Descent) / fd.UnitsPerEm;
+                if (a >= 0.5f && a <= 1.2f && d <= 0.6f)
+                {
+                    asc = a;
+                    desc = d;
+                }
             }
         }
         float halfLeading = (lineBoxHeight - (asc + desc) * fontSize) / 2f;
         return halfLeading + asc * fontSize;
+    }
+
+    /// <summary>
+    /// Ascent/descent/line-gap (in em) of the font that shapes <paramref name="text"/>, for complex
+    /// scripts only. Tall fonts (Myanmar, Khmer, Indic) need far more than the 1.2em default line box
+    /// or consecutive lines collide; null for text that isn't shaped or has no shaping font.
+    /// </summary>
+    private static (float ascent, float descent, float lineGap)? ComplexMetrics(
+        string? fontFamily, string? fontWeight, string? fontStyle, string text)
+    {
+        if (ComplexFontProvider == null || !EggPdf.Text.OpenType.ComplexTextShaper.NeedsShaping(text)) return null;
+        var font = ComplexFontProvider(fontFamily, fontWeight, fontStyle, text);
+        if (font == null || font.UnitsPerEm <= 0 || font.Ascent <= 0) return null;
+
+        float asc = (float)font.Ascent / font.UnitsPerEm;
+        float desc = Math.Abs((float)font.Descent) / font.UnitsPerEm;
+        float gap = Math.Max(0, font.LineGap) / (float)font.UnitsPerEm;
+        return asc + desc >= 0.5f && asc + desc <= 3f ? (asc, desc, gap) : ((float, float, float)?)null;
+    }
+
+    /// <summary>
+    /// Line height honouring font metrics for complex-script text: <c>line-height: normal</c> is the
+    /// shaping font's ascent + descent + line gap (as browsers compute it) instead of the fixed 1.2em.
+    /// Everything else defers to <see cref="GetLineHeight(float, string?)"/>.
+    /// </summary>
+    public static float GetLineHeight(float fontSize, string? lineHeight,
+        string? fontFamily, string? fontWeight, string? fontStyle, string text)
+    {
+        if (string.IsNullOrEmpty(lineHeight) || lineHeight == "normal")
+        {
+            var m = ComplexMetrics(fontFamily, fontWeight, fontStyle, text);
+            if (m.HasValue) return fontSize * (m.Value.ascent + m.Value.descent + m.Value.lineGap);
+        }
+        return GetLineHeight(fontSize, lineHeight);
     }
 
     /// <summary>Count glyphs (surrogate pairs form one glyph).</summary>

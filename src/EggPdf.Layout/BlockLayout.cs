@@ -837,7 +837,8 @@ public static partial class BlockLayout
                     var ilFontWeight = style.FontWeight;
                     var ilFontStyle = style.Get("font-style");
                     float ilLetterSpacing = ResolveLength(style.Get("letter-spacing"), 0, fontSize);
-                    float ilLineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
+                    float ilLineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"),
+                        ilFontFamily, ilFontWeight, ilFontStyle, textNode.Data);
                     var ilTextData = TrimHtmlText(textNode.Data);
                     if (string.IsNullOrEmpty(ilTextData)) continue;
 
@@ -908,7 +909,8 @@ public static partial class BlockLayout
                     var fatFontFamily = style.FontFamily;
                     var fatFontWeight = style.FontWeight;
                     var fatFontStyle = style.Get("font-style");
-                    float fatLineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
+                    float fatLineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"),
+                        fatFontFamily, fatFontWeight, fatFontStyle, textNode.Data);
                     float fatLetterSpacing = ResolveLength(style.Get("letter-spacing"), 0, fontSize);
                     var fatWhiteSpace = style.Get("white-space") ?? "normal";
                     bool fatPreserve = fatWhiteSpace == "pre" || fatWhiteSpace == "pre-wrap" || fatWhiteSpace == "pre-line";
@@ -1003,7 +1005,8 @@ public static partial class BlockLayout
                 var fontFamily = style.FontFamily;
                 var fontWeight = style.FontWeight;
                 var fontStyle = style.Get("font-style");
-                float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
+                float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"),
+                    fontFamily, fontWeight, fontStyle, textNode.Data);
                 float textIndent = ResolveLength(style.Get("text-indent"), childContainingWidth, fontSize);
                 var textData = preserveWhitespace ? textNode.Data : TrimHtmlText(textNode.Data);
 

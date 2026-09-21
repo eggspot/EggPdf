@@ -185,7 +185,8 @@ public static partial class BlockLayout
             var fontWeight = run.Style.FontWeight;
             var fontStyle = run.Style.Get("font-style");
             float runLetterSpacing = ResolveLength(run.Style.Get("letter-spacing"), 0, run.FontSize);
-            float lhRun = TextMeasurer.GetLineHeight(run.FontSize, run.Style.Get("line-height"));
+            float lhRun = TextMeasurer.GetLineHeight(run.FontSize, run.Style.Get("line-height"),
+                fontFamily, fontWeight, fontStyle, text);
 
             var runOverflowWrap = run.Style.Get("overflow-wrap") ?? run.Style.Get("word-wrap");
             var runWordBreak = run.Style.Get("word-break");
