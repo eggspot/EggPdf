@@ -187,9 +187,12 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   Kannada, Malayalam, Sinhala, Khmer, Myanmar, Tibetan, Thai and Arabic. Long Thai, Lao, Khmer
   and Myanmar paragraphs wrap at syllable boundaries (a heuristic -- true word breaking needs a
   dictionary, so lines may end mid-word), and `line-height: normal` follows the shaping font's
-  ascent + descent + line gap (tall fonts such as Myanmar Text no longer collide). Not supported:
-  full UAX #9 bidi (neutral characters next to numbers can order differently from Chrome), and
-  scripts beyond those listed
+  ascent + descent + line gap (tall fonts such as Myanmar Text no longer collide). Text runs are
+  reordered with the full Unicode Bidirectional Algorithm (UAX #9: explicit embeddings, overrides
+  and isolates, weak-type and neutral resolution, paired brackets, mirroring), using the CSS
+  `direction` as the paragraph direction; character classes come from a compact table that is exact
+  for Latin, Hebrew, Arabic, Syriac, Thaana and NKo and category-derived elsewhere. Scripts beyond
+  those listed above are not shaped
 - Browser-parity metrics: text measured with the real font, baselines like Chrome
 - Automatic hyphenation
 - `font-feature-settings` (e.g. `"zero" 1`, `"smcp" 1`) applies single-glyph OpenType

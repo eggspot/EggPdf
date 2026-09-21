@@ -201,9 +201,10 @@
         Long Thai, Lao, Khmer and Myanmar paragraphs wrap at syllable boundaries; this is a
         heuristic, since real word breaking needs a dictionary (lines may end mid-word).
         <code>line-height: normal</code> uses the shaping font's ascent, descent and line gap, so
-        tall fonts such as Myanmar Text don't collide. Not supported: the full Unicode
-        bidirectional algorithm (neutral characters next to numbers can order differently from
-        Chrome), and scripts beyond those listed.
+        tall fonts such as Myanmar Text don't collide. Text is reordered with the full Unicode
+        Bidirectional Algorithm (UAX #9: explicit embeddings, overrides and isolates, weak-type and
+        neutral resolution, paired brackets, mirroring) using the CSS <code>direction</code> as the
+        paragraph direction. Scripts beyond those listed are not shaped.
       </p>
 
     </main>
