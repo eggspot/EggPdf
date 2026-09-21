@@ -146,7 +146,7 @@ netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0
 - CSS 2.1 + Flexbox (incl. auto margins, align-items:baseline), Grid (incl. grid-auto-flow:dense and grid-auto-rows/grid-auto-columns), Multi-column, Custom Properties
 - 2D/3D transforms: 3D functions (rotateX/Y/Z, translate3d, scale3d, matrix3d, perspective) are intentionally flattened to an equivalent 2D matrix since PDF has no 3D rendering, not skipped
 - content-visibility:hidden skips descendant layout/paint (own box/background/border still render); contain:paint/strict and overflow:hidden/clip actually clip descendant painted content to the element's bounds, not just its own background/border
-- float:left/right narrows sibling inline content per line (real wrap-around, not just positioning); shape-outside:circle()/ellipse() narrows the exclusion to the shape's per-line extent (polygon()/inset()/url() fall back to the plain rectangle); clear:left/right/both supported
+- float:left/right narrows sibling inline content per line (real wrap-around, not just positioning); shape-outside:circle()/ellipse()/polygon()/inset() narrows the exclusion to the shape's per-line extent (url() image shapes fall back to the plain rectangle); clear:left/right/both supported
 - direction:rtl / dir="rtl": logical properties (margin/padding/border-width/border-color/border-style/inset/border-radius corners, float:inline-start/inline-end) resolve to mirrored physical values; table columns lay out right-to-left and list markers hang on the right
 - @media print, @page rules
 - Webfonts: remote <link> stylesheets (Google Fonts) and @font-face over http(s)/data:/file, weight-accurate faces 300–900
