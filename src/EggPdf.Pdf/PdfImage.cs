@@ -124,37 +124,30 @@ public class PdfImage
     }
 
     /// <summary>
-    /// Create image from WebP data. Only the lossless (VP8L) codec is
-    /// decoded, via Vp8LDecoder, for a simple (non-VP8X) container -- a
-    /// direct "VP8L" chunk at offset 12. Lossy (VP8) WebP would need a full
-    /// intra/inter DCT video-codec decoder, and VP8X (extended, used for
-    /// lossy+alpha or ICCP/EXIF/XMP metadata) needs its own chunk parsing;
-    /// neither is implemented, so those degrade gracefully to no image
-    /// rather than rendering garbage.
+    /// Create image from WebP data: lossy (VP8, with or without a separately coded alpha plane) and
+    /// lossless (VP8L), in simple or extended (VP8X) containers; an animated file yields its first
+    /// frame. Fully opaque images carry no soft mask. Returns null when the data can't be decoded.
     /// </summary>
     public static PdfImage? FromWebP(string name, byte[] webpData)
     {
-        if (!WebPDecoder.IsWebP(webpData) || webpData.Length < 20)
-            return null;
-
-        bool isVp8L = webpData[12] == 'V' && webpData[13] == 'P' && webpData[14] == '8' && webpData[15] == 'L';
-        if (!isVp8L)
-            return null;
-
-        uint chunkSize = (uint)(webpData[16] | (webpData[17] << 8) | (webpData[18] << 16) | (webpData[19] << 24));
-        long payloadEnd = 20L + chunkSize;
-        if (chunkSize == 0 || payloadEnd > webpData.Length)
-            return null;
-
-        var payload = new byte[chunkSize];
-        Array.Copy(webpData, 20, payload, 0, (int)chunkSize);
-
-        var decoded = Vp8LDecoder.Decode(payload);
+        var decoded = WebPDecoder.Decode(webpData);
         if (decoded == null)
             return null;
 
-        var (width, height, argb) = decoded.Value;
-        return FromRgba(name, width, height, argb);
+        var (width, height, rgba) = decoded.Value;
+        bool opaque = true;
+        for (int i = 3; i < rgba.Length && opaque; i += 4) opaque = rgba[i] == 255;
+        if (!opaque)
+            return FromRgba(name, width, height, rgba);
+
+        var rgb = new byte[width * height * 3];
+        for (int i = 0; i < width * height; i++)
+        {
+            rgb[i * 3] = rgba[i * 4];
+            rgb[i * 3 + 1] = rgba[i * 4 + 1];
+            rgb[i * 3 + 2] = rgba[i * 4 + 2];
+        }
+        return FromRgb(name, width, height, rgb);
     }
 
     /// <summary>Create image from raw RGB pixel data.</summary>

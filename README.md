@@ -146,7 +146,7 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   rasterized (fills and strokes), filtered and re-embedded as an image, since PDF has no vector
   filter primitive. Filters using feTurbulence/feImage/feTile/feConvolveMatrix/
   feDisplacementMap/lighting, and filtered text/images/gradient fills, paint unfiltered
-- All image formats (JPEG, PNG incl. 1-bit QR codes, GIF, WebP -- lossless/VP8L only, lossy/VP8 not yet decoded --, SVG, Base64)
+- All image formats (JPEG, PNG incl. 1-bit QR codes, GIF, WebP -- lossy VP8 incl. alpha, lossless VP8L, extended VP8X containers, first frame of animations --, SVG, Base64)
 - Responsive images: `<img srcset>`/`<picture>` and CSS `image-set()` resolve to their best candidate (PDF is treated as a fixed 1x print context)
 - CSS Images Level 4 `image()`: resolves `ltr`/`rtl`-tagged candidates against the element's
   computed direction and paints a trailing `<color>` fallback when no image resolves. `paint()`

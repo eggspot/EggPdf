@@ -5,13 +5,11 @@ namespace EggPdf.Pdf;
 /// <summary>
 /// WebP image format detection and dimension extraction. WebP uses a RIFF
 /// container with a VP8 (lossy) or VP8L (lossless) codec, or a VP8X
-/// (extended, e.g. lossy+alpha) wrapper around either. Real pixel decoding
-/// is handled separately by <see cref="Vp8LDecoder"/> and only covers the
-/// simple (non-VP8X) VP8L case -- lossy VP8 would need a full intra/inter
-/// DCT video-codec decoder, which isn't implemented; that case (and VP8X)
-/// degrades gracefully to no image rather than rendering garbage.
+/// (extended, e.g. lossy+alpha) wrapper around either. This file holds detection
+/// and dimension probing; pixel decoding (VP8 lossy, VP8L lossless, alpha, VP8X,
+/// first animation frame) is in WebPDecoder.Decode.cs.
 /// </summary>
-public static class WebPDecoder
+public static partial class WebPDecoder
 {
     /// <summary>Check if data is a WebP image (RIFF/WEBP container).</summary>
     public static bool IsWebP(byte[] data)
