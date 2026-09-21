@@ -68,7 +68,7 @@ src/
   EggPdf.Layout/       -- layout engine (block, inline, flex, table cells horizontal)
   EggPdf.Text/         -- TrueType parser, system font discovery, line breaking, font resolver,
                           OpenType GSUB/GPOS shaping for complex scripts (OpenType/), Arabic joining,
-                          full UAX #9 bidi (BidiAlgorithm*.cs), variable-font instancing (TrueType/VariableFontInstancer*.cs),
+                          full UAX #9 bidi (BidiAlgorithm*.cs), variable-font instancing (TrueType/VariableFontInstancer*.cs), CFF/CFF2 -> glyf conversion (TrueType/CffFont.cs),
                           syllable line breaking for Thai/Lao/Khmer/Myanmar (SpacelessLineBreaker)
   EggPdf.Pdf/          -- PDF 1.7 writer (text, CID fonts, images, links, merging, RC4 encryption, CMS/PKCS#7 signing),
                           image decoders incl. WebP lossy VP8 (Vp8Decoder*.cs) + lossless VP8L
@@ -82,8 +82,8 @@ src/
   EggPdf.Fragmentation/ -- pure pagination computation (page breaks, orphans/widows, fixed-position collection)
 
 tests/
-  EggPdf.Tests.Unit/   -- ~1385 unit tests (parsers, CSS, fonts/webfonts, signing, PDF, image decoders, SVG filters, E2E render checks)
-  EggPdf.Tests.Layout/ -- ~644 layout tests (block, inline, flex, float, table, grid, margins, lists)
+  EggPdf.Tests.Unit/   -- ~1440 unit tests (parsers, CSS, fonts/webfonts, signing, PDF, image decoders, SVG filters, E2E render checks)
+  EggPdf.Tests.Layout/ -- ~659 layout tests (block, inline, flex, float, table, grid, margins, lists)
   EggPdf.Tests.E2E/    -- ~221 Playwright tests (WebUI, API endpoints; needs `playwright.ps1 install chromium` once)
 
 benchmarks/
