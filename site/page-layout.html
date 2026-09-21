@@ -108,11 +108,12 @@
         groups.
       </p>
       <p>
-        Limitations: only direct children of <code>&lt;body&gt;</code> select a page name (put
-        <code>page:</code> on top-level sections), <code>@page name:first</code> is ignored, CSS
-        counters restart in each page group, sibling selectors such as <code>:nth-child</code>
-        only see the elements of their own group, and internal <code>#anchor</code> links cannot
-        cross groups.
+        An element may declare <code>page:</code> at any depth: the wrappers around it are split
+        across the page groups (each fragment keeps the wrapper's attributes and styling).
+        Limitations: <code>@page name:first</code> is ignored, CSS counters restart in each page
+        group, sibling selectors such as <code>:nth-child</code> only see the elements of their own
+        group (and a fragmented wrapper's borders/backgrounds repeat on each fragment), and
+        internal <code>#anchor</code> links cannot cross groups.
       </p>
 
       <h2 id="page-breaks">Page breaks</h2>

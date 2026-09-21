@@ -112,6 +112,58 @@ public class NamedPageTests
     }
 
     [Fact]
+    public async Task NamedPage_OnANestedSection_SplitsTheWrapperAcrossPages()
+    {
+        var html = @"<html><head><style>
+            @page { size: 600px 800px; margin: 20px }
+            @page wide { size: 1000px 500px; margin: 10px }
+            </style></head><body>
+            <main>
+              <section>Intro</section>
+              <section style='page: wide'>Chart</section>
+              <section>Outro</section>
+            </main>
+            </body></html>";
+
+        var boxes = MediaBoxes(await HtmlToPdf.RenderAsync(html));
+
+        boxes.Should().HaveCount(3, "the wrapper is fragmented around the named section");
+        boxes[0].w.Should().BeApproximately(450f, 1f);
+        boxes[1].w.Should().BeApproximately(750f, 1f);
+        boxes[2].w.Should().BeApproximately(450f, 1f);
+    }
+
+    [Fact]
+    public async Task NamedPage_TwoLevelsDeep_StillSplits()
+    {
+        var html = @"<html><head><style>
+            @page wide { size: 1000px 500px }
+            </style></head><body>
+            <div><article><p>One</p><p style='page: wide'>Two</p></article></div>
+            </body></html>";
+
+        var boxes = MediaBoxes(await HtmlToPdf.RenderAsync(html));
+        boxes.Should().HaveCount(2);
+        boxes[1].w.Should().BeApproximately(750f, 1f);
+    }
+
+    [Fact]
+    public async Task NestedNamedPage_KeepsStylingOfTheFragmentedWrapper()
+    {
+        // The two wrapper fragments must both keep the wrapper's own rules (here a background colour)
+        var html = @"<html><head><style>
+            @page wide { size: 1000px 500px }
+            main { background-color: rgb(255, 0, 0); }
+            </style></head><body>
+            <main><p>One</p><p style='page: wide'>Two</p></main>
+            </body></html>";
+
+        var text = Encoding.Latin1.GetString(await HtmlToPdf.RenderAsync(html));
+        System.Text.RegularExpressions.Regex.Matches(text, @"1\.00 0\.00 0\.00 rg").Count
+            .Should().BeGreaterOrEqualTo(2, "each page paints its fragment of <main> with the red background");
+    }
+
+    [Fact]
     public async Task PageNumbers_ContinueAcrossNamedPageGroups()
     {
         var html = @"<html><head><style>
