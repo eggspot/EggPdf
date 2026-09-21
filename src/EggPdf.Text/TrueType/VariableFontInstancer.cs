@@ -10,7 +10,8 @@ namespace EggPdf.Text.TrueType;
 /// pipeline -- measuring, shaping, subsetting, PDF embedding -- keeps working on plain glyf fonts.
 /// Composite glyphs are re-derived from their instanced components. Hinting instructions, the
 /// cvt/MVAR metric variations and GDEF/GPOS variation stores are dropped: kerning values stay at
-/// the default instance. Supports the <c>glyf</c>-flavoured variable fonts (not CFF2).
+/// the default instance. Supports <c>glyf</c>-flavoured variable fonts and CFF2 ones (whose outlines are
+/// evaluated with blend/vsindex and converted to TrueType quadratics, see <see cref="ConvertCff"/>).
 /// </summary>
 public static partial class VariableFontInstancer
 {
@@ -28,7 +29,7 @@ public static partial class VariableFontInstancer
     /// <summary>The variation axes of <paramref name="font"/>, or an empty list for a static font.</summary>
     public static IReadOnlyList<Axis> GetAxes(FontData font)
     {
-        var sfnt = Sfnt.TryRead(font.RawData);
+        var sfnt = Sfnt.TryRead(font.VariableSource ?? font.RawData);
         return sfnt == null ? Array.Empty<Axis>() : ReadAxes(sfnt);
     }
 
@@ -50,8 +51,12 @@ public static partial class VariableFontInstancer
 
         var key = new System.Text.StringBuilder().Append(weight);
         if (axes != null)
-            foreach (var kv in new SortedDictionary<string, float>(new Dictionary<string, float>(axes), StringComparer.Ordinal))
+        {
+            var sorted = new SortedDictionary<string, float>(StringComparer.Ordinal);
+            foreach (var kv in axes) sorted[kv.Key] = kv.Value;
+            foreach (var kv in sorted)
                 key.Append('|').Append(kv.Key).Append('=').Append(kv.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+        }
         var cacheKey = key.ToString();
 
         var perFont = InstanceCache.GetOrCreateValue(font);
@@ -60,8 +65,9 @@ public static partial class VariableFontInstancer
             if (perFont.TryGetValue(cacheKey, out var cached)) return cached ?? font;
 
             FontData? instance = null;
-            var sfnt = Sfnt.TryRead(font.RawData);
-            if (sfnt != null && sfnt.Has("fvar") && sfnt.Has("gvar"))
+            var source = font.VariableSource ?? font.RawData;
+            var sfnt = Sfnt.TryRead(source);
+            if (sfnt != null && sfnt.Has("fvar") && (sfnt.Has("gvar") || sfnt.Has("CFF2")))
             {
                 var requested = new Dictionary<string, float> { ["wght"] = weight };
                 if (axes != null) foreach (var kv in axes) requested[kv.Key] = kv.Value;
@@ -70,7 +76,7 @@ public static partial class VariableFontInstancer
                 foreach (var axis in ReadAxes(sfnt)) usable |= requested.ContainsKey(axis.Tag);
                 if (usable)
                 {
-                    var bytes = Instantiate(font.RawData, requested);
+                    var bytes = Instantiate(source, requested);
                     if (bytes != null)
                     {
                         try { instance = TtfParser.Parse(bytes); } catch (Exception) { instance = null; }
@@ -92,10 +98,12 @@ public static partial class VariableFontInstancer
         try
         {
             var sfnt = Sfnt.TryRead(fontData);
-            if (sfnt == null || !sfnt.Has("fvar") || !sfnt.Has("gvar") || !sfnt.Has("glyf") || !sfnt.Has("loca")) return null;
+            if (sfnt == null || !sfnt.Has("fvar")) return null;
 
             var axes = ReadAxes(sfnt);
             float[] coords = Normalize(sfnt, axes, userCoords);
+            if (sfnt.Has("CFF2")) return ConvertCff(sfnt, coords);
+            if (!sfnt.Has("gvar") || !sfnt.Has("glyf") || !sfnt.Has("loca")) return null;
 
             var context = new InstanceContext(sfnt, coords);
             return context.Build();
@@ -108,7 +116,7 @@ public static partial class VariableFontInstancer
 
     // ── fvar / avar ──────────────────────────────────────────────────────────
 
-    private static List<Axis> ReadAxes(Sfnt sfnt)
+    internal static List<Axis> ReadAxes(Sfnt sfnt)
     {
         var axes = new List<Axis>();
         if (!sfnt.Has("fvar")) return axes;
@@ -126,7 +134,7 @@ public static partial class VariableFontInstancer
     }
 
     /// <summary>User-space coordinates to normalized [-1, 1] (then avar-remapped), one per axis.</summary>
-    private static float[] Normalize(Sfnt sfnt, List<Axis> axes, IReadOnlyDictionary<string, float> user)
+    internal static float[] Normalize(Sfnt sfnt, List<Axis> axes, IReadOnlyDictionary<string, float> user)
     {
         var result = new float[axes.Count];
         for (int i = 0; i < axes.Count; i++)
@@ -201,7 +209,7 @@ public static partial class VariableFontInstancer
         {
             if (data == null || data.Length < 12) return null;
             uint version = U32(data, 0);
-            if (version != 0x00010000 && version != 0x74727565 /* 'true' */) return null; // TTC and CFF ('OTTO') are out of scope
+            if (version != 0x00010000 && version != 0x74727565 /* 'true' */ && version != 0x4F54544F /* 'OTTO' */) return null; // TTC is out of scope
 
             var sfnt = new Sfnt(data);
             int count = U16(data, 4);

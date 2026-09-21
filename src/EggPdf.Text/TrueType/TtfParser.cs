@@ -42,6 +42,19 @@ public static class TtfParser
         if (sfVersion != 0x00010000 && sfVersion != 0x4F54544F)
             return null;
 
+        // PostScript-outline fonts (CFF / CFF2) are converted to glyf so measuring, shaping and embedding see one format
+        if (sfVersion == 0x4F54544F)
+        {
+            var sfnt = VariableFontInstancer.Sfnt.TryRead(data);
+            var converted = sfnt == null ? null : VariableFontInstancer.ConvertCff(sfnt, null);
+            if (converted != null)
+            {
+                var ttf = ParseInternal(converted);
+                if (ttf != null && sfnt!.Has("CFF2") && sfnt.Has("fvar")) ttf.VariableSource = data;
+                return ttf;
+            }
+        }
+
         ushort numTables = ReadUInt16(data, ref pos);
         pos += 6; // skip searchRange, entrySelector, rangeShift
 

@@ -60,6 +60,12 @@ public class FontData
     /// <summary>Raw font file bytes (for PDF embedding).</summary>
     public byte[] RawData { get; set; } = System.Array.Empty<byte>();
 
+    /// <summary>
+    /// For a variable CFF2 font, the original OpenType bytes (RawData holds the TrueType conversion of the default
+    /// instance); <see cref="VariableFontInstancer"/> instances from these. Null for every other font.
+    /// </summary>
+    internal byte[]? VariableSource { get; set; }
+
     /// <summary>Get glyph ID for a Unicode codepoint.</summary>
     public ushort GetGlyphId(int codepoint)
     {

@@ -264,18 +264,16 @@ public static partial class VariableFontInstancer
     // ── HVAR: advance width variations ───────────────────────────────────────
 
     /// <summary>Horizontal metrics variations: an item variation store plus an optional glyph -> delta-set map.</summary>
-    private sealed class HvarTable
+    internal sealed class HvarTable
     {
         private readonly byte[] _d;
-        private readonly int _store;
+        private readonly ItemVariationStore _store;
         private readonly int _advanceMap;   // absolute offset of the DeltaSetIndexMap, or 0
-        private readonly float[] _coords;
 
         public HvarTable(byte[] data, int table, float[] coords)
         {
             _d = data;
-            _coords = coords;
-            _store = table + (int)U32(data, table + 4);
+            _store = new ItemVariationStore(data, table + (int)U32(data, table + 4), coords);
             int mapOffset = (int)U32(data, table + 8);
             _advanceMap = mapOffset == 0 ? 0 : table + mapOffset;
         }
@@ -285,7 +283,7 @@ public static partial class VariableFontInstancer
         {
             int outer = 0, inner = gid;
             if (_advanceMap != 0 && !ReadMap(gid, out outer, out inner)) return 0f;
-            return ItemDelta(outer, inner);
+            return _store.Delta(outer, inner);
         }
 
         private bool ReadMap(int gid, out int outer, out int inner)
@@ -306,58 +304,6 @@ public static partial class VariableFontInstancer
             outer = (int)(entry >> innerBits);
             inner = (int)(entry & ((1u << innerBits) - 1));
             return true;
-        }
-
-        private float ItemDelta(int outer, int inner)
-        {
-            int dataCount = U16(_d, _store + 6);
-            if (outer >= dataCount) return 0f;
-
-            int regionListAt = _store + (int)U32(_d, _store + 2);
-            int axisCount = U16(_d, regionListAt), regionCount = U16(_d, regionListAt + 2);
-
-            int ivd = _store + (int)U32(_d, _store + 8 + outer * 4);
-            int itemCount = U16(_d, ivd);
-            int wordDeltaField = U16(_d, ivd + 2);
-            bool longWords = (wordDeltaField & 0x8000) != 0;
-            int wordCount = wordDeltaField & 0x7FFF;
-            int regionIndexCount = U16(_d, ivd + 4);
-            if (inner >= itemCount) return 0f;
-
-            int regionIndexes = ivd + 6;
-            int rowSize = longWords ? wordCount * 4 + (regionIndexCount - wordCount) * 2 : wordCount * 2 + (regionIndexCount - wordCount);
-            int row = regionIndexes + regionIndexCount * 2 + inner * rowSize;
-
-            float total = 0f;
-            int at = row;
-            for (int r = 0; r < regionIndexCount; r++)
-            {
-                int delta;
-                if (r < wordCount) { delta = longWords ? (int)U32(_d, at) : I16(_d, at); at += longWords ? 4 : 2; }
-                else { delta = longWords ? I16(_d, at) : (sbyte)_d[at]; at += longWords ? 2 : 1; }
-                if (delta == 0) continue;
-
-                int region = U16(_d, regionIndexes + r * 2);
-                if (region >= regionCount) continue;
-                total += delta * RegionScalar(regionListAt + 4 + region * axisCount * 6, axisCount);
-            }
-            return total;
-        }
-
-        private float RegionScalar(int regionAt, int axisCount)
-        {
-            float scalar = 1f;
-            for (int a = 0; a < axisCount && a < _coords.Length; a++)
-            {
-                float start = F2Dot14(_d, regionAt + a * 6), peak = F2Dot14(_d, regionAt + a * 6 + 2), end = F2Dot14(_d, regionAt + a * 6 + 4);
-                float c = _coords[a];
-                if (peak == 0f || start > peak || peak > end) continue;
-                if (start < 0f && end > 0f) continue;
-                if (c == peak) continue;
-                if (c <= start || c >= end) return 0f;
-                scalar *= c < peak ? (c - start) / (peak - start) : (end - c) / (end - peak);
-            }
-            return scalar;
         }
     }
 }

@@ -205,7 +205,9 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   variable font) renders intermediate weights as real instances, verified against Chrome's outlines;
   `font-stretch` (`wdth`), `font-style: oblique <angle>` (`slnt`) and `font-variation-settings`
   (any axis, e.g. `"opsz"`, `"GRAD"`) drive the matching axes and the text is measured with them;
-  CFF2-flavoured variable fonts are not applied
+  CFF2 variable fonts (e.g. Source Sans 3 VF) work too -- stems match Chrome at 200/400/650/900
+- OpenType fonts with PostScript outlines (`.otf`, CFF and CFF2) are converted to TrueType outlines
+  (Type 2 charstrings, subroutines, blend/vsindex, cubic to quadratic), so they measure, shape and embed like any other font
 - Color/emoji fonts (COLR v0 + CPAL) render each glyph's real color layers -- COLRv1
   (gradients, paint graphs -- e.g. current Segoe UI Emoji) is not supported and falls
   back to the glyph's outline in the current text color
