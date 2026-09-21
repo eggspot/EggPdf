@@ -347,5 +347,6 @@ public class Vp8LDecoderTests
 
         var act = () => Vp8LDecoder.Decode(truncated);
         act.Should().NotThrow("a truncated/malformed stream must degrade gracefully, per the project's infallible-parser convention");
+        act().Should().BeNull("fewer than the five header bytes can never be an image");
     }
 }

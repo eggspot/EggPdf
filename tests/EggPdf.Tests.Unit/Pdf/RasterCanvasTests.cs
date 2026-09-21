@@ -53,11 +53,11 @@ public class RasterCanvasTests
     }
 
     [Fact]
-    public void FillPolygon_TooFewPoints_DoesNotThrow()
+    public void FillPolygon_TooFewPoints_LeavesTheCanvasTransparent()
     {
         var canvas = new RasterCanvas(10, 10);
-        var act = () => canvas.FillPolygon(new List<(float, float)> { (1, 1), (2, 2) }, 255, 0, 0, 255);
-        act.Should().NotThrow();
+        canvas.FillPolygon(new List<(float, float)> { (1, 1), (2, 2) }, 255, 0, 0, 255);
+        canvas.Pixels.Should().OnlyContain(b => b == 0, "a two-point polygon has no area to fill");
     }
 
     [Fact]

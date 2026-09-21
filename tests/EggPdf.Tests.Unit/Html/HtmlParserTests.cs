@@ -232,6 +232,11 @@ public class HtmlParserTests
         {
             var act = () => Parse(input);
             act.Should().NotThrow($"input '{input}' should not cause an exception");
+
+            // Even garbage yields a normalized document: html > head + body
+            var document = act();
+            document.Should().NotBeNull();
+            document.Body.Should().NotBeNull($"the tree builder always synthesizes a body for '{input}'");
         }
     }
 }

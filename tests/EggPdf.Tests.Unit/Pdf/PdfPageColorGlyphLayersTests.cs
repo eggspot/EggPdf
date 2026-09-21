@@ -64,7 +64,10 @@ public class PdfPageColorGlyphLayersTests
         var doc = new PdfDocument();
         var page = doc.AddPage(595.28f, 841.89f);
 
-        var act = () => page.AddColorGlyphLayers(new List<(ushort, float, float, float, bool)>(), 72, 720, "ColorFont", 24, 0, 0, 0);
-        act.Should().NotThrow();
+        page.AddColorGlyphLayers(new List<(ushort, float, float, float, bool)>(), 72, 720, "ColorFont", 24, 0, 0, 0);
+
+        var text = RenderToText(doc);
+        text.Should().NotContain("Tj", "no layers means no glyphs painted");
+        text.Should().NotContain("BT");
     }
 }

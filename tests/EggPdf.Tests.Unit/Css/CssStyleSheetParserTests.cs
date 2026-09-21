@@ -156,22 +156,29 @@ public class CssStyleSheetParserTests
     }
 
     [Fact]
-    public void Supports_Not_UnknownProperty_RulesExcluded()
+    public void Supports_NotVendorPrefixedProperty_RulesIncluded()
     {
-        // @supports not (display: -webkit-box) — we treat unknown prefixed values as unsupported
+        // Vendor-prefixed properties count as unsupported, so `not (...)` holds and the rules apply
         var sheet = CssStyleSheetParser.Parse("@supports not (-webkit-appearance: none) { p { color: green; } }");
-        // Result: either included or excluded — key requirement is no crash
-        // (we accept either; browser behaviour varies — at minimum, no throw)
-        var act = () => CssStyleSheetParser.Parse("@supports not (-webkit-appearance: none) { p { color: green; } }");
-        act.Should().NotThrow();
+
+        sheet.Rules.Should().Contain(r => r.SelectorText == "p" &&
+            r.Declarations.Any(d => d.Property == "color" && d.Value == "green"));
+
+        var positive = CssStyleSheetParser.Parse("@supports (-webkit-appearance: none) { p { color: green; } }");
+        positive.Rules.Should().BeEmpty("the un-negated vendor-prefixed test fails, so its rules are dropped");
     }
 
     [Fact]
-    public void Supports_DoesNotThrow_OnComplexCondition()
+    public void Supports_AndCondition_RequiresEveryPart()
     {
-        var css = "@supports (display: grid) and (gap: 1px) { div { grid-template-columns: 1fr 1fr; } }";
-        var act = () => CssStyleSheetParser.Parse(css);
-        act.Should().NotThrow();
+        var both = CssStyleSheetParser.Parse(
+            "@supports (display: grid) and (gap: 1px) { div { grid-template-columns: 1fr 1fr; } }");
+        both.Rules.Should().Contain(r => r.SelectorText == "div" &&
+            r.Declarations.Any(d => d.Property == "grid-template-columns"));
+
+        var oneFails = CssStyleSheetParser.Parse(
+            "@supports (display: grid) and (-webkit-appearance: none) { div { color: red; } }");
+        oneFails.Rules.Should().BeEmpty("an `and` condition needs every part to hold");
     }
 
     [Fact]
@@ -197,20 +204,25 @@ public class CssStyleSheetParserTests
     // ── @container tests ─────────────────────────────────────────────────────
 
     [Fact]
-    public void ContainerQuery_Parsed_DoesNotCrash()
+    public void ContainerQuery_IsCapturedWithItsConditionAndRules()
     {
-        // @container block should be parsed without throwing
-        var css = "@container (min-width: 300px) { p { color: red; } }";
-        var act = () => CssStyleSheetParser.Parse(css);
-        act.Should().NotThrow("@container rules should be silently accepted");
+        var sheet = CssStyleSheetParser.Parse("@container (min-width: 300px) { p { color: red; } }");
+
+        sheet.ContainerRules.Should().HaveCount(1);
+        var rule = sheet.ContainerRules[0];
+        rule.ContainerName.Should().BeEmpty();
+        rule.Condition.Replace(" ", "").Should().Be("(min-width:300px)");
+        rule.Rules.Should().ContainSingle(r => r.SelectorText == "p" && r.Declarations.Any(d => d.Property == "color" && d.Value == "red"));
     }
 
     [Fact]
-    public void ContainerQuery_Named_Parsed_DoesNotCrash()
+    public void ContainerQuery_Named_KeepsTheContainerName()
     {
-        var css = "@container card (min-width: 300px) { p { color: blue; } }";
-        var act = () => CssStyleSheetParser.Parse(css);
-        act.Should().NotThrow("named @container rules should be silently accepted");
+        var sheet = CssStyleSheetParser.Parse("@container card (min-width: 300px) { p { color: blue; } }");
+
+        sheet.ContainerRules.Should().HaveCount(1);
+        sheet.ContainerRules[0].ContainerName.Should().Be("card");
+        sheet.ContainerRules[0].Condition.Replace(" ", "").Should().Be("(min-width:300px)");
     }
 
     // ── @scope ────────────────────────────────────────────────────────────────
@@ -229,11 +241,16 @@ public class CssStyleSheetParserTests
     }
 
     [Fact]
-    public void Scope_DoesNotCrash()
+    public void Scope_WithLowerBound_FlattensEveryInnerRuleUnderTheScopeRoot()
     {
-        var css = "@scope (.container) to (.exclude) { h1 { font-size: 2em; } p { color: blue; } }";
-        var act = () => CssStyleSheetParser.Parse(css);
-        act.Should().NotThrow("@scope rules should not crash the parser");
+        var sheet = CssStyleSheetParser.Parse(
+            "@scope (.container) to (.exclude) { h1 { font-size: 2em; } p { color: blue; } }");
+
+        sheet.Rules.Should().HaveCount(2);
+        sheet.Rules.Should().Contain(r => r.SelectorText.Contains(".container") && r.SelectorText.Contains("h1")
+            && r.Declarations.Any(d => d.Property == "font-size" && d.Value == "2em"));
+        sheet.Rules.Should().Contain(r => r.SelectorText.Contains(".container") && r.SelectorText.Contains("p")
+            && r.Declarations.Any(d => d.Property == "color" && d.Value == "blue"));
     }
 
     // ── @property ────────────────────────────────────────────────────────────
@@ -266,11 +283,15 @@ public class CssStyleSheetParserTests
     }
 
     [Fact]
-    public void Property_AtRule_DoesNotCrash()
+    public void Property_AtRule_AngleSyntax_IsRegistered()
     {
-        var css = "@property --gradient-angle { syntax: '<angle>'; inherits: false; initial-value: 0deg; }";
-        var act = () => CssStyleSheetParser.Parse(css);
-        act.Should().NotThrow("@property rules should not crash the parser");
+        var sheet = CssStyleSheetParser.Parse(
+            "@property --gradient-angle { syntax: '<angle>'; inherits: false; initial-value: 0deg; }");
+
+        sheet.PropertyRules.Should().ContainSingle();
+        sheet.PropertyRules[0].Name.Should().Be("--gradient-angle");
+        sheet.PropertyRules[0].InitialValue.Should().Be("0deg");
+        sheet.PropertyRules[0].Inherits.Should().BeFalse();
     }
 
     // ── @page margin boxes ────────────────────────────────────────────────────

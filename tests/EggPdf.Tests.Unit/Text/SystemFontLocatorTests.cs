@@ -29,6 +29,7 @@ public class SystemFontLocatorTests
         // Even with nonsense names, should not throw
         var act = () => SystemFontLocator.FindFont("nonexistent-font-xyz-123");
         act.Should().NotThrow();
+        act().Should().BeNull("no installed font has that name");
     }
 
     [Fact]

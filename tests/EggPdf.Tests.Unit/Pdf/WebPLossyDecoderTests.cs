@@ -114,6 +114,15 @@ public class WebPLossyDecoderTests
             Array.Copy(bytes, cut, keep);
             var act = () => WebPDecoder.Decode(cut);
             act.Should().NotThrow();
+
+            // Whatever survives the cut is either rejected or a picture of the right size, never garbage dimensions
+            var decoded = act();
+            if (decoded.HasValue)
+            {
+                decoded.Value.width.Should().Be(100);
+                decoded.Value.height.Should().Be(70);
+                decoded.Value.rgba.Length.Should().Be(100 * 70 * 4);
+            }
         }
     }
 

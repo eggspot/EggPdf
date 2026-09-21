@@ -6,10 +6,10 @@ namespace EggPdf.Tests.Layout;
 
 /// <summary>
 /// Tests for shape-outside on floats: property storage, shape-margin application, and
-/// no-crash behaviour. Real per-line wrapping around circle()/ellipse() shapes (the
-/// exclusion narrowing near a float's top/bottom edge) is covered by
-/// <see cref="FloatTextWrapTests"/> and <see cref="FloatContextTests"/>; polygon()/
-/// inset()/url() are recognized and stored but fall back to the float's plain
+/// and text wrapping. Per-line wrapping around circle()/ellipse()/polygon()/inset() shapes
+/// (the exclusion narrowing near a float's edges) is covered in detail by
+/// <see cref="FloatTextWrapTests"/>, <see cref="FloatContextTests"/> and
+/// <see cref="ShapeOutsidePolygonTests"/>; url() shapes fall back to the float's plain
 /// rectangular exclusion (see ShapeOutsideParser).
 /// </summary>
 public class ShapeOutsideTests
@@ -82,21 +82,29 @@ public class ShapeOutsideTests
             "shape-margin should expand the float's clear zone downward");
     }
 
-    // ── no-crash tests ───────────────────────────────────────────────────────
+    // ── text wrapping ────────────────────────────────────────────────────────
 
     [Fact]
-    public void ShapeOutside_WithText_DoesNotCrash()
+    public void ShapeOutside_WithText_WrapsAroundTheFloatThenReturnsToFullWidth()
     {
-        // Shape-outside on a float with surrounding text should not throw
-        var act = () => LayoutTestHelper.Layout(
+        var root = LayoutTestHelper.Layout(
             "<body style='margin:0'>" +
             "<div style='float:left; width:100px; height:80px; shape-outside:circle(50px)'>" +
             "Float content" +
             "</div>" +
-            "<p>Text that flows next to the float. It should not crash even if the " +
-            "shape isn't fully rendered yet.</p>" +
+            "<p>Text that flows next to the float. It keeps going for several lines so that " +
+            "the paragraph reaches well below the bottom of the float box and text starts at the left edge again.</p>" +
             "</body>", 400, 600);
 
-        act.Should().NotThrow("layout with shape-outside should never crash");
+        var words = root.FindByTag("p")!.Children.FindAll(c => !string.IsNullOrEmpty(c.Text));
+        words.Should().NotBeEmpty();
+
+        var beside = words.FindAll(w => w.Y < 60f);
+        beside.Should().NotBeEmpty("the first lines sit next to the float");
+        beside.Should().OnlyContain(w => w.X > 0f, "text beside the float is pushed right of the shape");
+
+        var below = words.FindAll(w => w.Y >= 85f);
+        below.Should().NotBeEmpty("the paragraph continues below the float");
+        below.Should().Contain(w => w.X < 1f, "text starts at the left edge again once the float ends");
     }
 }

@@ -486,7 +486,19 @@ public static partial class BlockLayout
                         // outer floats (isolated, fresh context if it turns out to need one),
                         // but every other normal-flow child stays in the same BFC and must
                         // see floats registered earlier in document order via floatCtx.
-                        float childFloatOriginY = floatOriginY + box.PaddingTop + childY;
+                        // The child's own top margin (collapsed with the previous sibling's bottom margin)
+                        // is added to childY only after CreateBox returns, but its line wrapping consults
+                        // the float context while it is being created: fold the margin into the origin now,
+                        // or lines just below a float would still look like they sit beside it.
+                        float predictedTopMargin = 0f;
+                        if (!isFloatChild && floatCtx.HasFloats)
+                        {
+                            float predictedFontSize = ResolveFontSize(childStyle.FontSize, fontSize);
+                            predictedTopMargin = ResolveLength(childStyle.MarginTop ?? childStyle.Get("margin"),
+                                childContainingWidth, predictedFontSize);
+                            if (hasBlockChild) predictedTopMargin = Math.Max(prevMarginBottom, predictedTopMargin);
+                        }
+                        float childFloatOriginY = floatOriginY + box.PaddingTop + childY + predictedTopMargin;
                         var childBox = CreateBox(childElem, childStyle, box, childContainingWidth, resolver, style,
                             ambientFloats: isFloatChild ? null : floatCtx,
                             floatOriginY: isFloatChild ? 0f : childFloatOriginY);

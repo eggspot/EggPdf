@@ -62,15 +62,25 @@ public class GridLayoutTests
     }
 
     [Fact]
-    public void GridContainer_DoesNotCrash()
+    public void GridContainer_ThreeColumnsWithGap_PlacesSixItemsInTwoRows()
     {
-        var act = () => LayoutGrid(
+        var root = LayoutGrid(
             "<div style='display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px'>" +
             "<div>1</div><div>2</div><div>3</div>" +
             "<div>4</div><div>5</div><div>6</div>" +
             "</div>");
 
-        act.Should().NotThrow();
+        var divs = root.FindAllByTag("div");
+        divs.Should().HaveCount(7, "the container plus six items");
+        var items = divs.GetRange(1, 6);
+
+        // Track width = (584 - 2 * 16) / 3 = 184; each column starts one track + one gap after the last
+        items[0].Width.Should().BeApproximately(184f, 1f);
+        (items[1].X - items[0].X).Should().BeApproximately(200f, 1f);
+        (items[2].X - items[1].X).Should().BeApproximately(200f, 1f);
+        items[3].X.Should().BeApproximately(items[0].X, 0.5f, "the fourth item wraps to the first column");
+        (items[3].Y - items[0].Y).Should().BeGreaterThan(16f, "the second row sits below the first, past the gap");
+        items[4].Y.Should().BeApproximately(items[3].Y, 0.5f);
     }
 
     [Fact]
@@ -534,25 +544,35 @@ public class GridLayoutTests
     }
 
     [Fact]
-    public void Grid_AutoFill_DoesNotCrash_WithNoItems()
+    public void Grid_AutoFill_WithNoItems_IsAnEmptyZeroHeightContainer()
     {
-        var act = () => LayoutGrid(
+        var root = LayoutGrid(
             "<div style='display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr))'></div>");
-        act.Should().NotThrow();
+
+        var grid = root.FindAllByTag("div")[0];
+        grid.Children.Should().BeEmpty();
+        grid.Height.Should().Be(0f, "an empty grid has no rows to size");
+        grid.Width.Should().BeApproximately(ContainerWidth, 1f);
     }
 
     // ── subgrid ───────────────────────────────────────────────────────────────
 
     [Fact]
-    public void Subgrid_DoesNotCrash()
+    public void Subgrid_Columns_InheritTheParentsTracks()
     {
-        var act = () => LayoutGrid(
+        var root = LayoutGrid(
             "<div style='display: grid; grid-template-columns: 200px 200px'>" +
             "  <div style='display: grid; grid-template-columns: subgrid; grid-column: 1 / 3'>" +
             "    <div>A</div><div>B</div>" +
             "  </div>" +
             "</div>");
-        act.Should().NotThrow("subgrid must not crash even if layout is approximate");
+
+        var divs = root.FindAllByTag("div");
+        var sub = divs[1]; var a = divs[2]; var b = divs[3];
+
+        sub.Width.Should().BeApproximately(400f, 1f, "the subgrid spans both parent columns");
+        a.Width.Should().BeApproximately(200f, 1f, "A takes the parent's first track");
+        (b.X - a.X).Should().BeApproximately(200f, 1f, "B sits in the parent's second track");
     }
 
     [Fact]
@@ -571,15 +591,19 @@ public class GridLayoutTests
     }
 
     [Fact]
-    public void Subgrid_Rows_DoesNotCrash()
+    public void Subgrid_Rows_InheritTheParentsTracks()
     {
-        var act = () => LayoutGrid(
+        var root = LayoutGrid(
             "<div style='display: grid; grid-template-rows: 100px 100px'>" +
             "  <div style='display: grid; grid-template-rows: subgrid; grid-row: 1 / 3'>" +
             "    <div>X</div><div>Y</div>" +
             "  </div>" +
             "</div>");
-        act.Should().NotThrow("subgrid on rows must not crash");
+
+        var divs = root.FindAllByTag("div");
+        var x = divs[2]; var y = divs[3];
+
+        (y.Y - x.Y).Should().BeApproximately(100f, 1f, "the subgrid's rows are the parent's 100px tracks");
     }
 
     [Fact]

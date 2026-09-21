@@ -32,12 +32,17 @@ public class PositionTests
     }
 
     [Fact]
-    public void Sticky_DoesNotCrash()
+    public void Sticky_TopZero_StaysInNormalFlow_AndContentFollowsIt()
     {
-        var act = () => Layout(
+        var root = Layout(
             "<div style='position:sticky; top:0; background:white; height:50px'>Header</div>" +
             "<p>Content below</p>");
-        act.Should().NotThrow();
+
+        var header = root.FindAllByTag("div")[0];
+        var p = root.FindByTag("p")!;
+
+        header.Height.Should().BeApproximately(50f, 0.5f);
+        p.Y.Should().BeGreaterOrEqualTo(header.Y + 50f - 0.5f, "sticky keeps its space in flow, so the paragraph starts below it");
     }
 
     [Fact]

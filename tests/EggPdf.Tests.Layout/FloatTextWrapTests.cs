@@ -111,7 +111,7 @@ public class FloatTextWrapTests
         var root = LayoutTestHelper.Layout(
             "<div style='width:300px'>" +
             "<div style='float:left;width:100px;height:100px;shape-outside:circle(50%);background:red'></div>" +
-            "<p>" + string.Join(" ", Enumerable.Repeat("w", 60)) + "</p>" +
+            "<p style='margin:0'>" + string.Join(" ", Enumerable.Repeat("w", 60)) + "</p>" +
             "</div>", 600, 800);
 
         var p = root.FindByTag("p");
@@ -123,6 +123,27 @@ public class FloatTextWrapTests
         // must start noticeably less indented than the plain-rectangle case (108px).
         firstWord.X.Should().BeLessThan(108f - 5f,
             "shape-outside:circle() must narrow the exclusion near the float's top edge below the full rectangular width");
+    }
+
+    [Fact]
+    public void ParagraphWithTopMargin_LinesBelowTheFloat_ReturnToTheLeftEdge()
+    {
+        // The <p>'s 16px top margin pushes its lines down; the float is only 80px tall, so a line
+        // that starts at y >= 80 must not be indented. (The wrap origin used to ignore the margin.)
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0'>" +
+            "<div style='float:left;width:100px;height:80px'>F</div>" +
+            "<p>" + string.Join(" ", Enumerable.Repeat("word", 80)) + "</p>" +
+            "</body>", 400, 800);
+
+        var lines = root.FindByTag("p")!.Children.FindAll(c => !string.IsNullOrEmpty(c.Text));
+        var beside = lines.FindAll(l => l.Y + l.Height <= 80.5f);
+        var below = lines.FindAll(l => l.Y >= 80.5f);
+
+        beside.Should().NotBeEmpty();
+        beside.Should().OnlyContain(l => l.X >= 99.5f, "lines wholly beside the float start right of it");
+        below.Should().NotBeEmpty();
+        below.Should().OnlyContain(l => l.X < 0.5f, "lines wholly below the float use the full width");
     }
 
     [Fact]

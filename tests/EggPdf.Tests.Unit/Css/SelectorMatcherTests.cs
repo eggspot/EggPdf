@@ -631,13 +631,17 @@ public class SelectorMatcherTests
     }
 
     [Fact]
-    public void NthChild_OfSelector_DoesNotCrashOnUnrecognizedSelector()
+    public void NthChild_OfSelector_CountsOnlyElementsMatchingTheFilter()
     {
         var doc = Doc("<ul><li class='a'>1</li><li>2</li><li class='a'>3</li></ul>");
         var ul = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "ul");
-        var li1 = ul.ChildNodes.OfType<HtmlElement>().First();
-        var act = () => SelectorMatcher.Matches("li:nth-child(odd of .a)", li1);
-        act.Should().NotThrow();
+        var items = ul.ChildNodes.OfType<HtmlElement>().ToList();
+
+        // Among the .a items, the first is odd (position 1) and the second is even (position 2)
+        SelectorMatcher.Matches("li:nth-child(odd of .a)", items[0]).Should().BeTrue();
+        SelectorMatcher.Matches("li:nth-child(odd of .a)", items[1]).Should().BeFalse("it isn't in the .a set at all");
+        SelectorMatcher.Matches("li:nth-child(odd of .a)", items[2]).Should().BeFalse("second of the .a items");
+        SelectorMatcher.Matches("li:nth-child(even of .a)", items[2]).Should().BeTrue();
     }
 
     [Fact]

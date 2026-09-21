@@ -67,10 +67,10 @@ public class FontFeatureSettingsTests
     }
 
     [Fact]
-    public void ParseActiveTags_MalformedValue_DoesNotThrow()
+    public void ParseActiveTags_MalformedValue_YieldsNoTags_AndKeepsTheValidOnes()
     {
-        var act = () => FontFeatureSettings.ParseActiveTags("garbage, \"unterminated");
-        act.Should().NotThrow();
+        FontFeatureSettings.ParseActiveTags("garbage, \"unterminated").Should().BeEmpty();
+        FontFeatureSettings.ParseActiveTags("\"smcp\" 1, garbage").Should().Equal("smcp");
     }
 
     [Fact]
