@@ -202,7 +202,7 @@ public static partial class BlockLayout
             // Iterate words inline — avoids allocating a string[] upfront. Thai has no spaces
             // between words, so a Thai run is pre-split into syllable-boundary pieces that rejoin
             // without a space (the same heuristic the plain-text wrapper uses).
-            var thaiPieces = EggPdf.Text.ThaiLineBreaker.ContainsThai(text) ? SplitThaiWords(text) : null;
+            var thaiPieces = EggPdf.Text.SpacelessLineBreaker.Contains(text) ? SplitSpacelessWords(text) : null;
             int thaiIndex = 0;
             int wPos = 0;
             bool firstWord = true;
@@ -348,28 +348,28 @@ public static partial class BlockLayout
     /// opportunities. Pieces after the first of a Thai word carry <c>noSpace</c> so they rejoin
     /// the previous piece without a space.
     /// </summary>
-    private static string[] ExpandThaiWords(string[] words, out bool[] noSpace)
+    private static string[] ExpandSpacelessWords(string[] words, out bool[] noSpace)
     {
         var pieces = new List<string>(words.Length + 8);
         var flags = new List<bool>(words.Length + 8);
         foreach (var word in words)
         {
-            if (!EggPdf.Text.ThaiLineBreaker.ContainsThai(word)) { pieces.Add(word); flags.Add(false); continue; }
-            var segments = EggPdf.Text.ThaiLineBreaker.Split(word);
+            if (!EggPdf.Text.SpacelessLineBreaker.Contains(word)) { pieces.Add(word); flags.Add(false); continue; }
+            var segments = EggPdf.Text.SpacelessLineBreaker.Split(word);
             for (int i = 0; i < segments.Count; i++) { pieces.Add(segments[i]); flags.Add(i > 0); }
         }
         noSpace = flags.ToArray();
         return pieces.ToArray();
     }
 
-    /// <summary>As <see cref="ExpandThaiWords"/> but for one run's text: split on spaces first.</summary>
-    private static List<(string word, bool noSpace)> SplitThaiWords(string text)
+    /// <summary>As <see cref="ExpandSpacelessWords"/> but for one run's text: split on spaces first.</summary>
+    private static List<(string word, bool noSpace)> SplitSpacelessWords(string text)
     {
         var pieces = new List<(string, bool)>();
         foreach (var word in text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
         {
-            if (!EggPdf.Text.ThaiLineBreaker.ContainsThai(word)) { pieces.Add((word, false)); continue; }
-            var segments = EggPdf.Text.ThaiLineBreaker.Split(word);
+            if (!EggPdf.Text.SpacelessLineBreaker.Contains(word)) { pieces.Add((word, false)); continue; }
+            var segments = EggPdf.Text.SpacelessLineBreaker.Split(word);
             for (int i = 0; i < segments.Count; i++) pieces.Add((segments[i], i > 0));
         }
         return pieces;

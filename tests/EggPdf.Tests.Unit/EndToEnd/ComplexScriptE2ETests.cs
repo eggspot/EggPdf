@@ -59,6 +59,20 @@ public class ComplexScriptE2ETests
     }
 
     [Fact]
+    public async Task Myanmar_SpacelessParagraph_WrapsInsideANarrowBox()
+    {
+        if (!HasFont("mmrtext.ttf")) return;
+
+        var html = "<html><head><style>@page{size:400px 800px;margin:0}body{margin:0}</style></head><body>" +
+                   "<div style='font-family:\"Myanmar Text\";font-size:20px;width:90px'>" +
+                   "မြန်မာဘာသာစကားကိုလေ့လာပါသည်မြန်မာဘာသာစကားကိုလေ့လာပါသည်</div></body></html>";
+        var text = Encoding.Latin1.GetString(await HtmlToPdf.RenderAsync(html));
+
+        var runs = System.Text.RegularExpressions.Regex.Matches(text, @"(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?) Td\s*\[?[^\r\n]*?\] TJ");
+        runs.Count.Should().BeGreaterThan(2, "a 60-character space-free run must break at syllable boundaries instead of overflowing one line");
+    }
+
+    [Fact]
     public async Task Myanmar_LineHeightNormal_FollowsFontMetricsInsteadOfFixed1_2em()
     {
         const string fontFile = "mmrtext.ttf";

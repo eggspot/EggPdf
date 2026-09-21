@@ -853,10 +853,10 @@ public static partial class BlockLayout
                     // stays glued to the end of a "word" and reaches the glyph layer as a raw
                     // control character with no printable glyph (renders as a tofu box).
                     var words = ilTextData.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                    // Thai has no inter-word spaces: offer syllable-boundary pieces that rejoin space-free.
+                    // Thai/Lao/Khmer/Myanmar have no inter-word spaces: offer syllable-boundary pieces that rejoin space-free.
                     bool[]? ilNoSpace = null;
-                    if (EggPdf.Text.ThaiLineBreaker.ContainsThai(ilTextData))
-                        words = ExpandThaiWords(words, out ilNoSpace);
+                    if (EggPdf.Text.SpacelessLineBreaker.Contains(ilTextData))
+                        words = ExpandSpacelessWords(words, out ilNoSpace);
                     int ilWordIndex = -1;
                     foreach (var word in words)
                     {

@@ -329,17 +329,17 @@ public static class TextMeasurer
 
         if (words.Length == 0) { lines.Add(""); return lines; }
 
-        // Thai has no spaces between words: offer syllable-boundary break opportunities inside
-        // Thai "words" so a long paragraph wraps. Split segments rejoin with no space.
+        // Thai, Lao, Khmer and Myanmar have no spaces between words: offer syllable-boundary break
+        // opportunities inside such "words" so a long paragraph wraps. Split segments rejoin with no space.
         bool[]? noSpaceBefore = null;
-        if (!preserveSpaces && EggPdf.Text.ThaiLineBreaker.ContainsThai(text))
+        if (!preserveSpaces && EggPdf.Text.SpacelessLineBreaker.Contains(text))
         {
             var expanded = new List<string>(words.Length + 8);
             var flags = new List<bool>(words.Length + 8);
             foreach (var w in words)
             {
-                if (!EggPdf.Text.ThaiLineBreaker.ContainsThai(w)) { expanded.Add(w); flags.Add(false); continue; }
-                var segments = EggPdf.Text.ThaiLineBreaker.Split(w);
+                if (!EggPdf.Text.SpacelessLineBreaker.Contains(w)) { expanded.Add(w); flags.Add(false); continue; }
+                var segments = EggPdf.Text.SpacelessLineBreaker.Split(w);
                 for (int s = 0; s < segments.Count; s++) { expanded.Add(segments[s]); flags.Add(s > 0); }
             }
             words = expanded.ToArray();

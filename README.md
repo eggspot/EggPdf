@@ -184,11 +184,12 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   script (Nirmala UI, Leelawadee UI, Myanmar Text, Noto Sans ..., or your `@font-face`); such text is
   embedded in its own script-capable font, so Latin text keeps its requested typeface. Verified
   against Chrome's rendering for Devanagari, Bengali, Gujarati, Gurmukhi, Oriya, Tamil, Telugu,
-  Kannada, Malayalam, Sinhala, Khmer, Myanmar, Tibetan, Thai and Arabic. Long Thai paragraphs wrap
-  at syllable boundaries (a heuristic -- true word breaking needs a dictionary). Not supported:
-  line breaking inside Lao, Khmer and Myanmar text (they have no spaces either), full UAX #9 bidi
-  (neutral characters next to numbers can order differently from Chrome), and scripts beyond
-  those listed
+  Kannada, Malayalam, Sinhala, Khmer, Myanmar, Tibetan, Thai and Arabic. Long Thai, Lao, Khmer
+  and Myanmar paragraphs wrap at syllable boundaries (a heuristic -- true word breaking needs a
+  dictionary, so lines may end mid-word), and `line-height: normal` follows the shaping font's
+  ascent + descent + line gap (tall fonts such as Myanmar Text no longer collide). Not supported:
+  full UAX #9 bidi (neutral characters next to numbers can order differently from Chrome), and
+  scripts beyond those listed
 - Browser-parity metrics: text measured with the real font, baselines like Chrome
 - Automatic hyphenation
 - `font-feature-settings` (e.g. `"zero" 1`, `"smcp" 1`) applies single-glyph OpenType

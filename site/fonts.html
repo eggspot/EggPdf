@@ -198,10 +198,12 @@
         script listed above.
       </p>
       <p>
-        Long Thai paragraphs wrap at syllable boundaries; this is a heuristic, since real Thai word
-        breaking needs a dictionary. Not supported: line breaking inside Lao, Khmer and Myanmar text
-        (they have no spaces either), the full Unicode bidirectional algorithm (neutral characters
-        next to numbers can order differently from Chrome), and scripts beyond those listed.
+        Long Thai, Lao, Khmer and Myanmar paragraphs wrap at syllable boundaries; this is a
+        heuristic, since real word breaking needs a dictionary (lines may end mid-word).
+        <code>line-height: normal</code> uses the shaping font's ascent, descent and line gap, so
+        tall fonts such as Myanmar Text don't collide. Not supported: the full Unicode
+        bidirectional algorithm (neutral characters next to numbers can order differently from
+        Chrome), and scripts beyond those listed.
       </p>
 
     </main>
