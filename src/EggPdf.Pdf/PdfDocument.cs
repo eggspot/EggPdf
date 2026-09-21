@@ -145,6 +145,17 @@ public partial class PdfDocument
         return result;
     }
 
+    /// <summary>Number of pages added so far.</summary>
+    public int PageCount => _pages.Count;
+
+    /// <summary>Append bookmarks to the outline (used when a document is rendered in several page groups).</summary>
+    public void AppendBookmarks(List<PdfBookmark> bookmarks)
+    {
+        if (bookmarks == null || bookmarks.Count == 0) return;
+        if (_bookmarks == null) _bookmarks = new List<PdfBookmark>(bookmarks);
+        else _bookmarks.AddRange(bookmarks);
+    }
+
     /// <summary>Set bookmarks (document outline) to include in the PDF.</summary>
     public void SetBookmarks(List<PdfBookmark> bookmarks)
     {

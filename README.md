@@ -157,7 +157,7 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Running headers/footers
 - Page numbers (Page X of Y)
 - Tables spanning any number of pages without row loss, with `<thead>` repeating on every continuation page
-- Mixed page orientations (portrait + landscape)
+- Mixed page sizes/orientations via named pages (`page: name` on top-level blocks + `@page name { size; margin; margin boxes }`)
 - Watermarks
 - Pin content (e.g. a signature/acceptance box) to the bottom of whichever page dynamic content ends on (`-eggpdf-pin-bottom: page`)
 

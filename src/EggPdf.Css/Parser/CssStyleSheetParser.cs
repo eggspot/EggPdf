@@ -229,7 +229,19 @@ public static class CssStyleSheetParser
         SkipWhitespace(tokens, ref pos);
 
         string? pageSelector = null;
-        // Optional page selector (e.g., :first, :left)
+        // Optional page selector: a page name (@page wide), a pseudo-class (:first, :left) or both
+        if (pos < tokens.Count && tokens[pos].Type == CssTokenType.Ident)
+        {
+            pageSelector = tokens[pos].Value;
+            pos++;
+            SkipWhitespace(tokens, ref pos);
+        }
+        // A named rule with a pseudo-class (@page wide:first) is not modelled -- skip it whole
+        if (pageSelector != null && pos < tokens.Count && tokens[pos].Type == CssTokenType.Colon)
+        {
+            SkipAtRule(tokens, ref pos);
+            return;
+        }
         if (pos < tokens.Count && tokens[pos].Type == CssTokenType.Colon)
         {
             var sb = new StringBuilder(":");

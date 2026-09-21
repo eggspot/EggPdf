@@ -102,7 +102,17 @@
 <span class="pun">.</span><span class="var">chart</span> <span class="pun">{</span> <span class="var">page</span><span class="pun">:</span> <span class="var">wide</span><span class="pun">; }</span></code></pre></div>
       <p>
         Elements with <code>page: wide</code> will render on their own landscape pages; all
-        other content uses the default portrait layout.
+        other content uses the default portrait layout. Each named page gets its own
+        <code>size</code>, <code>margin</code> and margin boxes, content reflows to that page's
+        width, and <code>counter(page)</code>/<code>counter(pages)</code> keep counting across
+        groups.
+      </p>
+      <p>
+        Limitations: only direct children of <code>&lt;body&gt;</code> select a page name (put
+        <code>page:</code> on top-level sections), <code>@page name:first</code> is ignored, CSS
+        counters restart in each page group, sibling selectors such as <code>:nth-child</code>
+        only see the elements of their own group, and internal <code>#anchor</code> links cannot
+        cross groups.
       </p>
 
       <h2 id="page-breaks">Page breaks</h2>

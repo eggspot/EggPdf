@@ -26,7 +26,7 @@ internal static class PdfRenderer
     public static void Render(LayoutBox layoutRoot, PdfDocument pdfDoc,
         float pageWidthPt, float pageHeightPt, float pageHeightPx,
         float marginLeftPx = 0, float marginTopPx = 0, float marginBottomPx = 0,
-        List<LayoutBox>? marginBoxes = null)
+        List<LayoutBox>? marginBoxes = null, int pageNumberOffset = 0, int? totalPagesOverride = null)
     {
         BoxPainter.MarginLeftPx = marginLeftPx;
         _marginTopPx = marginTopPx;
@@ -35,7 +35,8 @@ internal static class PdfRenderer
 
         try
         {
-            RenderCore(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx, marginBoxes);
+            RenderCore(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx, marginBoxes,
+                pageNumberOffset, totalPagesOverride);
         }
         finally
         {
@@ -56,7 +57,7 @@ internal static class PdfRenderer
 
     private static void RenderCore(LayoutBox layoutRoot, PdfDocument pdfDoc,
         float pageWidthPt, float pageHeightPt, float pageHeightPx,
-        List<LayoutBox>? marginBoxes = null)
+        List<LayoutBox>? marginBoxes = null, int pageNumberOffset = 0, int? totalPagesOverride = null)
     {
         // Collect all leaf boxes (boxes with text or background)
         var allPaintableBoxes = new List<LayoutBox>();
@@ -114,7 +115,7 @@ internal static class PdfRenderer
         {
             var blankPage = pdfDoc.AddPage(pageWidthPt, pageHeightPt);
             blankPage.AddRectangle(0, 0, pageWidthPt, pageHeightPt, 1f, 1f, 1f);
-            BoxPainter.PaintFixedBoxes(blankPage, fixedBoxes, pageHeightPt, pageHeightPx, pageIndex: 1, totalPages: 1);
+            BoxPainter.PaintFixedBoxes(blankPage, fixedBoxes, pageHeightPt, pageHeightPx, pageIndex: pageNumberOffset + 1, totalPages: totalPagesOverride ?? 1);
             return;
         }
 
@@ -516,7 +517,7 @@ internal static class PdfRenderer
             }
 
             BoxPainter.PaintFixedBoxes(page, fixedBoxes, pageHeightPt, pageHeightPx,
-                pageIndex: renderPageIndex + 1, totalPages: pageBounds.Count);
+                pageIndex: pageNumberOffset + renderPageIndex + 1, totalPages: totalPagesOverride ?? pageBounds.Count);
 
             renderPageIndex++;
         }
@@ -553,11 +554,11 @@ internal static class PdfRenderer
                 {
                     Title = title,
                     Level = level,
-                    PageIndex = pageIndex,
+                    PageIndex = pageIndex + pageNumberOffset,
                     TopPt = topPt
                 });
             }
-            pdfDoc.SetBookmarks(bookmarks);
+            pdfDoc.AppendBookmarks(bookmarks);
         }
     }
 

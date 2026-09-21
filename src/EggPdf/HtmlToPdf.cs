@@ -297,25 +297,36 @@ public static partial class HtmlToPdf
             // Layout uses content area (page minus margins) for body width. The full physical
             // page dimensions are passed separately so position:fixed's containing block can
             // reach the true page edge (see BlockLayout's _fullPageWidthPx/_fullPageHeightPx).
-            var layoutRoot = BlockLayout.LayoutDocument(document, contentWidthPx, contentHeightPx, cascadeResolver,
-                fullPageWidth: pageWidthPx, fullPageHeight: pageHeightPx);
+            // Named pages (page: <name> + @page <name>) split the body into groups laid out at
+            // their own page size; every other document takes the single-size path below.
+            var namedGroups = FindNamedPageGroups(document, cascadeResolver, pageSettings);
+            var layouts = namedGroups == null
+                ? new List<(LayoutBox root, PageSettings settings)>
+                {
+                    (BlockLayout.LayoutDocument(document, contentWidthPx, contentHeightPx, cascadeResolver,
+                        fullPageWidth: pageWidthPx, fullPageHeight: pageHeightPx), pageSettings)
+                }
+                : LayoutPageGroups(document, namedGroups, pageSettings, cascadeResolver);
 
             // 6. Resolve images (load data from src attributes)
             var pdfDoc = new PdfDocument { Encryption = encryption };
             pdfDoc.Title = FindTitleTagText(document);
             pdfDoc.Author = FindMetaContent(document, "author");
-            ResolveImages(layoutRoot, pdfDoc);
+            var layoutRoots = new List<LayoutBox>(layouts.Count);
+            foreach (var layout in layouts)
+            {
+                ResolveImages(layout.root, pdfDoc);
+                layoutRoots.Add(layout.root);
+            }
 
             // 6b. Subset and embed TrueType fonts for non-standard fonts
-            SubsetAndEmbedFonts(layoutRoot, pdfDoc, fontFaces);
+            SubsetAndEmbedFonts(layoutRoots, pdfDoc, fontFaces);
 
             // 7. Render to PDF
-            float pageWidthPt = pageWidthPx * PdfCoordinates.PxToPt;
-            float pageHeightPt = pageHeightPx * PdfCoordinates.PxToPt;
-
-            var marginBoxes = MarginBoxRenderer.Build(pageSettings, pageWidthPx, pageHeightPx);
-            PdfRenderer.Render(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx,
-                pageSettings.MarginLeft, pageSettings.MarginTop, pageSettings.MarginBottom, marginBoxes);
+            if (layouts.Count == 1)
+                RenderOneGroup(layouts[0].root, layouts[0].settings, pdfDoc, 0, null);
+            else
+                RenderPageGroups(layouts, pdfDoc);
 
             return pdfDoc.ToByteArray();
         }
@@ -829,7 +840,7 @@ public static partial class HtmlToPdf
     /// @font-face (webfont), or when its codepoints exceed WinAnsiEncoding
     /// (e.g. Vietnamese) so the non-embedded Type1 built-ins cannot encode them.
     /// </summary>
-    private static void SubsetAndEmbedFonts(LayoutBox root, PdfDocument pdfDoc,
+    private static void SubsetAndEmbedFonts(IReadOnlyList<LayoutBox> roots, PdfDocument pdfDoc,
         Dictionary<string, List<FontFaceCandidate>> fontFaces)
     {
         // Collect (fontName, codepoints) plus the raw font-family list per font name
@@ -837,7 +848,8 @@ public static partial class HtmlToPdf
         var fontFamilyLists = new Dictionary<string, string>();
         var fontFeatureTags = new Dictionary<string, List<string>>();
         var complexTexts = new Dictionary<string, HashSet<string>>();
-        CollectTextCodepoints(root, fontCodepoints, fontFamilyLists, fontFeatureTags, complexTexts);
+        foreach (var root in roots)
+            CollectTextCodepoints(root, fontCodepoints, fontFamilyLists, fontFeatureTags, complexTexts);
 
         if (complexTexts.Count > 0)
             EmbedComplexScriptFonts(complexTexts, fontFamilyLists, pdfDoc, fontFaces);
