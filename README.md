@@ -140,12 +140,13 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - SVG rendering (vector output, not rasterized) -- `<circle>`/`<ellipse>`/`<rect>`/`<polygon>`/
   `<polyline>`/`<path>`/`<line>` (arcs flattened as true curves), plus SVG filter graphs:
   `filter="url(#id)"` (attribute or `style`) with feGaussianBlur, feOffset, feFlood,
-  feColorMatrix, feComponentTransfer, feMerge, feBlend, feComposite, feMorphology and
-  feDropShadow, evaluated in linearRGB/sRGB per `color-interpolation-filters`, with filter
-  regions, primitive subregions and named `in`/`result` wiring. A filtered shape or `<g>` is
-  rasterized (fills and strokes), filtered and re-embedded as an image, since PDF has no vector
-  filter primitive. Filters using feTurbulence/feImage/feTile/feConvolveMatrix/
-  feDisplacementMap/lighting, and filtered text/images/gradient fills, paint unfiltered
+  feColorMatrix, feComponentTransfer, feMerge, feBlend, feComposite, feMorphology, feDropShadow,
+  feTurbulence, feConvolveMatrix, feDisplacementMap, feTile, feImage (element or data: bitmap) and
+  feDiffuse/SpecularLighting (distant/point/spot lights), evaluated in linearRGB/sRGB per
+  `color-interpolation-filters`, with filter regions, primitive subregions and named `in`/`result`
+  wiring. A filtered shape, `<text>` (glyph outlines from the installed font), `<use>` or `<g>` is
+  rasterized (fills incl. linear/radial gradients, strokes), filtered and re-embedded as an image,
+  since PDF has no vector filter primitive. Filtered `<image>` elements and pattern paints paint unfiltered
 - All image formats (JPEG, PNG incl. 1-bit QR codes, GIF, WebP -- lossy VP8 incl. alpha, lossless VP8L, extended VP8X containers, first frame of animations --, SVG, Base64)
 - Responsive images: `<img srcset>`/`<picture>` and CSS `image-set()` resolve to their best candidate (PDF is treated as a fixed 1x print context)
 - CSS Images Level 4 `image()`: resolves `ltr`/`rtl`-tagged candidates against the element's

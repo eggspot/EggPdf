@@ -58,12 +58,12 @@ public static partial class SvgRenderer
         sb.AppendLine($"{F(scaleX)} 0 0 {F(-scaleY)} {F(tx)} {F(ty)} cm");
 
         // Collect the <filter> definitions whose primitives are all supported
-        var filters = CollectFilters(svg);
+        var defs = CollectDefs(svg);
 
         // Render child elements, tracking the cumulative local-to-PDF matrix (needed only
         // for filtered elements, whose scale sets the raster resolution).
         var viewBoxMatrix = new Matrix2D(scaleX, 0, 0, -scaleY, tx, ty);
-        RenderChildren(svg, sb, pdfDoc, filters, usedImages, viewBoxMatrix);
+        RenderChildren(svg, sb, pdfDoc, defs, usedImages, viewBoxMatrix);
 
         // Restore graphics state
         sb.AppendLine("Q");
@@ -72,16 +72,16 @@ public static partial class SvgRenderer
     }
 
     private static void RenderChildren(SvgElement parent, StringBuilder sb, PdfDocument? pdfDoc,
-        Dictionary<string, SvgFilter> filters, List<string> usedImages, Matrix2D matrix)
+        SvgDefs defs, List<string> usedImages, Matrix2D matrix)
     {
         foreach (var child in parent.Children)
         {
-            RenderElement(child, sb, pdfDoc, filters, usedImages, matrix);
+            RenderElement(child, sb, pdfDoc, defs, usedImages, matrix);
         }
     }
 
     private static void RenderElement(SvgElement el, StringBuilder sb, PdfDocument? pdfDoc,
-        Dictionary<string, SvgFilter> filters, List<string> usedImages, Matrix2D matrix)
+        SvgDefs defs, List<string> usedImages, Matrix2D matrix)
     {
         // Handle transform attribute
         bool hasTransform = el.Attributes.TryGetValue("transform", out var transformStr) && !string.IsNullOrEmpty(transformStr);
@@ -96,10 +96,10 @@ public static partial class SvgRenderer
         // image instead of emitting vector operators -- PDF has no blur/color-matrix/composite
         // primitives. Elements the rasterizer can't reproduce (text, images, gradients) fall
         // through and paint unfiltered.
-        if (filters.Count > 0 && pdfDoc != null)
+        if (defs.Filters.Count > 0 && pdfDoc != null)
         {
-            var filter = ResolveFilter(el, filters);
-            if (filter != null && RenderFilteredElement(el, sb, pdfDoc, usedImages, filter, matrix))
+            var filter = ResolveFilter(el, defs.Filters);
+            if (filter != null && RenderFilteredElement(el, sb, pdfDoc, usedImages, filter, defs, matrix))
             {
                 if (hasTransform) sb.AppendLine("Q");
                 return;
@@ -110,7 +110,7 @@ public static partial class SvgRenderer
         {
             case "g":
             case "svg":
-                RenderChildren(el, sb, pdfDoc, filters, usedImages, matrix);
+                RenderChildren(el, sb, pdfDoc, defs, usedImages, matrix);
                 break;
             case "rect":
                 RenderRect(el, sb);
@@ -148,7 +148,7 @@ public static partial class SvgRenderer
                 break;
             default:
                 // Unknown element — render children
-                RenderChildren(el, sb, pdfDoc, filters, usedImages, matrix);
+                RenderChildren(el, sb, pdfDoc, defs, usedImages, matrix);
                 break;
         }
 

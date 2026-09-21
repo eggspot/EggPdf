@@ -330,7 +330,7 @@ public class SvgFilterGraphTests
     public void UnsupportedPrimitive_MakesFilterUnparseable()
     {
         var f = El("filter", ("id", "t"));
-        f.Children.Add(El("feturbulence"));
+        f.Children.Add(El("fefoo"));
         SvgFilter.TryParse(f).Should().BeNull();
     }
 

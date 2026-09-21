@@ -13,10 +13,23 @@ internal readonly struct FilterRunContext
     /// <summary>Affine local-user-space to canvas-pixel map (x' = a x + c y + e, y' = b x + d y + f).</summary>
     public readonly float A, B, C, D, E, F;
 
-    public FilterRunContext(float unitToPxX, float unitToPxY, float a, float b, float c, float d, float e, float f)
+    /// <summary>Resolves feImage references (an element in the document, or a bitmap); null when unavailable.</summary>
+    public readonly FilterImageSource? Images;
+
+    public FilterRunContext(float unitToPxX, float unitToPxY, float a, float b, float c, float d, float e, float f,
+        FilterImageSource? images = null)
     {
-        UnitToPxX = unitToPxX; UnitToPxY = unitToPxY; A = a; B = b; C = c; D = d; E = e; F = f;
+        UnitToPxX = unitToPxX; UnitToPxY = unitToPxY; A = a; B = b; C = c; D = d; E = e; F = f; Images = images;
     }
+}
+
+/// <summary>Callbacks the renderer provides so feImage can pull in document elements and bitmaps.</summary>
+internal sealed class FilterImageSource
+{
+    /// <summary>Render the element with the given id into a canvas-sized image (its own user space mapped like the source graphic).</summary>
+    public Func<string, FilterImage?> RenderElement = _ => null;
+    /// <summary>Decode a bitmap reference (a data: URI) at its native size.</summary>
+    public Func<string, FilterImage?> LoadBitmap = _ => null;
 }
 
 /// <summary>
@@ -27,7 +40,7 @@ internal readonly struct FilterRunContext
 /// (feTurbulence, feImage, feTile, feConvolveMatrix, feDisplacementMap, lighting) is not
 /// parsed at all, so its element paints unfiltered rather than with a wrong partial result.
 /// </summary>
-internal sealed class SvgFilter
+internal sealed partial class SvgFilter
 {
     private sealed class Primitive
     {
@@ -53,7 +66,17 @@ internal sealed class SvgFilter
             {
                 case "fegaussianblur": case "feoffset": case "feflood": case "fecolormatrix":
                 case "fecomponenttransfer": case "femerge": case "feblend": case "fecomposite":
-                case "femorphology": case "fedropshadow":
+                case "femorphology": case "fedropshadow": case "feturbulence": case "feconvolvematrix":
+                case "fedisplacementmap": case "fetile": case "feimage":
+                    filter._primitives.Add(new Primitive
+                    {
+                        Kind = child.TagName,
+                        Element = child,
+                        Linear = ParseLinear(Prop(child, "color-interpolation-filters"), defaultLinear),
+                    });
+                    break;
+                case "fediffuselighting": case "fespecularlighting":
+                    if (FindLight(child) == null) return null; // a lighting primitive is meaningless without a light
                     filter._primitives.Add(new Primitive
                     {
                         Kind = child.TagName,
@@ -122,28 +145,28 @@ internal sealed class SvgFilter
     {
         var named = new Dictionary<string, FilterImage>();
         FilterImage? previous = null;
+        // Each result's primitive subregion (pixels), needed by feTile
+        var subregions = new Dictionary<FilterImage, (int x0, int y0, int x1, int y1)>();
 
         foreach (var prim in _primitives)
         {
             var el = prim.Element;
             bool linear = prim.Linear;
 
-            FilterImage Input(string attr)
+            FilterImage RawInput(string attr)
             {
                 var name = el.GetAttribute(attr);
-                FilterImage img;
                 switch (name)
                 {
-                    case "SourceGraphic": img = source; break;
-                    case "SourceAlpha": img = FilterPixels.AlphaOnly(source); break;
+                    case "SourceGraphic": return source;
+                    case "SourceAlpha": return FilterPixels.AlphaOnly(source);
                     case "BackgroundImage": case "BackgroundAlpha": case "FillPaint": case "StrokePaint":
-                        img = new FilterImage(source.Width, source.Height); break;
+                        return new FilterImage(source.Width, source.Height);
                     default:
-                        img = !string.IsNullOrEmpty(name) && named.TryGetValue(name, out var r) ? r : previous ?? source;
-                        break;
+                        return !string.IsNullOrEmpty(name) && named.TryGetValue(name, out var r) ? r : previous ?? source;
                 }
-                return img.InSpace(linear);
             }
+            FilterImage Input(string attr) => RawInput(attr).InSpace(linear);
 
             FilterImage output;
             switch (prim.Kind)
@@ -203,13 +226,42 @@ internal sealed class SvgFilter
                             (int)Math.Round(rx * ctx.UnitToPxX), (int)Math.Round(ry * ctx.UnitToPxY));
                     break;
                 }
+                case "feturbulence":
+                    output = Turbulence(el, source.Width, source.Height, linear, ctx);
+                    break;
+                case "feconvolvematrix":
+                    output = ConvolveMatrix(el, Input("in"));
+                    break;
+                case "fedisplacementmap":
+                {
+                    var channels = (el.GetAttribute("xchannelselector").Trim().ToUpperInvariant() + "A", el.GetAttribute("ychannelselector").Trim().ToUpperInvariant() + "A");
+                    char xc = "RGBA".IndexOf(channels.Item1[0]) >= 0 ? channels.Item1[0] : 'A';
+                    char yc = "RGBA".IndexOf(channels.Item2[0]) >= 0 ? channels.Item2[0] : 'A';
+                    output = FilterPixels.DisplacementMap(Input("in"), Input("in2"),
+                        Number(el.GetAttribute("scale"), 0f) * ctx.UnitToPxX, xc, yc);
+                    break;
+                }
+                case "fetile":
+                {
+                    var raw = RawInput("in");
+                    var (tx0, ty0, tx1, ty1) = subregions.TryGetValue(raw, out var known) ? known : (0, 0, source.Width, source.Height);
+                    output = FilterPixels.Tile(raw.InSpace(linear), tx0, ty0, tx1, ty1);
+                    break;
+                }
+                case "feimage":
+                    output = ImageSource(el, source.Width, source.Height, linear, ctx);
+                    break;
+                case "fediffuselighting": case "fespecularlighting":
+                    output = Lighting(el, Input("in"), prim.Kind == "fespecularlighting", linear, ctx);
+                    break;
                 default: // fedropshadow
                     output = DropShadow(el, Input("in"), linear, ctx);
                     break;
             }
 
-            output = ClipToSubregion(output, el, ctx);
+            output = ClipToSubregion(output, el, ctx, out var region);
             output.Linear = linear;
+            subregions[output] = region;
             var resultName = el.GetAttribute("result");
             if (!string.IsNullOrEmpty(resultName)) named[resultName] = output;
             previous = output;
@@ -329,8 +381,10 @@ internal sealed class SvgFilter
     /// Clip a primitive's result to its x/y/width/height subregion (user-space numbers); sides
     /// it doesn't specify stay at the canvas edge. Absent attributes leave the image untouched.
     /// </summary>
-    private static FilterImage ClipToSubregion(FilterImage img, SvgElement el, in FilterRunContext ctx)
+    private static FilterImage ClipToSubregion(FilterImage img, SvgElement el, in FilterRunContext ctx,
+        out (int x0, int y0, int x1, int y1) region)
     {
+        region = (0, 0, img.Width, img.Height);
         var xs = el.GetAttribute("x"); var ys = el.GetAttribute("y");
         var ws = el.GetAttribute("width"); var hs = el.GetAttribute("height");
         if (xs.Length == 0 && ys.Length == 0 && ws.Length == 0 && hs.Length == 0) return img;
@@ -347,6 +401,7 @@ internal sealed class SvgFilter
         int ix0 = Math.Max(0, (int)Math.Floor(Math.Min(x0, x1))), ix1 = Math.Min(img.Width, (int)Math.Ceiling(Math.Max(x0, x1)));
         int iy0 = Math.Max(0, (int)Math.Floor(Math.Min(y0, y1))), iy1 = Math.Min(img.Height, (int)Math.Ceiling(Math.Max(y0, y1)));
 
+        region = (ix0, iy0, ix1, iy1);
         var clipped = new FilterImage(img.Width, img.Height, img.Linear);
         for (int y = iy0; y < iy1; y++)
             for (int x = ix0; x < ix1; x++)

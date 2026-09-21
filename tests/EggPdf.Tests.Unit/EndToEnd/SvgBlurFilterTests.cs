@@ -116,11 +116,11 @@ public class SvgBlurFilterTests
     [Fact]
     public async Task UnsupportedPrimitiveFilter_ShapeRendersNormallyWithoutCrash()
     {
-        // feTurbulence is not implemented; the shape must still render (via the normal
+        // An unknown primitive is not implemented; the shape must still render (via the normal
         // unfiltered vector path), not crash or silently vanish.
         var html = @"
             <svg width='100' height='100'>
-                <defs><filter id='noise'><feTurbulence baseFrequency='0.05'/></filter></defs>
+                <defs><filter id='noise'><feFoo/></filter></defs>
                 <circle cx='50' cy='50' r='30' fill='red' filter='url(#noise)'/>
             </svg>";
 

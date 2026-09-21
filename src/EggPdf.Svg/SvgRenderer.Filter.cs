@@ -9,52 +9,42 @@ namespace EggPdf.Svg;
 
 /// <summary>
 /// SVG filter effects (<c>filter="url(#id)"</c>). PDF has no vector filter primitive, so a
-/// filtered element is rasterized -- its filled and stroked shapes, or every shape under a
+/// filtered element is rasterized -- its filled and stroked shapes, text, or every shape under a
 /// filtered &lt;g&gt; -- run through the filter graph (<see cref="SvgFilter"/>) at ~144 dpi, and
-/// embedded as an image XObject positioned over the filter region. Elements containing text,
-/// images or gradient/pattern paints can't be rasterized here and paint unfiltered instead.
+/// embedded as an image XObject positioned over the filter region. Elements containing raster
+/// images or pattern paints can't be rasterized here and paint unfiltered instead.
+/// Source collection (shapes, text, gradients) lives in SvgRenderer.FilterSource.cs.
 /// </summary>
 public static partial class SvgRenderer
 {
-    /// <summary>Fill/stroke properties as they cascade down a filtered subtree.</summary>
-    private struct FilterPaint
+    /// <summary>Document-wide lookups gathered once per SVG: usable filters, and every element by id.</summary>
+    private sealed class SvgDefs
     {
-        public string Fill, Stroke, Color;
-        public float FillOpacity, StrokeWidth, StrokeOpacity, Opacity;
+        public readonly Dictionary<string, SvgFilter> Filters = new Dictionary<string, SvgFilter>();
+        public readonly Dictionary<string, SvgElement> Ids = new Dictionary<string, SvgElement>();
+    }
 
-        public static FilterPaint Default => new FilterPaint
+    private static SvgDefs CollectDefs(SvgElement root)
+    {
+        var defs = new SvgDefs();
+        CollectDefs(root, defs);
+        return defs;
+    }
+
+    private static void CollectDefs(SvgElement el, SvgDefs defs)
+    {
+        var id = el.GetAttribute("id");
+        if (!string.IsNullOrEmpty(id))
         {
-            Fill = "black", Stroke = "none", Color = "black",
-            FillOpacity = 1f, StrokeWidth = 1f, StrokeOpacity = 1f, Opacity = 1f,
-        };
-    }
-
-    private sealed class FilterShape
-    {
-        public List<(List<(float x, float y)> points, bool closed)> Subpaths = null!;
-        public FilterPaint Paint;
-    }
-
-    private static Dictionary<string, SvgFilter> CollectFilters(SvgElement root)
-    {
-        var filters = new Dictionary<string, SvgFilter>();
-        CollectFilters(root, filters);
-        return filters;
-    }
-
-    private static void CollectFilters(SvgElement el, Dictionary<string, SvgFilter> result)
-    {
-        if (el.TagName == "filter")
-        {
-            var id = el.GetAttribute("id");
-            if (!string.IsNullOrEmpty(id))
+            defs.Ids[id] = el;
+            if (el.TagName == "filter")
             {
                 var parsed = SvgFilter.TryParse(el);
-                if (parsed != null) result[id] = parsed;
+                if (parsed != null) defs.Filters[id] = parsed;
             }
         }
         foreach (var child in el.Children)
-            CollectFilters(child, result);
+            CollectDefs(child, defs);
     }
 
     private static SvgFilter? ResolveFilter(SvgElement el, Dictionary<string, SvgFilter> filters)
@@ -79,10 +69,10 @@ public static partial class SvgRenderer
     /// it normally.
     /// </summary>
     private static bool RenderFilteredElement(SvgElement el, StringBuilder sb, PdfDocument pdfDoc,
-        List<string> usedImages, SvgFilter filter, Matrix2D matrix)
+        List<string> usedImages, SvgFilter filter, SvgDefs defs, Matrix2D matrix)
     {
         var shapes = new List<FilterShape>();
-        bool supported = CollectFilterShapes(el, new Matrix2D(1, 0, 0, 1, 0, 0), FilterPaint.Default, true, shapes);
+        bool supported = CollectFilterShapes(el, new Matrix2D(1, 0, 0, 1, 0, 0), FilterPaint.Default, true, defs, shapes);
         if (!supported || shapes.Count == 0) return false;
 
         float scale = matrix.UniformScale;
@@ -114,9 +104,14 @@ public static partial class SvgRenderer
 
         var source = new FilterImage(canvasW, canvasH);
         foreach (var shape in shapes)
-            DrawFilterShape(source, shape, rx, ry, pxPerUnit);
+            DrawFilterShape(source, shape, rx, ry, pxPerUnit, defs);
 
-        var ctx = new FilterRunContext(pxPerUnit, pxPerUnit, pxPerUnit, 0, 0, pxPerUnit, -rx * pxPerUnit, -ry * pxPerUnit);
+        var images = new FilterImageSource
+        {
+            RenderElement = id => RenderReferencedElement(id, defs, canvasW, canvasH, rx, ry, pxPerUnit),
+            LoadBitmap = LoadFilterBitmap,
+        };
+        var ctx = new FilterRunContext(pxPerUnit, pxPerUnit, pxPerUnit, 0, 0, pxPerUnit, -rx * pxPerUnit, -ry * pxPerUnit, images);
         var result = filter.Run(source, ctx);
 
         var pixels = new byte[canvasW * canvasH * 4];
@@ -142,146 +137,54 @@ public static partial class SvgRenderer
         return true;
     }
 
-    // ── Source collection ─────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Gather every drawable shape under <paramref name="el"/> with its geometry in the root
-    /// element's local space. Returns false when the subtree holds something that can't be
-    /// rasterized (text, images, gradient/pattern paints).
-    /// </summary>
-    private static bool CollectFilterShapes(SvgElement el, Matrix2D rel, FilterPaint inherited, bool isRoot, List<FilterShape> shapes)
+    /// <summary>feImage href="#id": rasterize that element in the filtered element's user space.</summary>
+    private static FilterImage? RenderReferencedElement(string id, SvgDefs defs, int width, int height,
+        float originX, float originY, float pxPerUnit)
     {
-        if (string.Equals(SvgFilter.Prop(el, "display"), "none", StringComparison.OrdinalIgnoreCase)) return true;
+        if (!defs.Ids.TryGetValue(id, out var target)) return null;
 
-        // The filtered element's own transform is already on the CTM; descendants' are not
-        if (!isRoot)
-        {
-            var transform = el.GetAttribute("transform");
-            if (transform.Length > 0) rel = MatrixMultiply(ParseTransformToMatrix(transform), rel);
-        }
+        var shapes = new List<FilterShape>();
+        if (!CollectFilterShapes(target, new Matrix2D(1, 0, 0, 1, 0, 0), FilterPaint.Default, false, defs, shapes)) return null;
 
-        var paint = ReadFilterPaint(el, inherited);
-        switch (el.TagName)
-        {
-            case "g": case "svg": case "a":
-                foreach (var child in el.Children)
-                    if (!CollectFilterShapes(child, rel, paint, false, shapes)) return false;
-                return true;
-            case "defs": case "filter": case "clippath": case "mask": case "symbol": case "title": case "desc": case "metadata":
-                return true;
-            case "text": case "tspan": case "image": case "use": case "foreignobject":
-                return false;
-        }
-
-        var subpaths = ExtractShapeSubpaths(el);
-        if (subpaths == null) return false;
-        if (UsesUnrasterizablePaint(paint)) return false;
-
-        var transformed = new List<(List<(float x, float y)>, bool)>(subpaths.Count);
-        foreach (var (points, closed) in subpaths)
-        {
-            var moved = new List<(float x, float y)>(points.Count);
-            foreach (var p in points) moved.Add(rel.Apply(p.x, p.y));
-            transformed.Add((moved, closed));
-        }
-        shapes.Add(new FilterShape { Subpaths = transformed, Paint = paint });
-        return true;
+        var image = new FilterImage(width, height);
+        foreach (var shape in shapes) DrawFilterShape(image, shape, originX, originY, pxPerUnit, defs);
+        return image;
     }
 
-    private static bool UsesUnrasterizablePaint(FilterPaint p)
-        => p.Fill.StartsWith("url(", StringComparison.OrdinalIgnoreCase) || p.Stroke.StartsWith("url(", StringComparison.OrdinalIgnoreCase);
-
-    private static FilterPaint ReadFilterPaint(SvgElement el, FilterPaint parent)
+    /// <summary>Decode a data: URI holding a PNG, GIF, BMP or WebP into a premultiplied bitmap; null for anything else.</summary>
+    private static FilterImage? LoadFilterBitmap(string href)
     {
-        var paint = parent;
-        var v = SvgFilter.Prop(el, "fill"); if (v.Length > 0) paint.Fill = v;
-        v = SvgFilter.Prop(el, "stroke"); if (v.Length > 0) paint.Stroke = v;
-        v = SvgFilter.Prop(el, "color"); if (v.Length > 0) paint.Color = v;
-        paint.FillOpacity = ReadFraction(SvgFilter.Prop(el, "fill-opacity"), paint.FillOpacity);
-        paint.StrokeOpacity = ReadFraction(SvgFilter.Prop(el, "stroke-opacity"), paint.StrokeOpacity);
-        v = SvgFilter.Prop(el, "stroke-width");
-        if (v.Length > 0 && float.TryParse(v.Replace("px", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out float sw)) paint.StrokeWidth = sw;
-        // opacity is not inherited but composes down the tree
-        paint.Opacity = parent.Opacity * ReadFraction(SvgFilter.Prop(el, "opacity"), 1f);
-        return paint;
-    }
+        int comma = href.IndexOf(',');
+        if (!href.StartsWith("data:", StringComparison.OrdinalIgnoreCase) || comma < 0) return null;
 
-    private static float ReadFraction(string value, float fallback)
-    {
-        if (value.Length == 0) return fallback;
-        bool percent = value.EndsWith("%", StringComparison.Ordinal);
-        if (percent) value = value.Substring(0, value.Length - 1);
-        if (!float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float n)) return fallback;
-        return Math.Max(0f, Math.Min(1f, percent ? n / 100f : n));
-    }
-
-    private static Color? ResolvePaintColor(string paint, string currentColor)
-    {
-        var v = paint.Trim();
-        if (v.Length == 0 || v.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
-        if (v.Equals("currentColor", StringComparison.OrdinalIgnoreCase)) v = currentColor;
-        return Color.TryParse(v) ?? Color.Black;
-    }
-
-    // ── Rasterizing the source graphic ───────────────────────────────────────
-
-    private static void DrawFilterShape(FilterImage dst, FilterShape shape, float originX, float originY, float pxPerUnit)
-    {
-        var paint = shape.Paint;
-        var canvasPaths = new List<(List<(float x, float y)> points, bool closed)>(shape.Subpaths.Count);
-        foreach (var (points, closed) in shape.Subpaths)
+        byte[] bytes;
+        try
         {
-            var mapped = new List<(float x, float y)>(points.Count);
-            foreach (var p in points) mapped.Add(((p.x - originX) * pxPerUnit, (p.y - originY) * pxPerUnit));
-            canvasPaths.Add((mapped, closed));
+            var payload = href.Substring(comma + 1);
+            bytes = href.Substring(0, comma).IndexOf(";base64", StringComparison.OrdinalIgnoreCase) >= 0
+                ? Convert.FromBase64String(payload)
+                : Encoding.UTF8.GetBytes(Uri.UnescapeDataString(payload));
+        }
+        catch (FormatException)
+        {
+            return null;
         }
 
-        var fill = ResolvePaintColor(paint.Fill, paint.Color);
-        if (fill.HasValue)
+        PdfImage? decoded = null;
+        if (bytes.Length > 8 && bytes[0] == 0x89 && bytes[1] == 'P') decoded = PdfImage.FromPng("fe", bytes);
+        else if (bytes.Length > 6 && bytes[0] == 'G' && bytes[1] == 'I') decoded = PdfImage.FromGif("fe", bytes);
+        else if (bytes.Length > 2 && bytes[0] == 'B' && bytes[1] == 'M') decoded = PdfImage.FromBmp("fe", bytes);
+        else if (bytes.Length > 12 && bytes[0] == 'R' && bytes[1] == 'I') decoded = PdfImage.FromWebP("fe", bytes);
+        if (decoded == null || decoded.Format != PdfImageFormat.Raw) return null; // JPEG stays DCT-compressed here
+
+        var image = new FilterImage(decoded.Width, decoded.Height);
+        for (int i = 0; i < decoded.Width * decoded.Height; i++)
         {
-            var layer = new RasterCanvas(dst.Width, dst.Height);
-            foreach (var (points, _) in canvasPaths)
-                if (points.Count >= 3) layer.FillPolygon(points, fill.Value.R, fill.Value.G, fill.Value.B, 255);
-            CompositeLayer(dst, layer, paint.FillOpacity * paint.Opacity * (fill.Value.A / 255f));
+            float a = decoded.SMaskData != null ? decoded.SMaskData[i] / 255f : 1f;
+            for (int c = 0; c < 3; c++) image.Px[i * 4 + c] = decoded.Data[i * 3 + c] / 255f * a;
+            image.Px[i * 4 + 3] = a;
         }
-
-        var stroke = ResolvePaintColor(paint.Stroke, paint.Color);
-        float widthPx = paint.StrokeWidth * pxPerUnit;
-        if (stroke.HasValue && widthPx > 0f)
-        {
-            var layer = new RasterCanvas(dst.Width, dst.Height);
-            foreach (var (points, closed) in canvasPaths)
-                StrokePolyline(layer, points, closed, widthPx, stroke.Value);
-            CompositeLayer(dst, layer, paint.StrokeOpacity * paint.Opacity * (stroke.Value.A / 255f));
-        }
-    }
-
-    /// <summary>Stroke a polyline as one quad per segment plus a round join disc at each joint (butt caps).</summary>
-    private static void StrokePolyline(RasterCanvas layer, List<(float x, float y)> pts, bool closed, float width, Color color)
-    {
-        int n = pts.Count;
-        if (closed && n > 1 && pts[0] == pts[n - 1]) n--; // a path's closing 'Z' repeats the first point
-        int segments = closed ? n : n - 1;
-        float half = width / 2f;
-
-        for (int i = 0; i < segments; i++)
-        {
-            var a = pts[i];
-            var b = pts[(i + 1) % n];
-            float dx = b.x - a.x, dy = b.y - a.y;
-            float len = (float)Math.Sqrt(dx * dx + dy * dy);
-            if (len <= 0f) continue;
-            float nx = -dy / len * half, ny = dx / len * half;
-            layer.FillPolygon(new List<(float x, float y)>
-            {
-                (a.x + nx, a.y + ny), (b.x + nx, b.y + ny), (b.x - nx, b.y - ny), (a.x - nx, a.y - ny),
-            }, color.R, color.G, color.B, 255);
-        }
-
-        if (half < 0.75f) return; // hairlines don't need round joins
-        int firstJoint = closed ? 0 : 1, lastJoint = closed ? n - 1 : n - 2;
-        for (int i = firstJoint; i <= lastJoint; i++)
-            layer.FillPolygon(ExtractEllipsePoints(pts[i].x, pts[i].y, half, half, 16), color.R, color.G, color.B, 255);
+        return image;
     }
 
     /// <summary>Source-over a straight-alpha raster layer, scaled by <paramref name="opacity"/>, onto a premultiplied float image.</summary>

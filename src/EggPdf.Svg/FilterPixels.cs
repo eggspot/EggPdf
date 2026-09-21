@@ -7,7 +7,7 @@ namespace EggPdf.Svg;
 /// premultiplied-alpha <see cref="FilterImage"/>s that are already in the color space the
 /// primitive works in; the graph (<see cref="SvgFilter"/>) does the space conversions.
 /// </summary>
-internal static class FilterPixels
+internal static partial class FilterPixels
 {
     // ── Gaussian blur ─────────────────────────────────────────────────────────
 

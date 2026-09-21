@@ -148,20 +148,20 @@ public class SvgFilterRenderTests
     }
 
     [Fact]
-    public void FilterOnText_FallsBackToUnfilteredPainting()
+    public void FilterOnText_EitherRasterizesTheGlyphsOrPaintsThemPlainly_NeverVanishes()
     {
         var r = Render("<text x='10' y='50' filter='url(#b)'>Hi</text>",
             "<defs><filter id='b'><feGaussianBlur stdDeviation='1'/></filter></defs>");
 
-        r.Images.Should().BeEmpty("text can't be rasterized here, so it paints normally rather than vanishing");
-        r.Commands.Should().Contain("Tj");
+        // With an installed font the outlines become the filter source; without one the text paints unfiltered
+        (r.Images.Count == 1 || r.Commands.Contains("Tj")).Should().BeTrue();
     }
 
     [Fact]
     public void UnsupportedPrimitive_LeavesShapeUnfiltered_ButVisible()
     {
         var r = Render("<rect x='20' y='20' width='20' height='20' fill='red' filter='url(#t)'/>",
-            "<defs><filter id='t'><feTurbulence baseFrequency='0.05'/></filter></defs>");
+            "<defs><filter id='t'><feFoo/></filter></defs>");
 
         r.Images.Should().BeEmpty();
         r.Commands.Should().Contain(" re", "the rectangle still paints as vector");
