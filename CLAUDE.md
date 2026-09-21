@@ -162,7 +162,7 @@ dotnet run --project src/EggPdf.Service -c Release -- --urls http://localhost:55
   logic (roughly 150+ lines, or a clearly separate concern) to a class that already
   exists, split it into a new `ClassName.Feature.cs` file using `partial class`/`partial
   static class`, the same way `BlockLayout.*.cs`, `PdfRenderer` (-> `PageFragmenter`/
-  `BoxPainter`), and `SvgRenderer.Blur.cs` are split. Do this as you write the feature,
+  `BoxPainter`), and `SvgRenderer.Filter.cs` are split. Do this as you write the feature,
   not as a later cleanup pass.
 
 ## Docs Stay in Sync

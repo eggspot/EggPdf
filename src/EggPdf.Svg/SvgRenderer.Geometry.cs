@@ -7,11 +7,8 @@ using EggPdf.Pdf;
 namespace EggPdf.Svg;
 
 /// <summary>
-/// feGaussianBlur support: PDF has no vector blur primitive, so a blur-filtered shape is
-/// rasterized to a bitmap, convolved with a real Gaussian kernel, and embedded as an
-/// image XObject instead of the normal vector path operators the rest of SvgRenderer
-/// emits. Only single-primitive (&lt;filter&gt; containing exactly one &lt;feGaussianBlur&gt;)
-/// filters on filled shapes are supported -- see CollectBlurFilters and RenderBlurredShape.
+/// Geometry helpers for the filter rasterizer (SvgRenderer.Filter.cs): 2D affine matrices,
+/// transform-attribute parsing, and flattening of shapes into polylines.
 /// </summary>
 public static partial class SvgRenderer
 {
@@ -93,79 +90,43 @@ public static partial class SvgRenderer
     }
 
     /// <summary>
-    /// Collect &lt;filter&gt; definitions that contain exactly one &lt;feGaussianBlur&gt;
-    /// child with a positive stdDeviation (id -> stdDeviation). Filters with other or
-    /// multiple primitives (drop shadows, color matrices, composited filter graphs) are
-    /// a much larger format and are left unresolved: a shape referencing one of those
-    /// simply renders via the normal, unblurred vector path.
+    /// A shape's outline as flattened polylines in its own local coordinate system, one per
+    /// subpath, each flagged closed or open; null for elements this rasterizer doesn't draw
+    /// (text, images).
     /// </summary>
-    private static void CollectBlurFilters(SvgElement el, Dictionary<string, float> result)
+    private static List<(List<(float x, float y)> points, bool closed)>? ExtractShapeSubpaths(SvgElement el)
     {
-        if (el.TagName == "filter")
-        {
-            var id = el.GetAttribute("id");
-            // Tag/attribute names are lowercased uniformly by this parser (no HTML5
-            // "foreign content" case-preservation for SVG), so "feGaussianBlur" and
-            // "stdDeviation" arrive as "fegaussianblur" / "stddeviation".
-            if (!string.IsNullOrEmpty(id) && el.Children.Count == 1 && el.Children[0].TagName == "fegaussianblur")
-            {
-                var stdDevStr = el.Children[0].GetAttribute("stddeviation");
-                if (!string.IsNullOrEmpty(stdDevStr))
-                {
-                    var firstToken = stdDevStr.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (firstToken.Length > 0 &&
-                        float.TryParse(firstToken[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float stdDev) &&
-                        stdDev > 0)
-                    {
-                        result[id] = stdDev;
-                    }
-                }
-            }
-        }
-        foreach (var child in el.Children)
-            CollectBlurFilters(child, result);
-    }
-
-    private static bool TryResolveBlurFilter(SvgElement el, Dictionary<string, float> blurFilters, out float stdDeviation)
-    {
-        stdDeviation = 0;
-        var filterAttr = el.GetAttribute("filter");
-        if (string.IsNullOrEmpty(filterAttr)) return false;
-
-        var trimmed = filterAttr.Trim();
-        if (!trimmed.StartsWith("url(", StringComparison.OrdinalIgnoreCase)) return false;
-
-        int hashIdx = trimmed.IndexOf('#');
-        if (hashIdx < 0) return false;
-        int endIdx = trimmed.IndexOf(')', hashIdx);
-        if (endIdx < 0) endIdx = trimmed.Length;
-
-        var id = trimmed.Substring(hashIdx + 1, endIdx - hashIdx - 1).Trim('\'', '"', ' ');
-        return !string.IsNullOrEmpty(id) && blurFilters.TryGetValue(id, out stdDeviation);
-    }
-
-    /// <summary>Extract a filled shape's outline in its own local coordinate system, or null for shapes this rasterizer doesn't support (line, text -- these keep painting via the normal unblurred vector path).</summary>
-    private static List<(float x, float y)>? ExtractShapeLocalPoints(SvgElement el)
-    {
+        var result = new List<(List<(float x, float y)>, bool)>();
         switch (el.TagName)
         {
             case "rect":
-                return ExtractRectPoints(el);
+                result.Add((ExtractRectPoints(el), true));
+                return result;
             case "circle":
             {
                 float cx = GetFloat(el, "cx"), cy = GetFloat(el, "cy"), r = GetFloat(el, "r");
-                return ExtractEllipsePoints(cx, cy, r, r);
+                result.Add((ExtractEllipsePoints(cx, cy, r, r), true));
+                return result;
             }
             case "ellipse":
             {
                 float cx = GetFloat(el, "cx"), cy = GetFloat(el, "cy"), rx = GetFloat(el, "rx"), ry = GetFloat(el, "ry");
-                return ExtractEllipsePoints(cx, cy, rx, ry);
+                result.Add((ExtractEllipsePoints(cx, cy, rx, ry), true));
+                return result;
             }
+            case "line":
+                result.Add((new List<(float x, float y)>
+                {
+                    (GetFloat(el, "x1"), GetFloat(el, "y1")), (GetFloat(el, "x2"), GetFloat(el, "y2")),
+                }, false));
+                return result;
             case "polygon":
             case "polyline":
             {
                 var points = el.GetAttribute("points");
-                return string.IsNullOrEmpty(points) ? null : ParsePointsList(points);
+                if (string.IsNullOrEmpty(points)) return null;
+                result.Add((ParsePointsList(points), el.TagName == "polygon"));
+                return result;
             }
             case "path":
             {
@@ -216,10 +177,12 @@ public static partial class SvgRenderer
         return pts;
     }
 
-    /// <summary>Flatten an SVG path's "d" data into line-segment points (same command grammar as ConvertSvgPathToPdf; arcs are approximated as a line-to, matching that method's own documented simplification).</summary>
-    private static List<(float x, float y)> FlattenSvgPath(string d)
+    /// <summary>Flatten an SVG path's "d" data into one polyline per subpath (same command grammar as ConvertSvgPathToPdf), each flagged closed by a 'Z'.</summary>
+    private static List<(List<(float x, float y)> points, bool closed)> FlattenSvgPath(string d)
     {
+        var subpaths = new List<(List<(float x, float y)>, bool)>();
         var pts = new List<(float x, float y)>();
+        bool closed = false;
         float curX = 0, curY = 0, startX = 0, startY = 0;
         char lastCmd = ' ';
         int i = 0;
@@ -241,6 +204,12 @@ public static partial class SvgRenderer
                 {
                     float x = ReadNumber(d, ref i), y = ReadNumber(d, ref i);
                     if (relative) { x += curX; y += curY; }
+                    if (pts.Count > 0)
+                    {
+                        subpaths.Add((pts, closed));
+                        pts = new List<(float x, float y)>();
+                        closed = false;
+                    }
                     curX = x; curY = y; startX = x; startY = y;
                     pts.Add((x, y));
                     lastCmd = relative ? 'l' : 'L';
@@ -296,15 +265,19 @@ public static partial class SvgRenderer
                 case 'Z':
                     curX = startX; curY = startY;
                     pts.Add((curX, curY));
+                    subpaths.Add((pts, true));
+                    // Drawing after a close continues from the subpath's start point
+                    pts = new List<(float x, float y)> { (curX, curY) };
+                    closed = false;
                     break;
                 case 'A':
                 {
-                    ReadNumber(d, ref i); ReadNumber(d, ref i); ReadNumber(d, ref i);
-                    ReadNumber(d, ref i); ReadNumber(d, ref i);
+                    float arx = ReadNumber(d, ref i), ary = ReadNumber(d, ref i), rot = ReadNumber(d, ref i);
+                    float large = ReadNumber(d, ref i), sweep = ReadNumber(d, ref i);
                     float x = ReadNumber(d, ref i), y = ReadNumber(d, ref i);
                     if (relative) { x += curX; y += curY; }
+                    FlattenArc(pts, curX, curY, arx, ary, rot, large != 0f, sweep != 0f, x, y);
                     curX = x; curY = y;
-                    pts.Add((x, y));
                     break;
                 }
                 default:
@@ -312,92 +285,49 @@ public static partial class SvgRenderer
                     break;
             }
         }
-        return pts;
+        subpaths.Add((pts, closed));
+        subpaths.RemoveAll(s => s.Item1.Count < 2);
+        return subpaths;
     }
 
-    private static (byte r, byte g, byte b, byte a) ExtractFillColor(SvgElement el)
+    /// <summary>Append the polyline approximating an SVG elliptical arc (endpoint parameterization, SVG 1.1 appendix F.6).</summary>
+    private static void FlattenArc(List<(float x, float y)> pts, float x0, float y0, float rx, float ry,
+        float rotationDegrees, bool largeArc, bool sweep, float x1, float y1)
     {
-        var fillAttr = el.GetAttribute("fill");
-        var fill = string.IsNullOrEmpty(fillAttr) ? "black" : fillAttr; // SVG default fill is black
-        var (r, g, b) = ParseSvgColor(fill);
+        rx = Math.Abs(rx); ry = Math.Abs(ry);
+        if ((x0 == x1 && y0 == y1)) return;
+        if (rx == 0f || ry == 0f) { pts.Add((x1, y1)); return; }
 
-        float opacity = 1f;
-        var opacityAttr = el.GetAttribute("fill-opacity");
-        if (!string.IsNullOrEmpty(opacityAttr) &&
-            float.TryParse(opacityAttr, NumberStyles.Float, CultureInfo.InvariantCulture, out float op))
-            opacity = Math.Max(0f, Math.Min(1f, op));
+        double phi = rotationDegrees * Math.PI / 180.0;
+        double cosPhi = Math.Cos(phi), sinPhi = Math.Sin(phi);
+        double dx2 = (x0 - x1) / 2.0, dy2 = (y0 - y1) / 2.0;
+        double x1p = cosPhi * dx2 + sinPhi * dy2, y1p = -sinPhi * dx2 + cosPhi * dy2;
 
-        return ((byte)Math.Round(r * 255f), (byte)Math.Round(g * 255f), (byte)Math.Round(b * 255f), (byte)Math.Round(opacity * 255f));
-    }
+        double lambda = x1p * x1p / ((double)rx * rx) + y1p * y1p / ((double)ry * ry);
+        double rxd = rx, ryd = ry;
+        if (lambda > 1.0) { double s = Math.Sqrt(lambda); rxd *= s; ryd *= s; }
 
-    /// <summary>
-    /// Rasterize a filled shape, blur it, and embed the result as an image XObject
-    /// positioned at its (transformed) bounding box. Only filled shapes are supported --
-    /// stroke-only shapes under a blur filter render via the normal vector path instead
-    /// (the rasterizer only fills polygons, see RasterCanvas).
-    /// </summary>
-    private static void RenderBlurredShape(SvgElement el, StringBuilder sb, PdfDocument pdfDoc,
-        List<string> usedImages, float stdDeviation, Matrix2D matrix)
-    {
-        if (el.GetAttribute("fill") == "none") return;
+        double num = rxd * rxd * ryd * ryd - rxd * rxd * y1p * y1p - ryd * ryd * x1p * x1p;
+        double den = rxd * rxd * y1p * y1p + ryd * ryd * x1p * x1p;
+        double coef = den == 0.0 ? 0.0 : Math.Sqrt(Math.Max(0.0, num / den));
+        if (largeArc == sweep) coef = -coef;
+        double cxp = coef * rxd * y1p / ryd, cyp = -coef * ryd * x1p / rxd;
+        double cx = cosPhi * cxp - sinPhi * cyp + (x0 + x1) / 2.0;
+        double cy = sinPhi * cxp + cosPhi * cyp + (y0 + y1) / 2.0;
 
-        var localPts = ExtractShapeLocalPoints(el);
-        if (localPts == null || localPts.Count < 3) return;
+        double theta1 = Math.Atan2((y1p - cyp) / ryd, (x1p - cxp) / rxd);
+        double theta2 = Math.Atan2((-y1p - cyp) / ryd, (-x1p - cxp) / rxd);
+        double delta = theta2 - theta1;
+        if (sweep && delta < 0) delta += 2 * Math.PI;
+        else if (!sweep && delta > 0) delta -= 2 * Math.PI;
 
-        var pdfPts = new List<(float x, float y)>(localPts.Count);
-        float minX = float.MaxValue, maxX = float.MinValue, minY = float.MaxValue, maxY = float.MinValue;
-        foreach (var p in localPts)
+        int steps = Math.Max(4, (int)Math.Ceiling(Math.Abs(delta) / (Math.PI / 16)));
+        for (int s = 1; s <= steps; s++)
         {
-            var tp = matrix.Apply(p.x, p.y);
-            pdfPts.Add(tp);
-            if (tp.x < minX) minX = tp.x;
-            if (tp.x > maxX) maxX = tp.x;
-            if (tp.y < minY) minY = tp.y;
-            if (tp.y > maxY) maxY = tp.y;
+            double t = theta1 + delta * s / steps;
+            double ex = rxd * Math.Cos(t), ey = ryd * Math.Sin(t);
+            pts.Add(((float)(cosPhi * ex - sinPhi * ey + cx), (float)(sinPhi * ex + cosPhi * ey + cy)));
         }
-        if (minX > maxX || minY > maxY) return;
-
-        // stdDeviation is in the shape's local coordinate system; approximate its scale
-        // to PDF points via the matrix's area-based uniform-scale factor.
-        float scale = matrix.UniformScale;
-        if (scale <= 0f) return;
-        float sigmaPt = stdDeviation * scale;
-        float marginPt = Math.Max(1f, sigmaPt * 3f);
-
-        const float pxPerPt = 2f; // raster resolution
-        float bboxWpt = (maxX - minX) + marginPt * 2f;
-        float bboxHpt = (maxY - minY) + marginPt * 2f;
-        int canvasW = Math.Max(1, (int)Math.Ceiling(bboxWpt * pxPerPt));
-        int canvasH = Math.Max(1, (int)Math.Ceiling(bboxHpt * pxPerPt));
-
-        const int maxDim = 2000; // guard against pathological/degenerate shapes
-        if (canvasW > maxDim || canvasH > maxDim) return;
-
-        var canvas = new RasterCanvas(canvasW, canvasH);
-        var (fr, fg, fb, fa) = ExtractFillColor(el);
-
-        var canvasPts = new List<(float x, float y)>(pdfPts.Count);
-        foreach (var p in pdfPts)
-        {
-            float cx = (p.x - minX + marginPt) * pxPerPt;
-            float cy = (maxY - p.y + marginPt) * pxPerPt; // canvas Y grows downward, PDF Y grows upward
-            canvasPts.Add((cx, cy));
-        }
-        canvas.FillPolygon(canvasPts, fr, fg, fb, fa);
-
-        float sigmaPx = sigmaPt * pxPerPt;
-        GaussianBlurRaster.ApplyInPlace(canvas, sigmaPx);
-
-        string imgName = "SvgBlur" + ((uint)(el.GetHashCode() ^ (canvasW << 16) ^ canvasH)).ToString("X8");
-        var pdfImage = PdfImage.FromRgba(imgName, canvasW, canvasH, canvas.Pixels);
-        pdfDoc.AddImage(pdfImage);
-        usedImages.Add(imgName);
-
-        float imgXpt = minX - marginPt;
-        float imgYpt = minY - marginPt;
-        sb.AppendLine("q");
-        sb.AppendLine($"{F(bboxWpt)} 0 0 {F(bboxHpt)} {F(imgXpt)} {F(imgYpt)} cm");
-        sb.AppendLine($"/{imgName} Do");
-        sb.AppendLine("Q");
+        pts[pts.Count - 1] = (x1, y1);
     }
 }

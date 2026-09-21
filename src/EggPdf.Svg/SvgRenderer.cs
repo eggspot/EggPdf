@@ -10,14 +10,14 @@ namespace EggPdf.Svg;
 /// Renders inline SVG elements to PDF drawing commands.
 /// Converts SVG shapes (rect, circle, ellipse, line, polyline, polygon, path)
 /// to PDF path operators, with support for fill, stroke, transforms, and viewBox.
-/// feGaussianBlur rasterization lives in SvgRenderer.Blur.cs.
+/// Filter effects (filter="url(#id)") are rasterized in SvgRenderer.Filter.cs.
 /// </summary>
 public static partial class SvgRenderer
 {
     /// <summary>
     /// Render an SVG element tree to PDF content stream commands. Returns the content
     /// stream fragment to insert into the page, plus the names of any images it
-    /// references (rasterized blur layers -- see <see cref="RenderBlurredShape"/>) so the
+    /// references (rasterized filter layers -- see <see cref="RenderFilteredElement"/>) so the
     /// caller can register them on the page's resource dictionary without breaking the
     /// document-order z-ordering a direct page.AddImage call mid-render would cause.
     /// </summary>
@@ -57,15 +57,13 @@ public static partial class SvgRenderer
         float ty = targetY + targetHeight + vbY * scaleY; // PDF Y is bottom-up
         sb.AppendLine($"{F(scaleX)} 0 0 {F(-scaleY)} {F(tx)} {F(ty)} cm");
 
-        // Collect <filter> definitions containing a single <feGaussianBlur> (the common
-        // case -- multi-primitive filter graphs are out of scope, see RenderBlurredShape).
-        var blurFilters = new Dictionary<string, float>();
-        CollectBlurFilters(svg, blurFilters);
+        // Collect the <filter> definitions whose primitives are all supported
+        var filters = CollectFilters(svg);
 
         // Render child elements, tracking the cumulative local-to-PDF matrix (needed only
-        // for blurred shapes, which are rasterized outside the normal vector path flow).
+        // for filtered elements, whose scale sets the raster resolution).
         var viewBoxMatrix = new Matrix2D(scaleX, 0, 0, -scaleY, tx, ty);
-        RenderChildren(svg, sb, pdfDoc, blurFilters, usedImages, viewBoxMatrix);
+        RenderChildren(svg, sb, pdfDoc, filters, usedImages, viewBoxMatrix);
 
         // Restore graphics state
         sb.AppendLine("Q");
@@ -74,16 +72,16 @@ public static partial class SvgRenderer
     }
 
     private static void RenderChildren(SvgElement parent, StringBuilder sb, PdfDocument? pdfDoc,
-        Dictionary<string, float> blurFilters, List<string> usedImages, Matrix2D matrix)
+        Dictionary<string, SvgFilter> filters, List<string> usedImages, Matrix2D matrix)
     {
         foreach (var child in parent.Children)
         {
-            RenderElement(child, sb, pdfDoc, blurFilters, usedImages, matrix);
+            RenderElement(child, sb, pdfDoc, filters, usedImages, matrix);
         }
     }
 
     private static void RenderElement(SvgElement el, StringBuilder sb, PdfDocument? pdfDoc,
-        Dictionary<string, float> blurFilters, List<string> usedImages, Matrix2D matrix)
+        Dictionary<string, SvgFilter> filters, List<string> usedImages, Matrix2D matrix)
     {
         // Handle transform attribute
         bool hasTransform = el.Attributes.TryGetValue("transform", out var transformStr) && !string.IsNullOrEmpty(transformStr);
@@ -94,21 +92,25 @@ public static partial class SvgRenderer
             matrix = MatrixMultiply(ParseTransformToMatrix(transformStr!), matrix);
         }
 
-        // A blur filter rasterizes the shape instead of emitting normal vector operators
-        // -- PDF's text/path painting operators always use one flat color per call, but a
-        // real Gaussian blur needs a bitmap to convolve.
-        if (blurFilters.Count > 0 && pdfDoc != null && TryResolveBlurFilter(el, blurFilters, out float stdDeviation))
+        // A filtered element is rasterized, run through its filter graph and embedded as an
+        // image instead of emitting vector operators -- PDF has no blur/color-matrix/composite
+        // primitives. Elements the rasterizer can't reproduce (text, images, gradients) fall
+        // through and paint unfiltered.
+        if (filters.Count > 0 && pdfDoc != null)
         {
-            RenderBlurredShape(el, sb, pdfDoc, usedImages, stdDeviation, matrix);
-            if (hasTransform) sb.AppendLine("Q");
-            return;
+            var filter = ResolveFilter(el, filters);
+            if (filter != null && RenderFilteredElement(el, sb, pdfDoc, usedImages, filter, matrix))
+            {
+                if (hasTransform) sb.AppendLine("Q");
+                return;
+            }
         }
 
         switch (el.TagName)
         {
             case "g":
             case "svg":
-                RenderChildren(el, sb, pdfDoc, blurFilters, usedImages, matrix);
+                RenderChildren(el, sb, pdfDoc, filters, usedImages, matrix);
                 break;
             case "rect":
                 RenderRect(el, sb);
@@ -146,7 +148,7 @@ public static partial class SvgRenderer
                 break;
             default:
                 // Unknown element — render children
-                RenderChildren(el, sb, pdfDoc, blurFilters, usedImages, matrix);
+                RenderChildren(el, sb, pdfDoc, filters, usedImages, matrix);
                 break;
         }
 

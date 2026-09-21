@@ -94,10 +94,8 @@ public class SvgBlurFilterTests
     }
 
     [Fact]
-    public async Task MultiplePrimitiveFilter_IsUnsupported_ShapeRendersNormallyWithoutCrash()
+    public async Task MultiplePrimitiveFilter_ChainsIntoOneRasterImage()
     {
-        // A filter with more than one primitive is out of scope; the shape must still
-        // render (via the normal unblurred vector path), not crash or silently vanish.
         var html = @"
             <svg width='100' height='100'>
                 <defs>
@@ -111,8 +109,25 @@ public class SvgBlurFilterTests
 
         var pdf = await HtmlToPdf.RenderAsync(html);
         var text = Latin1(pdf);
-        text.Should().NotContain("/Subtype /Image", "a multi-primitive filter graph is unsupported and must fall back to the normal vector path");
-        text.Should().Contain("1.00 0.00 0.00 rg", "the shape must still paint (unblurred) via the normal vector fill color");
+        text.Should().Contain("/Subtype /Image", "the whole primitive chain runs over a raster of the circle");
+        text.Should().NotContain("1.00 0.00 0.00 rg", "the circle is no longer painted as an unfiltered vector fill");
+    }
+
+    [Fact]
+    public async Task UnsupportedPrimitiveFilter_ShapeRendersNormallyWithoutCrash()
+    {
+        // feTurbulence is not implemented; the shape must still render (via the normal
+        // unfiltered vector path), not crash or silently vanish.
+        var html = @"
+            <svg width='100' height='100'>
+                <defs><filter id='noise'><feTurbulence baseFrequency='0.05'/></filter></defs>
+                <circle cx='50' cy='50' r='30' fill='red' filter='url(#noise)'/>
+            </svg>";
+
+        var pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Latin1(pdf);
+        text.Should().NotContain("/Subtype /Image");
+        text.Should().Contain("1.00 0.00 0.00 rg", "the shape must still paint (unfiltered) via the normal vector fill color");
     }
 
     [Fact]

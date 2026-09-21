@@ -138,9 +138,14 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   single-pass renderer and are accepted as a no-op rather than rejected
 - Webfonts: remote `<link>` stylesheets (Google Fonts) and `@font-face` over http(s), data: URIs, or files
 - SVG rendering (vector output, not rasterized) -- `<circle>`/`<ellipse>`/`<rect>`/`<polygon>`/
-  `<polyline>`/`<path>`, `filter="url(#id)"` with a single `<feGaussianBlur>` (rasterized +
-  blurred + re-embedded as an image, since PDF has no vector blur primitive; multi-primitive
-  filter graphs are not supported and render unblurred)
+  `<polyline>`/`<path>`/`<line>` (arcs flattened as true curves), plus SVG filter graphs:
+  `filter="url(#id)"` (attribute or `style`) with feGaussianBlur, feOffset, feFlood,
+  feColorMatrix, feComponentTransfer, feMerge, feBlend, feComposite, feMorphology and
+  feDropShadow, evaluated in linearRGB/sRGB per `color-interpolation-filters`, with filter
+  regions, primitive subregions and named `in`/`result` wiring. A filtered shape or `<g>` is
+  rasterized (fills and strokes), filtered and re-embedded as an image, since PDF has no vector
+  filter primitive. Filters using feTurbulence/feImage/feTile/feConvolveMatrix/
+  feDisplacementMap/lighting, and filtered text/images/gradient fills, paint unfiltered
 - All image formats (JPEG, PNG incl. 1-bit QR codes, GIF, WebP -- lossless/VP8L only, lossy/VP8 not yet decoded --, SVG, Base64)
 - Responsive images: `<img srcset>`/`<picture>` and CSS `image-set()` resolve to their best candidate (PDF is treated as a fixed 1x print context)
 - CSS Images Level 4 `image()`: resolves `ltr`/`rtl`-tagged candidates against the element's

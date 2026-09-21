@@ -177,6 +177,9 @@ public partial class PdfDocument
         return image.Name;
     }
 
+    /// <summary>The image previously registered under <paramref name="name"/>, or null.</summary>
+    public PdfImage? GetImage(string name) => _images.TryGetValue(name, out var image) ? image : null;
+
     /// <summary>Write the PDF to a byte array.</summary>
     public byte[] ToByteArray()
     {
