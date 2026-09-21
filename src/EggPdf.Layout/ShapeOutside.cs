@@ -4,60 +4,132 @@ using System.Globalization;
 namespace EggPdf.Layout;
 
 /// <summary>
-/// A parsed `shape-outside: circle()` or `ellipse()` descriptor, in coordinates local to
-/// the float's own border box (its "reference box" -- other geometry-box keywords like
-/// margin-box/padding-box are not supported, border-box is used unconditionally).
-/// polygon()/inset()/url() are a much larger surface (edge-intersection scanning, image
-/// alpha-channel sampling) and are not supported: a float with one of those keeps its
-/// plain rectangular exclusion, matching the "common case, not full spec" precedent
-/// already used elsewhere (GPOS kerning, GSUB substitution, COLRv0-only color fonts).
+/// A parsed `shape-outside` descriptor -- circle(), ellipse(), polygon() or inset() -- in
+/// coordinates local to the float's own border box (its "reference box"; other geometry-box
+/// keywords like margin-box/padding-box are not supported, border-box is used unconditionally).
+/// url()/image alpha shapes are not supported (image pixels are not known at layout time): a
+/// float with one keeps its plain rectangular exclusion, as does an unparseable value.
 /// </summary>
 internal readonly struct ShapeOutsideDescriptor
 {
     public readonly float Cx, Cy;
     public readonly float Rx, Ry;
+    /// <summary>polygon()/inset() vertices as x0,y0,x1,y1,... (null for circle/ellipse).</summary>
+    private readonly float[]? _points;
 
     public ShapeOutsideDescriptor(float cx, float cy, float rx, float ry)
     {
         Cx = cx; Cy = cy; Rx = rx; Ry = ry;
+        _points = null;
+    }
+
+    public ShapeOutsideDescriptor(float[] polygonPoints)
+    {
+        Cx = Cy = Rx = Ry = 0;
+        _points = polygonPoints;
     }
 
     /// <summary>
-    /// The shape's rightmost X (local to the float's left edge) at a given local Y, or
-    /// null if the shape doesn't reach that Y at all (the row falls entirely outside it).
+    /// The shape's rightmost X (local to the float's left edge) anywhere in the local Y range
+    /// [<paramref name="top"/>, <paramref name="bottom"/>] (a line box), or null if the shape
+    /// does not reach that range at all.
     /// </summary>
-    public float? RightEdgeAtLocalY(float localY)
+    public float? RightEdgeInRange(float top, float bottom)
     {
-        if (Ry <= 0 || Rx <= 0) return null;
-        float dy = localY - Cy;
-        float t = 1f - (dy * dy) / (Ry * Ry);
-        if (t < 0f) return null;
-        return Cx + Rx * (float)Math.Sqrt(t);
+        if (_points != null)
+            return PolygonExtent(top, bottom, out _, out float max) ? max : (float?)null;
+
+        float? best = null;
+        SampleEllipse(top, bottom, +1, ref best);
+        return best;
     }
 
-    /// <summary>The shape's leftmost X (local to the float's left edge) at a given local Y, or null if absent there.</summary>
-    public float? LeftEdgeAtLocalY(float localY)
+    /// <summary>The shape's leftmost X (local to the float's left edge) in the local Y range, or null if absent.</summary>
+    public float? LeftEdgeInRange(float top, float bottom)
     {
-        if (Ry <= 0 || Rx <= 0) return null;
-        float dy = localY - Cy;
-        float t = 1f - (dy * dy) / (Ry * Ry);
-        if (t < 0f) return null;
-        return Cx - Rx * (float)Math.Sqrt(t);
+        if (_points != null)
+            return PolygonExtent(top, bottom, out float min, out _) ? min : (float?)null;
+
+        float? best = null;
+        SampleEllipse(top, bottom, -1, ref best);
+        return best;
+    }
+
+    /// <summary>
+    /// Sample an ellipse at the range's top, middle and bottom -- a reasonable approximation of
+    /// its extent over one line box without per-pixel scanning, matching how browsers commonly
+    /// sample CSS Shapes. side=+1 keeps the largest right edge, -1 the smallest left edge.
+    /// </summary>
+    private void SampleEllipse(float top, float bottom, int side, ref float? best)
+    {
+        if (Ry <= 0 || Rx <= 0) return;
+        for (int i = 0; i < 3; i++)
+        {
+            float dy = (i == 0 ? top : i == 1 ? (top + bottom) / 2f : bottom) - Cy;
+            float t = 1f - (dy * dy) / (Ry * Ry);
+            if (t < 0f) continue;
+            float x = Cx + side * Rx * (float)Math.Sqrt(t);
+            if (!best.HasValue || (side > 0 ? x > best.Value : x < best.Value)) best = x;
+        }
+    }
+
+    /// <summary>
+    /// Exact horizontal extent of the polygon inside a Y range: every edge is clipped to the
+    /// range and both clipped endpoints contribute, so a vertex (or a horizontal edge) that
+    /// lands between a line box's sample points is still seen.
+    /// </summary>
+    private bool PolygonExtent(float top, float bottom, out float min, out float max)
+    {
+        var p = _points!;
+        min = float.MaxValue; max = float.MinValue;
+        bool any = false;
+        int n = p.Length / 2;
+        for (int i = 0; i < n; i++)
+        {
+            int j = (i + 1) % n;
+            float x0 = p[2 * i], y0 = p[2 * i + 1], x1 = p[2 * j], y1 = p[2 * j + 1];
+            float loY = Math.Min(y0, y1), hiY = Math.Max(y0, y1);
+            if (hiY < top || loY > bottom) continue;
+
+            if (y0 == y1)
+            {
+                Include(x0, ref min, ref max);
+                Include(x1, ref min, ref max);
+            }
+            else
+            {
+                float ya = Math.Max(loY, top), yb = Math.Min(hiY, bottom);
+                Include(x0 + (x1 - x0) * (ya - y0) / (y1 - y0), ref min, ref max);
+                Include(x0 + (x1 - x0) * (yb - y0) / (y1 - y0), ref min, ref max);
+            }
+            any = true;
+        }
+        return any;
+    }
+
+    private static void Include(float x, ref float min, ref float max)
+    {
+        if (x < min) min = x;
+        if (x > max) max = x;
     }
 }
 
-internal static class ShapeOutsideParser
+internal static partial class ShapeOutsideParser
 {
     /// <summary>
-    /// Parse a `shape-outside` value into a circle/ellipse descriptor local to the float's
-    /// own border box (width x height). Returns null for unsupported shapes (polygon,
-    /// inset, url, none) or an unparseable value -- callers fall back to the plain
-    /// rectangular float exclusion in that case.
+    /// Parse a `shape-outside` value into a descriptor local to the float's own border box
+    /// (width x height). Returns null for unsupported shapes (url, none) or an unparseable
+    /// value -- callers fall back to the plain rectangular float exclusion in that case.
     /// </summary>
     public static ShapeOutsideDescriptor? Parse(string? value, float width, float height, float fontSize)
     {
         if (string.IsNullOrEmpty(value)) return null;
         var v = value!.Trim();
+
+        if (v.StartsWith("polygon(", StringComparison.OrdinalIgnoreCase))
+            return ParsePolygon(v, width, height, fontSize);
+        if (v.StartsWith("inset(", StringComparison.OrdinalIgnoreCase))
+            return ParseInset(v, width, height, fontSize);
 
         bool isEllipse = v.StartsWith("ellipse(", StringComparison.OrdinalIgnoreCase);
         bool isCircle = !isEllipse && v.StartsWith("circle(", StringComparison.OrdinalIgnoreCase);

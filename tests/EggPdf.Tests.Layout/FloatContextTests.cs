@@ -126,8 +126,6 @@ public class FloatContextTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("none")]
-    [InlineData("polygon(0 0, 100 0, 100 100)")]
-    [InlineData("inset(10px)")]
     [InlineData("url(shape.png)")]
     public void Parse_UnsupportedOrEmptyValues_ReturnsNull(string? value)
     {

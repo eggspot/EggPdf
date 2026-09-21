@@ -124,4 +124,20 @@ public class FloatTextWrapTests
         firstWord.X.Should().BeLessThan(108f - 5f,
             "shape-outside:circle() must narrow the exclusion near the float's top edge below the full rectangular width");
     }
+
+    [Fact]
+    public void ShapeOutsidePolygon_TriangleLetsFirstLineStartNearTheApex()
+    {
+        // Apex at the top-left, widening downward: the first line only needs to clear a sliver
+        var root = LayoutTestHelper.Layout(
+            "<div style='width:300px'>" +
+            "<div style='float:left;width:100px;height:100px;shape-outside:polygon(0 0, 100% 100%, 0 100%);background:red'></div>" +
+            "<p>" + string.Join(" ", Enumerable.Repeat("w", 60)) + "</p>" +
+            "</div>", 600, 800);
+
+        var firstWord = FirstWordBox(root.FindByTag("p")!);
+
+        firstWord.X.Should().BeLessThan(108f - 20f,
+            "the polygon's exclusion is a few pixels wide near its apex, far below the float's full width");
+    }
 }

@@ -15,7 +15,7 @@ internal class FloatContext
 
     /// <summary>
     /// Add a left float at the given position. <paramref name="shape"/> (from
-    /// shape-outside: circle()/ellipse()) narrows the exclusion to the shape's actual
+    /// shape-outside: circle()/ellipse()/polygon()/inset()) narrows the exclusion to the shape's actual
     /// extent at each line instead of the float's full rectangular width.
     /// </summary>
     public void AddLeftFloat(float x, float y, float width, float height, ShapeOutsideDescriptor? shape = null)
@@ -43,60 +43,21 @@ internal class FloatContext
             var f = _leftFloats[i];
             if (f.Y < y + lineHeight && f.Y + f.Height > y)
             {
-                float right = f.Shape.HasValue
-                    ? f.X + SampleShapeRightEdge(f, y, lineHeight)
-                    : f.X + f.Width;
+                float right = f.X + f.Width;
+                if (f.Shape.HasValue)
+                {
+                    // The line box clamped to the float's own height, in float-local Y
+                    float top = Math.Max(y, f.Y) - f.Y;
+                    float bottom = Math.Min(y + lineHeight, f.Y + f.Height) - f.Y;
+                    var edge = f.Shape.Value.RightEdgeInRange(top, bottom);
+                    if (!edge.HasValue) continue; // the shape doesn't reach this line
+                    right = f.X + edge.Value;
+                }
                 if (right > offset)
                     offset = right;
             }
         }
         return offset;
-    }
-
-    /// <summary>
-    /// Sample a shape's rightmost local-X across a line's Y range (3 points: top, middle,
-    /// bottom, clamped to the float's own height) and return the most restrictive (max)
-    /// value -- a reasonable approximation of the shape's true extent over that line
-    /// without per-pixel scanning, matching how browsers commonly sample CSS Shapes.
-    /// </summary>
-    private static float SampleShapeRightEdge(FloatInfo f, float y, float lineHeight)
-    {
-        var shape = f.Shape!.Value;
-        float best = 0f;
-        Span3(y, lineHeight, f.Y, f.Height, (localY) =>
-        {
-            var edge = shape.RightEdgeAtLocalY(localY);
-            if (edge.HasValue && edge.Value > best) best = edge.Value;
-        });
-        return best;
-    }
-
-    private static float SampleShapeLeftEdge(FloatInfo f, float y, float lineHeight)
-    {
-        var shape = f.Shape!.Value;
-        float best = f.Width;
-        bool any = false;
-        Span3(y, lineHeight, f.Y, f.Height, (localY) =>
-        {
-            var edge = shape.LeftEdgeAtLocalY(localY);
-            if (edge.HasValue)
-            {
-                any = true;
-                if (edge.Value < best) best = edge.Value;
-            }
-        });
-        return any ? best : f.Width;
-    }
-
-    private static void Span3(float y, float lineHeight, float floatY, float floatHeight, Action<float> visit)
-    {
-        float top = Math.Max(y, floatY);
-        float bottom = Math.Min(y + lineHeight, floatY + floatHeight);
-        if (bottom < top) return;
-        float mid = (top + bottom) / 2f;
-        visit(top - floatY);
-        visit(mid - floatY);
-        visit(bottom - floatY);
     }
 
     /// <summary>
@@ -111,7 +72,15 @@ internal class FloatContext
             var f = _rightFloats[i];
             if (f.Y < y + lineHeight && f.Y + f.Height > y)
             {
-                float leftEdge = f.Shape.HasValue ? SampleShapeLeftEdge(f, y, lineHeight) : 0f;
+                float leftEdge = 0f;
+                if (f.Shape.HasValue)
+                {
+                    float top = Math.Max(y, f.Y) - f.Y;
+                    float bottom = Math.Min(y + lineHeight, f.Y + f.Height) - f.Y;
+                    var edge = f.Shape.Value.LeftEdgeInRange(top, bottom);
+                    if (!edge.HasValue) continue; // the shape doesn't reach this line
+                    leftEdge = edge.Value;
+                }
                 float consumed = containerRight - (f.X + leftEdge);
                 if (consumed > offset)
                     offset = consumed;

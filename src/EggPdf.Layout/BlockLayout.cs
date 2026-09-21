@@ -506,7 +506,7 @@ public static partial class BlockLayout
 
                             // Register with floatCtx so later sibling content's line-wrapping
                             // narrows around it. shape-outside gives it a non-rectangular
-                            // exclusion (circle()/ellipse() only -- see ShapeOutsideParser);
+                            // exclusion (circle/ellipse/polygon/inset -- see ShapeOutsideParser);
                             // unsupported/absent shapes keep the plain rectangular exclusion.
                             // The registered Y uses the reliable floatOriginY-based origin, not
                             // childBox.Y (which is only relative-to-box.Y, itself possibly still
