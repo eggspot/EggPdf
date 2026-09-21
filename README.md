@@ -198,6 +198,10 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - `font-feature-settings` (e.g. `"zero" 1`, `"smcp" 1`) applies single-glyph OpenType
   features (stylistic sets, small caps, oldstyle/tabular figures) from the font's GSUB
   table -- ligature/contextual substitution is not applied
+- Variable fonts (TrueType `glyf` outlines with fvar/gvar/avar/HVAR, e.g. Bahnschrift, Inter, Roboto Flex):
+  `font-weight` drives the `wght` axis, so `@font-face` with `font-weight: 100 900` (or an installed
+  variable font) renders intermediate weights as real instances, verified against Chrome's outlines;
+  `font-stretch`/`font-variation-settings` on other axes and CFF2-flavoured variable fonts are not applied
 - Color/emoji fonts (COLR v0 + CPAL) render each glyph's real color layers -- COLRv1
   (gradients, paint graphs -- e.g. current Segoe UI Emoji) is not supported and falls
   back to the glyph's outline in the current text color

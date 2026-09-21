@@ -917,6 +917,9 @@ public static partial class HtmlToPdf
             if (fontData == null || fontData.RawData == null || fontData.RawData.Length == 0)
                 continue;
 
+            // System variable fonts (e.g. Bahnschrift) follow the requested weight too
+            fontData = Text.TrueType.VariableFontInstancer.InstanceForWeight(fontData, targetWeight);
+
             // Subset the font to only include used glyphs (process-wide cache).
             // GSUB-substituted glyphs (font-feature-settings) are baked into the subset
             // here, so the embedded CID map already points at the right glyph outlines.
@@ -1041,7 +1044,8 @@ public static partial class HtmlToPdf
                     }
                 }
 
-                if (fontData != null) return fontData;
+                // A variable font is instanced at the requested weight (no-op for static fonts)
+                if (fontData != null) return Text.TrueType.VariableFontInstancer.InstanceForWeight(fontData, targetWeight);
             }
         }
 
