@@ -115,8 +115,18 @@ public class ComplexScriptE2ETests
             "<html><body><p>Invoice ใบแจ้งหนี้ #42</p></body></html>");
         var text = PdfAssert.ValidPdf(pdf);
 
-        text.Should().MatchRegex(@"BT [^\n]*(> Tj|\] TJ)", "the mixed Latin/Thai line is painted as glyph-id text");
         if (HasFont("LeelawUI.ttf") || HasFont("tahoma.ttf"))
+        {
+            // A Thai-capable font is installed: the whole line paints as shaped glyph-id text
+            // under the Thai run's own embedded font key.
+            text.Should().MatchRegex(@"BT [^\n]*(> Tj|\] TJ)", "the mixed Latin/Thai line is painted as glyph-id text");
             text.Should().Contain("-CXT", "the Thai run is embedded under its shaped-script font key");
+        }
+        else
+        {
+            // No covering font (minimal CI image): must degrade gracefully rather than corrupt the
+            // page -- the surrounding Latin text still renders, even though the Thai glyphs don't.
+            text.Should().Contain("Invoice").And.Contain("#42");
+        }
     }
 }
