@@ -205,6 +205,17 @@ public class CascadeResolver
         if (element.HasAttribute("hidden"))
             style.Set("display", "none");
 
+        // 6.1. The dir attribute is the HTML UA rule `[dir=rtl] { direction: rtl }` (and ltr): it
+        //      sits below author/inline CSS, so it only applies when nothing declared `direction`.
+        if (!style.Has("direction"))
+        {
+            var dirAttr = element.GetAttribute("dir");
+            if (string.Equals(dirAttr, "rtl", System.StringComparison.OrdinalIgnoreCase))
+                style.Set("direction", "rtl");
+            else if (string.Equals(dirAttr, "ltr", System.StringComparison.OrdinalIgnoreCase))
+                style.Set("direction", "ltr");
+        }
+
         // 6.5. Resolve CSS-wide keywords: inherit, initial, unset, revert
         ResolveCssWideKeywords(style, parentStyle, element);
 
@@ -227,6 +238,9 @@ public class CascadeResolver
 
         // 8. Resolve var() references in all non-custom property values
         ResolveCustomProperties(style);
+
+        // 8b. Variable-font axes (font-stretch, oblique angle, font-variation-settings) ride along in font-family
+        FontVariationMarker.Apply(style);
 
         // 9. Map logical properties (margin-inline-start, padding-block, inline-size, etc.)
         //    to their physical counterparts based on writing direction.
@@ -571,7 +585,7 @@ public class CascadeResolver
         "border-collapse", "border-spacing", "caption-side", "empty-cells",
         "quotes", "tab-size",
         "font-feature-settings", "font-synthesis", "font-size-adjust",
-        "font-kerning", "font-optical-sizing", "font-variation-settings",
+        "font-kerning", "font-optical-sizing", "font-variation-settings", "font-stretch",
         "print-color-adjust",
         "text-emphasis", "text-emphasis-style", "text-emphasis-color", "text-emphasis-position",
         "hanging-punctuation"

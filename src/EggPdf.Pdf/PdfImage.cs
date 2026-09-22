@@ -123,6 +123,33 @@ public class PdfImage
             return FromRgb(name, result.Width, result.Height, result.PixelData);
     }
 
+    /// <summary>
+    /// Create image from WebP data: lossy (VP8, with or without a separately coded alpha plane) and
+    /// lossless (VP8L), in simple or extended (VP8X) containers; an animated file yields its first
+    /// frame. Fully opaque images carry no soft mask. Returns null when the data can't be decoded.
+    /// </summary>
+    public static PdfImage? FromWebP(string name, byte[] webpData)
+    {
+        var decoded = WebPDecoder.Decode(webpData);
+        if (decoded == null)
+            return null;
+
+        var (width, height, rgba) = decoded.Value;
+        bool opaque = true;
+        for (int i = 3; i < rgba.Length && opaque; i += 4) opaque = rgba[i] == 255;
+        if (!opaque)
+            return FromRgba(name, width, height, rgba);
+
+        var rgb = new byte[width * height * 3];
+        for (int i = 0; i < width * height; i++)
+        {
+            rgb[i * 3] = rgba[i * 4];
+            rgb[i * 3 + 1] = rgba[i * 4 + 1];
+            rgb[i * 3 + 2] = rgba[i * 4 + 2];
+        }
+        return FromRgb(name, width, height, rgb);
+    }
+
     /// <summary>Create image from raw RGB pixel data.</summary>
     public static PdfImage FromRgb(string name, int width, int height, byte[] rgbData)
     {

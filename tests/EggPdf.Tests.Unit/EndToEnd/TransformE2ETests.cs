@@ -210,9 +210,10 @@ public class TransformE2ETests
     public async Task TranslateZ_NoVisualEffect()
     {
         // translateZ only affects the Z axis; in 2D PDF it has no visual effect
-        var act = async () => await HtmlToPdf.RenderAsync(
+        byte[] pdf = await HtmlToPdf.RenderAsync(
             "<div style='transform: translateZ(100px); width: 100px; height: 100px'>TZ</div>");
-        await act.Should().NotThrowAsync("translateZ should not crash");
+        var text = PdfAssert.ValidPdf(pdf, "(TZ) Tj");
+        text.Should().NotContain(" cm\n", "a pure Z translation reduces to the identity in 2D, so no matrix is emitted");
     }
 
     [Fact]
@@ -236,12 +237,14 @@ public class TransformE2ETests
     }
 
     [Fact]
-    public async Task Perspective_DoesNotCrash()
+    public async Task Perspective_IgnoredWhileRotateYStillFlattensToScaleX()
     {
         // perspective() in transform list is purely 3D; PDF ignores it
-        var act = async () => await HtmlToPdf.RenderAsync(
+        byte[] pdf = await HtmlToPdf.RenderAsync(
             "<div style='transform: perspective(500px) rotateY(30deg); width: 100px; height: 100px'>P3D</div>");
-        await act.Should().NotThrowAsync("perspective() should not crash");
+        var text = PdfAssert.ValidPdf(pdf, "(P3D) Tj");
+        // rotateY(30deg) -> scaleX(cos 30deg = 0.87), no vertical or skew component
+        text.Should().MatchRegex(@"0\.87 -?0\.00 -?0\.00 1\.00 -?\d+\.\d+ -?\d+\.\d+ cm");
     }
 
     [Fact]
@@ -254,6 +257,40 @@ public class TransformE2ETests
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("M3D");
         text.Should().Contain(" cm", "matrix3d should emit a cm operator");
+    }
+
+    [Fact]
+    public async Task Rotate3d_PureZAxis_MatchesRotateZ()
+    {
+        // rotate3d(0, 0, 1, angle) is a pure Z-axis rotation -- the flattened 2D matrix
+        // must come out byte-identical to rotateZ(angle), both taking the same
+        // transform-origin-composition path (hence the shared translate component too).
+        var html3d = "<div style='transform: rotate3d(0, 0, 1, 45deg); width: 50px; height: 50px'>R3D</div>";
+        var htmlZ = "<div style='transform: rotateZ(45deg); width: 50px; height: 50px'>RZ2</div>";
+
+        var pdf3d = await HtmlToPdf.RenderAsync(html3d);
+        var pdfZ = await HtmlToPdf.RenderAsync(htmlZ);
+
+        static string ExtractCmLine(string pdfText)
+        {
+            var idx = pdfText.IndexOf(" cm", StringComparison.Ordinal);
+            var lineStart = pdfText.LastIndexOf('\n', idx) + 1;
+            return pdfText.Substring(lineStart, idx - lineStart);
+        }
+
+        var cm3d = ExtractCmLine(Encoding.ASCII.GetString(pdf3d));
+        var cmZ = ExtractCmLine(Encoding.ASCII.GetString(pdfZ));
+        cm3d.Should().Be(cmZ, "rotate3d around the pure Z axis must produce the same rotation matrix as rotateZ");
+    }
+
+    [Fact]
+    public async Task ScaleZ_NoVisualEffect_EmitsNoMatrix()
+    {
+        // scaleZ only affects the Z axis; in 2D PDF it has no visual effect
+        byte[] pdf = await HtmlToPdf.RenderAsync(
+            "<div style='transform: scaleZ(3); width: 100px; height: 100px'>SZ</div>");
+        var text = PdfAssert.ValidPdf(pdf, "(SZ) Tj");
+        text.Should().NotContain(" cm\n", "scaleZ reduces to the identity in 2D, so no matrix is emitted");
     }
 
     private static int CountSubstring(string text, string pattern)

@@ -21,7 +21,7 @@ internal static class PdfContentStreamExtensions
 /// <summary>
 /// Represents a single PDF page with content operations.
 /// </summary>
-public class PdfPage
+public partial class PdfPage
 {
     internal float WidthPt { get; }
     internal float HeightPt { get; }
@@ -98,6 +98,36 @@ public class PdfPage
             foreach (var gid in run.glyphIds)
                 ContentStream.Append(gid.ToString("X4"));
             ContentStream.Append("> Tj ");
+        }
+        ContentStream.AppendOpLine("ET");
+    }
+
+    /// <summary>
+    /// Paint a COLR/CPAL color-glyph's layers stacked at one position, each in its
+    /// own color. A "0 0 Td" between layers resets the text matrix back to the line
+    /// matrix (unchanged by a zero move) without touching the position Tj advanced it
+    /// to, so every layer paints at the same spot. <c>useTextColor</c> layers use the
+    /// caller's current text fill color instead of a fixed palette color (COLR's
+    /// "foreground color" sentinel).
+    /// </summary>
+    public void AddColorGlyphLayers(List<(ushort glyphId, float r, float g, float b, bool useTextColor)> layers,
+        float x, float y, string fontName, float fontSize, float textR, float textG, float textB)
+    {
+        if (layers == null || layers.Count == 0) return;
+
+        UsedFonts.Add(fontName);
+        ContentStream.Append($"BT /{fontName} {F(fontSize)} Tf ");
+        ContentStream.Append($"{F(x)} {F(y)} Td ");
+        foreach (var layer in layers)
+        {
+            float r = layer.useTextColor ? textR : layer.r;
+            float g = layer.useTextColor ? textG : layer.g;
+            float b = layer.useTextColor ? textB : layer.b;
+            ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} rg");
+            ContentStream.Append('<');
+            ContentStream.Append(layer.glyphId.ToString("X4"));
+            ContentStream.Append("> Tj ");
+            ContentStream.Append("0 0 Td ");
         }
         ContentStream.AppendOpLine("ET");
     }
@@ -415,12 +445,43 @@ public class PdfPage
         ContentStream.AppendOpLine("Q");
     }
 
+    /// <summary>
+    /// Mark an image resource name as used on this page without emitting new content --
+    /// for content assembled externally (e.g. SvgRenderer's rasterized blur layers) whose
+    /// "/{name} Do" operator is already embedded in a raw content fragment appended
+    /// separately via <see cref="AppendRawContent"/>.
+    /// </summary>
+    public void RegisterUsedImage(string imageName)
+    {
+        if (_usedImageSet.Add(imageName))
+            UsedImages.Add(imageName);
+    }
+
     /// <summary>Add a stroked line between two points.</summary>
     public void AddLine(float x1, float y1, float x2, float y2, float r, float g, float b, float lineWidth)
     {
         ContentStream.AppendOpLine($"{F(lineWidth)} w");
         ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} RG");
         ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+    }
+
+    /// <summary>Add an open stroked polyline through the given points (e.g. a checkmark icon).</summary>
+    public void AddStrokedPolyline(float[] xs, float[] ys, float r, float g, float b, float lineWidth)
+    {
+        if (xs == null || ys == null || xs.Length < 2 || xs.Length != ys.Length) return;
+        ContentStream.AppendOpLine($"{F(lineWidth)} w");
+        ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} RG");
+        ContentStream.AppendOpLine($"{F(xs[0])} {F(ys[0])} m");
+        for (int i = 1; i < xs.Length; i++)
+            ContentStream.AppendOpLine($"{F(xs[i])} {F(ys[i])} l");
+        ContentStream.AppendOpLine("S");
+    }
+
+    /// <summary>Add a filled triangle (e.g. a select dropdown arrow indicator).</summary>
+    public void AddFilledTriangle(float x1, float y1, float x2, float y2, float x3, float y3, float r, float g, float b)
+    {
+        ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} rg");
+        ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l {F(x3)} {F(y3)} l h f");
     }
 
     /// <summary>

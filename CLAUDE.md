@@ -66,19 +66,25 @@ src/
   EggPdf.Html/         -- HTML5 parser (tokenizer, tree builder, DOM types)
   EggPdf.Css/          -- CSS parser + cascade + selectors + inline parser
   EggPdf.Layout/       -- layout engine (block, inline, flex, table cells horizontal)
-  EggPdf.Text/         -- TrueType parser, system font discovery, line breaking, font resolver
-  EggPdf.Pdf/          -- PDF 1.7 writer (text, CID fonts, images, links, merging, RC4 encryption, CMS/PKCS#7 signing)
+  EggPdf.Text/         -- TrueType parser, system font discovery, line breaking, font resolver,
+                          OpenType GSUB/GPOS shaping for complex scripts (OpenType/), Arabic joining,
+                          full UAX #9 bidi (BidiAlgorithm*.cs), variable-font instancing (TrueType/VariableFontInstancer*.cs), CFF/CFF2 -> glyf conversion (TrueType/CffFont.cs),
+                          syllable line breaking for Thai/Lao/Khmer/Myanmar (SpacelessLineBreaker)
+  EggPdf.Pdf/          -- PDF 1.7 writer (text, CID fonts, images, links, merging, RC4 encryption, CMS/PKCS#7 signing),
+                          image decoders incl. WebP lossy VP8 (Vp8Decoder*.cs) + lossless VP8L
   EggPdf.Cli/          -- CLI tool: eggpdf input.html -o output.pdf
   EggPdf.Service/      -- REST API + WebUI (POST /api/render, GET /e2e, GET /)
+  EggPdf.AspNetCore/   -- ASP.NET Core middleware/DI integration (API key auth, service registration)
+  EggPdf.Razor/         -- Razor component/view -> PDF conversion
   EggPdf.Style/        -- (placeholder for future style resolution module)
-  EggPdf.Svg/          -- (placeholder for future SVG engine)
-  EggPdf.Paint/        -- (placeholder for future paint layer)
-  EggPdf.Fragmentation/ -- (placeholder for future fragmentation)
+  EggPdf.Svg/          -- SVG parser + renderer (inline <svg>, external .svg images), filter graphs (SvgFilter*, FilterPixels)
+  EggPdf.Paint/        -- paints a laid-out box tree onto a PdfPage (text, backgrounds, borders, shadows, transforms)
+  EggPdf.Fragmentation/ -- pure pagination computation (page breaks, orphans/widows, fixed-position collection)
 
 tests/
-  EggPdf.Tests.Unit/   -- ~965 unit tests (parsers, CSS, fonts/webfonts, signing, PDF, PNG, E2E render checks)
-  EggPdf.Tests.Layout/ -- ~554 layout tests (block, inline, flex, float, table, grid, margins, lists)
-  EggPdf.Tests.E2E/    -- 20 Playwright tests (WebUI, API endpoints)
+  EggPdf.Tests.Unit/   -- ~1440 unit tests (parsers, CSS, fonts/webfonts, signing, PDF, image decoders, SVG filters, E2E render checks)
+  EggPdf.Tests.Layout/ -- ~659 layout tests (block, inline, flex, float, table, grid, margins, lists)
+  EggPdf.Tests.E2E/    -- ~221 Playwright tests (WebUI, API endpoints; needs `playwright.ps1 install chromium` once)
 
 benchmarks/
   EggPdf.Benchmarks/   -- BenchmarkDotNet suite (3 scenarios)
@@ -154,6 +160,13 @@ dotnet run --project src/EggPdf.Service -c Release -- --urls http://localhost:55
 - No LINQ in hot paths -- use `for` loops
 - Remove unused code -- no dead methods, unused usings, or orphaned helpers. Keep the codebase clean.
 - Test naming: `Feature_Condition_ExpectedBehavior`
+- Keep files focused. Don't grow an existing file back into a monolith by tacking a new
+  self-contained feature onto the end of it -- when adding a substantial new chunk of
+  logic (roughly 150+ lines, or a clearly separate concern) to a class that already
+  exists, split it into a new `ClassName.Feature.cs` file using `partial class`/`partial
+  static class`, the same way `BlockLayout.*.cs`, `PdfRenderer` (-> `PageFragmenter`/
+  `BoxPainter`), and `SvgRenderer.Filter.cs` are split. Do this as you write the feature,
+  not as a later cleanup pass.
 
 ## Docs Stay in Sync
 

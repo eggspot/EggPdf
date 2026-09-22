@@ -62,15 +62,25 @@ public class GridLayoutTests
     }
 
     [Fact]
-    public void GridContainer_DoesNotCrash()
+    public void GridContainer_ThreeColumnsWithGap_PlacesSixItemsInTwoRows()
     {
-        var act = () => LayoutGrid(
+        var root = LayoutGrid(
             "<div style='display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px'>" +
             "<div>1</div><div>2</div><div>3</div>" +
             "<div>4</div><div>5</div><div>6</div>" +
             "</div>");
 
-        act.Should().NotThrow();
+        var divs = root.FindAllByTag("div");
+        divs.Should().HaveCount(7, "the container plus six items");
+        var items = divs.GetRange(1, 6);
+
+        // Track width = (584 - 2 * 16) / 3 = 184; each column starts one track + one gap after the last
+        items[0].Width.Should().BeApproximately(184f, 1f);
+        (items[1].X - items[0].X).Should().BeApproximately(200f, 1f);
+        (items[2].X - items[1].X).Should().BeApproximately(200f, 1f);
+        items[3].X.Should().BeApproximately(items[0].X, 0.5f, "the fourth item wraps to the first column");
+        (items[3].Y - items[0].Y).Should().BeGreaterThan(16f, "the second row sits below the first, past the gap");
+        items[4].Y.Should().BeApproximately(items[3].Y, 0.5f);
     }
 
     [Fact]
@@ -534,25 +544,35 @@ public class GridLayoutTests
     }
 
     [Fact]
-    public void Grid_AutoFill_DoesNotCrash_WithNoItems()
+    public void Grid_AutoFill_WithNoItems_IsAnEmptyZeroHeightContainer()
     {
-        var act = () => LayoutGrid(
+        var root = LayoutGrid(
             "<div style='display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr))'></div>");
-        act.Should().NotThrow();
+
+        var grid = root.FindAllByTag("div")[0];
+        grid.Children.Should().BeEmpty();
+        grid.Height.Should().Be(0f, "an empty grid has no rows to size");
+        grid.Width.Should().BeApproximately(ContainerWidth, 1f);
     }
 
     // ── subgrid ───────────────────────────────────────────────────────────────
 
     [Fact]
-    public void Subgrid_DoesNotCrash()
+    public void Subgrid_Columns_InheritTheParentsTracks()
     {
-        var act = () => LayoutGrid(
+        var root = LayoutGrid(
             "<div style='display: grid; grid-template-columns: 200px 200px'>" +
             "  <div style='display: grid; grid-template-columns: subgrid; grid-column: 1 / 3'>" +
             "    <div>A</div><div>B</div>" +
             "  </div>" +
             "</div>");
-        act.Should().NotThrow("subgrid must not crash even if layout is approximate");
+
+        var divs = root.FindAllByTag("div");
+        var sub = divs[1]; var a = divs[2]; var b = divs[3];
+
+        sub.Width.Should().BeApproximately(400f, 1f, "the subgrid spans both parent columns");
+        a.Width.Should().BeApproximately(200f, 1f, "A takes the parent's first track");
+        (b.X - a.X).Should().BeApproximately(200f, 1f, "B sits in the parent's second track");
     }
 
     [Fact]
@@ -571,15 +591,19 @@ public class GridLayoutTests
     }
 
     [Fact]
-    public void Subgrid_Rows_DoesNotCrash()
+    public void Subgrid_Rows_InheritTheParentsTracks()
     {
-        var act = () => LayoutGrid(
+        var root = LayoutGrid(
             "<div style='display: grid; grid-template-rows: 100px 100px'>" +
             "  <div style='display: grid; grid-template-rows: subgrid; grid-row: 1 / 3'>" +
             "    <div>X</div><div>Y</div>" +
             "  </div>" +
             "</div>");
-        act.Should().NotThrow("subgrid on rows must not crash");
+
+        var divs = root.FindAllByTag("div");
+        var x = divs[2]; var y = divs[3];
+
+        (y.Y - x.Y).Should().BeApproximately(100f, 1f, "the subgrid's rows are the parent's 100px tracks");
     }
 
     [Fact]
@@ -606,6 +630,53 @@ public class GridLayoutTests
             "subgrid child B should inherit parent 200px column width");
     }
 
+    [Fact]
+    public void Subgrid_InheritsParentColumnGap_WhenNotOverridden()
+    {
+        // Parent grid has a 20px column-gap; the subgrid itself declares no gap of its own,
+        // so per spec it must inherit the parent's gutters for the subgridded axis rather
+        // than defaulting to 0.
+        var root = LayoutGrid(
+            "<div style='display: grid; grid-template-columns: 100px 100px; column-gap: 20px'>" +
+            "  <div id='sub' style='display: grid; grid-template-columns: subgrid; grid-column: 1 / 3'>" +
+            "    <div>A</div><div>B</div>" +
+            "  </div>" +
+            "</div>");
+
+        var subgridItem = root.FindAllByTag("div").FirstOrDefault(b => b.Children.Count == 2
+            && b.Children[0].Text == "A");
+
+        if (subgridItem == null) return; // guard
+
+        float gapBetween = subgridItem.Children[1].X - (subgridItem.Children[0].X + subgridItem.Children[0].Width);
+        gapBetween.Should().BeApproximately(20f, 2f,
+            "a subgrid with no gap of its own must inherit the parent's 20px column-gap");
+    }
+
+    [Fact]
+    public void Subgrid_OffsetSpan_UsesCorrectParentColumnSlice()
+    {
+        // Parent has 3 columns of different widths; the subgrid spans only columns 2-3
+        // (not starting at column 1), so it must slice the parent's resolved sizes starting
+        // at its own placement offset, not from the beginning of the parent's track list.
+        var root = LayoutGrid(
+            "<div style='display: grid; grid-template-columns: 200px 100px 50px'>" +
+            "  <div id='sub' style='display: grid; grid-template-columns: subgrid; grid-column: 2 / 4'>" +
+            "    <div>A</div><div>B</div>" +
+            "  </div>" +
+            "</div>");
+
+        var subgridItem = root.FindAllByTag("div").FirstOrDefault(b => b.Children.Count == 2
+            && b.Children[0].Text == "A");
+
+        if (subgridItem == null) return; // guard
+
+        subgridItem.Children[0].Width.Should().BeApproximately(100f, 5f,
+            "the subgrid's first slot should take the parent's 2nd column width (100px), not its 1st (200px)");
+        subgridItem.Children[1].Width.Should().BeApproximately(50f, 5f,
+            "the subgrid's second slot should take the parent's 3rd column width (50px)");
+    }
+
     // ── grid-auto-flow: dense ─────────────────────────────────────────────────
 
     [Fact]
@@ -620,18 +691,99 @@ public class GridLayoutTests
     }
 
     [Fact]
-    public void GridAutoFlow_Dense_FillsGaps()
+    public void GridAutoFlow_Dense_BackfillsGapLeftBySkippedFullRowItem()
     {
-        // With dense packing: B (1-wide) should fill the gap left by A (2-wide span in row 1)
+        // Item "one" takes row0/col0. The span-3 item can't fit the remaining 2 columns of
+        // row0, so it skips ahead to row1 (filling it entirely) -- leaving row0/col1-2 empty.
+        // With `dense`, the auto-placement cursor restarts from the grid origin for every
+        // item, so "three" (1x1 auto) backfills row0/col1 instead of continuing on to row2.
         var root = LayoutGrid(
-            "<div style='display:grid; grid-template-columns: 100px 100px 100px; grid-auto-flow: row dense'>" +
-            "<div style='grid-column: span 2'>A</div>" +
-            "<div>B</div>" +
-            "<div>C</div>" +
-            "<div>D</div>" +
+            "<div style='display:grid; grid-template-columns: 100px 100px 100px; " +
+            "grid-auto-flow: row dense; width:300px'>" +
+            "<div id='one'>1</div>" +
+            "<div style='grid-column: span 3'>full</div>" +
+            "<div id='three'>3</div>" +
             "</div>");
-        var grid = root.FindAllByTag("div")[0];
-        // Just verifying no crash and all items are laid out
-        grid.Children.Count.Should().Be(4);
+
+        var one = root.FindById("one");
+        var three = root.FindById("three");
+        one.Should().NotBeNull();
+        three.Should().NotBeNull();
+
+        three!.Y.Should().BeApproximately(one!.Y, 1f,
+            "dense packing must backfill the gap left in row0/col1 instead of moving to a new row");
+        three.X.Should().BeGreaterThan(one.X + 50f,
+            "the backfilled item lands in the second column, not the first");
+    }
+
+    [Fact]
+    public void GridAutoFlow_Sparse_LeavesGapAndContinuesForward()
+    {
+        // Regression guard: WITHOUT `dense` (the default), the same layout must NOT backfill
+        // the gap -- "three" continues from the cursor after the skipped-ahead full-row item,
+        // landing in a new row well below "one".
+        var root = LayoutGrid(
+            "<div style='display:grid; grid-template-columns: 100px 100px 100px; width:300px'>" +
+            "<div id='one'>1</div>" +
+            "<div style='grid-column: span 3'>full</div>" +
+            "<div id='three'>3</div>" +
+            "</div>");
+
+        var one = root.FindById("one");
+        var three = root.FindById("three");
+        one.Should().NotBeNull();
+        three.Should().NotBeNull();
+
+        three!.Y.Should().BeGreaterThan(one!.Y + 10f,
+            "sparse (default) packing must not backfill row0 -- it continues forward past the full row");
+    }
+
+    // ── grid-auto-rows / grid-auto-columns ──────────────────────────────────────
+
+    [Fact]
+    public void GridAutoRows_SizesImplicitRows()
+    {
+        // No grid-template-rows -- both rows are entirely implicit and must be sized from
+        // grid-auto-rows instead of the previous hardcoded content-based "auto" default.
+        var root = LayoutGrid(
+            "<div style='display:grid; grid-template-columns: 100px; grid-auto-rows: 50px; width:100px'>" +
+            "<div id='a'>A</div>" +
+            "<div id='b'>B</div>" +
+            "</div>");
+
+        var a = root.FindById("a");
+        var b = root.FindById("b");
+        a.Should().NotBeNull();
+        b.Should().NotBeNull();
+        (b!.Y - a!.Y).Should().BeApproximately(50f, 2f,
+            "the implicit row track must be sized from grid-auto-rows, not content height");
+    }
+
+    [Fact]
+    public void GridAutoColumns_SizesAndGrowsImplicitColumnsInColumnFlow()
+    {
+        // No grid-template-columns -- grid-auto-flow:column must grow a new implicit column
+        // (rather than collapsing overflow items back into column 0) once the two explicit
+        // rows are full, and size that new column from grid-auto-columns.
+        var root = LayoutGrid(
+            "<div style='display:grid; grid-auto-flow: column; grid-auto-columns: 80px; " +
+            "grid-template-rows: 40px 40px; width:400px'>" +
+            "<div id='a'>A</div>" +
+            "<div id='b'>B</div>" +
+            "<div id='c'>C</div>" +
+            "</div>");
+
+        var a = root.FindById("a");
+        var b = root.FindById("b");
+        var c = root.FindById("c");
+        a.Should().NotBeNull();
+        b.Should().NotBeNull();
+        c.Should().NotBeNull();
+
+        // A and B fill the single explicit column's two rows; C must land in a new, second
+        // column sized at exactly grid-auto-columns (80px) -- not the first column's width.
+        c!.X.Should().BeGreaterThan(a!.X, "C must be placed in a newly-grown column, not overlap column 0");
+        c.Width.Should().BeApproximately(80f, 1f,
+            "the newly-grown implicit column must be sized from grid-auto-columns");
     }
 }

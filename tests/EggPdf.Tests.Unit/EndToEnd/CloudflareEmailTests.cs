@@ -29,12 +29,13 @@ public class CloudflareEmailTests
     }
 
     [Fact]
-    public async Task InvalidCfEmail_DoesNotCrash()
+    public async Task InvalidCfEmail_LeavesOriginalLinkTextUnchanged()
     {
         var html = "<html><body><a data-cfemail=\"zz\">[email protected]</a>" +
                    "<a data-cfemail=\"af\">x</a></body></html>";
 
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        // Undecodable payloads keep the original "[email protected]" text (two words) and the second link's "x".
+        PdfAssert.ValidPdf(pdf, "([email) Tj", "protected]) Tj", "(x) Tj");
     }
 }

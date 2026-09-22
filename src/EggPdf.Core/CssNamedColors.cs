@@ -158,6 +158,27 @@ internal static class CssNamedColors
         ["whitesmoke"] = Color.FromRgb(245, 245, 245),
         ["yellow"] = Color.FromRgb(255, 255, 0),
         ["yellowgreen"] = Color.FromRgb(154, 205, 50),
+
+        // CSS system colors (https://www.w3.org/TR/css-color-4/#css-system-colors), light-theme values.
+        // "canvastext" matters most: it is the cascade's initial value for the `color` property
+        // (see CascadeResolver's _initialValues), so unstyled text must resolve it to paint at all
+        // and for `filter` (e.g. brightness()) to have any effect on that default-colored text.
+        ["canvas"] = Color.FromRgb(255, 255, 255),
+        ["canvastext"] = Color.FromRgb(0, 0, 0),
+        ["linktext"] = Color.FromRgb(0, 0, 238),
+        ["visitedtext"] = Color.FromRgb(85, 26, 139),
+        ["activetext"] = Color.FromRgb(238, 0, 0),
+        ["buttonface"] = Color.FromRgb(240, 240, 240),
+        ["buttontext"] = Color.FromRgb(0, 0, 0),
+        ["buttonborder"] = Color.FromRgb(118, 118, 118),
+        ["field"] = Color.FromRgb(255, 255, 255),
+        ["fieldtext"] = Color.FromRgb(0, 0, 0),
+        ["graytext"] = Color.FromRgb(128, 128, 128),
+        ["highlight"] = Color.FromRgb(180, 213, 254),
+        ["highlighttext"] = Color.FromRgb(0, 0, 0),
+        ["marktext"] = Color.FromRgb(0, 0, 0),
+        ["accentcolor"] = Color.FromRgb(0, 96, 223),
+        ["accentcolortext"] = Color.FromRgb(255, 255, 255),
     };
 
     public static bool TryGet(string name, out Color color) => Colors.TryGetValue(name, out color);

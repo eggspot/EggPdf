@@ -30,9 +30,30 @@ public static class TtfParser
 
         // Offset table
         uint sfVersion = ReadUInt32(data, ref pos);
+        // TrueType Collection ('ttcf'): use the first face. Table offsets inside a collection
+        // are absolute from the start of the file, so only the directory position changes.
+        if (sfVersion == 0x74746366)
+        {
+            pos = 12;
+            pos = (int)ReadUInt32(data, ref pos);
+            sfVersion = ReadUInt32(data, ref pos);
+        }
         // Accept TrueType (0x00010000) or OpenType ('OTTO')
         if (sfVersion != 0x00010000 && sfVersion != 0x4F54544F)
             return null;
+
+        // PostScript-outline fonts (CFF / CFF2) are converted to glyf so measuring, shaping and embedding see one format
+        if (sfVersion == 0x4F54544F)
+        {
+            var sfnt = VariableFontInstancer.Sfnt.TryRead(data);
+            var converted = sfnt == null ? null : VariableFontInstancer.ConvertCff(sfnt, null);
+            if (converted != null)
+            {
+                var ttf = ParseInternal(converted);
+                if (ttf != null && sfnt!.Has("CFF2") && sfnt.Has("fvar")) ttf.VariableSource = data;
+                return ttf;
+            }
+        }
 
         ushort numTables = ReadUInt16(data, ref pos);
         pos += 6; // skip searchRange, entrySelector, rangeShift
@@ -81,6 +102,16 @@ public static class TtfParser
         // Parse GPOS table for pair kerning (OpenType kerning, takes precedence)
         if (tables.TryGetValue("GPOS", out var gpos))
             ParseGposPairKerning(data, (int)gpos.offset, (int)gpos.length, font);
+
+        // Parse GSUB table for single-substitution features (font-feature-settings)
+        if (tables.TryGetValue("GSUB", out var gsub))
+            ParseGsubSingleSubstitution(data, (int)gsub.offset, (int)gsub.length, font);
+
+        // Parse CPAL/COLR for color-glyph (emoji) support
+        if (tables.TryGetValue("CPAL", out var cpal))
+            ParseCpal(data, (int)cpal.offset, (int)cpal.length, font);
+        if (tables.TryGetValue("COLR", out var colr))
+            ParseColr(data, (int)colr.offset, (int)colr.length, font);
 
         return font;
     }
@@ -502,6 +533,204 @@ public static class TtfParser
                     font.Kern!.Add(leftGlyph, secondGlyph, xAdvance);
             }
         }
+    }
+
+    /// <summary>
+    /// Parse GSUB single-substitution features (Lookup Type 1: one glyph in, one glyph
+    /// out -- e.g. "zero" slashed-zero, "smcp" small caps, "tnum"/"onum" figure styles,
+    /// simple stylistic sets). Populates <see cref="FontData.GsubFeatures"/> keyed by
+    /// feature tag. Ligatures, contextual, and chaining substitutions (Lookup Types
+    /// 2-8) are far more complex and are skipped, matching the GPOS pair-kerning
+    /// parser above: this covers the common single-glyph-swap case, not the full spec.
+    /// </summary>
+    private static void ParseGsubSingleSubstitution(byte[] data, int offset, int length, FontData font)
+    {
+        if (offset + 10 > data.Length) return;
+
+        int pos = offset;
+        uint gsubVersion = ReadUInt32(data, ref pos);
+        ushort scriptListOffset = ReadUInt16(data, ref pos);
+        ushort featureListOffset = ReadUInt16(data, ref pos);
+        ushort lookupListOffset = ReadUInt16(data, ref pos);
+
+        int featureListPos = offset + featureListOffset;
+        int lookupListPos = offset + lookupListOffset;
+        if (featureListPos + 2 > data.Length || lookupListPos + 2 > data.Length) return;
+
+        // Map each feature tag to its lookup indices
+        int fpos = featureListPos;
+        ushort featureCount = ReadUInt16(data, ref fpos);
+        var lookupsByFeature = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>>();
+
+        for (int f = 0; f < featureCount; f++)
+        {
+            if (fpos + 6 > data.Length) break;
+            string featureTag = ReadTag(data, ref fpos);
+            ushort featureOffset = ReadUInt16(data, ref fpos);
+
+            int ftPos = featureListPos + featureOffset;
+            if (ftPos + 4 > data.Length) continue;
+            ftPos += 2; // skip featureParams
+            ushort lookupCount = ReadUInt16(data, ref ftPos);
+
+            if (!lookupsByFeature.TryGetValue(featureTag, out var indices))
+                lookupsByFeature[featureTag] = indices = new System.Collections.Generic.List<int>();
+            for (int li = 0; li < lookupCount; li++)
+            {
+                if (ftPos + 2 > data.Length) break;
+                indices.Add(ReadUInt16(data, ref ftPos));
+            }
+        }
+
+        if (lookupsByFeature.Count == 0) return;
+
+        int llPos = lookupListPos;
+        ushort lookupCount2 = ReadUInt16(data, ref llPos);
+
+        foreach (var kv in lookupsByFeature)
+        {
+            System.Collections.Generic.Dictionary<ushort, ushort>? featureMap = null;
+
+            foreach (int lookupIdx in kv.Value)
+            {
+                if (lookupIdx >= lookupCount2) continue;
+
+                int lookupOffsetPos = lookupListPos + 2 + lookupIdx * 2;
+                if (lookupOffsetPos + 2 > data.Length) continue;
+                int tmpPos = lookupOffsetPos;
+                ushort lookupOffset = ReadUInt16(data, ref tmpPos);
+
+                int lookupPos = lookupListPos + lookupOffset;
+                if (lookupPos + 6 > data.Length) continue;
+
+                int lPos = lookupPos;
+                ushort lookupType = ReadUInt16(data, ref lPos);
+                ushort lookupFlag = ReadUInt16(data, ref lPos);
+                ushort subtableCount = ReadUInt16(data, ref lPos);
+
+                if (lookupType != 1) continue; // Only single substitution (type 1)
+
+                for (int st = 0; st < subtableCount; st++)
+                {
+                    if (lPos + 2 > data.Length) break;
+                    ushort subtableOffset = ReadUInt16(data, ref lPos);
+
+                    int stPos = lookupPos + subtableOffset;
+                    if (stPos + 4 > data.Length) continue;
+
+                    int stSave = stPos;
+                    ushort substFormat = ReadUInt16(data, ref stPos);
+                    ushort coverageOffset = ReadUInt16(data, ref stPos);
+                    var coveredGlyphs = ParseCoverage(data, stSave + coverageOffset);
+                    if (coveredGlyphs == null || coveredGlyphs.Count == 0) continue;
+
+                    if (substFormat == 1)
+                    {
+                        short delta = ReadInt16(data, ref stPos);
+                        featureMap ??= new System.Collections.Generic.Dictionary<ushort, ushort>();
+                        foreach (var g in coveredGlyphs)
+                            featureMap[g] = (ushort)((g + delta) & 0xFFFF);
+                    }
+                    else if (substFormat == 2)
+                    {
+                        ushort glyphCount = ReadUInt16(data, ref stPos);
+                        featureMap ??= new System.Collections.Generic.Dictionary<ushort, ushort>();
+                        for (int gi = 0; gi < glyphCount && gi < coveredGlyphs.Count; gi++)
+                        {
+                            if (stPos + 2 > data.Length) break;
+                            ushort substGlyph = ReadUInt16(data, ref stPos);
+                            featureMap[coveredGlyphs[gi]] = substGlyph;
+                        }
+                    }
+                    // Other formats don't exist for Lookup Type 1; nothing else to handle.
+                }
+            }
+
+            if (featureMap != null && featureMap.Count > 0)
+            {
+                font.GsubFeatures ??= new System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<ushort, ushort>>();
+                font.GsubFeatures[kv.Key] = featureMap;
+            }
+        }
+    }
+
+    /// <summary>Parse the CPAL table's palette 0 into (r,g,b,a) colors. CPAL stores colors BGRA.</summary>
+    private static void ParseCpal(byte[] data, int offset, int length, FontData font)
+    {
+        if (offset + 12 > data.Length) return;
+
+        int pos = offset;
+        ushort version = ReadUInt16(data, ref pos);
+        ushort numPaletteEntries = ReadUInt16(data, ref pos);
+        ushort numPalettes = ReadUInt16(data, ref pos);
+        ushort numColorRecords = ReadUInt16(data, ref pos);
+        uint colorRecordsArrayOffset = ReadUInt32(data, ref pos);
+
+        if (numPalettes == 0 || numPaletteEntries == 0) return;
+        if (pos + 2 > data.Length) return;
+        ushort firstPaletteIndex = ReadUInt16(data, ref pos); // colorRecordIndices[0]
+
+        int crPos = offset + (int)colorRecordsArrayOffset + firstPaletteIndex * 4;
+        var colors = new (byte r, byte g, byte b, byte a)[numPaletteEntries];
+        for (int i = 0; i < numPaletteEntries; i++)
+        {
+            if (crPos + 4 > data.Length) break;
+            byte b = data[crPos], g = data[crPos + 1], r = data[crPos + 2], a = data[crPos + 3];
+            colors[i] = (r, g, b, a);
+            crPos += 4;
+        }
+        font.CpalPalette = colors;
+    }
+
+    /// <summary>
+    /// Parse a COLRv0 table into base-glyph -> ordered color-layer lists (glyph ID +
+    /// CPAL palette index, or -1 for "use current text color", COLR's 0xFFFF sentinel).
+    /// COLRv1 (gradients, paint graphs -- a much larger, compositing-based format) is
+    /// not supported: a v1 table's version field is simply not 0, so this quietly no-ops.
+    /// </summary>
+    private static void ParseColr(byte[] data, int offset, int length, FontData font)
+    {
+        if (offset + 14 > data.Length) return;
+
+        int pos = offset;
+        ushort version = ReadUInt16(data, ref pos);
+        if (version != 0) return; // COLRv1 not supported
+
+        ushort numBaseGlyphRecords = ReadUInt16(data, ref pos);
+        uint baseGlyphRecordsOffset = ReadUInt32(data, ref pos);
+        uint layerRecordsOffset = ReadUInt32(data, ref pos);
+        ushort numLayerRecords = ReadUInt16(data, ref pos);
+
+        int bgBase = offset + (int)baseGlyphRecordsOffset;
+        int lrBase = offset + (int)layerRecordsOffset;
+
+        var map = new System.Collections.Generic.Dictionary<ushort, System.Collections.Generic.List<(ushort, int)>>();
+
+        for (int i = 0; i < numBaseGlyphRecords; i++)
+        {
+            int rp = bgBase + i * 6;
+            if (rp + 6 > data.Length) break;
+            int tmp = rp;
+            ushort glyphId = ReadUInt16(data, ref tmp);
+            ushort firstLayerIndex = ReadUInt16(data, ref tmp);
+            ushort numLayers = ReadUInt16(data, ref tmp);
+
+            var layers = new System.Collections.Generic.List<(ushort, int)>();
+            for (int li = 0; li < numLayers; li++)
+            {
+                int layerIndex = firstLayerIndex + li;
+                if (layerIndex >= numLayerRecords) break;
+                int lp = lrBase + layerIndex * 4;
+                if (lp + 4 > data.Length) break;
+                int tmp2 = lp;
+                ushort layerGlyphId = ReadUInt16(data, ref tmp2);
+                ushort paletteIndex = ReadUInt16(data, ref tmp2);
+                layers.Add((layerGlyphId, paletteIndex == 0xFFFF ? -1 : paletteIndex));
+            }
+            if (layers.Count > 0) map[glyphId] = layers;
+        }
+
+        if (map.Count > 0) font.ColrLayers = map;
     }
 
     private static System.Collections.Generic.List<ushort>? ParseCoverage(byte[] data, int offset)

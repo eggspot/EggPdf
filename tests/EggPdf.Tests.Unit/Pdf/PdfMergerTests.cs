@@ -155,6 +155,72 @@ public class PdfMergerTests
         text.Should().Contain("(tail) Tj");
     }
 
+    [Fact]
+    public void Merge_MultiStreamContentsArray_ConcatenatesAllStreams()
+    {
+        // Some PDF writers split page content across multiple streams
+        // referenced by an array: /Contents [5 0 R 6 0 R]. The merger must
+        // resolve every stream in the array, not just the first ref.
+        var foreign = System.Text.Encoding.ASCII.GetBytes(
+            "%PDF-1.7\n" +
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" +
+            "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n" +
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents [5 0 R 6 0 R] >>\nendobj\n" +
+            "5 0 obj\n<< /Length 30 >>\nstream\nBT /F1 12 Tf (first part) Tj ET\nendstream\nendobj\n" +
+            "6 0 obj\n<< /Length 31 >>\nstream\nBT /F1 12 Tf (second part) Tj ET\nendstream\nendobj\n" +
+            "trailer\n<< /Root 1 0 R >>\n%%EOF");
+
+        var text = Latin1(new PdfMerger().Add(foreign).Add(MakePdf("tail", compress: false)).Build());
+
+        text.Should().Contain("(first part) Tj");
+        text.Should().Contain("(second part) Tj");
+        text.Should().Contain("(tail) Tj");
+    }
+
+    [Fact]
+    public void Merge_PageWithInheritedMediaBox_ResolvesFromParentPagesNode()
+    {
+        // A page dictionary need not carry its own /MediaBox — it can inherit
+        // one from an ancestor /Pages node. The merger previously only looked
+        // within the page's own dict and silently defaulted to A4 when absent.
+        var foreign = System.Text.Encoding.ASCII.GetBytes(
+            "%PDF-1.7\n" +
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" +
+            "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 500 700] >>\nendobj\n" +
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>\nendobj\n" +
+            "4 0 obj\n<< /Length 29 >>\nstream\nBT /F1 12 Tf (inherited) Tj ET\nendstream\nendobj\n" +
+            "trailer\n<< /Root 1 0 R >>\n%%EOF");
+
+        var text = Latin1(new PdfMerger().Add(foreign).Add(MakePdf("tail", compress: false)).Build());
+
+        text.Should().Contain("/MediaBox [0 0 500.00 700.00]",
+            "the page has no own /MediaBox and must inherit it from its parent /Pages node instead of defaulting to A4");
+        text.Should().Contain("(inherited) Tj");
+    }
+
+    [Fact]
+    public void Merge_RealRenderWithMultiStreamAndInheritedMediaBox_RecoversPageContent()
+    {
+        // Regression guard using a real EggPdf render as the second document,
+        // so the new array/inheritance handling can't break the common path
+        // (single /Contents ref, own /MediaBox) that most real renders use.
+        var foreign = System.Text.Encoding.ASCII.GetBytes(
+            "%PDF-1.7\n" +
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" +
+            "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 500 700] >>\nendobj\n" +
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents [4 0 R 5 0 R] >>\nendobj\n" +
+            "4 0 obj\n<< /Length 20 >>\nstream\nBT /F1 12 Tf (a) Tj ET\nendstream\nendobj\n" +
+            "5 0 obj\n<< /Length 20 >>\nstream\nBT /F1 12 Tf (b) Tj ET\nendstream\nendobj\n" +
+            "trailer\n<< /Root 1 0 R >>\n%%EOF");
+
+        var real = HtmlToPdf.Render("<html><body><p>real page</p></body></html>");
+        var text = Latin1(new PdfMerger().Add(foreign).Add(real).Build());
+
+        text.Should().Contain("(a) Tj");
+        text.Should().Contain("(b) Tj");
+        text.Should().Contain("BT", "the real render's own page must still recover correctly");
+    }
+
     private static string ReplaceFirst(string haystack, string find, string replace)
     {
         int i = haystack.IndexOf(find, StringComparison.Ordinal);

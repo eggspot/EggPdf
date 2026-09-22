@@ -14,4 +14,9 @@
     <ProjectReference Include="..\EggPdf.Svg\EggPdf.Svg.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="EggPdf.Tests.Layout" />
+    <InternalsVisibleTo Include="EggPdf.Tests.Unit" />
+  </ItemGroup>
+
 </Project>

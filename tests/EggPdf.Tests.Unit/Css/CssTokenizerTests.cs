@@ -214,6 +214,11 @@ public class CssTokenizerTests
         {
             var act = () => Tokenize(input);
             act.Should().NotThrow($"input '{input}' should not throw");
+            act().Should().NotBeNull();
         }
+
+        Tokenize("").Should().BeEmpty();
+        Tokenize("  ").Should().NotContain(t => t.Type == CssTokenType.Ident, "whitespace alone has no identifiers");
+        Tokenize("123abc").Should().NotBeEmpty("even malformed numbers yield tokens instead of being dropped");
     }
 }

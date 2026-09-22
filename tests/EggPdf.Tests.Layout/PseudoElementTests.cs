@@ -194,21 +194,30 @@ public class PseudoElementTests
     }
 
     [Fact]
-    public void FirstLine_DoesNotCrash()
+    public void FirstLine_SingleLineParagraph_TakesTheFirstLineStyle()
     {
-        var act = () => LayoutTestHelper.Layout(
+        var root = LayoutTestHelper.Layout(
             "<style>p::first-line { color: blue; font-weight: bold; }</style>" +
             "<p>Simple paragraph text</p>", 400, 800);
-        act.Should().NotThrow();
+
+        var textBoxes = root.FindByTag("p")!.Children.FindAll(c => !string.IsNullOrEmpty(c.Text));
+        textBoxes.Should().NotBeEmpty();
+        textBoxes.Should().OnlyContain(c => c.Style.Get("color") == "blue" && c.Style.FontWeight == "bold",
+            "the paragraph's only line is its first line");
     }
 
     [Fact]
-    public void FirstLetter_DoesNotCrash()
+    public void FirstLetter_DropCapParagraph_SplitsOffAStyledFirstCharacter()
     {
-        var act = () => LayoutTestHelper.Layout(
+        var root = LayoutTestHelper.Layout(
             "<style>p::first-letter { font-size: 24px; color: navy; }</style>" +
             "<p>Drop cap paragraph.</p>", 400, 800);
-        act.Should().NotThrow();
+
+        var textBoxes = root.FindByTag("p")!.Children.FindAll(c => !string.IsNullOrEmpty(c.Text));
+        textBoxes[0].Text.Should().Be("D");
+        textBoxes[0].Style.FontSize.Should().Be("24px");
+        textBoxes[0].Style.Get("color").Should().Be("navy");
+        textBoxes[1].Style.Get("color").Should().NotBe("navy", "only the first letter is styled");
     }
 
     // ── quotes property ──────────────────────────────────────────────────────

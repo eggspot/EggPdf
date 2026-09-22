@@ -68,28 +68,35 @@ public class PdfMerger
             foreach (var pageRef in pages)
             {
                 var page = output.AddPage(pageRef.Width, pageRef.Height);
-                var content = pageRef.ContentObj > 0
-                    ? ExtractObjectStream(doc, text, pageRef.ContentObj)
-                    : null;
-                if (content != null)
-                    page.AppendRawContent(content);
+                // /Contents may be a single indirect ref or an array of
+                // several streams to concatenate, in page-array order.
+                string? combined = null;
+                foreach (var contentObj in pageRef.ContentObjs)
+                {
+                    var content = ExtractObjectStream(doc, text, contentObj);
+                    if (content == null) continue;
+                    combined = combined == null ? content : combined + "\n" + content;
+                }
+                if (combined != null)
+                    page.AppendRawContent(combined);
             }
         }
 
         return output.ToByteArray();
     }
 
-    /// <summary>A page dictionary's content-stream reference and dimensions.</summary>
+    /// <summary>A page dictionary's content-stream references and dimensions.</summary>
     private struct PageRef
     {
-        public int ContentObj;
+        public List<int> ContentObjs;
         public float Width;
         public float Height;
     }
 
     /// <summary>
     /// Locate every page dictionary (/Type /Page, not the /Pages tree node)
-    /// and read its /Contents object number and /MediaBox.
+    /// and read its /Contents object number(s) and effective /MediaBox
+    /// (own or inherited from an ancestor /Pages node).
     /// </summary>
     private static List<PageRef> FindPages(string text)
     {
@@ -108,11 +115,12 @@ public class PdfMerger
             int endObj = text.IndexOf("endobj", idx, StringComparison.Ordinal);
             if (endObj < 0) endObj = text.Length;
 
+            var mediaBox = ResolveMediaBox(text, idx, endObj);
             pages.Add(new PageRef
             {
-                ContentObj = ParseIndirectRef(text, idx, endObj, "/Contents"),
-                Width = ParseMediaBox(text, idx, endObj).width,
-                Height = ParseMediaBox(text, idx, endObj).height,
+                ContentObjs = ParseContentsRefs(text, idx, endObj),
+                Width = mediaBox.width,
+                Height = mediaBox.height,
             });
             idx = endObj;
         }
@@ -132,33 +140,104 @@ public class PdfMerger
         return int.TryParse(text.Substring(numStart, p - numStart), out int objNum) ? objNum : 0;
     }
 
-    /// <summary>Parse "/MediaBox [x0 y0 x1 y1]" within a range; A4 when absent.</summary>
-    private static (float width, float height) ParseMediaBox(string text, int start, int end)
+    /// <summary>Parse "/MediaBox [x0 y0 x1 y1]" within a range; null when absent or malformed.</summary>
+    private static (float width, float height)? ParseMediaBoxInRange(string text, int start, int end)
     {
         int mbIdx = text.IndexOf("/MediaBox", start, end - start, StringComparison.Ordinal);
-        if (mbIdx >= 0)
+        if (mbIdx < 0) return null;
+
+        int bracketStart = text.IndexOf('[', mbIdx);
+        int bracketEnd = bracketStart >= 0 ? text.IndexOf(']', bracketStart) : -1;
+        if (bracketStart < 0 || bracketEnd <= bracketStart) return null;
+
+        var coords = text.Substring(bracketStart + 1, bracketEnd - bracketStart - 1)
+            .Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (coords.Length >= 4 &&
+            float.TryParse(coords[0], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float x0) &&
+            float.TryParse(coords[1], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float y0) &&
+            float.TryParse(coords[2], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float x1) &&
+            float.TryParse(coords[3], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float y1))
         {
-            int bracketStart = text.IndexOf('[', mbIdx);
-            int bracketEnd = bracketStart >= 0 ? text.IndexOf(']', bracketStart) : -1;
-            if (bracketStart >= 0 && bracketEnd > bracketStart)
-            {
-                var coords = text.Substring(bracketStart + 1, bracketEnd - bracketStart - 1)
-                    .Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                if (coords.Length >= 4 &&
-                    float.TryParse(coords[0], System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out float x0) &&
-                    float.TryParse(coords[1], System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out float y0) &&
-                    float.TryParse(coords[2], System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out float x1) &&
-                    float.TryParse(coords[3], System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out float y1))
-                {
-                    return (Math.Abs(x1 - x0), Math.Abs(y1 - y0));
-                }
-            }
+            return (Math.Abs(x1 - x0), Math.Abs(y1 - y0));
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Resolve a page's effective /MediaBox: its own if present, otherwise
+    /// walked up the /Parent chain through ancestor /Pages nodes (the PDF
+    /// spec lets /MediaBox be inherited rather than repeated on every page).
+    /// Falls back to A4 only once no ancestor defines one.
+    /// </summary>
+    private static (float width, float height) ResolveMediaBox(string text, int pageStart, int pageEnd)
+    {
+        var own = ParseMediaBoxInRange(text, pageStart, pageEnd);
+        if (own.HasValue) return own.Value;
+
+        var visited = new HashSet<int>();
+        int start = pageStart, end = pageEnd;
+        for (int guard = 0; guard < 32; guard++)
+        {
+            int parentObj = ParseIndirectRef(text, start, end, "/Parent");
+            if (parentObj <= 0 || !visited.Add(parentObj)) break;
+
+            int parentStart = FindObjectStart(text, parentObj);
+            if (parentStart < 0) break;
+            int parentEnd = text.IndexOf("endobj", parentStart, StringComparison.Ordinal);
+            if (parentEnd < 0) parentEnd = text.Length;
+
+            var inherited = ParseMediaBoxInRange(text, parentStart, parentEnd);
+            if (inherited.HasValue) return inherited.Value;
+
+            start = parentStart;
+            end = parentEnd;
         }
         return (595.28f, 841.89f); // A4 in points
+    }
+
+    /// <summary>
+    /// Parse "/Contents N 0 R" or "/Contents [N 0 R M 0 R ...]" within a
+    /// range; empty when absent. An array means the page content is split
+    /// across several streams to be concatenated in array order.
+    /// </summary>
+    private static List<int> ParseContentsRefs(string text, int start, int end)
+    {
+        var result = new List<int>();
+        int keyIdx = text.IndexOf("/Contents", start, end - start, StringComparison.Ordinal);
+        if (keyIdx < 0) return result;
+
+        int p = keyIdx + "/Contents".Length;
+        while (p < end && text[p] == ' ') p++;
+
+        if (p < end && text[p] == '[')
+        {
+            int arrEnd = text.IndexOf(']', p);
+            if (arrEnd < 0 || arrEnd > end) arrEnd = end;
+            int q = p + 1;
+            while (q < arrEnd)
+            {
+                while (q < arrEnd && !(text[q] >= '0' && text[q] <= '9')) q++;
+                int numStart = q;
+                while (q < arrEnd && text[q] >= '0' && text[q] <= '9') q++;
+                if (q == numStart) break;
+                if (int.TryParse(text.Substring(numStart, q - numStart), out int objNum))
+                    result.Add(objNum);
+                // Skip the generation number and "R" to reach the next entry.
+                while (q < arrEnd && text[q] == ' ') q++;
+                while (q < arrEnd && text[q] >= '0' && text[q] <= '9') q++;
+                while (q < arrEnd && text[q] == ' ') q++;
+                if (q < arrEnd && text[q] == 'R') q++;
+            }
+            return result;
+        }
+
+        int single = ParseIndirectRef(text, keyIdx, end, "/Contents");
+        if (single > 0) result.Add(single);
+        return result;
     }
 
     /// <summary>

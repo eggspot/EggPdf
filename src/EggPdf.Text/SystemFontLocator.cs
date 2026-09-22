@@ -68,6 +68,7 @@ public static class SystemFontLocator
                 {
                     files.AddRange(Directory.GetFiles(dir, "*.ttf", SearchOption.AllDirectories));
                     files.AddRange(Directory.GetFiles(dir, "*.otf", SearchOption.AllDirectories));
+                    files.AddRange(Directory.GetFiles(dir, "*.ttc", SearchOption.AllDirectories));
                 }
                 catch
                 {

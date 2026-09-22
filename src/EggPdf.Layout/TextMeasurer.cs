@@ -24,6 +24,14 @@ public static class TextMeasurer
     [ThreadStatic]
     public static Func<string?, string?, string?, EggPdf.Text.TrueType.FontData?>? FontDataProvider;
 
+    /// <summary>
+    /// Optional per-render provider resolving (font-family list, weight, style, text) to a real
+    /// font able to shape that text's script (Thai, Indic, Arabic with marks). Consulted only for
+    /// text needing glyph-level shaping, so Latin-only documents never invoke it.
+    /// </summary>
+    [ThreadStatic]
+    public static Func<string?, string?, string?, string, EggPdf.Text.TrueType.FontData?>? ComplexFontProvider;
+
     /// <summary>Measure the width of text in pixels using standard font metrics.</summary>
     public static float MeasureWidth(string text, float fontSize, string? fontFamily)
     {
@@ -46,6 +54,27 @@ public static class TextMeasurer
         string? fontWeight, string? fontStyle, float letterSpacing)
     {
         if (string.IsNullOrEmpty(text)) return 0;
+
+        // Measure the contextual (shaped) form the renderer will paint -- Arabic medial forms
+        // are narrower than isolated ones and lam-alef ligatures merge two letters into one.
+        // No-op (single early-exit scan) for non-Arabic text.
+        text = EggPdf.Text.ArabicShaper.Shape(text);
+
+        // Complex scripts (Thai, Indic, Arabic with marks): width is the sum of GSUB/GPOS-shaped
+        // advances (conjuncts collapse glyphs, marks are zero-width), not per-codepoint widths.
+        if (ComplexFontProvider != null && EggPdf.Text.OpenType.ComplexTextShaper.NeedsShaping(text))
+        {
+            var complexFont = ComplexFontProvider(fontFamily, fontWeight, fontStyle, text);
+            if (complexFont != null && complexFont.UnitsPerEm > 0)
+            {
+                var shaped = EggPdf.Text.OpenType.ComplexTextShaper.Shape(complexFont, text, baseRtl: false);
+                long units = 0;
+                for (int gi = 0; gi < shaped.Length; gi++) units += shaped[gi].XAdvance;
+                float shapedWidth = units * fontSize / complexFont.UnitsPerEm;
+                if (letterSpacing != 0) shapedWidth += letterSpacing * shaped.Length;
+                return shapedWidth;
+            }
+        }
 
         float width;
         int glyphCount = 0;
@@ -96,22 +125,65 @@ public static class TextMeasurer
     /// 0.86em/0.14em approximation for built-in fonts).
     /// </summary>
     public static float GetBaselineOffset(float fontSize, float lineBoxHeight,
-        string? fontFamily, string? fontWeight, string? fontStyle)
+        string? fontFamily, string? fontWeight, string? fontStyle, string? text = null)
     {
         float asc = 0.86f, desc = 0.14f;
-        var fd = FontDataProvider?.Invoke(fontFamily, fontWeight, fontStyle);
-        if (fd != null && fd.UnitsPerEm > 0 && fd.Ascent > 0)
+        var complex = text == null ? null : ComplexMetrics(fontFamily, fontWeight, fontStyle, text);
+        if (complex.HasValue)
         {
-            float a = (float)fd.Ascent / fd.UnitsPerEm;
-            float d = Math.Abs((float)fd.Descent) / fd.UnitsPerEm;
-            if (a >= 0.5f && a <= 1.2f && d <= 0.6f)
+            asc = complex.Value.ascent;
+            desc = complex.Value.descent;
+        }
+        else
+        {
+            var fd = FontDataProvider?.Invoke(fontFamily, fontWeight, fontStyle);
+            if (fd != null && fd.UnitsPerEm > 0 && fd.Ascent > 0)
             {
-                asc = a;
-                desc = d;
+                float a = (float)fd.Ascent / fd.UnitsPerEm;
+                float d = Math.Abs((float)fd.Descent) / fd.UnitsPerEm;
+                if (a >= 0.5f && a <= 1.2f && d <= 0.6f)
+                {
+                    asc = a;
+                    desc = d;
+                }
             }
         }
         float halfLeading = (lineBoxHeight - (asc + desc) * fontSize) / 2f;
         return halfLeading + asc * fontSize;
+    }
+
+    /// <summary>
+    /// Ascent/descent/line-gap (in em) of the font that shapes <paramref name="text"/>, for complex
+    /// scripts only. Tall fonts (Myanmar, Khmer, Indic) need far more than the 1.2em default line box
+    /// or consecutive lines collide; null for text that isn't shaped or has no shaping font.
+    /// </summary>
+    private static (float ascent, float descent, float lineGap)? ComplexMetrics(
+        string? fontFamily, string? fontWeight, string? fontStyle, string text)
+    {
+        if (ComplexFontProvider == null || !EggPdf.Text.OpenType.ComplexTextShaper.NeedsShaping(text)) return null;
+        var font = ComplexFontProvider(fontFamily, fontWeight, fontStyle, text);
+        if (font == null || font.UnitsPerEm <= 0 || font.Ascent <= 0) return null;
+
+        float asc = (float)font.Ascent / font.UnitsPerEm;
+        float desc = Math.Abs((float)font.Descent) / font.UnitsPerEm;
+        float gap = Math.Max(0, font.LineGap) / (float)font.UnitsPerEm;
+        return asc + desc >= 0.5f && asc + desc <= 3f ? (asc, desc, gap) : ((float, float, float)?)null;
+    }
+
+    /// <summary>
+    /// Line height honouring font metrics for complex-script text: <c>line-height: normal</c> is the
+    /// shaping font's ascent + descent + line gap (as browsers compute it) instead of the fixed 1.2em.
+    /// Everything else defers to <see cref="GetLineHeight(float, string?)"/>.
+    /// </summary>
+    public static float GetLineHeight(float fontSize, string? lineHeight,
+        string? fontFamily, string? fontWeight, string? fontStyle, string text)
+    {
+        if (string.IsNullOrEmpty(lineHeight) || lineHeight == "normal")
+        {
+            var m = ComplexMetrics(fontFamily, fontWeight, fontStyle, text);
+            if (m.HasValue) return fontSize * (m.Value.ascent + m.Value.descent + m.Value.lineGap);
+        }
+        return GetLineHeight(fontSize, lineHeight);
     }
 
     /// <summary>Count glyphs (surrogate pairs form one glyph).</summary>
@@ -257,6 +329,23 @@ public static class TextMeasurer
 
         if (words.Length == 0) { lines.Add(""); return lines; }
 
+        // Thai, Lao, Khmer and Myanmar have no spaces between words: offer syllable-boundary break
+        // opportunities inside such "words" so a long paragraph wraps. Split segments rejoin with no space.
+        bool[]? noSpaceBefore = null;
+        if (!preserveSpaces && EggPdf.Text.SpacelessLineBreaker.Contains(text))
+        {
+            var expanded = new List<string>(words.Length + 8);
+            var flags = new List<bool>(words.Length + 8);
+            foreach (var w in words)
+            {
+                if (!EggPdf.Text.SpacelessLineBreaker.Contains(w)) { expanded.Add(w); flags.Add(false); continue; }
+                var segments = EggPdf.Text.SpacelessLineBreaker.Split(w);
+                for (int s = 0; s < segments.Count; s++) { expanded.Add(segments[s]); flags.Add(s > 0); }
+            }
+            words = expanded.ToArray();
+            noSpaceBefore = flags.ToArray();
+        }
+
         var currentLine = words[0];
         float currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
         // Measure separator width once; reused every iteration to avoid per-word allocation checks.
@@ -296,16 +385,17 @@ public static class TextMeasurer
             string word = words[i];
             float wordWidth = MeasureWidth(word, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
             // Check width without building candidate string — only concat when it fits.
-            float candidateWidth = currentLineWidth + spaceWidth + wordWidth;
+            bool joinNoSpace = noSpaceBefore != null && noSpaceBefore[i];
+            float candidateWidth = currentLineWidth + (joinNoSpace ? 0f : spaceWidth) + wordWidth;
 
             if (candidateWidth <= maxWidth)
             {
-                currentLine = preserveSpaces ? currentLine + word : currentLine + " " + word;
+                currentLine = preserveSpaces || joinNoSpace ? currentLine + word : currentLine + " " + word;
                 currentLineWidth = candidateWidth;
             }
             else
             {
-                string separator = preserveSpaces ? "" : " ";
+                string separator = preserveSpaces || joinNoSpace ? "" : " ";
                 bool hyphenUsed = false;
                 if (enableHyphenation)
                 {

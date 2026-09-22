@@ -112,4 +112,20 @@ public class FloatE2ETests
         text.Should().Contain("Sidebar content");
         text.Should().Contain("Main Content");
     }
+
+    [Fact]
+    public async Task ShapeOutsideCircle_TextWrapsAroundFloat_ProducesValidPdf()
+    {
+        var html = @"
+            <div style='width: 300px'>
+                <div style='float: left; width: 100px; height: 100px; shape-outside: circle(50%); background-color: #ccc'></div>
+                <p>Text wrapping around a circular shape-outside float should still render correctly end to end.</p>
+            </div>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+
+        text.Should().StartWith("%PDF");
+        text.Should().Contain("Text wrapping around");
+    }
 }

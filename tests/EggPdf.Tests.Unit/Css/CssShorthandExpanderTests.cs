@@ -139,6 +139,42 @@ public class CssShorthandExpanderTests
     }
 
     [Fact]
+    public void Background_Shorthand_TwoGradientLayers_KeepsBothImages()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("background",
+            "linear-gradient(red, blue), linear-gradient(green, yellow)", style).Should().BeTrue();
+
+        // Layers are joined with ", " (matching the longhand's multi-layer format), so this must NOT
+        // be verified by naively re-splitting on ", " -- that also matches the comma inside each
+        // gradient's own argument list ("red, blue").
+        style.Get("background-image").Should().Be("linear-gradient(red, blue), linear-gradient(green, yellow)");
+    }
+
+    [Fact]
+    public void Background_Shorthand_UrlAndGradientLayers_KeepsBothInOrder()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("background",
+            "url('top.png') no-repeat, linear-gradient(to bottom, red, blue)", style).Should().BeTrue();
+
+        style.Get("background-image").Should().Be("url('top.png'), linear-gradient(to bottom, red, blue)");
+        style.Get("background-repeat").Should().Be("no-repeat", "the repeat keyword from the first layer must still be captured");
+    }
+
+    [Fact]
+    public void Background_Shorthand_ThreeCommaLayersWithTrailingColor_LastLayerColorWins()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("background",
+            "linear-gradient(red, blue), linear-gradient(green, yellow), #fff", style).Should().BeTrue();
+
+        style.Get("background-image").Should().Be("linear-gradient(red, blue), linear-gradient(green, yellow), none",
+            "a color-only layer (the base color) has no image of its own");
+        style.BackgroundColor.Should().Be("#fff");
+    }
+
+    [Fact]
     public void NonShorthand_ReturnsFalse()
     {
         var style = new ComputedStyle();

@@ -108,12 +108,14 @@ public class PngImageE2ETests
     }
 
     [Fact]
-    public async Task PngImage_InvalidBase64_DoesNotCrash()
+    public async Task PngImage_InvalidBase64_IsSkippedAndSurroundingTextRenders()
     {
-        var html = "<img src='data:image/png;base64,NOT_VALID_PNG_DATA' width='50' height='50'>";
+        var html = "<p>Before</p><img src='data:image/png;base64,NOT_VALID_PNG_DATA' width='50' height='50'><p>After</p>";
 
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "(Before) Tj", "(After) Tj");
+
+        text.Should().NotContain("/Subtype /Image", "undecodable image data must not be embedded");
     }
 
     [Fact]

@@ -21,7 +21,7 @@ namespace EggPdf;
 /// headers/footers are configured with CSS inside the HTML itself (<c>@page</c> for size/margin,
 /// <c>position: fixed</c> for repeating headers/footers) rather than through an options object.
 /// </summary>
-public static class HtmlToPdf
+public static partial class HtmlToPdf
 {
     private const float DefaultPageWidthPx = 595.28f;   // A4 width
     private const float DefaultPageHeightPx = 841.89f;  // A4 height
@@ -55,7 +55,8 @@ public static class HtmlToPdf
 
     /// <summary>Subset a font for the given codepoints, via the process-wide cache.</summary>
     private static Text.TrueType.TtfSubsetter.SubsetResult? SubsetCached(
-        Text.TrueType.FontData font, System.Collections.Generic.HashSet<int> codepoints)
+        Text.TrueType.FontData font, System.Collections.Generic.HashSet<int> codepoints,
+        List<string>? activeFeatures = null, HashSet<ushort>? extraGlyphs = null)
     {
         if (font.RawData == null) return null;
 
@@ -65,12 +66,32 @@ public static class HtmlToPdf
 
         // FNV-1a over the sorted codepoints; font identity via reference hash +
         // length (FontData instances are process-wide singletons from the font
-        // caches, so reference identity is stable for a given font).
+        // caches, so reference identity is stable for a given font). Active GSUB
+        // feature tags are folded in too -- ParseActiveTags always returns them
+        // sorted, so the same logical feature set hashes identically regardless
+        // of declaration order.
         ulong h = 14695981039346656037UL;
         for (int i = 0; i < sorted.Length; i++)
         {
             h ^= (uint)sorted[i];
             h *= 1099511628211UL;
+        }
+        if (activeFeatures != null)
+        {
+            for (int i = 0; i < activeFeatures.Count; i++)
+            {
+                foreach (char c in activeFeatures[i]) { h ^= c; h *= 1099511628211UL; }
+                h ^= '|'; h *= 1099511628211UL;
+            }
+        }
+        // Shaper-produced glyph IDs (order-independent XOR/sum fold) join the cache identity.
+        if (extraGlyphs != null && extraGlyphs.Count > 0)
+        {
+            ulong sum = 0, xor = 0;
+            foreach (var g in extraGlyphs) { sum += g; xor ^= (ulong)g * 0x9E3779B97F4A7C15UL; }
+            h ^= sum; h *= 1099511628211UL;
+            h ^= xor; h *= 1099511628211UL;
+            h ^= (ulong)extraGlyphs.Count; h *= 1099511628211UL;
         }
         var key = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(font.RawData).ToString("x8")
             + ":" + font.RawData.Length + ":" + h.ToString("x16");
@@ -81,7 +102,7 @@ public static class HtmlToPdf
             return cached;
         }
 
-        var subset = Text.TrueType.TtfSubsetter.Subset(font, sorted);
+        var subset = Text.TrueType.TtfSubsetter.Subset(font, sorted, activeFeatures, extraGlyphs);
         if (subset == null || subset.FontData.Length == 0) return subset;
 
         if (SubsetCache.Count >= SubsetCacheMaxEntries) SubsetCache.Clear();
@@ -249,7 +270,8 @@ public static class HtmlToPdf
         // 4b. When @font-face webfonts are declared, measure text with the real
         // font metrics so layout matches the glyphs the PDF paints.
         var fontFaces = BuildFontFaceMap(stylesheets);
-        if (fontFaces.Count > 0)
+        bool usesVariations = UsesFontVariations(html, stylesheets);
+        if (fontFaces.Count > 0 || usesVariations)
         {
             PrefetchWebFonts(fontFaces);
             var measureResolver = SharedFontResolver;
@@ -261,11 +283,25 @@ public static class HtmlToPdf
                 if (measureCache.TryGetValue(key, out var cached)) return cached;
 
                 bool italic = fontStyle == "italic" || fontStyle == "oblique";
-                var data = TryResolveFontFace(family, fontFaces, ParseFontWeight(weight), italic, measureResolver);
+                int numericWeight = ParseFontWeight(weight);
+                var data = TryResolveFontFace(family, fontFaces, numericWeight, italic, measureResolver);
+                if (data == null && family.IndexOf("__vf:", StringComparison.Ordinal) >= 0)
+                {
+                    // No webfont: measure an installed variable font at its axes too, so wrapping matches the embedded instance
+                    var cleanFamily = Css.FontVariationMarker.Split(family, out var axes);
+                    var system = TryResolveSystemFont(cleanFamily, measureResolver, numericWeight >= 600, italic);
+                    if (system != null) data = Text.TrueType.VariableFontInstancer.InstanceFor(system, numericWeight, axes);
+                }
                 measureCache[key] = data;
                 return data;
             };
         }
+
+        // shape-outside: url() needs the image's alpha at layout time, before images are otherwise decoded
+        BlockLayout.ShapeImageLoader = LoadShapeImageAlpha;
+
+        // Complex-script text (Thai, Indic, Arabic with marks) measures with real shaped advances.
+        TextMeasurer.ComplexFontProvider = CreateComplexFontProvider(fontFaces);
 
         try
         {
@@ -273,30 +309,44 @@ public static class HtmlToPdf
             // Layout uses content area (page minus margins) for body width. The full physical
             // page dimensions are passed separately so position:fixed's containing block can
             // reach the true page edge (see BlockLayout's _fullPageWidthPx/_fullPageHeightPx).
-            var layoutRoot = BlockLayout.LayoutDocument(document, contentWidthPx, contentHeightPx, cascadeResolver,
-                fullPageWidth: pageWidthPx, fullPageHeight: pageHeightPx);
+            // Named pages (page: <name> + @page <name>) split the body into groups laid out at
+            // their own page size; every other document takes the single-size path below.
+            var namedGroups = FindNamedPageGroups(document, cascadeResolver, pageSettings);
+            var layouts = namedGroups == null
+                ? new List<(LayoutBox root, PageSettings settings)>
+                {
+                    (BlockLayout.LayoutDocument(document, contentWidthPx, contentHeightPx, cascadeResolver,
+                        fullPageWidth: pageWidthPx, fullPageHeight: pageHeightPx), pageSettings)
+                }
+                : LayoutPageGroups(document, namedGroups, pageSettings, cascadeResolver);
 
             // 6. Resolve images (load data from src attributes)
             var pdfDoc = new PdfDocument { Encryption = encryption };
             pdfDoc.Title = FindTitleTagText(document);
             pdfDoc.Author = FindMetaContent(document, "author");
-            ResolveImages(layoutRoot, pdfDoc);
+            var layoutRoots = new List<LayoutBox>(layouts.Count);
+            foreach (var layout in layouts)
+            {
+                ResolveImages(layout.root, pdfDoc);
+                layoutRoots.Add(layout.root);
+            }
 
             // 6b. Subset and embed TrueType fonts for non-standard fonts
-            SubsetAndEmbedFonts(layoutRoot, pdfDoc, fontFaces);
+            SubsetAndEmbedFonts(layoutRoots, pdfDoc, fontFaces);
 
             // 7. Render to PDF
-            float pageWidthPt = pageWidthPx * PdfCoordinates.PxToPt;
-            float pageHeightPt = pageHeightPx * PdfCoordinates.PxToPt;
-
-            PdfRenderer.Render(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx,
-                pageSettings.MarginLeft, pageSettings.MarginTop, pageSettings.MarginBottom);
+            if (layouts.Count == 1)
+                RenderOneGroup(layouts[0].root, layouts[0].settings, pdfDoc, 0, null);
+            else
+                RenderPageGroups(layouts, pdfDoc);
 
             return pdfDoc.ToByteArray();
         }
         finally
         {
             TextMeasurer.FontDataProvider = null;
+            TextMeasurer.ComplexFontProvider = null;
+            BlockLayout.ShapeImageLoader = null;
         }
     }
 
@@ -754,6 +804,10 @@ public static class HtmlToPdf
         {
             return PdfImage.FromBmp(imgName, data); // BMP signature ("BM")
         }
+        if (WebPDecoder.IsWebP(data))
+        {
+            return PdfImage.FromWebP(imgName, data); // RIFF/WEBP signature (VP8, VP8L, VP8X)
+        }
         return null;
     }
 
@@ -799,13 +853,19 @@ public static class HtmlToPdf
     /// @font-face (webfont), or when its codepoints exceed WinAnsiEncoding
     /// (e.g. Vietnamese) so the non-embedded Type1 built-ins cannot encode them.
     /// </summary>
-    private static void SubsetAndEmbedFonts(LayoutBox root, PdfDocument pdfDoc,
+    private static void SubsetAndEmbedFonts(IReadOnlyList<LayoutBox> roots, PdfDocument pdfDoc,
         Dictionary<string, List<FontFaceCandidate>> fontFaces)
     {
         // Collect (fontName, codepoints) plus the raw font-family list per font name
         var fontCodepoints = new Dictionary<string, HashSet<int>>();
         var fontFamilyLists = new Dictionary<string, string>();
-        CollectTextCodepoints(root, fontCodepoints, fontFamilyLists);
+        var fontFeatureTags = new Dictionary<string, List<string>>();
+        var complexTexts = new Dictionary<string, HashSet<string>>();
+        foreach (var root in roots)
+            CollectTextCodepoints(root, fontCodepoints, fontFamilyLists, fontFeatureTags, complexTexts);
+
+        if (complexTexts.Count > 0)
+            EmbedComplexScriptFonts(complexTexts, fontFamilyLists, pdfDoc, fontFaces);
 
         if (fontCodepoints.Count == 0) return;
 
@@ -822,6 +882,7 @@ public static class HtmlToPdf
             int targetWeight = ParseWeightSuffix(pdfFontName) ?? (bold ? 700 : 400);
             if (targetWeight >= 600) bold = true;
             fontFamilyLists.TryGetValue(pdfFontName, out var familyList);
+            var systemFamilyList = Css.FontVariationMarker.Split(familyList, out var variationAxes);
 
             // 1. Webfont: first family in the list with a declared @font-face wins,
             //    mirroring the browser's font selection.
@@ -837,7 +898,7 @@ public static class HtmlToPdf
             // 3. System fonts: real families from the list, then metric-compatible
             //    substitutes for the standard font class.
             if (fontData == null)
-                fontData = TryResolveSystemFont(familyList, fontResolver, bold, italic);
+                fontData = TryResolveSystemFont(systemFamilyList, fontResolver, bold, italic);
 
             if (fontData == null)
             {
@@ -870,8 +931,14 @@ public static class HtmlToPdf
             if (fontData == null || fontData.RawData == null || fontData.RawData.Length == 0)
                 continue;
 
-            // Subset the font to only include used glyphs (process-wide cache)
-            var subset = SubsetCached(fontData, codepoints);
+            // System variable fonts (e.g. Bahnschrift) follow the requested weight too
+            fontData = Text.TrueType.VariableFontInstancer.InstanceFor(fontData, targetWeight, variationAxes);
+
+            // Subset the font to only include used glyphs (process-wide cache).
+            // GSUB-substituted glyphs (font-feature-settings) are baked into the subset
+            // here, so the embedded CID map already points at the right glyph outlines.
+            fontFeatureTags.TryGetValue(pdfFontName, out var activeFeatures);
+            var subset = SubsetCached(fontData, codepoints, activeFeatures);
             if (subset == null || subset.FontData.Length == 0)
                 continue;
 
@@ -883,7 +950,8 @@ public static class HtmlToPdf
                 subset.AdvanceWidths,
                 fontData.UnitsPerEm,
                 fontData.Ascent,
-                fontData.Descent);
+                fontData.Descent,
+                subset.ColorLayersByCodepoint);
 
             // Codepoints the chosen font cannot shape (e.g. ⚠ in text fonts):
             // embed a symbol-capable fallback the renderer can switch to mid-run.
@@ -948,7 +1016,9 @@ public static class HtmlToPdf
     {
         if (string.IsNullOrEmpty(familyList) || fontFaces.Count == 0) return null;
 
-        var families = familyList!.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+        // Variable-font axes (font-stretch, font-variation-settings, ...) ride along as a marker entry
+        familyList = Css.FontVariationMarker.Split(familyList, out var axes);
+        var families = familyList.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
         foreach (var rawFamily in families)
         {
             var family = rawFamily.Trim().Trim('"', '\'').ToLowerInvariant();
@@ -990,7 +1060,8 @@ public static class HtmlToPdf
                     }
                 }
 
-                if (fontData != null) return fontData;
+                // A variable font is instanced at the requested weight and axes (no-op for static fonts)
+                if (fontData != null) return Text.TrueType.VariableFontInstancer.InstanceFor(fontData, targetWeight, axes);
             }
         }
 
@@ -1165,12 +1236,23 @@ public static class HtmlToPdf
     }
 
     private static void CollectTextCodepoints(LayoutBox box, Dictionary<string, HashSet<int>> fontCodepoints,
-        Dictionary<string, string> fontFamilyLists)
+        Dictionary<string, string> fontFamilyLists, Dictionary<string, List<string>> fontFeatureTags,
+        Dictionary<string, HashSet<string>> complexTexts)
     {
         if (!string.IsNullOrEmpty(box.Text))
         {
+            var fontFeatureSettings = box.Style?.Get("font-feature-settings");
             string fontName = Layout.StandardFontMetrics.ResolvePdfFontName(
-                box.Style?.FontFamily, box.Style?.FontWeight, box.Style?.Get("font-style"));
+                box.Style?.FontFamily, box.Style?.FontWeight, box.Style?.Get("font-style"), fontFeatureSettings);
+
+            // Complex-script boxes (Thai, Indic, Arabic with marks) are shaped glyph-by-glyph and
+            // embedded under their own "<font>-CX<script>" key; collect the exact strings painted.
+            if (RegisterComplexText(box, fontName, fontFamilyLists, complexTexts))
+            {
+                foreach (var complexChild in box.Children)
+                    CollectTextCodepoints(complexChild, fontCodepoints, fontFamilyLists, fontFeatureTags, complexTexts);
+                return;
+            }
 
             if (!fontCodepoints.TryGetValue(fontName, out var codepoints))
             {
@@ -1184,7 +1266,18 @@ public static class HtmlToPdf
             if (!string.IsNullOrEmpty(familyList) && !fontFamilyLists.ContainsKey(fontName))
                 fontFamilyLists[fontName] = familyList!;
 
+            // Remember which GSUB features (if any) this composite font-name key needs,
+            // so embedding substitutes the same glyphs that will be painted.
+            var activeFeatures = Text.TrueType.FontFeatureSettings.ParseActiveTags(fontFeatureSettings);
+            if (activeFeatures.Count > 0 && !fontFeatureTags.ContainsKey(fontName))
+                fontFeatureTags[fontName] = activeFeatures;
+
             AddCodepoints(codepoints, box.Text!);
+
+            // The renderer shapes Arabic into contextual presentation forms at paint time; the
+            // subset needs those glyphs too (the base letters stay in as the missing-glyph fallback).
+            if (Text.ArabicShaper.ContainsArabic(box.Text))
+                AddCodepoints(codepoints, Text.ArabicShaper.Shape(box.Text!));
 
             // The renderer applies text-transform / small-caps at paint time, so the
             // subset must also cover the transformed characters.
@@ -1217,7 +1310,7 @@ public static class HtmlToPdf
         }
 
         foreach (var child in box.Children)
-            CollectTextCodepoints(child, fontCodepoints, fontFamilyLists);
+            CollectTextCodepoints(child, fontCodepoints, fontFamilyLists, fontFeatureTags, complexTexts);
     }
 
     /// <summary>Add every codepoint of a string (surrogate-pair aware) to the set.</summary>

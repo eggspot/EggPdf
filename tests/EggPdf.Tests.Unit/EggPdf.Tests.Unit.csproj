@@ -20,8 +20,10 @@
     <ProjectReference Include="..\..\src\EggPdf.Core\EggPdf.Core.csproj" />
     <ProjectReference Include="..\..\src\EggPdf.Html\EggPdf.Html.csproj" />
     <ProjectReference Include="..\..\src\EggPdf.Css\EggPdf.Css.csproj" />
+    <ProjectReference Include="..\..\src\EggPdf.Layout\EggPdf.Layout.csproj" />
     <ProjectReference Include="..\..\src\EggPdf.Pdf\EggPdf.Pdf.csproj" />
     <ProjectReference Include="..\..\src\EggPdf.Text\EggPdf.Text.csproj" />
+    <ProjectReference Include="..\..\src\EggPdf.Svg\EggPdf.Svg.csproj" />
   </ItemGroup>
 
 </Project>

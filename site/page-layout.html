@@ -102,7 +102,18 @@
 <span class="pun">.</span><span class="var">chart</span> <span class="pun">{</span> <span class="var">page</span><span class="pun">:</span> <span class="var">wide</span><span class="pun">; }</span></code></pre></div>
       <p>
         Elements with <code>page: wide</code> will render on their own landscape pages; all
-        other content uses the default portrait layout.
+        other content uses the default portrait layout. Each named page gets its own
+        <code>size</code>, <code>margin</code> and margin boxes, content reflows to that page's
+        width, and <code>counter(page)</code>/<code>counter(pages)</code> keep counting across
+        groups.
+      </p>
+      <p>
+        An element may declare <code>page:</code> at any depth: the wrappers around it are split
+        across the page groups (each fragment keeps the wrapper's attributes and styling).
+        Limitations: <code>@page name:first</code> is ignored, CSS counters restart in each page
+        group, sibling selectors such as <code>:nth-child</code> only see the elements of their own
+        group (and a fragmented wrapper's borders/backgrounds repeat on each fragment), and
+        internal <code>#anchor</code> links cannot cross groups.
       </p>
 
       <h2 id="page-breaks">Page breaks</h2>
@@ -192,6 +203,46 @@
         the available space, the layout continues on the next page. Apply
         <code>break-inside: avoid</code> to individual items to prevent them from being split
         across pages.
+      </p>
+      <p>
+        <code>grid-auto-flow: row dense</code> / <code>column dense</code> backfills earlier
+        gaps left by items that couldn't fit the current row/column, matching a browser instead
+        of always placing items forward from the last cursor position.
+        <code>grid-auto-rows</code> / <code>grid-auto-columns</code> size the implicit tracks
+        the auto-placement algorithm creates beyond an explicit
+        <code>grid-template-rows</code>/<code>grid-template-columns</code> (a value list cycles
+        across successive implicit tracks).
+      </p>
+
+      <h2 id="floats">Floats and shape-outside</h2>
+      <p>
+        <code>float: left</code> / <code>float: right</code> narrow sibling inline content per
+        line, the same as a browser &mdash; a paragraph next to a floated image indents around it,
+        not just past its top edge. <code>shape-outside: circle()</code>,
+        <code>ellipse()</code>, <code>polygon()</code> and <code>inset()</code> refine the exclusion to the shape's actual per-line extent instead
+        of the float's full rectangular bounding box (rounded <code>inset()</code> corners included);
+        <code>url()</code> shapes follow the image's alpha above <code>shape-image-threshold</code>
+        (a JPEG has no alpha, so it keeps the float's plain rectangular exclusion). Floated
+        <code>&lt;img&gt;</code> elements wrap text the same way. <code>clear: left</code> / <code>right</code> /
+        <code>both</code> pushes content below active floats as expected.
+      </p>
+      <div class="code-block"><pre><code><span class="cmt">/* Text wraps around the image, narrowing near its top/bottom via shape-outside */</span>
+<span class="pun">.</span><span class="var">pull-image</span> <span class="pun">{</span>
+    <span class="var">float</span><span class="pun">:</span> <span class="var">left</span><span class="pun">;</span>
+    <span class="var">width</span><span class="pun">:</span> <span class="str">150px</span><span class="pun">;</span>
+    <span class="var">shape-outside</span><span class="pun">:</span> <span class="fn">circle</span><span class="pun">(</span><span class="str">50%</span><span class="pun">);</span>
+    <span class="var">margin</span><span class="pun">:</span> <span class="str">0 16px 8px 0</span><span class="pun">;</span>
+<span class="pun">}</span></code></pre></div>
+
+      <h2 id="overflow-clip">overflow: hidden and contain: paint</h2>
+      <p>
+        <code>overflow: hidden</code> / <code>overflow: clip</code> and
+        <code>contain: paint</code> / <code>contain: strict</code> clip an element's painted
+        content &mdash; including descendants painted separately from the element itself &mdash;
+        to its bounds, not just its own background and border. <code>contain</code>'s other
+        values (<code>layout</code>, <code>style</code>, <code>content</code> alone) are
+        recalculation-isolation hints with no analog in a single-pass renderer and are accepted
+        as a no-op.
       </p>
 
     </main>

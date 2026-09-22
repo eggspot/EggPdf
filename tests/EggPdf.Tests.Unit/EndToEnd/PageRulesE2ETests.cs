@@ -145,22 +145,27 @@ public class PageRulesE2ETests
     // ── @page margin boxes ────────────────────────────────────────────────────
 
     [Fact]
-    public async Task PageMarginBox_BottomCenter_DoesNotCrash()
+    public async Task PageMarginBox_BottomCenter_TextAppearsOnPage()
     {
         // @bottom-center is the most common margin box for page numbers
         var html = @"
             <html><head><style>
                 @page {
+                    margin: 20mm;
                     @bottom-center { content: ""Page "" counter(page); }
                 }
             </style></head>
             <body><p>Content</p></body></html>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("@page margin boxes should not crash the renderer");
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+
+        text.Should().Contain("(Page 1) Tj",
+            "the margin box's counter(page) sentinel must be substituted with the real page number");
     }
 
     [Fact]
-    public async Task PageMarginBox_TopRight_DoesNotCrash()
+    public async Task PageMarginBox_TopRightAndBottomLeft_BothAppear()
     {
         var html = @"
             <html><head><style>
@@ -172,8 +177,183 @@ public class PageRulesE2ETests
                 }
             </style></head>
             <body><p>Body text here</p></body></html>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("multiple @page margin boxes should not crash");
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+
+        text.Should().Contain("(Chapter 1) Tj", "the @top-right margin box must render its static content");
+        text.Should().Contain("(1 of 1) Tj",
+            "the @bottom-left margin box must resolve counter(page) and counter(pages) on a single-page document");
+    }
+
+    [Fact]
+    public async Task PageMarginBox_CounterPage_ResolvesDifferentlyPerPhysicalPage()
+    {
+        // A document spanning multiple pages: the same @bottom-center rule
+        // must paint a different resolved page number on each physical page,
+        // not the same literal text repeated.
+        var sb = new StringBuilder(@"
+            <html><head><style>
+                @page {
+                    margin: 15mm;
+                    @bottom-center { content: counter(page); }
+                }
+            </style></head><body>");
+        for (int i = 0; i < 100; i++)
+            sb.Append($"<p>Paragraph {i}: enough repeated content to force pagination across pages.</p>");
+        sb.Append("</body></html>");
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(sb.ToString());
+        var text = Encoding.ASCII.GetString(pdf);
+
+        var pageCount = Regex.Matches(text, @"/Type /Page[^s]").Count;
+        pageCount.Should().BeGreaterThan(1, "100 paragraphs must actually paginate for this test to be meaningful");
+
+        text.Should().Contain("(1) Tj", "page 1's margin box must show 1");
+        text.Should().Contain("(2) Tj", "page 2's margin box must show 2");
+    }
+
+    [Fact]
+    public async Task PageMarginBox_FontSizeAndColor_AreApplied()
+    {
+        var html = @"
+            <html><head><style>
+                @page {
+                    margin: 20mm;
+                    @bottom-center { content: ""Draft""; font-size: 8pt; color: red; }
+                }
+            </style></head>
+            <body><p>Content</p></body></html>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+
+        text.Should().Contain("(Draft) Tj");
+        // 8pt font size selection and a red (1 0 0) fill color must both appear
+        // near the margin-box text, confirming the declared styling was read.
+        text.Should().Contain("8.00 Tf",
+            "the margin box's font-size:8pt must select an 8pt font size");
+        text.Should().Contain("1.00 0.00 0.00 rg",
+            "the margin box's color:red must set a red non-stroking fill color");
+    }
+
+    [Fact]
+    public async Task PageMarginBox_ContentDoesNotLeakIntoBodyFlow()
+    {
+        var html = @"
+            <html><head><style>
+                @page {
+                    margin: 20mm;
+                    @bottom-center { content: ""Confidential""; }
+                }
+            </style></head>
+            <body><p>Ordinary paragraph text</p></body></html>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+
+        text.Should().Contain("(Confidential) Tj");
+        text.Should().Contain("(Ordinary paragraph text) Tj");
+        // Exactly one page, so the margin box text must appear exactly once —
+        // not once for the margin box and again duplicated into body flow.
+        Regex.Matches(text, Regex.Escape("(Confidential) Tj")).Count.Should().Be(1);
+    }
+
+    // ── @page :first / :left / :right selector-scoped margin-box overrides ────
+
+    [Fact]
+    public async Task PageMarginBoxFirst_SuppressesHeaderOnFirstPageOnly()
+    {
+        var sb = new StringBuilder(@"
+            <html><head><style>
+                @page {
+                    margin: 15mm;
+                    @top-center { content: ""Running Title""; }
+                }
+                @page :first {
+                    @top-center { content: none; }
+                }
+            </style></head><body>");
+        for (int i = 0; i < 100; i++)
+            sb.Append($"<p>Paragraph {i}: enough content to force a second physical page.</p>");
+        sb.Append("</body></html>");
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(sb.ToString());
+        var text = Encoding.ASCII.GetString(pdf);
+
+        var pageCount = Regex.Matches(text, @"/Type /Page[^s]").Count;
+        pageCount.Should().BeGreaterThan(1, "100 paragraphs must actually paginate for this test to be meaningful");
+
+        Regex.Matches(text, Regex.Escape("(Running Title) Tj")).Count.Should().Be(pageCount - 1,
+            "the header must be suppressed on page 1 by :first, but still appear on every other page");
+    }
+
+    [Fact]
+    public async Task PageMarginBoxFirst_OverridesContentOnFirstPageOnly()
+    {
+        var sb = new StringBuilder(@"
+            <html><head><style>
+                @page {
+                    margin: 15mm;
+                    @bottom-center { content: counter(page); }
+                }
+                @page :first {
+                    @bottom-center { content: ""Cover""; }
+                }
+            </style></head><body>");
+        for (int i = 0; i < 100; i++)
+            sb.Append($"<p>Paragraph {i}: enough content to force a second physical page.</p>");
+        sb.Append("</body></html>");
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(sb.ToString());
+        var text = Encoding.ASCII.GetString(pdf);
+
+        text.Should().Contain("(Cover) Tj", "page 1 must use the :first override instead of the page-number base rule");
+        text.Should().Contain("(2) Tj", "page 2 must fall back to the base rule's counter(page) since :first only applies to page 1");
+        text.Should().NotContain("(1) Tj", "the base rule's content must not also render on page 1 alongside the :first override");
+    }
+
+    [Fact]
+    public async Task PageMarginBoxLeftRight_AlternateAcrossPages()
+    {
+        var sb = new StringBuilder(@"
+            <html><head><style>
+                @page { margin: 15mm; }
+                @page :left  { @top-center { content: ""Even Page""; } }
+                @page :right { @top-center { content: ""Odd Page""; } }
+            </style></head><body>");
+        for (int i = 0; i < 200; i++)
+            sb.Append($"<p>Paragraph {i}: enough content to force several physical pages.</p>");
+        sb.Append("</body></html>");
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(sb.ToString());
+        var text = Encoding.ASCII.GetString(pdf);
+
+        var pageCount = Regex.Matches(text, @"/Type /Page[^s]").Count;
+        pageCount.Should().BeGreaterThanOrEqualTo(3, "need at least pages 1-3 for this test to exercise :right (page 1), :left (page 2) and :right (page 3)");
+
+        text.Should().Contain("(Odd Page) Tj", ":right must apply on odd pages (1, 3, ...)");
+        text.Should().Contain("(Even Page) Tj", ":left must apply on even pages (2, 4, ...)");
+    }
+
+    [Fact]
+    public async Task PageMarginBoxFirst_TakesPriorityOverRightOnPageOne()
+    {
+        // Page 1 is structurally an odd page, so it would match :right too --
+        // :first must win there, not :right.
+        var html = @"
+            <html><head><style>
+                @page { margin: 15mm; }
+                @page :first { @top-center { content: ""First""; } }
+                @page :right { @top-center { content: ""Right""; } }
+            </style></head>
+            <body><p>Single page content</p></body></html>";
+
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = Encoding.ASCII.GetString(pdf);
+
+        text.Should().Contain("(First) Tj", ":first must win on page 1");
+        text.Should().NotContain("(Right) Tj", ":right must not apply to page 1 when :first also targets it");
     }
 
     [Fact]

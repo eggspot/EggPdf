@@ -73,7 +73,7 @@
       </p>
       <ol>
         <li><code>@font-face</code> declarations in CSS — from <code>http(s)</code> URLs (Google Fonts and other CDNs), <code>data:</code> URIs, or files (relative paths resolve against <code>basePath</code>)</li>
-        <li>System-installed TrueType/OpenType fonts matched by name</li>
+        <li>System-installed TrueType/OpenType fonts matched by name (including <code>.otf</code> fonts with CFF/CFF2 outlines, which are converted to TrueType outlines, and variable fonts of either flavour)</li>
         <li>Built-in PDF standard fonts: Helvetica, Times, Courier</li>
       </ol>
       <p>
@@ -167,6 +167,44 @@
       <p>
         When an exact weight/style variant is not found, EggPdf applies the CSS font-weight matching
         algorithm to pick the closest available variant rather than substituting a different typeface.
+      </p>
+
+      <h2 id="arabic">Arabic text</h2>
+      <p>
+        Arabic letters are shaped into their contextual isolated / initial / medial / final forms,
+        including lam-alef ligatures, and laid out right-to-left. Supported letters are the standard
+        Arabic block plus Persian peh, tcheh, jeh, keheh, gaf and yeh; other Arabic-script letters
+        (for example Urdu tteh, ddal, rreh) are not shaped. The <code>dir</code> attribute and
+        <code>direction: rtl</code> both apply, and default alignment follows the direction.
+      </p>
+
+      <h2 id="complex-scripts">Complex scripts</h2>
+      <p>
+        Text in Thai, Lao, Tibetan, Khmer, Myanmar, Sinhala and the Indic scripts (Devanagari,
+        Bengali, Gujarati, Gurmukhi, Oriya, Tamil, Telugu, Kannada, Malayalam), and all Arabic, is
+        shaped through the font's own OpenType tables. Mark attachment places stacked Thai vowels and
+        tone marks and Arabic diacritics; syllables are reordered (pre-base vowel signs move in front
+        of their consonant, a reph is placed after the base as each script requires, Khmer coeng-ro
+        and Myanmar kinzi are positioned) and the font's half forms, conjuncts and subscripts (such as
+        <code>क्ष</code>) are applied. For Arabic, fonts that lack the Arabic Presentation Forms
+        glyphs are shaped through their own <code>init</code>/<code>medi</code>/<code>fina</code>
+        features and cursive attachment.
+      </p>
+      <p>
+        This needs a font that contains the script. EggPdf tries your <code>font-family</code> list
+        and <code>@font-face</code> fonts first, then well-known script fonts (Nirmala UI, Leelawadee
+        UI, Myanmar Text, Noto Sans &hellip;). That text is embedded in its own font, so Latin text
+        keeps the typeface you asked for. Output was checked against Chrome's rendering for each
+        script listed above.
+      </p>
+      <p>
+        Long Thai, Lao, Khmer and Myanmar paragraphs wrap at syllable boundaries; this is a
+        heuristic, since real word breaking needs a dictionary (lines may end mid-word).
+        <code>line-height: normal</code> uses the shaping font's ascent, descent and line gap, so
+        tall fonts such as Myanmar Text don't collide. Text is reordered with the full Unicode
+        Bidirectional Algorithm (UAX #9: explicit embeddings, overrides and isolates, weak-type and
+        neutral resolution, paired brackets, mirroring) using the CSS <code>direction</code> as the
+        paragraph direction. Scripts beyond those listed are not shaped.
       </p>
 
     </main>

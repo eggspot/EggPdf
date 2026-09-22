@@ -39,32 +39,105 @@ internal static class PageRuleResolver
             {
                 var rule = sheet.PageRules[r];
 
-                // Only process generic @page rules (no selector like :first, :left)
-                if (!string.IsNullOrEmpty(rule.PageSelector))
+                // The base (unselected) @page rule sets page size/margins for the
+                // whole document -- this engine lays out in a single pass, so a
+                // :first/:left/:right rule's own size/margin declarations aren't
+                // applied (that would need a different page size mid-layout).
+                // Their margin-box declarations ARE honored, as a per-page-type
+                // override resolved at paint time (see MarginBoxRenderer).
+                Dictionary<string, PageMarginBoxSettings>? targetMarginBoxes;
+                if (string.IsNullOrEmpty(rule.PageSelector))
+                {
+                    for (int d = 0; d < rule.Declarations.Count; d++)
+                        ApplyDeclaration(settings, rule.Declarations[d]);
+                    targetMarginBoxes = settings.MarginBoxes;
+                }
+                else if (string.Equals(rule.PageSelector, ":first", StringComparison.OrdinalIgnoreCase))
+                    targetMarginBoxes = settings.FirstPageMarginBoxes;
+                else if (string.Equals(rule.PageSelector, ":left", StringComparison.OrdinalIgnoreCase))
+                    targetMarginBoxes = settings.LeftPageMarginBoxes;
+                else if (string.Equals(rule.PageSelector, ":right", StringComparison.OrdinalIgnoreCase))
+                    targetMarginBoxes = settings.RightPageMarginBoxes;
+                else if (IsNamedPageSelector(rule.PageSelector))
+                {
+                    // @page <name> { ... }: applies to pages holding elements with `page: <name>`;
+                    // resolved per page group by ForNamedPage rather than folded into the base.
+                    string key = rule.PageSelector!.Trim();
+                    if (!settings.NamedRules.TryGetValue(key, out var namedList))
+                        settings.NamedRules[key] = namedList = new List<CssPageRule>();
+                    namedList.Add(rule);
+                    targetMarginBoxes = null;
+                }
+                else
+                    targetMarginBoxes = null; // unrecognized page selector
+
+                if (targetMarginBoxes == null)
                     continue;
 
-                for (int d = 0; d < rule.Declarations.Count; d++)
-                {
-                    var decl = rule.Declarations[d];
-                    ApplyDeclaration(settings, decl);
-                }
-
-                // Collect margin-box content
-                for (int m = 0; m < rule.MarginBoxes.Count; m++)
-                {
-                    var mb = rule.MarginBoxes[m];
-                    string? content = null;
-                    for (int d = 0; d < mb.Declarations.Count; d++)
-                    {
-                        if (mb.Declarations[d].Property == "content")
-                            content = mb.Declarations[d].Value;
-                    }
-                    if (content != null)
-                        settings.MarginBoxContent[mb.Position] = content;
-                }
+                CollectMarginBoxes(rule, targetMarginBoxes);
             }
         }
 
+        return settings;
+    }
+
+    private static bool IsNamedPageSelector(string? selector)
+    {
+        if (string.IsNullOrWhiteSpace(selector)) return false;
+        var t = selector!.Trim();
+        return char.IsLetter(t[0]) && t.IndexOf(':') < 0 && t.IndexOf(' ') < 0;
+    }
+
+    /// <summary>Collect a rule's margin-box content and basic text styling into <paramref name="target"/>.</summary>
+    private static void CollectMarginBoxes(CssPageRule rule, Dictionary<string, PageMarginBoxSettings> target)
+    {
+        for (int m = 0; m < rule.MarginBoxes.Count; m++)
+        {
+            var mb = rule.MarginBoxes[m];
+            var mbSettings = new PageMarginBoxSettings();
+            bool hasContent = false;
+            for (int d = 0; d < mb.Declarations.Count; d++)
+            {
+                var decl = mb.Declarations[d];
+                switch (decl.Property)
+                {
+                    case "content":
+                        mbSettings.Content = decl.Value;
+                        hasContent = true;
+                        break;
+                    case "font-size":
+                        mbSettings.FontSize = decl.Value;
+                        break;
+                    case "color":
+                        mbSettings.Color = decl.Value;
+                        break;
+                    case "font-family":
+                        mbSettings.FontFamily = decl.Value;
+                        break;
+                    case "font-weight":
+                        mbSettings.FontWeight = decl.Value;
+                        break;
+                }
+            }
+            if (hasContent)
+                target[mb.Position] = mbSettings;
+        }
+    }
+
+    /// <summary>
+    /// Page settings for pages holding elements with <c>page: &lt;name&gt;</c>: the base settings with
+    /// every <c>@page &lt;name&gt;</c> rule's size, margins and margin boxes applied on top.
+    /// </summary>
+    public static PageSettings ForNamedPage(PageSettings baseSettings, string name)
+    {
+        var settings = baseSettings.Clone();
+        if (!baseSettings.NamedRules.TryGetValue(name, out var rules)) return settings;
+        foreach (var rule in rules)
+        {
+            for (int d = 0; d < rule.Declarations.Count; d++)
+                ApplyDeclaration(settings, rule.Declarations[d]);
+            CollectMarginBoxes(rule, settings.MarginBoxes);
+        }
         return settings;
     }
 
@@ -264,9 +337,59 @@ internal class PageSettings
     public float ContentHeightPx => PageHeightPx - MarginTop - MarginBottom;
 
     /// <summary>
-    /// CSS @page margin-box content values keyed by position name
-    /// (e.g. "bottom-center" → "counter(page)").
+    /// CSS @page margin boxes keyed by position name (e.g. "bottom-center"),
+    /// one of the 16 positions the Paged Media spec defines: top/bottom-left/
+    /// center/right, top/bottom-left/right-corner, left/right-top/middle/bottom.
     /// </summary>
-    public Dictionary<string, string> MarginBoxContent { get; } =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, PageMarginBoxSettings> MarginBoxes { get; } =
+        new Dictionary<string, PageMarginBoxSettings>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Margin-box overrides from <c>@page :first</c> -- applied on physical
+    /// page 1 in place of the corresponding position's base box, if any.
+    /// Page size/margin declarations on a selector-scoped @page rule are not
+    /// applied: this engine lays out in a single pass, so a page-type-specific
+    /// page size isn't supported (only its margin-box content is).
+    /// </summary>
+    public Dictionary<string, PageMarginBoxSettings> FirstPageMarginBoxes { get; } =
+        new Dictionary<string, PageMarginBoxSettings>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Raw <c>@page &lt;name&gt;</c> rules by page name (see <see cref="PageRuleResolver.ForNamedPage"/>).</summary>
+    public Dictionary<string, List<CssPageRule>> NamedRules { get; } =
+        new Dictionary<string, List<CssPageRule>>(StringComparer.Ordinal);
+
+    /// <summary>An independent copy: size, margins and every margin-box dictionary.</summary>
+    public PageSettings Clone()
+    {
+        var copy = new PageSettings
+        {
+            PageWidthPx = PageWidthPx, PageHeightPx = PageHeightPx,
+            MarginTop = MarginTop, MarginRight = MarginRight, MarginBottom = MarginBottom, MarginLeft = MarginLeft,
+        };
+        foreach (var kv in MarginBoxes) copy.MarginBoxes[kv.Key] = kv.Value;
+        foreach (var kv in FirstPageMarginBoxes) copy.FirstPageMarginBoxes[kv.Key] = kv.Value;
+        foreach (var kv in LeftPageMarginBoxes) copy.LeftPageMarginBoxes[kv.Key] = kv.Value;
+        foreach (var kv in RightPageMarginBoxes) copy.RightPageMarginBoxes[kv.Key] = kv.Value;
+        foreach (var kv in NamedRules) copy.NamedRules[kv.Key] = kv.Value;
+        return copy;
+    }
+
+    /// <summary>Margin-box overrides from <c>@page :left</c> -- applied on even physical pages.</summary>
+    public Dictionary<string, PageMarginBoxSettings> LeftPageMarginBoxes { get; } =
+        new Dictionary<string, PageMarginBoxSettings>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Margin-box overrides from <c>@page :right</c> -- applied on odd physical pages (other than page 1, which :first takes priority for).</summary>
+    public Dictionary<string, PageMarginBoxSettings> RightPageMarginBoxes { get; } =
+        new Dictionary<string, PageMarginBoxSettings>(StringComparer.OrdinalIgnoreCase);
+}
+
+/// <summary>A single @page margin box's raw content and basic text styling.</summary>
+internal struct PageMarginBoxSettings
+{
+    /// <summary>Raw (unresolved) CSS content value, e.g. <c>"Page " counter(page)</c>.</summary>
+    public string? Content;
+    public string? FontSize;
+    public string? Color;
+    public string? FontFamily;
+    public string? FontWeight;
 }

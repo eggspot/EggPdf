@@ -114,12 +114,46 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 
 ### HTML & CSS
 - Full HTML5 parsing (WHATWG spec-compliant)
-- CSS 2.1 complete + CSS3 (Flexbox with auto margins & baseline alignment, Grid, Multi-column)
+- CSS 2.1 complete + CSS3 (Flexbox with auto margins & baseline alignment, Grid incl.
+  `grid-auto-flow: dense` and `grid-auto-rows`/`grid-auto-columns`, Multi-column)
+- `float: left`/`right` (on blocks and `<img>`) narrows sibling inline content per line (real text
+  wrap-around, not just positioning), including `shape-outside: circle()`/`ellipse()`/`polygon()`/
+  `inset()` (rounded corners included) and `url()` image shapes (the image's alpha above
+  `shape-image-threshold`; JPEG has no alpha, so it falls back to the float's rectangular bounds)
+- `overflow: hidden`/`clip` and `contain: paint`/`contain: strict` actually clip descendant
+  painted content to the element's bounds, not just its own background/border
+- `direction: rtl` / the `dir` attribute: default `text-align` follows the direction; logical properties (margin/padding/border-width/border-color/
+  border-style/inset/border-radius corners, `float: inline-start`/`inline-end`) resolve to their
+  mirrored physical values; table columns lay out right-to-left and list markers hang on the
+  right, matching a browser
 - CSS Custom Properties (`var()`)
 - `@media print` support
+- 2D and 3D CSS transforms (`translate`/`rotate`/`scale`/`matrix` and their `X`/`Y`/`Z`/`3d`
+  variants, `perspective()`) -- PDF has no 3D rendering, so 3D functions are intentionally
+  flattened to an equivalent 2D matrix (e.g. `rotateX`/`rotateY` become an orthographic
+  Y/X compression, `translateZ`/`scaleZ`/`perspective()` have no 2D effect), not skipped
+- `content-visibility: hidden` skips laying out and painting descendants (the element's own
+  box, background and border still render, sized as if it had no content); `contain: paint`/
+  `contain: strict` clip the element's own painting to its bounds. `contain`'s other values
+  (`layout`, `style`, `content` alone) are recalculation-isolation hints with no analog in a
+  single-pass renderer and are accepted as a no-op rather than rejected
 - Webfonts: remote `<link>` stylesheets (Google Fonts) and `@font-face` over http(s), data: URIs, or files
-- SVG rendering (vector output, not rasterized)
-- All image formats (JPEG, PNG incl. 1-bit QR codes, GIF, WebP, SVG, Base64)
+- SVG rendering (vector output, not rasterized) -- `<circle>`/`<ellipse>`/`<rect>`/`<polygon>`/
+  `<polyline>`/`<path>`/`<line>` (arcs flattened as true curves), plus SVG filter graphs:
+  `filter="url(#id)"` (attribute or `style`) with feGaussianBlur, feOffset, feFlood,
+  feColorMatrix, feComponentTransfer, feMerge, feBlend, feComposite, feMorphology, feDropShadow,
+  feTurbulence, feConvolveMatrix, feDisplacementMap, feTile, feImage (element or data: bitmap) and
+  feDiffuse/SpecularLighting (distant/point/spot lights), evaluated in linearRGB/sRGB per
+  `color-interpolation-filters`, with filter regions, primitive subregions and named `in`/`result`
+  wiring. A filtered shape, `<text>` (glyph outlines from the installed font), `<use>` or `<g>` is
+  rasterized (fills incl. linear/radial gradients, strokes), filtered and re-embedded as an image,
+  since PDF has no vector filter primitive. Filtered `<image>` elements and pattern paints paint unfiltered
+- All image formats (JPEG, PNG incl. 1-bit QR codes, GIF, WebP -- lossy VP8 incl. alpha, lossless VP8L, extended VP8X containers, first frame of animations --, SVG, Base64)
+- Responsive images: `<img srcset>`/`<picture>` and CSS `image-set()` resolve to their best candidate (PDF is treated as a fixed 1x print context)
+- CSS Images Level 4 `image()`: resolves `ltr`/`rtl`-tagged candidates against the element's
+  computed direction and paints a trailing `<color>` fallback when no image resolves. `paint()`
+  (the CSS Houdini Paint API) is not supported and never will be by this engine -- it requires
+  running an author-supplied JS paint worklet, and EggPdf has no JavaScript engine by design
 - Cloudflare email obfuscation (`data-cfemail`) decoded automatically
 
 ### PDF
@@ -129,8 +163,8 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Table of contents with page numbers
 - Running headers/footers
 - Page numbers (Page X of Y)
-- Tables spanning any number of pages without row loss
-- Mixed page orientations (portrait + landscape)
+- Tables spanning any number of pages without row loss, with `<thead>` repeating on every continuation page
+- Mixed page sizes/orientations via named pages (`page: name` on top-level blocks + `@page name { size; margin; margin boxes }`)
 - Watermarks
 - Pin content (e.g. a signature/acceptance box) to the bottom of whichever page dynamic content ends on (`-eggpdf-pin-bottom: page`)
 
@@ -139,8 +173,44 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Weight-accurate faces: `font-weight: 300–900` each select their own variant
 - Font fallback chain + per-codepoint symbol-font fallback (⚠ ✔ …)
 - Full Unicode: Vietnamese and extended Latin out of the box
+- Arabic contextual shaping: letters take their isolated/initial/medial/final joining forms
+  (standard Arabic plus Persian peh/tcheh/jeh/keheh/gaf/yeh) with lam-alef ligatures, harakat
+  ignored for joining. Arabic-script letters outside that set (e.g. Urdu ٹ ڈ ڑ) are not shaped
+- Complex-script shaping through the font's own GSUB/GPOS tables: Arabic (joining forms via the
+  font's presentation-form glyphs or, for modern fonts without them, its own init/medi/fina
+  features; diacritics; cursive attachment), Thai/Lao, Tibetan, Khmer, Myanmar, Sinhala and the
+  Indic scripts (Devanagari, Bengali, Gujarati, Gurmukhi, Oriya, Tamil, Telugu, Kannada,
+  Malayalam). That covers mark-to-base / mark-to-ligature / mark-to-mark positioning, Thai SARA AM,
+  Indic and Khmer/Myanmar syllable reordering (pre-base vowel signs, reph placed per script,
+  coeng-ro, kinzi) and the font's half forms, conjuncts and subscripts. Needs a font that has the
+  script (Nirmala UI, Leelawadee UI, Myanmar Text, Noto Sans ..., or your `@font-face`); such text is
+  embedded in its own script-capable font, so Latin text keeps its requested typeface. Verified
+  against Chrome's rendering for Devanagari, Bengali, Gujarati, Gurmukhi, Oriya, Tamil, Telugu,
+  Kannada, Malayalam, Sinhala, Khmer, Myanmar, Tibetan, Thai and Arabic. Long Thai, Lao, Khmer
+  and Myanmar paragraphs wrap at syllable boundaries (a heuristic -- true word breaking needs a
+  dictionary, so lines may end mid-word), and `line-height: normal` follows the shaping font's
+  ascent + descent + line gap (tall fonts such as Myanmar Text no longer collide). Text runs are
+  reordered with the full Unicode Bidirectional Algorithm (UAX #9: explicit embeddings, overrides
+  and isolates, weak-type and neutral resolution, paired brackets, mirroring), using the CSS
+  `direction` as the paragraph direction; character classes come from a compact table that is exact
+  for Latin, Hebrew, Arabic, Syriac, Thaana and NKo and category-derived elsewhere. Scripts beyond
+  those listed above are not shaped
 - Browser-parity metrics: text measured with the real font, baselines like Chrome
 - Automatic hyphenation
+- `font-feature-settings` (e.g. `"zero" 1`, `"smcp" 1`) applies single-glyph OpenType
+  features (stylistic sets, small caps, oldstyle/tabular figures) from the font's GSUB
+  table -- ligature/contextual substitution is not applied
+- Variable fonts (TrueType `glyf` outlines with fvar/gvar/avar/HVAR, e.g. Bahnschrift, Inter, Roboto Flex):
+  `font-weight` drives the `wght` axis, so `@font-face` with `font-weight: 100 900` (or an installed
+  variable font) renders intermediate weights as real instances, verified against Chrome's outlines;
+  `font-stretch` (`wdth`), `font-style: oblique <angle>` (`slnt`) and `font-variation-settings`
+  (any axis, e.g. `"opsz"`, `"GRAD"`) drive the matching axes and the text is measured with them;
+  CFF2 variable fonts (e.g. Source Sans 3 VF) work too -- stems match Chrome at 200/400/650/900
+- OpenType fonts with PostScript outlines (`.otf`, CFF and CFF2) are converted to TrueType outlines
+  (Type 2 charstrings, subroutines, blend/vsindex, cubic to quadratic), so they measure, shape and embed like any other font
+- Color/emoji fonts (COLR v0 + CPAL) render each glyph's real color layers -- COLRv1
+  (gradients, paint graphs -- e.g. current Segoe UI Emoji) is not supported and falls
+  back to the glyph's outline in the current text color
 
 ### Business
 - Digital signatures — one-call X.509 signing (`PdfSigner.Sign(pdf, cert)`, detached CMS/PKCS#7) or external-CMS two-step flow for HSMs

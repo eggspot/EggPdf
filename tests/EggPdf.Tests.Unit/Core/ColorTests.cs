@@ -621,10 +621,9 @@ public class ColorTests
     }
 
     [Fact]
-    public void LightDark_DoesNotCrashOnInvalid()
+    public void LightDark_WithInvalidArguments_ParsesToNull()
     {
-        // Should not throw; returns null gracefully
-        var act = () => Color.TryParse("light-dark(invalid)");
-        act.Should().NotThrow();
+        Color.TryParse("light-dark(invalid)").Should().BeNull("a malformed color function is not a color");
+        Color.TryParse("light-dark(red)").Should().BeNull("light-dark needs both colors");
     }
 }

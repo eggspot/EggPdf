@@ -14,19 +14,21 @@ internal class FloatContext
     private readonly List<FloatInfo> _rightFloats = new List<FloatInfo>();
 
     /// <summary>
-    /// Add a left float at the given position.
+    /// Add a left float at the given position. <paramref name="shape"/> (from
+    /// shape-outside: circle()/ellipse()/polygon()/inset()) narrows the exclusion to the shape's actual
+    /// extent at each line instead of the float's full rectangular width.
     /// </summary>
-    public void AddLeftFloat(float x, float y, float width, float height)
+    public void AddLeftFloat(float x, float y, float width, float height, ShapeOutsideDescriptor? shape = null)
     {
-        _leftFloats.Add(new FloatInfo(x, y, width, height));
+        _leftFloats.Add(new FloatInfo(x, y, width, height, shape));
     }
 
     /// <summary>
-    /// Add a right float at the given position.
+    /// Add a right float at the given position. See <paramref name="shape"/> above.
     /// </summary>
-    public void AddRightFloat(float x, float y, float width, float height)
+    public void AddRightFloat(float x, float y, float width, float height, ShapeOutsideDescriptor? shape = null)
     {
-        _rightFloats.Add(new FloatInfo(x, y, width, height));
+        _rightFloats.Add(new FloatInfo(x, y, width, height, shape));
     }
 
     /// <summary>
@@ -42,6 +44,15 @@ internal class FloatContext
             if (f.Y < y + lineHeight && f.Y + f.Height > y)
             {
                 float right = f.X + f.Width;
+                if (f.Shape.HasValue)
+                {
+                    // The line box clamped to the float's own height, in float-local Y
+                    float top = Math.Max(y, f.Y) - f.Y;
+                    float bottom = Math.Min(y + lineHeight, f.Y + f.Height) - f.Y;
+                    var edge = f.Shape.Value.RightEdgeInRange(top, bottom);
+                    if (!edge.HasValue) continue; // the shape doesn't reach this line
+                    right = f.X + edge.Value;
+                }
                 if (right > offset)
                     offset = right;
             }
@@ -61,7 +72,16 @@ internal class FloatContext
             var f = _rightFloats[i];
             if (f.Y < y + lineHeight && f.Y + f.Height > y)
             {
-                float consumed = containerRight - f.X;
+                float leftEdge = 0f;
+                if (f.Shape.HasValue)
+                {
+                    float top = Math.Max(y, f.Y) - f.Y;
+                    float bottom = Math.Min(y + lineHeight, f.Y + f.Height) - f.Y;
+                    var edge = f.Shape.Value.LeftEdgeInRange(top, bottom);
+                    if (!edge.HasValue) continue; // the shape doesn't reach this line
+                    leftEdge = edge.Value;
+                }
+                float consumed = containerRight - (f.X + leftEdge);
                 if (consumed > offset)
                     offset = consumed;
             }
@@ -192,13 +212,15 @@ internal class FloatContext
         public readonly float Y;
         public readonly float Width;
         public readonly float Height;
+        public readonly ShapeOutsideDescriptor? Shape;
 
-        public FloatInfo(float x, float y, float width, float height)
+        public FloatInfo(float x, float y, float width, float height, ShapeOutsideDescriptor? shape = null)
         {
             X = x;
             Y = y;
             Width = width;
             Height = height;
+            Shape = shape;
         }
     }
 }
