@@ -34,6 +34,7 @@ public class Program
         string? pdfaFlag = null;
         string? invoicePath = null;
         bool verbose = HasFlag(args, "--verbose") || HasFlag(args, "-v");
+        bool tagged = HasFlag(args, "--tagged");
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -142,8 +143,8 @@ public class Program
             // Render
             var startTime = DateTime.UtcNow;
 
-            PdfRenderOptions? options = conformance != null
-                ? new PdfRenderOptions { Conformance = conformance, Invoice = invoice }
+            PdfRenderOptions? options = (conformance != null || tagged)
+                ? new PdfRenderOptions { Conformance = conformance, Invoice = invoice, Tagged = tagged }
                 : null;
             var pdf = options != null ? HtmlToPdf.Render(html, options) : HtmlToPdf.Render(html);
 
@@ -209,6 +210,9 @@ OPTIONS:
                               transparency outright)
     --invoice <path>         ZUGFeRD/Factur-X invoice JSON (MINIMUM profile) to embed.
                               Requires --pdfa 3b or --pdfa 3u
+    --tagged                 Produce a PDF/UA-1 tagged PDF (structure tree, alt
+                              text, /Lang). Combinable with --pdfa. Not yet
+                              supported with named page groups
     -v, --verbose            Show render timing and file size
     --version                Show version
     -h, --help               Show this help
@@ -220,6 +224,7 @@ EXAMPLES:
     eggpdf input.html -o - > output.pdf
     eggpdf report.html -o report.pdf --pdfa 2b
     eggpdf invoice.html -o invoice.pdf --pdfa 3b --invoice invoice-data.json
+    eggpdf report.html -o report.pdf --tagged --pdfa 2b
 
 INVOICE JSON (--invoice) FIELDS:
     invoiceNumber, issueDate, currencyCode, sellerName, sellerCountryCode,

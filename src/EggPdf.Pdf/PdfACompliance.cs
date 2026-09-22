@@ -10,17 +10,19 @@ namespace EggPdf.Pdf;
 public static class PdfACompliance
 {
     /// <summary>
-    /// Generate XMP metadata for PDF/A conformance. This XML must be embedded as a metadata
-    /// stream in the PDF catalog. When <paramref name="facturXFileName"/> is set, the Factur-X
-    /// PDF/A extension schema is declared and populated (see
+    /// Generate XMP metadata for PDF/A and/or PDF/UA-1 conformance. This XML must be embedded as
+    /// a metadata stream in the PDF catalog. <paramref name="conformance"/> is null for a
+    /// PDF/UA-1-only document (no PDF/A claim). When <paramref name="facturXFileName"/> is set,
+    /// the Factur-X PDF/A extension schema is declared and populated (see
     /// <see cref="AppendFacturXExtensionSchema"/>) -- required so PDF/A validators and Factur-X
-    /// readers recognize the embedded invoice XML attachment.
+    /// readers recognize the embedded invoice XML attachment. When
+    /// <paramref name="includePdfUA"/> is set, <c>pdfuaid:part</c> is declared and
+    /// <paramref name="title"/> is required (PDF/UA-1 rule 7.1-8/7.1-9) -- an empty title is
+    /// replaced with a placeholder rather than silently omitted.
     /// </summary>
-    public static string GenerateXmpMetadata(string? title, string? author, PdfAConformance conformance, string? facturXFileName = null)
+    public static string GenerateXmpMetadata(string? title, string? author, PdfAConformance? conformance,
+        string? facturXFileName = null, bool includePdfUA = false)
     {
-        string part = conformance.Part();
-        string level = conformance.Level();
-
         var now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
 
         var xmp = new StringBuilder();
@@ -30,18 +32,30 @@ public static class PdfACompliance
         xmp.AppendLine("<rdf:Description rdf:about=''");
         xmp.AppendLine("  xmlns:dc='http://purl.org/dc/elements/1.1/'");
         xmp.AppendLine("  xmlns:xmp='http://ns.adobe.com/xap/1.0/'");
-        xmp.AppendLine("  xmlns:pdfaid='http://www.aiim.org/pdfa/ns/id/'");
+        if (conformance != null)
+            xmp.AppendLine("  xmlns:pdfaid='http://www.aiim.org/pdfa/ns/id/'");
+        if (includePdfUA)
+            xmp.AppendLine("  xmlns:pdfuaid='http://www.aiim.org/pdfua/ns/id/'");
         xmp.AppendLine("  xmlns:pdf='http://ns.adobe.com/pdf/1.3/'>");
 
         // PDF/A identification
-        xmp.AppendLine($"  <pdfaid:part>{part}</pdfaid:part>");
-        xmp.AppendLine($"  <pdfaid:conformance>{level}</pdfaid:conformance>");
+        if (conformance != null)
+        {
+            xmp.AppendLine($"  <pdfaid:part>{conformance.Value.Part()}</pdfaid:part>");
+            xmp.AppendLine($"  <pdfaid:conformance>{conformance.Value.Level()}</pdfaid:conformance>");
+        }
 
-        // Dublin Core metadata
-        if (!string.IsNullOrEmpty(title))
+        // PDF/UA identification (part only -- PDF/UA-1 has no conformance letter, unlike PDF/A)
+        if (includePdfUA)
+            xmp.AppendLine("  <pdfuaid:part>1</pdfuaid:part>");
+
+        // Dublin Core metadata. PDF/UA-1 requires a title (rule 7.1-8/7.1-9); default rather
+        // than silently omit it when the caller didn't set one.
+        var effectiveTitle = includePdfUA && string.IsNullOrEmpty(title) ? "Untitled Document" : title;
+        if (!string.IsNullOrEmpty(effectiveTitle))
         {
             xmp.AppendLine("  <dc:title><rdf:Alt><rdf:li xml:lang='x-default'>");
-            xmp.AppendLine($"    {EscapeXml(title!)}");
+            xmp.AppendLine($"    {EscapeXml(effectiveTitle!)}");
             xmp.AppendLine("  </rdf:li></rdf:Alt></dc:title>");
         }
         if (!string.IsNullOrEmpty(author))

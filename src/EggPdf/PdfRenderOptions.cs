@@ -54,4 +54,11 @@ public class PdfRenderOptions
 
     /// <summary>Optional Factur-X/ZUGFeRD invoice data (MINIMUM profile) to embed. Requires <see cref="Conformance"/> to be <see cref="PdfAConformance.PdfA3b"/> or <see cref="PdfAConformance.PdfA3u"/>.</summary>
     public FacturXInvoice? Invoice { get; set; }
+
+    /// <summary>
+    /// Produce a PDF/UA-1 tagged PDF (structure tree, alt text, /Lang, /MarkInfo). Combinable
+    /// with <see cref="Conformance"/> for a PDF/A + PDF/UA-1 document. Not yet supported with
+    /// named page groups (<c>page: &lt;name&gt;</c> + <c>@page &lt;name&gt;</c>).
+    /// </summary>
+    public bool Tagged { get; set; }
 }

@@ -165,7 +165,7 @@ public partial class PdfDocument
     /// <summary>Add a page with dimensions in PDF points.</summary>
     public PdfPage AddPage(float widthPt, float heightPt)
     {
-        var page = new PdfPage(widthPt, heightPt);
+        var page = new PdfPage(widthPt, heightPt) { PageIndex = _pages.Count };
         _pages.Add(page);
         return page;
     }
@@ -195,6 +195,8 @@ public partial class PdfDocument
             throw new InvalidOperationException("PDF/A conformance forbids encryption (ISO 19005 disallows /Encrypt).");
         if (Invoice != null && Conformance != PdfAConformance.PdfA3b && Conformance != PdfAConformance.PdfA3u)
             throw new InvalidOperationException("Factur-X/ZUGFeRD invoice attachment requires PDF/A-3 conformance (PdfA3b or PdfA3u).");
+        if (StructureTree != null && Encryption != null)
+            throw new InvalidOperationException("Tagged PDF (PDF/UA-1) output does not support encryption.");
         ValidatePdfA1NoTransparency();
 
         var writer = new PdfStreamWriter(output);
@@ -312,6 +314,9 @@ public partial class PdfDocument
         // Factur-X/ZUGFeRD objects: embedded invoice XML stream + its filespec
         var (facturXEmbeddedFileObj, facturXFilespecObj) = AllocateFacturXObjects(alloc);
 
+        // PDF/UA-1 structure tree objects: StructTreeRoot, ParentTree, every structure element
+        AllocateStructureObjects(alloc);
+
         // Write Catalog
         alloc.RecordOffset(catalogObj, writer.Position);
         writer.WriteLine($"{catalogObj} 0 obj");
@@ -322,6 +327,7 @@ public partial class PdfDocument
             catalogDict.Append($" /Outlines {outlineRootObj} 0 R");
         AppendConformanceCatalogEntries(catalogDict, iccProfileObj, metadataObj);
         AppendFacturXCatalogEntries(catalogDict, facturXFilespecObj);
+        AppendStructureCatalogEntries(catalogDict);
         catalogDict.Append(" >>");
         writer.WriteLine(catalogDict.ToString());
         writer.WriteLine("endobj");
@@ -493,6 +499,12 @@ public partial class PdfDocument
             pageDict.Append($" /Parent {pagesObj} 0 R");
             pageDict.Append($" /MediaBox [0 0 {F(page.WidthPt)} {F(page.HeightPt)}]");
             pageDict.Append($" /Contents {contentStreamObj} 0 R");
+            if (StructureTree != null)
+            {
+                pageDict.Append(" /Tabs /S");
+                if (page.HasMarkedContent)
+                    pageDict.Append($" /StructParents {page.PageIndex}");
+            }
             // Resources
             bool hasResources = allFonts.Count > 0 || imageObjs.Count > 0 || extGStateObjs.Count > 0;
             if (hasResources)
@@ -560,6 +572,9 @@ public partial class PdfDocument
 
         // Factur-X/ZUGFeRD: embedded invoice XML stream and its filespec.
         WriteFacturXObjects(writer, alloc, facturXEmbeddedFileObj, facturXFilespecObj);
+
+        // PDF/UA-1: every structure element, StructTreeRoot, and the ParentTree.
+        WriteStructureObjects(writer, alloc, pageObjs);
 
         // Cross-reference table
         long xrefOffset = writer.Position;

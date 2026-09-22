@@ -103,7 +103,7 @@
           <thead><tr><th>Property</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
           <tbody>
             <tr><td><code>html</code></td><td><code>string</code></td><td>✅ Yes</td><td>The HTML document to render</td></tr>
-            <tr><td><code>options</code></td><td><code>object</code></td><td>No</td><td>Page size, margins, orientation, title/author, PDF/A conformance, Factur-X invoice (see below)</td></tr>
+            <tr><td><code>options</code></td><td><code>object</code></td><td>No</td><td>Page size, margins, orientation, title/author, PDF/A conformance, Factur-X invoice, PDF/UA-1 tagging (see below)</td></tr>
           </tbody>
         </table>
       </div>
@@ -172,6 +172,21 @@
         forbids transparency). <code>invoice</code> requires <code>PdfA3b</code>/<code>PdfA3u</code>
         (returns <code>400</code> otherwise) and embeds the CII invoice XML as a PDF/A-3 attachment —
         MINIMUM profile only. See <a href="compliance.html">PDF Compliance</a> for details.
+      </p>
+
+      <h3>Example: PDF/UA-1 tagged PDF</h3>
+      <div class="code-header">JSON Request Body</div>
+      <div class="code-block"><pre><code><span class="pun">{</span>
+  <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;h1&gt;Title&lt;/h1&gt;&lt;p&gt;Body text&lt;/p&gt;"</span><span class="pun">,</span>
+  <span class="str">"options"</span><span class="pun">:</span> <span class="pun">{</span> <span class="str">"tagged"</span><span class="pun">:</span> <span class="kw">true</span> <span class="pun">}</span>
+<span class="pun">}</span></code></pre></div>
+      <p>
+        Produces a structure tree (headings, paragraphs, tables, lists, figures with <code>alt</code>
+        text, links) linked to the page content, plus <code>/MarkInfo</code>, <code>/Lang</code> and
+        the required XMP identification. Combinable with <code>conformance</code>. Returns
+        <code>400</code> if the HTML uses named page groups (<code>page: &lt;name&gt;</code> +
+        <code>@page &lt;name&gt;</code>), which tagging doesn't support yet. See
+        <a href="compliance.html">PDF Compliance</a> for the full tag set and known limitations.
       </p>
 
       <h2 id="get-health">GET /health</h2>

@@ -62,42 +62,56 @@ public partial class PdfDocument
         }
     }
 
-    /// <summary>Reserve object numbers for the ICC profile and XMP metadata streams (a no-op unless <see cref="Conformance"/> is set).</summary>
+    /// <summary>
+    /// Reserve object numbers for the ICC profile and XMP metadata streams. The ICC profile is
+    /// only needed for a PDF/A OutputIntent; the metadata stream is also needed standalone for
+    /// PDF/UA-1 (see <see cref="StructureTree"/>), so its gate is broader than <see cref="Conformance"/> alone.
+    /// </summary>
     private (int iccProfileObj, int metadataObj) AllocateConformanceObjects(PdfObjectAllocator alloc)
-        => Conformance != null ? (alloc.Allocate(), alloc.Allocate()) : (0, 0);
-
-    /// <summary>Append the catalog's /Metadata and /OutputIntents entries (a no-op unless <see cref="Conformance"/> is set).</summary>
-    private void AppendConformanceCatalogEntries(StringBuilder catalogDict, int iccProfileObj, int metadataObj)
     {
-        if (Conformance == null) return;
-        catalogDict.Append($" /Metadata {metadataObj} 0 R");
-        catalogDict.Append($" /OutputIntents [{PdfACompliance.GenerateOutputIntentDict(iccProfileObj)}]");
+        int iccProfileObj = Conformance != null ? alloc.Allocate() : 0;
+        int metadataObj = (Conformance != null || StructureTree != null) ? alloc.Allocate() : 0;
+        return (iccProfileObj, metadataObj);
     }
 
-    /// <summary>Write the ICC profile stream and XMP metadata stream objects (a no-op unless <see cref="Conformance"/> is set).</summary>
+    /// <summary>Append the catalog's /Metadata (PDF/A or PDF/UA-1) and /OutputIntents (PDF/A only) entries.</summary>
+    private void AppendConformanceCatalogEntries(StringBuilder catalogDict, int iccProfileObj, int metadataObj)
+    {
+        if (metadataObj != 0)
+            catalogDict.Append($" /Metadata {metadataObj} 0 R");
+        if (Conformance != null)
+            catalogDict.Append($" /OutputIntents [{PdfACompliance.GenerateOutputIntentDict(iccProfileObj)}]");
+    }
+
+    /// <summary>Write the ICC profile stream (PDF/A only) and XMP metadata stream (PDF/A and/or PDF/UA-1) objects.</summary>
     private void WriteConformanceObjects(PdfStreamWriter writer, PdfObjectAllocator alloc, int iccProfileObj, int metadataObj)
     {
-        if (Conformance == null) return;
+        if (iccProfileObj != 0)
+        {
+            byte[] iccBytes = IccSrgbProfile.Generate();
+            alloc.RecordOffset(iccProfileObj, writer.Position);
+            writer.WriteLine($"{iccProfileObj} 0 obj");
+            writer.WriteLine($"<< /N 3 /Alternate /DeviceRGB /Length {iccBytes.Length} >>");
+            writer.WriteLine("stream");
+            writer.WriteBytes(iccBytes);
+            writer.WriteLine("");
+            writer.WriteLine("endstream");
+            writer.WriteLine("endobj");
+        }
 
-        byte[] iccBytes = IccSrgbProfile.Generate();
-        alloc.RecordOffset(iccProfileObj, writer.Position);
-        writer.WriteLine($"{iccProfileObj} 0 obj");
-        writer.WriteLine($"<< /N 3 /Alternate /DeviceRGB /Length {iccBytes.Length} >>");
-        writer.WriteLine("stream");
-        writer.WriteBytes(iccBytes);
-        writer.WriteLine("");
-        writer.WriteLine("endstream");
-        writer.WriteLine("endobj");
-
-        string? facturXFileName = Invoice != null ? FacturXFileName : null;
-        byte[] xmpBytes = Encoding.UTF8.GetBytes(PdfACompliance.GenerateXmpMetadata(Title, Author, Conformance.Value, facturXFileName));
-        alloc.RecordOffset(metadataObj, writer.Position);
-        writer.WriteLine($"{metadataObj} 0 obj");
-        writer.WriteLine($"<< /Type /Metadata /Subtype /XML /Length {xmpBytes.Length} >>");
-        writer.WriteLine("stream");
-        writer.WriteBytes(xmpBytes);
-        writer.WriteLine("");
-        writer.WriteLine("endstream");
-        writer.WriteLine("endobj");
+        if (metadataObj != 0)
+        {
+            string? facturXFileName = Invoice != null ? FacturXFileName : null;
+            byte[] xmpBytes = Encoding.UTF8.GetBytes(
+                PdfACompliance.GenerateXmpMetadata(Title, Author, Conformance, facturXFileName, includePdfUA: StructureTree != null));
+            alloc.RecordOffset(metadataObj, writer.Position);
+            writer.WriteLine($"{metadataObj} 0 obj");
+            writer.WriteLine($"<< /Type /Metadata /Subtype /XML /Length {xmpBytes.Length} >>");
+            writer.WriteLine("stream");
+            writer.WriteBytes(xmpBytes);
+            writer.WriteLine("");
+            writer.WriteLine("endstream");
+            writer.WriteLine("endobj");
+        }
     }
 }

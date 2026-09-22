@@ -162,6 +162,7 @@ eggpdf input.html -o output.pdf -v</code></pre></div>
             <tr><td><code>--output</code></td><td><code>-o</code></td><td>required</td><td>Output PDF file path, or <code>-</code> for stdout</td></tr>
             <tr><td><code>--pdfa</code></td><td>—</td><td>none</td><td>PDF/A conformance level: <code>1b</code>, <code>1u</code>, <code>2b</code>, <code>2u</code>, <code>3b</code>, or <code>3u</code>. <code>1b</code>/<code>1u</code> throw if the document uses opacity, blend modes, or image alpha (PDF/A-1 forbids transparency) — see <a href="compliance.html">PDF Compliance</a></td></tr>
             <tr><td><code>--invoice</code></td><td>—</td><td>none</td><td>Path to a ZUGFeRD/Factur-X invoice JSON file (MINIMUM profile) to embed. Requires <code>--pdfa 3b</code> or <code>--pdfa 3u</code></td></tr>
+            <tr><td><code>--tagged</code></td><td>—</td><td>false</td><td>Produce a PDF/UA-1 tagged PDF (structure tree, alt text, /Lang). Combinable with <code>--pdfa</code> — see <a href="compliance.html">PDF Compliance</a></td></tr>
             <tr><td><code>--verbose</code></td><td><code>-v</code></td><td>false</td><td>Print render timing and output size to stderr</td></tr>
             <tr><td><code>--version</code></td><td>—</td><td>—</td><td>Print version and exit</td></tr>
             <tr><td><code>--help</code></td><td><code>-h</code></td><td>—</td><td>Show help message and exit</td></tr>

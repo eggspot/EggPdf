@@ -94,7 +94,19 @@ BASIC/EN16931/Comfort/EXTENDED properties, they don't exist. `PdfAConformance` a
 `PdfA1b`/`PdfA1u` (PDF/A-1, PDF 1.4-based) -- these throw `InvalidOperationException` if the
 document uses opacity, blend modes, or images with an alpha channel, since PDF/A-1 forbids
 transparency outright; suggest PdfA2b/2u/3b/3u instead when the document needs any of those.
-PDF/UA (accessibility) conformance is not implemented yet — don't suggest properties for it.
+
+```csharp
+// PDF/UA-1 tagged PDF: structure tree, alt text, /Lang, /MarkInfo. Combinable with PdfAConformance.
+byte[] tagged = HtmlToPdf.Render(html, tagged: true);
+byte[] taggedPdfA = HtmlToPdf.Render(html, EggPdf.Pdf.PdfAConformance.PdfA2b, tagged: true);
+```
+
+CLI: add `--tagged` (combinable with `--pdfa`). REST API: `options.tagged: true`. PDF/UA-1 tags
+`h1`-`h6`, `p`, `table`/`tr`/`th`/`td` (with `<th scope>`), `ul`/`ol`/`li`, `img` (with `alt`), and
+`a` -- other elements pass through untagged. Not yet supported with named page groups
+(`page: <name>` + `@page <name>`) -- throws `InvalidOperationException` rather than silently
+under-tag. `<a>` elements are tagged as content, not linked via a Link annotation cross-reference
+(OBJR) -- don't claim full Link-element conformance.
 
 ## ASP.NET Core integration
 

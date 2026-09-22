@@ -144,6 +144,47 @@
         JSON object.
       </p>
 
+      <h2 id="pdfua">Supported now: PDF/UA-1 (accessibility)</h2>
+      <p>
+        Pass <code>tagged: true</code> to produce a tagged PDF — a structure tree linked to the
+        page content, so screen readers and other assistive technology can navigate it instead of
+        reading raw painted glyphs in an arbitrary order:
+      </p>
+      <div class="code-block"><pre><code><span class="typ">byte</span><span class="pun">[]</span> pdf <span class="pun">=</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="typ">Render</span><span class="pun">(</span>html<span class="pun">,</span> <span class="kw">tagged</span><span class="pun">:</span> <span class="kw">true</span><span class="pun">);</span>
+
+<span class="com">// combinable with PDF/A conformance</span>
+<span class="typ">byte</span><span class="pun">[]</span> pdf <span class="pun">=</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="typ">Render</span><span class="pun">(</span>html<span class="pun">,</span> <span class="typ">PdfAConformance</span><span class="pun">.</span><span class="typ">PdfA2b</span><span class="pun">,</span> <span class="kw">tagged</span><span class="pun">:</span> <span class="kw">true</span><span class="pun">);</span></code></pre></div>
+      <p>This builds a structure tree from the document's semantic HTML elements:</p>
+      <ul>
+        <li><code>h1</code>–<code>h6</code> → headings, <code>p</code> → paragraphs</li>
+        <li><code>table</code>/<code>tr</code>/<code>th</code>/<code>td</code> → table structure,
+          with <code>&lt;th scope&gt;</code> mapped to the PDF <code>/Scope</code> attribute</li>
+        <li><code>ul</code>/<code>ol</code>/<code>li</code> → list structure</li>
+        <li><code>img</code> → a Figure element with its <code>alt</code> text</li>
+        <li><code>a</code> → a Link element</li>
+      </ul>
+      <p>
+        Every other element (wrapper <code>div</code>s, inline <code>span</code>s, text-run
+        fragments from line wrapping) attaches to its nearest tagged ancestor rather than being
+        dropped, so no content goes untagged even though not every HTML element gets its own
+        structure type. The catalog also gets <code>/MarkInfo</code>, <code>/Lang</code> (from
+        <code>&lt;html lang&gt;</code>), <code>/ViewerPreferences /DisplayDocTitle</code>, and the
+        XMP <code>pdfuaid:part</code> identification with a required <code>dc:title</code>
+        (defaulted to "Untitled Document" rather than omitted if none is set).
+      </p>
+      <p>
+        Reachable via the overloads above, <code>PdfRenderOptions.Tagged</code>, the CLI's
+        <code>--tagged</code> flag, and the REST API's <code>options.tagged</code> field.
+      </p>
+      <p>
+        <strong>Known limitations:</strong> only the tag set above is mapped (no landmark regions,
+        no inline emphasis/strong mapping); <code>a</code> elements are tagged as ordinary content,
+        not cross-referenced to their Link annotation via <code>OBJR</code>; position:fixed and
+        margin-box content (running headers/footers) isn't tagged; not yet supported together with
+        named page groups (<code>page: &lt;name&gt;</code> + <code>@page &lt;name&gt;</code>) —
+        throws rather than silently producing an incompletely-tagged PDF.
+      </p>
+
       <h2 id="roadmap">On the roadmap</h2>
       <p>
         Not yet implemented. Listed here so the gap is explicit rather than silently assumed —
@@ -151,17 +192,19 @@
         has the full dependency-ordered plan.
       </p>
       <ul>
-        <li><strong>PDF/UA-1</strong> (accessibility, ISO 14289-1) — needs a full tagged-PDF structure
-          tree (heading levels, table header association, list structure, alt text, reading order,
-          <code>/Lang</code>) that spans the layout, paint and PDF-writer layers</li>
-        <li><strong>PDF/A-2a / PDF/A-3a</strong> — PDF/A plus the same structure-tree work as PDF/UA-1;
-          once that's built, the <code>a</code> conformance levels follow directly from it</li>
+        <li><strong>PDF/A-2a / PDF/A-3a</strong> — PDF/A plus PDF/UA-1-equivalent tagging as a named
+          conformance <em>level</em> (the two already combine today, e.g.
+          <code>Render(html, PdfAConformance.PdfA2b, tagged: true)</code> — this item is only about
+          adding the <code>PdfA2a</code>/<code>PdfA3a</code> enum members themselves)</li>
         <li><strong>ZUGFeRD/Factur-X BASIC / EN 16931 (Comfort) / EXTENDED profiles</strong> — line
           items and full tax breakdown, extending the MINIMUM-profile support above (same data model,
           more fields)</li>
         <li><strong>PDF/UA-2</strong> and <strong>WTPDF</strong> (the PDF Association's newer,
           PDF 2.0-based tagging model) — tracked as the eventual target for the structure-tree work
           above, not started</li>
+        <li><strong>Named page groups + tagging together</strong>, full landmark-region tagging
+          (nav/header/footer/aside), and Link-annotation cross-referencing — see the known
+          limitations above</li>
       </ul>
 
     </main>

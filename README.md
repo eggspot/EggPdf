@@ -21,8 +21,8 @@ Write normal HTML and CSS. Get a perfect PDF. No WebKit, no Chromium, no native 
 | CSS Grid | Yes | Yes | No | Yes |
 | SVG Support | Yes (vector) | Yes | Partial | Yes |
 | PDF/A | 1b/1u/2b/2u/3b/3u | No | No | No |
-| PDF/UA | Planned | No | No | No |
-| Tagged PDF | Planned | No | No | No |
+| PDF/UA | UA-1 | No | No | No |
+| Tagged PDF | Yes | No | No | No |
 | Digital Signatures | Yes | No | No | No |
 | License | MIT | Commercial | LGPL | Apache 2 |
 
@@ -171,8 +171,13 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   `--pdfa` flag, or the REST API's `options.conformance` field): embedded ICC output intent, XMP
   conformance metadata, every font embedded (including the standard 14) with a correct ToUnicode
   mapping. PDF/A-1b/1u writes a PDF 1.4 header and throws if the document uses transparency
-  (opacity, blend modes, image alpha) -- PDF/A-1 forbids it outright. PDF/UA (accessibility) is not
-  implemented yet
+  (opacity, blend modes, image alpha) -- PDF/A-1 forbids it outright
+- PDF/UA-1 tagged PDF (`HtmlToPdf.Render(html, tagged: true)`, `PdfRenderOptions.Tagged`, the CLI's
+  `--tagged` flag, or the REST API's `options.tagged` field, combinable with PDF/A conformance):
+  a structure tree (headings, paragraphs, tables with `<th scope>`, lists, figures with `alt` text,
+  links) linked to page content via marked content, plus `/MarkInfo`, `/Lang` and the required XMP
+  identification. MVP tag set (no landmark regions, no `<a>` link-annotation cross-reference);
+  not yet supported with named page groups (`page: <name>` + `@page <name>`)
 - Pin content (e.g. a signature/acceptance box) to the bottom of whichever page dynamic content ends on (`-eggpdf-pin-bottom: page`)
 
 ### Typography

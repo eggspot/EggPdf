@@ -165,6 +165,35 @@ public class ApiEndpointTests
     }
 
     [Fact]
+    public async Task Render_TaggedOption_ReturnsPdfWithStructTreeRoot()
+    {
+        var content = new StringContent(
+            JsonSerializer.Serialize(new { html = "<h1>Title</h1><p>Text</p>", options = new { tagged = true } }),
+            Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/render", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        var bytes = await resp.Content.ReadAsByteArrayAsync();
+        var pdfText = Encoding.Latin1.GetString(bytes);
+        pdfText.Should().Contain("/Type /StructTreeRoot");
+    }
+
+    [Fact]
+    public async Task Render_TaggedWithNamedPageGroups_ReturnsBadRequest()
+    {
+        var html = "<html><head><style>@page wide{size:landscape}.c{page:wide}</style></head>" +
+                    "<body><p>x</p><div class=\"c\">y</div></body></html>";
+        var content = new StringContent(
+            JsonSerializer.Serialize(new { html, options = new { tagged = true } }),
+            Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/render", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Render_EmptyHtml_ReturnsBadRequest()
     {
         var content = new StringContent(

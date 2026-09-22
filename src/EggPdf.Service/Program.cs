@@ -28,7 +28,7 @@ app.MapGet("/api/info", () => Results.Ok(new
 {
     version = typeof(EggPdf.HtmlToPdf).Assembly.GetName().Version?.ToString(3) ?? "unknown",
     engine = "EggPdf",
-    features = new[] { "html-to-pdf", "multi-page", "css-cascade", "links", "pdf-a-conformance", "zugferd-factur-x" },
+    features = new[] { "html-to-pdf", "multi-page", "css-cascade", "links", "pdf-a-conformance", "zugferd-factur-x", "pdf-ua-tagging" },
     limits = new { maxBodySizeMb = 10, timeoutSeconds = 30 }
 }));
 
@@ -415,6 +415,9 @@ record RenderOptions
     /// <summary>ZUGFeRD/Factur-X invoice data (MINIMUM profile). Requires Conformance = PdfA3b or PdfA3u.</summary>
     public InvoiceRequest? Invoice { get; init; }
 
+    /// <summary>Produce a PDF/UA-1 tagged PDF (structure tree, alt text, /Lang). Combinable with Conformance. Not yet supported with named page groups.</summary>
+    public bool? Tagged { get; init; }
+
     public EggPdf.PdfRenderOptions ToCoreOptions() => new()
     {
         PageSize = PageSize,
@@ -428,6 +431,7 @@ record RenderOptions
         Author = Author,
         Conformance = ParseConformance(Conformance),
         Invoice = Invoice?.ToFacturXInvoice(),
+        Tagged = Tagged ?? false,
     };
 
     private static EggPdf.Pdf.PdfAConformance? ParseConformance(string? value)

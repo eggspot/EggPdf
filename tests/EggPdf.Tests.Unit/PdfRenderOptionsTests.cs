@@ -89,6 +89,14 @@ public class PdfRenderOptionsTests
     }
 
     [Fact]
+    public async Task Render_TaggedOption_ProducesStructTreeRoot()
+    {
+        byte[] pdf = await HtmlToPdf.RenderAsync("<h1>Hi</h1>", new PdfRenderOptions { Tagged = true });
+        var text = Encoding.Latin1.GetString(pdf);
+        text.Should().Contain("/Type /StructTreeRoot");
+    }
+
+    [Fact]
     public async Task Render_EncryptionOption_EncryptsOutput()
     {
         byte[] pdf = await HtmlToPdf.RenderAsync("<h1>Hi</h1>",

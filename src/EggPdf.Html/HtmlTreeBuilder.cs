@@ -95,6 +95,14 @@ internal class HtmlTreeBuilder
         if (tagName == "html")
         {
             EnsureHtmlElement();
+            // Per the HTML5 tree construction algorithm's "A start tag whose tag name is html"
+            // step: attributes on this token (e.g. lang) apply to the document element even
+            // when it already exists (e.g. synthesized by an earlier head/body tag), without
+            // overwriting an attribute already set by an earlier <html> tag.
+            var root = _document.DocumentElement!;
+            foreach (var attr in token.Attributes)
+                if (string.IsNullOrEmpty(root.GetAttribute(attr.Name)))
+                    root.SetAttribute(attr.Name, attr.Value);
             return;
         }
 
