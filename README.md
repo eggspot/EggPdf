@@ -20,7 +20,7 @@ Write normal HTML and CSS. Get a perfect PDF. No WebKit, no Chromium, no native 
 | CSS Flexbox | Yes | Yes | No | Yes |
 | CSS Grid | Yes | Yes | No | Yes |
 | SVG Support | Yes (vector) | Yes | Partial | Yes |
-| PDF/A | 2b/2u/3b/3u | No | No | No |
+| PDF/A | 1b/1u/2b/2u/3b/3u | No | No | No |
 | PDF/UA | Planned | No | No | No |
 | Tagged PDF | Planned | No | No | No |
 | Digital Signatures | Yes | No | No | No |
@@ -166,11 +166,13 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Tables spanning any number of pages without row loss, with `<thead>` repeating on every continuation page
 - Mixed page sizes/orientations via named pages (`page: name` on top-level blocks + `@page name { size; margin; margin boxes }`)
 - Watermarks
-- PDF/A-2b / PDF/A-2u / PDF/A-3b / PDF/A-3u archival conformance
+- PDF/A-1b / PDF/A-1u / PDF/A-2b / PDF/A-2u / PDF/A-3b / PDF/A-3u archival conformance
   (`HtmlToPdf.Render(html, PdfAConformance.PdfA2b)`, `PdfRenderOptions.Conformance`, the CLI's
   `--pdfa` flag, or the REST API's `options.conformance` field): embedded ICC output intent, XMP
   conformance metadata, every font embedded (including the standard 14) with a correct ToUnicode
-  mapping. PDF/A-1b/1u and PDF/UA (accessibility) are not implemented yet
+  mapping. PDF/A-1b/1u writes a PDF 1.4 header and throws if the document uses transparency
+  (opacity, blend modes, image alpha) -- PDF/A-1 forbids it outright. PDF/UA (accessibility) is not
+  implemented yet
 - Pin content (e.g. a signature/acceptance box) to the bottom of whichever page dynamic content ends on (`-eggpdf-pin-bottom: page`)
 
 ### Typography

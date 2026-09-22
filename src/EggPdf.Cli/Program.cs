@@ -60,6 +60,8 @@ public class Program
         {
             conformance = pdfaFlag.ToLowerInvariant() switch
             {
+                "1b" => PdfAConformance.PdfA1b,
+                "1u" => PdfAConformance.PdfA1u,
                 "2b" => PdfAConformance.PdfA2b,
                 "2u" => PdfAConformance.PdfA2u,
                 "3b" => PdfAConformance.PdfA3b,
@@ -68,7 +70,7 @@ public class Program
             };
             if (conformance == null)
             {
-                Console.Error.WriteLine($"Error: Invalid --pdfa value '{pdfaFlag}'. Expected one of: 2b, 2u, 3b, 3u.");
+                Console.Error.WriteLine($"Error: Invalid --pdfa value '{pdfaFlag}'. Expected one of: 1b, 1u, 2b, 2u, 3b, 3u.");
                 return 1;
             }
         }
@@ -201,7 +203,10 @@ ARGUMENTS:
 
 OPTIONS:
     -o, --output <path>      Output file path (default: input.pdf, or - for stdout)
-    --pdfa <level>           PDF/A conformance: 2b, 2u, 3b, or 3u
+    --pdfa <level>           PDF/A conformance: 1b, 1u, 2b, 2u, 3b, or 3u.
+                              1b/1u throw if the document uses opacity, blend
+                              modes, or images with alpha (PDF/A-1 forbids
+                              transparency outright)
     --invoice <path>         ZUGFeRD/Factur-X invoice JSON (MINIMUM profile) to embed.
                               Requires --pdfa 3b or --pdfa 3u
     -v, --verbose            Show render timing and file size

@@ -90,8 +90,11 @@ CLI: `eggpdf input.html -o output.pdf --pdfa 3b --invoice invoice-data.json` (JS
 `{"html": "...", "options": {"conformance": "PdfA3b", "invoice": {...}}}`.
 
 ZUGFeRD/Factur-X only supports the MINIMUM profile (no line items) -- don't suggest
-BASIC/EN16931/Comfort/EXTENDED properties, they don't exist. PDF/A-1b/1u and PDF/UA
-(accessibility) conformance are not implemented yet — don't suggest properties for them.
+BASIC/EN16931/Comfort/EXTENDED properties, they don't exist. `PdfAConformance` also has
+`PdfA1b`/`PdfA1u` (PDF/A-1, PDF 1.4-based) -- these throw `InvalidOperationException` if the
+document uses opacity, blend modes, or images with an alpha channel, since PDF/A-1 forbids
+transparency outright; suggest PdfA2b/2u/3b/3u instead when the document needs any of those.
+PDF/UA (accessibility) conformance is not implemented yet — don't suggest properties for it.
 
 ## ASP.NET Core integration
 

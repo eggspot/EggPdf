@@ -195,6 +195,7 @@ public partial class PdfDocument
             throw new InvalidOperationException("PDF/A conformance forbids encryption (ISO 19005 disallows /Encrypt).");
         if (Invoice != null && Conformance != PdfAConformance.PdfA3b && Conformance != PdfAConformance.PdfA3u)
             throw new InvalidOperationException("Factur-X/ZUGFeRD invoice attachment requires PDF/A-3 conformance (PdfA3b or PdfA3u).");
+        ValidatePdfA1NoTransparency();
 
         var writer = new PdfStreamWriter(output);
 
@@ -223,7 +224,7 @@ public partial class PdfDocument
         }
 
         // Header
-        writer.WriteLine("%PDF-1.7");
+        writer.WriteLine(PdfVersionHeader);
         writer.WriteLine("%\xE2\xE3\xCF\xD3"); // binary marker
 
         // Collect all fonts used across pages

@@ -435,11 +435,13 @@ record RenderOptions
         if (string.IsNullOrEmpty(value)) return null;
         return value.ToLowerInvariant() switch
         {
+            "pdfa1b" or "1b" => EggPdf.Pdf.PdfAConformance.PdfA1b,
+            "pdfa1u" or "1u" => EggPdf.Pdf.PdfAConformance.PdfA1u,
             "pdfa2b" or "2b" => EggPdf.Pdf.PdfAConformance.PdfA2b,
             "pdfa2u" or "2u" => EggPdf.Pdf.PdfAConformance.PdfA2u,
             "pdfa3b" or "3b" => EggPdf.Pdf.PdfAConformance.PdfA3b,
             "pdfa3u" or "3u" => EggPdf.Pdf.PdfAConformance.PdfA3u,
-            _ => throw new ArgumentException($"Invalid conformance value '{value}'. Expected one of: PdfA2b, PdfA2u, PdfA3b, PdfA3u."),
+            _ => throw new ArgumentException($"Invalid conformance value '{value}'. Expected one of: PdfA1b, PdfA1u, PdfA2b, PdfA2u, PdfA3b, PdfA3u."),
         };
     }
 }

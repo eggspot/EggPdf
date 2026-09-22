@@ -68,7 +68,7 @@
 
     <main class="docs-content">
 
-      <h2 id="supported-now">Supported now: PDF/A-2b, PDF/A-2u, PDF/A-3b, PDF/A-3u</h2>
+      <h2 id="supported-now">Supported now: PDF/A-1b, PDF/A-1u, PDF/A-2b, PDF/A-2u, PDF/A-3b, PDF/A-3u</h2>
       <p>
         Pass a <code>PdfAConformance</code> value to render an archival-conformant PDF instead of the
         default output:
@@ -95,10 +95,20 @@
         attachments (the mechanism ZUGFeRD/Factur-X e-invoicing builds on — see below).
       </p>
       <p>
+        <code>PdfA1b</code>/<code>PdfA1u</code> (PDF/A-1, based on PDF 1.4) write a
+        <code>%PDF-1.4</code> header instead of <code>1.7</code>, and — because PDF/A-1 forbids
+        transparency outright — throw <code>InvalidOperationException</code> if the document uses
+        CSS <code>opacity</code> below 1, a <code>mix-blend-mode</code> other than
+        <code>normal</code>, or an image with an alpha channel, rather than silently dropping the
+        effect or shipping a mislabeled non-conformant PDF. Use <code>PdfA2b</code>/<code>2u</code>/
+        <code>3b</code>/<code>3u</code> for documents that need any of those.
+      </p>
+      <p>
         Every entry point can reach it: the standalone <code>HtmlToPdf.Render(html, PdfAConformance)</code>
         overload shown above, <code>PdfRenderOptions.Conformance</code> (combinable with page size,
-        margins, title, etc. in one call), the CLI's <code>--pdfa &lt;2b|2u|3b|3u&gt;</code> flag, and the
-        REST API's <code>options.conformance</code> JSON field.
+        margins, title, etc. in one call), the CLI's
+        <code>--pdfa &lt;1b|1u|2b|2u|3b|3u&gt;</code> flag, and the REST API's
+        <code>options.conformance</code> JSON field.
       </p>
 
       <h2 id="zugferd">Supported now: ZUGFeRD / Factur-X (MINIMUM profile)</h2>
@@ -141,16 +151,14 @@
         has the full dependency-ordered plan.
       </p>
       <ul>
-        <li><strong>PDF/A-1b / PDF/A-1u</strong> — blocked on a PDF-version-selection feature, since
-          PDF/A-1 requires PDF 1.4 file structure and EggPdf's writer currently targets PDF 1.7</li>
         <li><strong>PDF/UA-1</strong> (accessibility, ISO 14289-1) — needs a full tagged-PDF structure
           tree (heading levels, table header association, list structure, alt text, reading order,
           <code>/Lang</code>) that spans the layout, paint and PDF-writer layers</li>
         <li><strong>PDF/A-2a / PDF/A-3a</strong> — PDF/A plus the same structure-tree work as PDF/UA-1;
           once that's built, the <code>a</code> conformance levels follow directly from it</li>
-        <li><strong>ZUGFeRD / Factur-X</strong> (EN 16931-based e-invoicing) — builds on PDF/A-3's file
-          attachments, but needs a structured invoice data model (buyer/seller, line items, tax) that
-          can't be inferred from arbitrary HTML, so it implies its own API surface</li>
+        <li><strong>ZUGFeRD/Factur-X BASIC / EN 16931 (Comfort) / EXTENDED profiles</strong> — line
+          items and full tax breakdown, extending the MINIMUM-profile support above (same data model,
+          more fields)</li>
         <li><strong>PDF/UA-2</strong> and <strong>WTPDF</strong> (the PDF Association's newer,
           PDF 2.0-based tagging model) — tracked as the eventual target for the structure-tree work
           above, not started</li>

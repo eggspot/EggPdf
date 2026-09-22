@@ -166,8 +166,10 @@
   <span class="pun">}</span>
 <span class="pun">}</span></code></pre></div>
       <p>
-        <code>conformance</code> accepts <code>PdfA2b</code>, <code>PdfA2u</code>, <code>PdfA3b</code>,
-        or <code>PdfA3u</code>. <code>invoice</code> requires <code>PdfA3b</code>/<code>PdfA3u</code>
+        <code>conformance</code> accepts <code>PdfA1b</code>, <code>PdfA1u</code>, <code>PdfA2b</code>,
+        <code>PdfA2u</code>, <code>PdfA3b</code>, or <code>PdfA3u</code> (<code>PdfA1b</code>/<code>PdfA1u</code>
+        return <code>400</code> if the document uses opacity, blend modes, or image alpha, since PDF/A-1
+        forbids transparency). <code>invoice</code> requires <code>PdfA3b</code>/<code>PdfA3u</code>
         (returns <code>400</code> otherwise) and embeds the CII invoice XML as a PDF/A-3 attachment —
         MINIMUM profile only. See <a href="compliance.html">PDF Compliance</a> for details.
       </p>

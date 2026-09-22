@@ -87,6 +87,23 @@ public class ApiEndpointTests
     }
 
     [Fact]
+    public async Task Render_PdfA1ConformanceOption_ReturnsBadRequestWhenTransparencyIsUsed()
+    {
+        // PDF/A-1 forbids transparency outright -- opacity below 1 must be rejected, not silently dropped.
+        var content = new StringContent(
+            JsonSerializer.Serialize(new
+            {
+                html = "<h1 style=\"opacity:0.5\">Test</h1>",
+                options = new { conformance = "PdfA1b" },
+            }),
+            Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/render", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Render_InvoiceOption_EmbedsFacturXAttachment()
     {
         var content = new StringContent(

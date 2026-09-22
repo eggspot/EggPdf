@@ -37,6 +37,8 @@ public class PdfAConformanceTests
     }
 
     [Theory]
+    [InlineData(PdfAConformance.PdfA1b, "1", "B")]
+    [InlineData(PdfAConformance.PdfA1u, "1", "U")]
     [InlineData(PdfAConformance.PdfA2b, "2", "B")]
     [InlineData(PdfAConformance.PdfA3b, "3", "B")]
     [InlineData(PdfAConformance.PdfA2u, "2", "U")]
@@ -46,6 +48,80 @@ public class PdfAConformanceTests
         var text = Encoding.Latin1.GetString(DocWithPage(conformance).ToByteArray());
         text.Should().Contain($"<pdfaid:part>{expectedPart}</pdfaid:part>");
         text.Should().Contain($"<pdfaid:conformance>{expectedLevel}</pdfaid:conformance>");
+    }
+
+    [Theory]
+    [InlineData(PdfAConformance.PdfA1b)]
+    [InlineData(PdfAConformance.PdfA1u)]
+    public void PdfA1_Header_UsesPdfVersion14(PdfAConformance conformance)
+    {
+        var bytes = DocWithPage(conformance).ToByteArray();
+        Encoding.ASCII.GetString(bytes, 0, 9).Should().Be("%PDF-1.4\n");
+    }
+
+    [Theory]
+    [InlineData(PdfAConformance.PdfA2b)]
+    [InlineData(PdfAConformance.PdfA3u)]
+    [InlineData(null)]
+    public void NonPdfA1_Header_UsesPdfVersion17(PdfAConformance? conformance)
+    {
+        var bytes = DocWithPage(conformance).ToByteArray();
+        Encoding.ASCII.GetString(bytes, 0, 9).Should().Be("%PDF-1.7\n");
+    }
+
+    [Fact]
+    public void PdfA1_WithPartialOpacity_Throws()
+    {
+        var doc = new PdfDocument { Conformance = PdfAConformance.PdfA1b };
+        var page = doc.AddPage(595.28f, 841.89f);
+        page.SetOpacity(0.5f);
+        page.AddText("Hello", 72, 720, "Helvetica", 12);
+
+        Action act = () => doc.ToByteArray();
+        act.Should().Throw<InvalidOperationException>().WithMessage("*transparency*");
+    }
+
+    [Fact]
+    public void PdfA1_WithNonNormalBlendMode_Throws()
+    {
+        var doc = new PdfDocument { Conformance = PdfAConformance.PdfA1u };
+        var page = doc.AddPage(595.28f, 841.89f);
+        page.SetBlendMode("multiply");
+        page.AddText("Hello", 72, 720, "Helvetica", 12);
+
+        Action act = () => doc.ToByteArray();
+        act.Should().Throw<InvalidOperationException>().WithMessage("*transparency*");
+    }
+
+    [Fact]
+    public void PdfA1_WithImageAlphaChannel_Throws()
+    {
+        var doc = new PdfDocument { Conformance = PdfAConformance.PdfA1b };
+        doc.AddPage(595.28f, 841.89f);
+        doc.AddImage(PdfImage.FromRgba("Img1", 1, 1, new byte[] { 255, 0, 0, 128 }));
+
+        Action act = () => doc.ToByteArray();
+        act.Should().Throw<InvalidOperationException>().WithMessage("*transparency*");
+    }
+
+    [Fact]
+    public void PdfA1_WithoutTransparency_Succeeds()
+    {
+        var text = Encoding.Latin1.GetString(DocWithPage(PdfAConformance.PdfA1b).ToByteArray());
+        text.Should().Contain("<pdfaid:part>1</pdfaid:part>");
+    }
+
+    [Fact]
+    public void PdfA2_WithPartialOpacity_DoesNotThrow()
+    {
+        // Transparency is only forbidden under PDF/A-1 -- PDF/A-2/3 allow it.
+        var doc = new PdfDocument { Conformance = PdfAConformance.PdfA2b };
+        var page = doc.AddPage(595.28f, 841.89f);
+        page.SetOpacity(0.5f);
+        page.AddText("Hello", 72, 720, "Helvetica", 12);
+
+        Action act = () => doc.ToByteArray();
+        act.Should().NotThrow();
     }
 
     [Fact]

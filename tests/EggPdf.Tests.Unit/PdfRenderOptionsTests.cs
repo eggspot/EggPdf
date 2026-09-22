@@ -81,6 +81,14 @@ public class PdfRenderOptionsTests
     }
 
     [Fact]
+    public async Task Render_PdfA1ConformanceOption_UsesPdfVersion14()
+    {
+        byte[] pdf = await HtmlToPdf.RenderAsync("<h1>Hi</h1>",
+            new PdfRenderOptions { Conformance = PdfAConformance.PdfA1b });
+        Encoding.ASCII.GetString(pdf, 0, 9).Should().Be("%PDF-1.4\n");
+    }
+
+    [Fact]
     public async Task Render_EncryptionOption_EncryptsOutput()
     {
         byte[] pdf = await HtmlToPdf.RenderAsync("<h1>Hi</h1>",
