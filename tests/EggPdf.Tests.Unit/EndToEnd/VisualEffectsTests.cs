@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Xunit;
@@ -8,35 +9,56 @@ namespace EggPdf.Tests.Unit.EndToEnd;
 public class VisualEffectsTests
 {
     [Fact]
-    public async Task BoxShadow_DoesNotCrash()
+    public async Task BoxShadow_OffsetShadowPaintedBehindBackgroundWithAlpha()
     {
         var html = "<div style='box-shadow: 2px 2px 5px rgba(0,0,0,0.3); width: 200px; height: 100px; background-color: white'>Shadow box</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "Shadow box");
+
+        text.Should().MatchRegex(@"/GS(29|30) gs", "the 0.3 alpha shadow must set a matching ExtGState");
+        text.Should().Contain("/GS100 gs", "opacity is reset after the shadow");
+        // Shadow rect is the box offset by (2px,2px) = (1.5pt,-1.5pt); the box itself sits at 6,766.89
+        int shadow = text.IndexOf("7.50 765.39 150.00 75.00 re f");
+        int box = text.IndexOf("6.00 766.89 150.00 75.00 re f");
+        shadow.Should().BeGreaterThan(-1, "the offset shadow rect must be filled");
+        box.Should().BeGreaterThan(shadow, "the element background paints over the shadow");
     }
 
     [Fact]
-    public async Task BorderRadius_DoesNotCrash()
+    public async Task BorderRadius_BackgroundPaintedAsBezierPathNotPlainRect()
     {
         var html = "<div style='border-radius: 10px; background-color: blue; width: 100px; height: 100px'></div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf);
+
+        text.Should().Contain("0.00 0.00 1.00 rg");
+        text.Should().Contain(" c\n", "rounded corners are Bezier curves");
+        text.Should().Contain("h f", "the rounded path is closed and filled");
+        text.Should().NotContain("75.00 75.00 re f", "the box must not be painted as a square rect");
     }
 
     [Fact]
-    public async Task Opacity_DoesNotCrash()
+    public async Task Opacity_WrapsBoxAndTextInHalfAlphaState()
     {
         var html = "<div style='opacity: 0.5; background-color: red; width: 100px; height: 100px'>Semi-transparent</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "Semi-transparent");
+
+        text.Should().Contain("/GS50 gs");
+        text.IndexOf("/GS100 gs").Should().BeGreaterThan(text.IndexOf("/GS50 gs"), "alpha must be reset after painting");
+        text.Should().Contain("1.00 0.00 0.00 rg");
     }
 
     [Fact]
-    public async Task Transform_DoesNotCrash()
+    public async Task Transform_Rotate_EmitsNonIdentityRotationMatrix()
     {
         var html = "<div style='transform: rotate(5deg); width: 100px; height: 100px'>Rotated</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "Rotated");
+
+        // cos5 = 1.00 (0.996), sin5 = 0.09
+        text.Should().Contain("1.00 -0.09 0.09 1.00");
+        text.Should().MatchRegex(@"1\.00 -0\.09 0\.09 1\.00 -?\d+\.\d+ -?\d+\.\d+ cm");
     }
 
     [Fact]
@@ -50,35 +72,81 @@ public class VisualEffectsTests
     }
 
     [Fact]
-    public async Task TextShadow_DoesNotCrash()
+    public async Task TextShadow_PaintsTextTwiceAtOffsetPositions()
     {
         var html = "<h1 style='text-shadow: 2px 2px 4px #000'>Shadow text</h1>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "Shadow text");
+
+        PdfAssert.Count(text, "(Shadow text) Tj").Should().Be(2, "one shadow copy plus the real text");
+        // Shadow is drawn first, offset by 2px (1.5pt) right and 2px down from the real text.
+        var shadow = PdfAssert.TextPosition(text, "Shadow text");
+        text.IndexOf("(Shadow text) Tj").Should().BeLessThan(text.LastIndexOf("(Shadow text) Tj"));
+        shadow.X.Should().BeApproximately(7.50f, 0.01f);
     }
 
     [Fact]
-    public async Task MultiColumn_DoesNotCrash()
+    public async Task MultiColumn_TwoBlocksFlowIntoSideBySideColumns()
     {
-        var html = "<div style='column-count: 2; column-gap: 20px'><p>Column content that should flow into two columns.</p></div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        var html = "<div style='column-count: 2; column-gap: 20px'><p>Alpha</p><p>Bravo</p></div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "Alpha", "Bravo");
+
+        var alpha = PdfAssert.TextPosition(text, "Alpha");
+        var bravo = PdfAssert.TextPosition(text, "Bravo");
+        bravo.X.Should().BeGreaterThan(alpha.X + 100f, "the second block starts in the second column");
+        bravo.Y.Should().BeApproximately(alpha.Y, 0.01f, "both columns start at the same top edge");
     }
 
     [Fact]
-    public async Task CssNesting_DoesNotCrash()
+    public async Task CssNesting_AmpersandSelector_AppliesNestedRuleToChild()
     {
         var html = "<style>div { & p { color: red; } }</style><div><p>Nested CSS</p></div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "(Nested CSS) Tj");
+
+        PdfAssert.Count(text, "(Nested CSS) Tj").Should().Be(1);
+        PdfAssert.PageCount(text).Should().Be(1);
+        PdfAssert.TextPaintedWith(text, "Nested CSS", "1.00 0.00 0.00 rg")
+            .Should().BeTrue("\"div { & p { color: red } }\" must expand to \"div p { color: red }\"");
     }
 
     [Fact]
-    public async Task ContainerQuery_DoesNotCrash()
+    public async Task CssNesting_ImplicitDescendant_ExpandsWithoutAmpersand()
+    {
+        // No "&": the nested selector is treated as a descendant of the parent, same as Chrome.
+        var html = "<style>div { p { color: blue; } }</style><div><p>Implicit nest</p></div><p>Outside</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "(Implicit nest) Tj", "(Outside) Tj");
+
+        PdfAssert.TextPaintedWith(text, "Implicit nest", "0.00 0.00 1.00 rg")
+            .Should().BeTrue("\"div { p { color: blue } }\" must expand to \"div p { color: blue }\"");
+        PdfAssert.TextPaintedWith(text, "Outside", "0.00 0.00 1.00 rg")
+            .Should().BeFalse("the nested rule must not leak to a <p> outside the <div>");
+    }
+
+    [Fact]
+    public async Task CssNesting_LiteralBraceInContentValue_DoesNotCorruptFollowingRule()
+    {
+        // A declaration value can legitimately contain a brace character (e.g. content: "{"). The
+        // nesting pre-processor's implicit-nesting detection must not mistake it for a nested rule
+        // and eat the unrelated rule that follows it.
+        var html = "<style>p::before { content: \"{\"; } p { color: blue; }</style><p>After</p>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "(After) Tj");
+
+        PdfAssert.TextPaintedWith(text, "After", "0.00 0.00 1.00 rg")
+            .Should().BeTrue("the literal '{' in the content value must not swallow the following \"p { color: blue }\" rule");
+    }
+
+    [Fact]
+    public async Task ContainerQuery_MinWidthSatisfied_AppliesRule()
     {
         var html = "<style>@container (min-width: 300px) { p { color: blue; } }</style><p>Container query</p>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "Container query");
+
+        PdfAssert.TextPaintedWith(text, "Container query", "0.00 0.00 1.00 rg").Should().BeTrue();
     }
 
     [Fact]
@@ -91,38 +159,47 @@ public class VisualEffectsTests
     }
 
     [Fact]
-    public async Task CjkText_DoesNotCrash()
+    public async Task CjkText_MixedWithLatin_EmitsOneTextRun()
     {
         var html = "<p>English text and some Chinese: 你好世界</p>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf);
+
+        // Non-Latin-1 text is emitted as a glyph-id (hex) run rather than a literal string.
+        text.Should().MatchRegex(@"BT [^\n]*(\) Tj|> Tj|\] TJ) ET", "the paragraph must be painted as a text run");
     }
 
     [Fact]
-    public async Task Emoji_DoesNotCrash()
+    public async Task Emoji_MixedWithLatin_EmitsTextRun()
     {
-        // Note: emoji may not render correctly without color emoji font,
-        // but should not crash
+        // Emoji may not render in color without a color emoji font, but the run must still be painted.
         var html = "<p>Hello World 🌍🎉</p>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf);
+
+        text.Should().MatchRegex(@"BT [^\n]*(\) Tj|> Tj|\] TJ)[^\n]* ET", "the paragraph must be painted as a text run");
     }
 
     [Fact]
-    public async Task BackdropFilter_DoesNotCrash()
+    public async Task BackdropFilter_TranslucentBackgroundPaintedWithHalfAlpha()
     {
         var html = "<div style='backdrop-filter: blur(8px) saturate(180%); background-color: rgba(255,255,255,0.5); width:200px; height:100px'>Glass</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "Glass");
+
+        text.Should().Contain("/GS50 gs", "the rgba(...,0.5) background is still painted translucent");
+        text.Should().Contain("150.00 75.00 re f");
     }
 
     [Fact]
-    public async Task ImageSet_DoesNotCrash()
+    public async Task ImageSet_UnloadableCandidates_TextStillRendersWithoutImage()
     {
-        // image-set() with multiple resolutions — PDF should pick the best and not crash
+        // Neither image-set() candidate exists: the box still paints its text, and no image is embedded.
         var html = "<div style=\"background-image: image-set(url('low.png') 1x, url('high.png') 2x); width:100px; height:100px\">IS</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "IS");
+
+        text.Should().NotContain("/Subtype /Image");
     }
 
     // 1x1 red pixel PNG as base64 (same fixture used by ImageTests.cs).
@@ -213,37 +290,48 @@ public class VisualEffectsTests
     }
 
     [Fact]
-    public async Task BackgroundClip_Text_DoesNotCrash()
+    public async Task BackgroundClip_Text_ClipsGradientBandsAndHidesGlyphFill()
     {
-        // background-clip: text creates gradient text — PDF approximates by rendering background behind text
+        // background-clip: text creates gradient text — PDF approximates by rendering the gradient bands clipped to the box
         var html = @"<h1 style='background-image: linear-gradient(to right, red, blue);
             background-clip: text; -webkit-background-clip: text;
             color: transparent; font-size: 32px'>Gradient Text</h1>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("background-clip: text should not crash the renderer");
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "Gradient Text");
+
+        text.Should().Contain("re W n", "the gradient must be clipped");
+        text.Should().Contain("1.00 0.00 0.00 rg", "the red start of the gradient");
+        text.Should().Contain("0.98 0.00 0.03 rg", "intermediate gradient band");
+        text.Should().Contain("/GS0 gs", "the transparent glyph fill is painted with zero alpha");
     }
 
     // ── text-emphasis ─────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task TextEmphasis_Dot_DoesNotCrash()
+    public async Task TextEmphasis_Dot_PaintsOneRedMarkPerCharacterAboveText()
     {
-        // text-emphasis: dot paints bullet marks above each character; must not crash
+        // text-emphasis: dot paints a half-size mark above each character
         var html = "<p style='text-emphasis-style: dot; text-emphasis-color: red'>Hello</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
-        pdf.Should().NotBeEmpty();
-        var text = Encoding.Latin1.GetString(pdf);
-        text.Should().Contain("Hello", "base text should still be present with emphasis marks");
+        var text = PdfAssert.ValidPdf(pdf, "Hello");
+
+        PdfAssert.Count(text, "1.00 0.00 0.00 rg").Should().Be(5, "one red mark for each of the 5 characters");
+        Regex.Matches(text, @"Helvetica 6\.00 Tf").Count.Should().Be(5, "marks are half the 12pt font size");
+        var baseText = PdfAssert.TextPosition(text, "Hello");
+        var mark = Regex.Match(text, @"Helvetica 6\.00 Tf 0\.00 Tc 0\.00 Tw (-?\d+\.\d+) (-?\d+\.\d+) Td");
+        float.Parse(mark.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture)
+            .Should().BeGreaterThan(baseText.Y, "over-position marks sit above the baseline");
     }
 
     [Fact]
-    public async Task TextEmphasis_Circle_DoesNotCrash()
+    public async Task TextEmphasis_Circle_PaintsBlueMarkPerCharacter()
     {
         var html = "<p style='text-emphasis-style: open circle; text-emphasis-color: blue'>Hi</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
-        pdf.Should().NotBeEmpty();
-        var text = Encoding.Latin1.GetString(pdf);
-        text.Should().Contain("Hi", "base text should still be present with emphasis marks");
+        var text = PdfAssert.ValidPdf(pdf, "Hi");
+
+        PdfAssert.Count(text, "0.00 0.00 1.00 rg").Should().Be(2, "one blue mark for each of the 2 characters");
+        Regex.Matches(text, @"Helvetica 6\.00 Tf").Count.Should().Be(2);
     }
 
     [Fact]
@@ -266,51 +354,72 @@ public class VisualEffectsTests
     {
         var html = "<p style='text-emphasis-style: none'>ABC</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
-        pdf.Should().NotBeEmpty();
-        var text = Encoding.Latin1.GetString(pdf);
-        text.Should().Contain("ABC");
+        var text = PdfAssert.ValidPdf(pdf, "ABC");
+
+        text.Should().NotContain("Helvetica 6.00 Tf", "no half-size emphasis marks are painted");
     }
 
     [Fact]
-    public async Task TextEmphasis_Position_Under_DoesNotCrash()
+    public async Task TextEmphasis_PositionUnder_PaintsMarksBelowBaseline()
     {
         var html = "<p style='text-emphasis-style: filled dot; text-emphasis-position: under right'>Ruby</p>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("text-emphasis-position: under should not crash");
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "Ruby");
+
+        Regex.Matches(text, @"Helvetica 6\.00 Tf").Count.Should().Be(4, "one mark per character");
+        var baseText = PdfAssert.TextPosition(text, "Ruby");
+        var mark = Regex.Match(text, @"Helvetica 6\.00 Tf 0\.00 Tc 0\.00 Tw (-?\d+\.\d+) (-?\d+\.\d+) Td");
+        float.Parse(mark.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture)
+            .Should().BeLessThan(baseText.Y, "under-position marks sit below the baseline");
     }
 
     // ── box-shadow: inset ─────────────────────────────────────────────────────
 
     [Fact]
-    public async Task BoxShadow_Inset_DoesNotCrash()
+    public async Task BoxShadow_Inset_ClipsShadowToBoxAndPaintsItBeforeBackground()
     {
         var html = "<div style='box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5); width: 200px; height: 100px; background: white'>Inset</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("inset box-shadow must not crash");
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "Inset");
+
+        text.Should().Contain("6.00 766.89 150.00 75.00 re W n", "the inset shadow is clipped to the padding box");
+        text.Should().Contain("/GS50 gs");
     }
 
     [Fact]
     public async Task BoxShadow_Inset_PaintsInsideElement()
     {
-        // Inset shadow should produce some drawing; the result must be a valid non-empty PDF
+        // Inset shadow: a translucent red rect (offset 4px = 3pt) clipped to the box
         var html = "<div style='box-shadow: inset 4px 4px 0px rgba(255,0,0,0.8); width: 200px; height: 100px; background: white'>I</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
-        pdf.Should().NotBeEmpty();
+        var text = PdfAssert.ValidPdf(pdf, "I");
+
+        text.Should().Contain("6.00 766.89 150.00 75.00 re W n");
+        text.Should().Contain("/GS80 gs");
+        text.Should().Contain("1.00 0.00 0.00 rg");
+        text.Should().Contain("9.00 769.89 150.00 75.00 re f", "the shadow rect is shifted by the 4px offset");
     }
 
     [Fact]
-    public async Task BoxShadow_MultipleValues_DoesNotCrash()
+    public async Task BoxShadow_MultipleValues_PaintsOuterThenInsetThenBackground()
     {
         // Multiple comma-separated shadows
         var html = "<div style='box-shadow: 2px 2px 4px black, inset 1px 1px 2px white; width: 100px; height: 50px; background: gray'>M</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("multiple box-shadow values must not crash");
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "M");
+
+        int outer = text.IndexOf("0.00 0.00 0.00 rg\n7.50 802.89 75.00 37.50 re f");
+        int inset = text.IndexOf("1.00 1.00 1.00 rg\n6.75 805.14 75.00 37.50 re f");
+        int background = text.IndexOf("0.50 0.50 0.50 rg\n6.00 804.39 75.00 37.50 re f");
+        outer.Should().BeGreaterThan(-1, "outer black shadow");
+        inset.Should().BeGreaterThan(outer, "inset white shadow follows the outer one");
+        background.Should().BeGreaterThan(inset, "gray background painted last");
     }
 
     // ── text-decoration-style ────────────────────────────────────────────────
 
     [Fact]
-    public async Task TextDecorationStyle_Wavy_DoesNotCrash()
+    public async Task TextDecorationStyle_Wavy_EmitsBezierCurves()
     {
         var html = "<p style='text-decoration: underline; text-decoration-style: wavy; text-decoration-color: red'>Wavy</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
@@ -321,40 +430,45 @@ public class VisualEffectsTests
     }
 
     [Fact]
-    public async Task TextDecorationStyle_Dashed_DoesNotCrash()
+    public async Task TextDecorationStyle_Dashed_StrokesWithDashPattern()
     {
         var html = "<p style='text-decoration: underline; text-decoration-style: dashed'>Dashed</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
-        text.Should().Contain("Dashed");
+        var text = PdfAssert.ValidPdf(pdf, "Dashed");
+        text.Should().Contain("[2.40 2.40] 0 d", "dashed underline uses a 2-on/2-off dash array");
+        text.Should().Contain("816.57 l S");
     }
 
     [Fact]
-    public async Task TextDecorationStyle_Dotted_DoesNotCrash()
+    public async Task TextDecorationStyle_Dotted_StrokesWithRoundCapDots()
     {
         var html = "<p style='text-decoration: underline; text-decoration-style: dotted'>Dotted</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
-        text.Should().Contain("Dotted");
+        var text = PdfAssert.ValidPdf(pdf, "Dotted");
+        text.Should().Contain("[0 1.50] 0 d 1 J", "dotted underline uses zero-length dashes with round caps");
     }
 
     [Fact]
-    public async Task TextDecorationStyle_Double_DoesNotCrash()
+    public async Task TextDecorationStyle_Double_StrokesTwoParallelLines()
     {
         var html = "<p style='text-decoration: underline; text-decoration-style: double'>Double</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
-        text.Should().Contain("Double");
+        var text = PdfAssert.ValidPdf(pdf, "Double");
+        text.Should().Contain("816.97 l S", "upper line of the double underline");
+        text.Should().Contain("816.17 l S", "lower line of the double underline");
     }
 
     // ── mix-blend-mode ───────────────────────────────────────────────────────
 
     [Fact]
-    public async Task MixBlendMode_Multiply_DoesNotCrash()
+    public async Task MixBlendMode_Multiply_WrapsBoxInBlendModeState()
     {
         var html = "<div style='mix-blend-mode: multiply; background: red; width: 100px; height: 100px'>Blend</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("mix-blend-mode: multiply should not crash");
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "Blend");
+
+        text.Should().Contain("/BM /Multiply");
+        text.Should().MatchRegex(@"q\n/GSBM_multiply gs\n1\.00 0\.00 0\.00 rg\n[^\n]*re f\nQ", "the red box is painted inside a saved graphics state using the blend mode");
     }
 
     [Fact]
@@ -367,21 +481,28 @@ public class VisualEffectsTests
     }
 
     [Fact]
-    public async Task BackgroundBlendMode_DoesNotCrash()
+    public async Task BackgroundBlendMode_AppliesBlendOnlyToBackgroundNotText()
     {
         var html = "<div style='background: red; background-blend-mode: multiply; width: 100px; height: 100px'>BB</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("background-blend-mode should not crash");
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "BB");
+
+        text.Should().MatchRegex(@"q\n/GSBM_multiply gs\n1\.00 0\.00 0\.00 rg\n[^\n]*re f\nQ");
+        PdfAssert.TextPaintedWith(text, "BB", "0.00 0.00 0.00 rg").Should().BeTrue();
+        text.Should().NotContain("/GSBM_multiply gs\n0.00 0.00 0.00 rg\nBT", "text is not blended by background-blend-mode");
     }
 
     // ── light-dark() ─────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task LightDark_DoesNotCrash()
+    public async Task LightDark_DefaultsToLightValue_BlackText()
     {
         var html = "<div style='color: light-dark(black, white); background: light-dark(white, black)'>LD</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("light-dark() must not crash the renderer");
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "LD");
+
+        PdfAssert.TextPaintedWith(text, "LD", "0.00 0.00 0.00 rg").Should().BeTrue("the light-scheme value (black) is used for the text color");
+        PdfAssert.TextPaintedWith(text, "LD", "1.00 1.00 1.00 rg").Should().BeFalse();
     }
 
     // ── accent-color ─────────────────────────────────────────────────────────
@@ -432,21 +553,30 @@ public class VisualEffectsTests
     // ── isolation ────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task Isolation_Isolate_DoesNotCrash()
+    public async Task Isolation_Isolate_ParentBackgroundPaintedBeforeMultiplyChild()
     {
         var html = "<div style='isolation: isolate; background: white; width: 100px; height: 100px'><div style='mix-blend-mode: multiply; background: red'>X</div></div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("isolation: isolate must not crash");
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "X");
+
+        int parent = text.IndexOf("1.00 1.00 1.00 rg\n6.00 766.89 75.00 75.00 re f");
+        int child = text.IndexOf("/GSBM_multiply gs\n1.00 0.00 0.00 rg");
+        parent.Should().BeGreaterThan(-1, "the isolated white parent background is painted");
+        child.Should().BeGreaterThan(parent, "the multiply-blended child paints over the parent background");
     }
 
     // ── background-clip: text ────────────────────────────────────────────────
 
     [Fact]
-    public async Task BackgroundClipText_DoesNotCrash()
+    public async Task BackgroundClipText_VerticalGradient_ClipsHorizontalBands()
     {
         var html = "<h1 style='background: linear-gradient(red, blue); background-clip: text; -webkit-background-clip: text; color: transparent; font-size: 32px'>Gradient Text</h1>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("background-clip: text must not crash");
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "Gradient Text");
+
+        text.Should().Contain("re W n");
+        text.Should().Contain("0.98 0.00 0.03 rg", "intermediate gradient band");
+        text.Should().Contain("6.00 797.01 583.28 1.22 re f", "vertical gradient bands are full-width strips");
     }
 
     [Fact]
@@ -473,11 +603,15 @@ public class VisualEffectsTests
     // ── border-image ─────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task BorderImage_Gradient_DoesNotCrash()
+    public async Task BorderImage_Gradient_ClipsGradientBandsToBorderBox()
     {
         var html = "<div style='width: 150px; height: 80px; border: 8px solid; border-image: linear-gradient(red, blue) 1'>Content</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("border-image with gradient must not crash");
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "Content");
+
+        text.Should().Contain("re W n", "the border-image gradient is clipped to the border box");
+        text.Should().Contain("1.00 0.00 0.00 rg");
+        text.Should().Contain("0.98 0.00 0.03 rg", "intermediate gradient band");
     }
 
     [Fact]
@@ -488,27 +622,35 @@ public class VisualEffectsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
         // Gradient rendering produces multiple color stops; at minimum it produces a rect
-        text.Should().Contain("re", "border-image gradient must emit rectangle drawing commands");
+        text.Should().Contain("re f", "border-image gradient must emit rectangle fill commands");
         // Red stop: 1.00 0.00 0.00 rg
         text.Should().Contain("1.00 0.00 0.00 rg", "red gradient stop must appear in border-image");
     }
 
     [Fact]
-    public async Task BorderImage_None_DoesNotCrash()
+    public async Task BorderImage_None_FallsBackToSolidRedBorder()
     {
         var html = "<div style='border-image: none; border: 2px solid red; width: 100px; height: 50px'>X</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("border-image:none must not crash");
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "X");
+
+        text.Should().Contain("1.50 w", "2px border stroke width");
+        text.Should().Contain("1.00 0.00 0.00 RG", "border-image:none keeps the regular red border");
+        text.Should().Contain("re S");
     }
 
     [Fact]
-    public async Task BorderImage_Url_DoesNotCrash()
+    public async Task BorderImage_Url_MissingImage_DegradesToStrokedBorder()
     {
-        // border-image: url() with a non-existent image should not crash (graceful degradation)
+        // border-image: url() with a non-existent image should degrade gracefully to the normal border
         var html = "<div style='width: 120px; height: 80px; border: 10px solid; " +
                    "border-image: url(missing.png) 30 fill stretch'>Content</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("border-image:url() must degrade gracefully when image is missing");
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "Content");
+
+        text.Should().Contain("7.50 w", "10px border stroke width");
+        text.Should().Contain("re S");
+        text.Should().NotContain("/Subtype /Image");
     }
 
     [Fact]
@@ -519,18 +661,25 @@ public class VisualEffectsTests
                    "border-image: url(missing.png) 10 stretch'>Content</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var pdfText = Encoding.ASCII.GetString(pdf);
-        // Should still have some rectangle drawing (normal border fallback)
-        pdfText.Should().Contain("re", "border fallback must still emit rectangle commands");
+        // Should still have a stroked rectangle (normal border fallback)
+        pdfText.Should().Contain("re S", "border fallback must still emit a stroked rectangle");
     }
 
     // ── multiple background layers ────────────────────────────────────────────
 
     [Fact]
-    public async Task MultipleBackgrounds_DoesNotCrash()
+    public async Task MultipleBackgrounds_ShorthandWithTwoGradients_PaintsBothLayersClippedToBox()
     {
+        // The `background` shorthand must keep every comma-separated layer (not just the first),
+        // same as the background-image longhand (see MultipleBackgrounds_BothLayersRendered).
         var html = "<div style='width:200px; height:100px; background: linear-gradient(red,blue), linear-gradient(green,yellow)'>X</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("multiple comma-separated backgrounds must not crash");
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "X");
+
+        text.Should().Contain("6.00 766.89 150.00 75.00 re W n", "the gradient is clipped to the 200x100px box");
+        text.Should().Contain("1.00 0.00 0.00 rg", "top layer starts red");
+        text.Should().Contain("0.00 0.00 1.00 rg", "top layer ends blue");
+        text.Should().Contain("0.00 0.50 0.00 rg", "second (bottom) layer -- green -- must also render");
     }
 
     [Fact]
@@ -574,11 +723,14 @@ public class VisualEffectsTests
     }
 
     [Fact]
-    public async Task LinearGradient_HorizontalDirection_DoesNotCrash()
+    public async Task LinearGradient_HorizontalDirection_PaintsFullHeightVerticalStrips()
     {
         var html = "<div style='width:300px; height:100px; background: linear-gradient(to right, red, blue)'>X</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "X");
+
+        text.Should().Contain("6.12 75.00 re f", "'to right' gradients are painted as narrow strips spanning the full 100px height");
+        text.Should().Contain("6.00 766.89 225.00 75.00 re W n", "clipped to the 300px-wide box");
     }
 
     [Fact]
@@ -595,34 +747,43 @@ public class VisualEffectsTests
     // ── CSS units: vw/vh/vmin/vmax/ch/lh/pc ─────────────────────────────────
 
     [Fact]
-    public async Task ViewportUnit_Vw_DoesNotCrash()
+    public async Task ViewportUnit_Vw_ResolvesToHalfPageWidth()
     {
-        var html = "<div style='width: 50vw; height: 100px'>vw test</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("vw unit must not crash");
+        var html = "<div style='width: 50vw; height: 100px; background: red'>vw test</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "vw test");
+
+        text.Should().Contain("297.64 75.00 re f", "50vw is half of the 595.28pt page width");
     }
 
     [Fact]
-    public async Task ViewportUnit_Vh_DoesNotCrash()
+    public async Task ViewportUnit_Vh_ResolvesToHalfPageHeight()
     {
-        var html = "<div style='height: 50vh; width: 200px'>vh test</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("vh unit must not crash");
+        var html = "<div style='height: 50vh; width: 200px; background: red'>vh test</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "vh test");
+
+        text.Should().Contain("150.00 420.95 re f", "50vh is half of the 841.89pt page height");
     }
 
     [Fact]
-    public async Task Unit_Ch_DoesNotCrash()
+    public async Task Unit_Ch_ResolvesToCharacterAdvanceWidth()
     {
-        var html = "<div style='width: 20ch; height: 100px'>ch unit</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("ch unit must not crash");
+        var html = "<div style='width: 20ch; height: 100px; background: red'>ch unit</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "ch unit");
+
+        text.Should().Contain("120.00 75.00 re f", "20ch resolves to 160px (8px per ch at 16px)");
     }
 
     [Fact]
-    public async Task Unit_Pc_DoesNotCrash()
+    public async Task Unit_Pc_MarginTopOfTwoPicasShiftsContentByTwentyFourPoints()
     {
-        var html = "<div style='margin-top: 2pc; width: 200px'>pc unit</div>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync("pc unit (picas) must not crash");
+        var html = "<div style='margin-top: 2pc; width: 200px; background: red'>pc unit</div>";
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "pc unit");
+
+        // Without the margin the first line baseline is at y=830.37; 2pc = 24pt pushes it down.
+        PdfAssert.TextPosition(text, "pc unit").Y.Should().BeApproximately(830.37f - 24f, 0.02f);
     }
 }

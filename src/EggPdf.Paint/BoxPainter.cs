@@ -569,11 +569,14 @@ public static partial class BoxPainter
                     pdfY -= fontSize * 0.2f * PdfCoordinates.PxToPt; // shift down
             }
 
-            // Text color (with filter applied if present)
+            // Text color (with filter applied if present). Falls back to opaque black -- the CSS
+            // initial/default value ("canvastext" in a light theme) -- rather than leaving color
+            // null, so a `filter` still affects unstyled text instead of silently being skipped
+            // because color.HasValue was false.
             var textColor = box.Style.Color;
-            Color? color = null;
-            if (!string.IsNullOrEmpty(textColor))
-                color = ParseColor(textColor);
+            Color? color = string.IsNullOrEmpty(textColor)
+                ? Color.FromRgb(0, 0, 0)
+                : ParseColor(textColor) ?? Color.FromRgb(0, 0, 0);
             if (filterParams != null && filterParams.HasEffect && color.HasValue)
             {
                 var (fr, fg, fb) = EggPdf.Pdf.PdfFilterEffects.ApplyColorFilter(
@@ -805,9 +808,12 @@ public static partial class BoxPainter
                     fitW = natW * scale; fitH = natH * scale;
                 }
 
-                // object-position offsets within the box
+                // object-position offsets within the box. X matches directly (both axes point
+                // right), but pdfY is already flipped to PDF's bottom-up space, so a CSS
+                // "top" (posY=0) must push the image to the TOP of the gap, i.e. add the whole
+                // gap; a CSS "bottom" (posY=1) adds none. That is the vertical mirror of posY.
                 pdfX += (pdfW - fitW) * posX;
-                pdfY += (pdfH - fitH) * posY;
+                pdfY += (pdfH - fitH) * (1f - posY);
                 pdfW = fitW;
                 pdfH = fitH;
             }

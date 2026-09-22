@@ -19,6 +19,9 @@ public static class CssStyleSheetParser
         // Pre-process @scope rules — flatten to regular rules before tokenizing
         css = ScopeResolver.PreprocessScope(css);
 
+        // Pre-process CSS nesting (& selectors) — flatten to regular rules before tokenizing
+        css = CssNestingResolver.PreprocessNesting(css);
+
         var tokenizer = new CssTokenizer(css);
         var tokens = ConsumeAllTokens(tokenizer);
         int pos = 0;

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace EggPdf.Css;
 
@@ -170,6 +171,9 @@ public static class CssShorthandExpander
     /// Handles: background-image (url() or gradient), background-repeat,
     /// background-position, background-size (after /), and background-color.
     /// The color, if present, must appear last per the CSS spec.
+    /// Multiple comma-separated layers ("bg1, bg2, ...") are all kept: background-image
+    /// becomes a comma-joined list (matching the longhand's multi-layer format), while
+    /// position/size/repeat/color take the last layer that specifies them.
     /// </summary>
     private static void ExpandBackgroundShorthand(string value, ComputedStyle style)
     {
@@ -182,9 +186,54 @@ public static class CssShorthandExpander
             return;
         }
 
+        var images = new List<string>();
+        string? position = null, size = null, repeat = null, color = null;
+
+        foreach (var rawLayer in SplitTopLevel(trimmed, ','))
+        {
+            var (layerImage, layerPosition, layerSize, layerRepeat, layerColor) = ExpandBackgroundLayer(rawLayer);
+            images.Add(layerImage ?? "none");
+            if (layerPosition != null) position = layerPosition;
+            if (layerSize != null) size = layerSize;
+            if (layerRepeat != null) repeat = layerRepeat;
+            if (layerColor != null) color = layerColor;
+        }
+
+        if (images.Exists(img => img != "none"))
+            style.Set("background-image", string.Join(", ", images));
+
+        if (repeat   != null) style.Set("background-repeat", repeat);
+        if (position != null) style.Set("background-position", position);
+        if (size     != null) style.Set("background-size", size);
+        if (color    != null) style.Set("background-color", color);
+    }
+
+    /// <summary>Split a value on top-level commas, ignoring commas nested inside parentheses (e.g. inside a gradient's argument list).</summary>
+    private static List<string> SplitTopLevel(string value, char delimiter)
+    {
+        var result = new List<string>();
+        int depth = 0, start = 0;
+        for (int i = 0; i < value.Length; i++)
+        {
+            char c = value[i];
+            if (c == '(') depth++;
+            else if (c == ')') { if (depth > 0) depth--; }
+            else if (c == delimiter && depth == 0)
+            {
+                result.Add(value.Substring(start, i - start));
+                start = i + 1;
+            }
+        }
+        result.Add(value.Substring(start));
+        return result;
+    }
+
+    /// <summary>Parse one comma-separated layer of the background shorthand.</summary>
+    private static (string? image, string? position, string? size, string? repeat, string? color) ExpandBackgroundLayer(string layerValue)
+    {
         // Extract url(...) or gradient functions first (they may contain spaces/commas)
         string? image = null;
-        string remaining = trimmed;
+        string remaining = layerValue.Trim();
 
         int urlIdx = remaining.IndexOf("url(", StringComparison.OrdinalIgnoreCase);
         if (urlIdx >= 0)
@@ -218,9 +267,6 @@ public static class CssShorthandExpander
             }
         }
 
-        if (image != null)
-            style.Set("background-image", image.Trim());
-
         // Now tokenize the remainder by spaces
         var parts = remaining.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
@@ -252,10 +298,7 @@ public static class CssShorthandExpander
             color = part;
         }
 
-        if (repeat   != null) style.Set("background-repeat", repeat);
-        if (positionSb.Length > 0) style.Set("background-position", positionSb.ToString());
-        if (size     != null) style.Set("background-size", size);
-        if (color    != null) style.Set("background-color", color);
+        return (image?.Trim(), positionSb.Length > 0 ? positionSb.ToString() : null, size, repeat, color);
     }
 
     private static bool IsBackgroundRepeat(string part)
