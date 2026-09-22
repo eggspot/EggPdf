@@ -26,13 +26,6 @@ public partial class PdfDocument
     public PdfEncryption? Encryption { get; set; }
 
     /// <summary>
-    /// Optional PDF/A conformance level. When set, embeds an ICC output intent and XMP
-    /// conformance metadata, forces full font embedding, and forbids <see cref="Encryption"/>
-    /// (PDF/A disallows encryption).
-    /// </summary>
-    public PdfAConformance? Conformance { get; set; }
-
-    /// <summary>
     /// Process-wide default for <see cref="CompressContentStreams"/>; new
     /// documents copy it at construction. Internal so the test assembly can
     /// opt out once globally — hundreds of tests assert against raw
@@ -311,12 +304,7 @@ public partial class PdfDocument
         }
 
         // PDF/A conformance objects: ICC profile stream + XMP metadata stream
-        int iccProfileObj = 0, metadataObj = 0;
-        if (Conformance != null)
-        {
-            iccProfileObj = alloc.Allocate();
-            metadataObj = alloc.Allocate();
-        }
+        var (iccProfileObj, metadataObj) = AllocateConformanceObjects(alloc);
 
         // Write Catalog
         alloc.RecordOffset(catalogObj, writer.Position);
@@ -326,11 +314,7 @@ public partial class PdfDocument
         catalogDict.Append($" /Pages {pagesObj} 0 R");
         if (outlineRootObj > 0)
             catalogDict.Append($" /Outlines {outlineRootObj} 0 R");
-        if (Conformance != null)
-        {
-            catalogDict.Append($" /Metadata {metadataObj} 0 R");
-            catalogDict.Append($" /OutputIntents [{PdfACompliance.GenerateOutputIntentDict(iccProfileObj)}]");
-        }
+        AppendConformanceCatalogEntries(catalogDict, iccProfileObj, metadataObj);
         catalogDict.Append(" >>");
         writer.WriteLine(catalogDict.ToString());
         writer.WriteLine("endobj");
@@ -565,28 +549,7 @@ public partial class PdfDocument
 
         // PDF/A conformance: ICC profile stream (referenced by the catalog's
         // /OutputIntents) and XMP metadata stream (referenced by /Metadata).
-        if (Conformance != null)
-        {
-            byte[] iccBytes = IccSrgbProfile.Generate();
-            alloc.RecordOffset(iccProfileObj, writer.Position);
-            writer.WriteLine($"{iccProfileObj} 0 obj");
-            writer.WriteLine($"<< /N 3 /Alternate /DeviceRGB /Length {iccBytes.Length} >>");
-            writer.WriteLine("stream");
-            writer.WriteBytes(iccBytes);
-            writer.WriteLine("");
-            writer.WriteLine("endstream");
-            writer.WriteLine("endobj");
-
-            byte[] xmpBytes = Encoding.UTF8.GetBytes(PdfACompliance.GenerateXmpMetadata(Title, Author, Conformance.Value));
-            alloc.RecordOffset(metadataObj, writer.Position);
-            writer.WriteLine($"{metadataObj} 0 obj");
-            writer.WriteLine($"<< /Type /Metadata /Subtype /XML /Length {xmpBytes.Length} >>");
-            writer.WriteLine("stream");
-            writer.WriteBytes(xmpBytes);
-            writer.WriteLine("");
-            writer.WriteLine("endstream");
-            writer.WriteLine("endobj");
-        }
+        WriteConformanceObjects(writer, alloc, iccProfileObj, metadataObj);
 
         // Cross-reference table
         long xrefOffset = writer.Position;

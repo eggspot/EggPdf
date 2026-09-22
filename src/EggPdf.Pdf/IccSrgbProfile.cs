@@ -13,7 +13,15 @@ namespace EggPdf.Pdf;
 /// </summary>
 public static class IccSrgbProfile
 {
-    public static byte[] Generate()
+    // The profile is identical on every call (only an informational creation-date field would
+    // differ, and that doesn't need to reflect real render time) -- build it once and hand out
+    // copies instead of re-deriving the tag table on every PDF/A render.
+    private static readonly byte[] Cached = Build();
+
+    /// <summary>A fresh copy of the generated profile bytes, safe for the caller to treat as owned.</summary>
+    public static byte[] Generate() => (byte[])Cached.Clone();
+
+    private static byte[] Build()
     {
         // Tag data, built first so offsets/sizes are known before the header is laid out.
         var tags = new (string sig, byte[] data)[]

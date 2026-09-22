@@ -20,9 +20,9 @@ Write normal HTML and CSS. Get a perfect PDF. No WebKit, no Chromium, no native 
 | CSS Flexbox | Yes | Yes | No | Yes |
 | CSS Grid | Yes | Yes | No | Yes |
 | SVG Support | Yes (vector) | Yes | Partial | Yes |
-| PDF/A | Yes | No | No | No |
-| PDF/UA | Yes | No | No | No |
-| Tagged PDF | Yes | No | No | No |
+| PDF/A | 2b/3b | No | No | No |
+| PDF/UA | Planned | No | No | No |
+| Tagged PDF | Planned | No | No | No |
 | Digital Signatures | Yes | No | No | No |
 | License | MIT | Commercial | LGPL | Apache 2 |
 
@@ -166,6 +166,9 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Tables spanning any number of pages without row loss, with `<thead>` repeating on every continuation page
 - Mixed page sizes/orientations via named pages (`page: name` on top-level blocks + `@page name { size; margin; margin boxes }`)
 - Watermarks
+- PDF/A-2b / PDF/A-3b archival conformance (`HtmlToPdf.Render(html, PdfAConformance.PdfA2b)`): embedded
+  ICC output intent, XMP conformance metadata, every font embedded (including the standard 14).
+  PDF/A-1b/1u and PDF/UA (accessibility) are not implemented yet
 - Pin content (e.g. a signature/acceptance box) to the bottom of whichever page dynamic content ends on (`-eggpdf-pin-bottom: page`)
 
 ### Typography

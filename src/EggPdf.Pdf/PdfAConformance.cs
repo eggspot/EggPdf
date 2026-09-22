@@ -13,3 +13,15 @@ public enum PdfAConformance
     /// <summary>PDF/A-3b: PDF/A-2b plus permission to embed arbitrary file attachments.</summary>
     PdfA3b,
 }
+
+/// <summary>The XMP <c>pdfaid:part</c>/<c>pdfaid:conformance</c> identifiers for each level.</summary>
+public static class PdfAConformanceExtensions
+{
+    public static string Part(this PdfAConformance conformance) => conformance switch
+    {
+        PdfAConformance.PdfA3b => "3",
+        _ => "2", // PdfA2b
+    };
+
+    public static string Level(this PdfAConformance conformance) => "B"; // both current levels are basic ("b")
+}

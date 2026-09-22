@@ -905,12 +905,13 @@ public static partial class HtmlToPdf
             Text.TrueType.FontData? fontData =
                 TryResolveFontFace(familyList, fontFaces, targetWeight, italic, fontResolver);
 
-            // 2. Standard built-in Type1 fonts (WinAnsiEncoding) stay non-embedded while
-            //    every codepoint is WinAnsi-encodable and no webfont applies -- unless a
-            //    PDF/A conformance level is requested, which requires every font referenced
-            //    in content to be embedded, so fall through to resolving a real font below.
+            // 2. Standard built-in Type1 fonts (WinAnsiEncoding) stay non-embedded while every
+            //    codepoint is WinAnsi-encodable and no webfont applies -- unless PDF/A conformance
+            //    requires every font referenced in content to be embedded, in which case fall
+            //    through to resolving a real, embeddable font below instead.
+            bool mustEmbedAllFonts = pdfDoc.Conformance != null;
             bool isStandard = IsStandardPdfFont(pdfFontName);
-            if (fontData == null && isStandard && AllWinAnsiEncodable(codepoints) && pdfDoc.Conformance == null)
+            if (fontData == null && isStandard && AllWinAnsiEncodable(codepoints) && !mustEmbedAllFonts)
                 continue;
 
             // 3. System fonts: real families from the list, then metric-compatible
@@ -947,7 +948,15 @@ public static partial class HtmlToPdf
             }
 
             if (fontData == null || fontData.RawData == null || fontData.RawData.Length == 0)
+            {
+                // Under PDF/A, silently leaving this font non-embedded would ship a PDF that
+                // carries PDF/A conformance metadata while actually violating it -- surface the
+                // failure instead of emitting a mislabeled document.
+                if (mustEmbedAllFonts)
+                    throw new InvalidOperationException(
+                        $"PDF/A conformance requires every font to be embedded, but no embeddable substitute was found for '{pdfFontName}' on this host.");
                 continue;
+            }
 
             // System variable fonts (e.g. Bahnschrift) follow the requested weight too
             fontData = Text.TrueType.VariableFontInstancer.InstanceFor(fontData, targetWeight, variationAxes);

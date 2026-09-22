@@ -57,10 +57,17 @@ byte[] encrypted = HtmlToPdf.Render(html, new EggPdf.Pdf.PdfEncryption
     AllowModifying = false,
     KeyLength = 128
 });
+
+// PDF/A-2b or PDF/A-3b conformant PDF (ICC output intent, XMP metadata, all fonts
+// embedded -- including the standard 14). Cannot be combined with PdfEncryption.
+byte[] pdfA = HtmlToPdf.Render(html, EggPdf.Pdf.PdfAConformance.PdfA2b);
 ```
 
-Document metadata (Title/Author) and PDF/A/UA conformance are not currently configurable via
-the public API — don't suggest properties for them.
+Document metadata (Title/Author) is configurable via `PdfRenderOptions` (see above). PDF/A
+conformance is configurable only as `PdfAConformance.PdfA2b`/`PdfA3b` via the overload above --
+not yet combinable with `PdfRenderOptions` or `PdfEncryption` in one call, and not yet exposed
+by the CLI or REST API. PDF/UA (accessibility) conformance is not implemented yet — don't
+suggest properties for it.
 
 ## ASP.NET Core integration
 

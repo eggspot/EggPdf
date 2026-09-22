@@ -15,13 +15,13 @@ public static class PdfACompliance
     /// </summary>
     public static string GenerateXmpMetadata(string? title, string? author, PdfAConformance conformance)
     {
-        string part = conformance == PdfAConformance.PdfA3b ? "3" : "2";
-        const string level = "B";
+        string part = conformance.Part();
+        string level = conformance.Level();
 
         var now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
 
         var xmp = new StringBuilder();
-        xmp.AppendLine("<?xpacket begin='﻿' id='W5M0MpCehiHzreSzNTczkc9d'?>");
+        xmp.AppendLine("<?xpacket begin='" + (char)0xFEFF + "' id='W5M0MpCehiHzreSzNTczkc9d'?>");
         xmp.AppendLine("<x:xmpmeta xmlns:x='adobe:ns:meta/'>");
         xmp.AppendLine("<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>");
         xmp.AppendLine("<rdf:Description rdf:about=''");
@@ -86,6 +86,25 @@ public static class PdfACompliance
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Escape XML special characters and drop characters XML 1.0 disallows outright (C0 controls
+    /// other than tab/LF/CR) -- title/author come from arbitrary HTML and must not be able to
+    /// produce a non-well-formed XMP packet.
+    /// </summary>
     private static string EscapeXml(string text)
-        => text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+    {
+        var sb = new StringBuilder(text.Length);
+        foreach (char c in text)
+        {
+            if (c < 0x20 && c != '\t' && c != '\n' && c != '\r') continue;
+            switch (c)
+            {
+                case '&': sb.Append("&amp;"); break;
+                case '<': sb.Append("&lt;"); break;
+                case '>': sb.Append("&gt;"); break;
+                default: sb.Append(c); break;
+            }
+        }
+        return sb.ToString();
+    }
 }
