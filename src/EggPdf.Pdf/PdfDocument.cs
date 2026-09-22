@@ -26,6 +26,13 @@ public partial class PdfDocument
     public PdfEncryption? Encryption { get; set; }
 
     /// <summary>
+    /// Optional PDF/A conformance level. When set, embeds an ICC output intent and XMP
+    /// conformance metadata, forces full font embedding, and forbids <see cref="Encryption"/>
+    /// (PDF/A disallows encryption).
+    /// </summary>
+    public PdfAConformance? Conformance { get; set; }
+
+    /// <summary>
     /// Process-wide default for <see cref="CompressContentStreams"/>; new
     /// documents copy it at construction. Internal so the test assembly can
     /// opt out once globally — hundreds of tests assert against raw
@@ -191,6 +198,9 @@ public partial class PdfDocument
     /// <summary>Write the PDF to a stream.</summary>
     public void WriteTo(Stream output)
     {
+        if (Conformance != null && Encryption != null)
+            throw new InvalidOperationException("PDF/A conformance forbids encryption (ISO 19005 disallows /Encrypt).");
+
         var writer = new PdfStreamWriter(output);
 
         // Encryption: compute the file key up front — every stream and string
@@ -208,6 +218,13 @@ public partial class PdfDocument
             using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
                 rng.GetBytes(encDocId);
             enc = Encryption.Compute(encDocId);
+        }
+        else if (Conformance != null)
+        {
+            // PDF/A requires a file /ID even when the document is not encrypted.
+            encDocId = new byte[16];
+            using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+                rng.GetBytes(encDocId);
         }
 
         // Header
@@ -293,13 +310,29 @@ public partial class PdfDocument
                 outlineItemObjs.Add(alloc.Allocate());
         }
 
+        // PDF/A conformance objects: ICC profile stream + XMP metadata stream
+        int iccProfileObj = 0, metadataObj = 0;
+        if (Conformance != null)
+        {
+            iccProfileObj = alloc.Allocate();
+            metadataObj = alloc.Allocate();
+        }
+
         // Write Catalog
         alloc.RecordOffset(catalogObj, writer.Position);
         writer.WriteLine($"{catalogObj} 0 obj");
+        var catalogDict = new StringBuilder();
+        catalogDict.Append("<< /Type /Catalog");
+        catalogDict.Append($" /Pages {pagesObj} 0 R");
         if (outlineRootObj > 0)
-            writer.WriteLine($"<< /Type /Catalog /Pages {pagesObj} 0 R /Outlines {outlineRootObj} 0 R >>");
-        else
-            writer.WriteLine($"<< /Type /Catalog /Pages {pagesObj} 0 R >>");
+            catalogDict.Append($" /Outlines {outlineRootObj} 0 R");
+        if (Conformance != null)
+        {
+            catalogDict.Append($" /Metadata {metadataObj} 0 R");
+            catalogDict.Append($" /OutputIntents [{PdfACompliance.GenerateOutputIntentDict(iccProfileObj)}]");
+        }
+        catalogDict.Append(" >>");
+        writer.WriteLine(catalogDict.ToString());
         writer.WriteLine("endobj");
 
         // Write Pages
@@ -530,6 +563,31 @@ public partial class PdfDocument
         writer.WriteLine(info.ToString());
         writer.WriteLine("endobj");
 
+        // PDF/A conformance: ICC profile stream (referenced by the catalog's
+        // /OutputIntents) and XMP metadata stream (referenced by /Metadata).
+        if (Conformance != null)
+        {
+            byte[] iccBytes = IccSrgbProfile.Generate();
+            alloc.RecordOffset(iccProfileObj, writer.Position);
+            writer.WriteLine($"{iccProfileObj} 0 obj");
+            writer.WriteLine($"<< /N 3 /Alternate /DeviceRGB /Length {iccBytes.Length} >>");
+            writer.WriteLine("stream");
+            writer.WriteBytes(iccBytes);
+            writer.WriteLine("");
+            writer.WriteLine("endstream");
+            writer.WriteLine("endobj");
+
+            byte[] xmpBytes = Encoding.UTF8.GetBytes(PdfACompliance.GenerateXmpMetadata(Title, Author, Conformance.Value));
+            alloc.RecordOffset(metadataObj, writer.Position);
+            writer.WriteLine($"{metadataObj} 0 obj");
+            writer.WriteLine($"<< /Type /Metadata /Subtype /XML /Length {xmpBytes.Length} >>");
+            writer.WriteLine("stream");
+            writer.WriteBytes(xmpBytes);
+            writer.WriteLine("");
+            writer.WriteLine("endstream");
+            writer.WriteLine("endobj");
+        }
+
         // Cross-reference table
         long xrefOffset = writer.Position;
         int totalObjects = alloc.Count + 1;
@@ -550,6 +608,14 @@ public partial class PdfDocument
         var trailerDict = new StringBuilder();
         trailerDict.Append($"<< /Size {totalObjects} /Root {catalogObj} 0 R /Info {infoObj} 0 R");
 
+        // /ID is required whenever a document is encrypted (it seeds the file key) and is
+        // also required by PDF/A even when unencrypted — both cases populate encDocId above.
+        if (encDocId.Length > 0)
+        {
+            string idHex = BitConverter.ToString(encDocId).Replace("-", "");
+            trailerDict.Append($" /ID [<{idHex}> <{idHex}>]");
+        }
+
         // Add encryption dictionary if configured — reuses the parameters the
         // streams and strings above were actually encrypted with.
         if (enc != null)
@@ -558,9 +624,7 @@ public partial class PdfDocument
 
             string oHex = BitConverter.ToString(encParams.OValue).Replace("-", "");
             string uHex = BitConverter.ToString(encParams.UValue).Replace("-", "");
-            string idHex = BitConverter.ToString(encDocId).Replace("-", "");
 
-            trailerDict.Append($" /ID [<{idHex}> <{idHex}>]");
             trailerDict.Append($" /Encrypt << /Filter /Standard /V 2 /R 3 /Length {encParams.KeyLength}");
             trailerDict.Append($" /P {encParams.Permissions}");
             trailerDict.Append($" /O <{oHex}>");

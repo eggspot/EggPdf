@@ -167,6 +167,22 @@ public static partial class HtmlToPdf
     }
 
     /// <summary>
+    /// Render HTML to a PDF/A-conformant PDF: embeds an ICC output intent and XMP conformance
+    /// metadata, and forces every font (including the standard 14) to be embedded.
+    /// </summary>
+    public static byte[] Render(string? html, Pdf.PdfAConformance conformance)
+    {
+        return RenderInternal(html ?? "", null, null, conformance);
+    }
+
+    /// <summary>Render HTML to a PDF/A-conformant PDF asynchronously.</summary>
+    public static Task<byte[]> RenderAsync(string? html, Pdf.PdfAConformance conformance, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(RenderInternal(html ?? "", null, null, conformance));
+    }
+
+    /// <summary>
     /// Render HTML to PDF, applying <see cref="PdfRenderOptions"/> (page size, margins,
     /// orientation, title/author metadata, extra CSS) by translating them into an injected
     /// <c>@page</c> rule and &lt;head&gt; tags before parsing. The generated rule is appended
@@ -244,7 +260,7 @@ public static partial class HtmlToPdf
         return $"<head>{inject}</head>{html}";
     }
 
-    private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null)
+    private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null)
     {
         // 1. Parse HTML -> DOM
         var document = HtmlParser.Parse(html);
@@ -321,7 +337,7 @@ public static partial class HtmlToPdf
                 : LayoutPageGroups(document, namedGroups, pageSettings, cascadeResolver);
 
             // 6. Resolve images (load data from src attributes)
-            var pdfDoc = new PdfDocument { Encryption = encryption };
+            var pdfDoc = new PdfDocument { Encryption = encryption, Conformance = conformance };
             pdfDoc.Title = FindTitleTagText(document);
             pdfDoc.Author = FindMetaContent(document, "author");
             var layoutRoots = new List<LayoutBox>(layouts.Count);
@@ -889,10 +905,12 @@ public static partial class HtmlToPdf
             Text.TrueType.FontData? fontData =
                 TryResolveFontFace(familyList, fontFaces, targetWeight, italic, fontResolver);
 
-            // 2. Standard built-in Type1 fonts (WinAnsiEncoding) stay non-embedded
-            //    while every codepoint is WinAnsi-encodable and no webfont applies.
+            // 2. Standard built-in Type1 fonts (WinAnsiEncoding) stay non-embedded while
+            //    every codepoint is WinAnsi-encodable and no webfont applies -- unless a
+            //    PDF/A conformance level is requested, which requires every font referenced
+            //    in content to be embedded, so fall through to resolving a real font below.
             bool isStandard = IsStandardPdfFont(pdfFontName);
-            if (fontData == null && isStandard && AllWinAnsiEncodable(codepoints))
+            if (fontData == null && isStandard && AllWinAnsiEncodable(codepoints) && pdfDoc.Conformance == null)
                 continue;
 
             // 3. System fonts: real families from the list, then metric-compatible

@@ -858,9 +858,26 @@ Low-level PDF generation covering all business use cases:
 |---|---|
 | Document info | `/Info` dictionary: Title, Author, Subject, Keywords, Creator, Producer, CreationDate, ModDate |
 | **XMP metadata** | XMP metadata stream (required for PDF/A). Dublin Core schema, `pdfaid:part`/`pdfaid:conformance`, custom properties |
-| **PDF/A conformance** | PDF/A-1b, PDF/A-2b, PDF/A-3b (with file attachments). Output intent with ICC profile. No encryption. All fonts embedded. No external references |
+| **PDF/A conformance** | PDF/A-1b/1u, PDF/A-2b/2u, PDF/A-3b/3u (with file attachments), PDF/A-4/4f/4e (PDF 2.0-based, ISO 19005-4). Output intent with a real embedded ICC profile. No encryption. All fonts embedded+subsetted. No external references |
 | **PDF/UA (accessibility)** | Full tagged PDF: structure tree root, standard structure types (`<Document>`, `<H1>`-`<H6>`, `<P>`, `<Table>`, `<TR>`, `<TH>`, `<TD>`, `<L>`, `<LI>`, `<Figure>`, `<Link>`, `<Span>`, `<Code>`, `<BlockQuote>`, `<TOC>`, `<TOCI>`). Alt text from `<img alt>`. `<th scope>` maps to `/Scope` attribute on header cells. `aria-label` maps to `/Alt` or `/ActualText`. `role` attribute used to override default structure type mapping. `aria-hidden="true"` marks artifacts (not tagged). Reading order from DOM. `/MarkInfo` with `/Marked true`. Document language from `<html lang>` |
 | **PDF/X (print production)** | PDF/X-4 conformance for commercial printing. TrimBox/BleedBox. Output intent. No encryption. CMYK + spot colors |
+
+**Compliance architecture note -- the `b`/`u`/`a` suffixes are not three separate engineering efforts.** They nest: `b` (basic, visual reproduction) `< u` (`b` + guaranteed-correct `ToUnicode` on every glyph) `< a` (`u` + full PDF/UA-equivalent tagging). Building two orthogonal capabilities covers the whole matrix:
+
+1. **Conformance layer** -- real embedded ICC profile, spec-correct XMP (`pdfaid:part`/`conformance`), output intent, and a constraint gate (no encryption/JS/disallowed transparency, forced full font embedding with valid `CIDToGIDMap`, device-independent color everywhere) applied whenever a conformance mode is requested. This alone delivers PDF/A-\*b.
+2. **Tagged PDF / structure tree** (the `10c` PDF/UA row above) -- delivers PDF/UA-1 standalone, and combined with (1) delivers every PDF/A-\*a level "for free."
+3. `u`-level correctness is a `ToUnicode` CMap audit on top of (1), independent of (2).
+
+ZUGFeRD/Factur-X (`10g`) builds on PDF/A-3 (1) and does not need (2). Priority order given all three are wanted: **(1) foundation -> PDF/A-2b/2u & 3b/3u -> (2) tagging -> PDF/UA-1 (+ PDF/A-\*a for free) -> ZUGFeRD/Factur-X on top of PDF/A-3**.
+
+**On the horizon (track, don't build yet):**
+- **PDF/UA-2** (ISO 14289-2:2024) and **WTPDF (Well-Tagged PDF)** -- the PDF Association's newer tagging model, PDF 2.0-based, better WCAG alignment. Design the structure-tree work in (2) against WTPDF's rules where they're stricter than PDF/UA-1, so it doesn't need reworking when UA-2 adoption grows
+- **PDF/X-6** -- PDF 2.0-based sibling to PDF/X-4 (10e), same relationship as PDF/A-4 to PDF/A-3
+- **Order-X** -- France's purchase-order companion to Factur-X, reuses the same CII-embedding mechanism (10g) at near-zero incremental cost once Factur-X ships
+- **EN 16931** is the umbrella semantic invoice data model underneath ZUGFeRD Comfort/Extended, Factur-X, XRechnung, and PEPPOL BIS Billing 3.0 (CII syntax for the first two, UBL or CII for the latter two). Model `invoiceData` in `RenderInvoiceAsync` (10g) against EN 16931 directly -- not a ZUGFeRD-specific shape -- so pure-XML XRechnung/PEPPOL output later is a serialization change, not a new data model
+- **XRechnung / PEPPOL BIS Billing as pure XML** (no PDF at all) -- explicitly out of scope for a PDF rendering engine, but flagged since Germany mandates XRechnung for B2G and the EU's ViDA initiative pushes mandatory EN 16931-based e-invoicing more broadly (~2030). Revisit if a customer needs it; the EN 16931 data-model choice above keeps that option cheap
+
+**Current status (as of this writing):** `PdfACompliance.cs` exists but is orphaned -- not referenced by the actual PDF writer -- and only emits XMP for 1b/2b/3b (no `u`/`a`, no PDF/UA). Its `GenerateMinimalSrgbProfile()` writes a 128-byte header-only stub, not a valid ICC profile; this would fail real validation (e.g. veraPDF). `PdfTaggedStructure.cs` and `PdfAttachment.cs` are similarly present but not wired into the writer. None of this is usable compliance support yet -- it needs to be built as part of Phase 13/14 below, not assumed complete.
 
 #### 10d. Security
 
@@ -2280,6 +2297,21 @@ services:
 ### Phase 13: Business PDF Features
 **Goal:** PDF features required by enterprise/business use cases.
 
+**Compliance foundation (build first -- everything else in this phase's compliance work depends on it; see the architecture note in 10c):**
+- Real embedded ICC profile generation (replace the header-only stub) + spec-correct XMP metadata, wired into the actual PDF writer
+- Conformance constraint gate: no encryption/JS/disallowed transparency when a conformance mode is active, forced full font embedding with valid `CIDToGIDMap`, device-independent color or output intent everywhere
+- Tagged PDF / structure tree: `StructTreeRoot`, `MarkInfo`, role map, alt text, reading order, `/Lang` propagation from `<html lang>`
+- API: `PdfOptions.Conformance = PdfConformance.PdfA2b` (etc.) selects the target; `null` (default) applies no constraints
+
+**PDF/A archival conformance (depends on the foundation above):**
+- PDF/A-2b/2u and PDF/A-3b/3u (PDF 1.7-based) -- primary target, most commonly requested
+- PDF/A-1b/1u (legacy, PDF 1.4-based) -- near-subset once 2b/2u exists
+- `u`-level: audit that every glyph has a correct `ToUnicode` CMap entry
+
+**PDF/UA-1 accessibility (depends on the tagged-PDF structure tree above):**
+- Full PDF/UA-1 (ISO 14289-1) tag-tree validation: headings from HTML semantics, `<th scope>`/header association for tables, list structure, form field labels, reading order
+- Combined with PDF/A-2/3, this yields PDF/A-2a/3a without separate engineering
+
 **Digital signatures:**
 - Signature form fields (`/FT /Sig`) with visible appearance (signer name, date, optional image)
 - CMS/PKCS#7 detached signatures with X.509 certificates
@@ -2293,11 +2325,11 @@ services:
 - Pre-filled from HTML values. Optionally left editable in the PDF
 - API: `PdfOptions.FormMode = FormMode.Fillable` (default: `ReadOnly` -- just renders visually)
 
-**File attachments (ZUGFeRD / Factur-X):**
+**File attachments (ZUGFeRD / Factur-X, depends on PDF/A-3 above):**
 - Embed arbitrary files within the PDF (XML, CSV, JSON)
-- ZUGFeRD/Factur-X support: PDF/A-3 with embedded XML invoice data
-- `/AFRelationship` for associated file types
-- API: `PdfOptions.Attachments.Add("invoice.xml", xmlBytes, relationship: Alternative)`
+- ZUGFeRD/Factur-X (EN16931 profile) support: PDF/A-3 with embedded CII XML invoice data, `/AFRelationship /Alternative`, Factur-X XMP extension schema
+- **API design gap:** ZUGFeRD/Factur-X requires structured invoice data (buyer/seller, line items, tax) that cannot be inferred from arbitrary HTML. This implies a distinct entry point from the generic renderer, e.g. `HtmlToPdf.RenderInvoiceAsync(html, invoiceData, options)`, rather than trying to extract invoice semantics from markup
+- General attachments API: `PdfOptions.Attachments.Add("invoice.xml", xmlBytes, relationship: Alternative)`
 
 **Barcode / QR code generation:**
 - QR Code, Code 128, Code 39, EAN-13, PDF417, Data Matrix
@@ -2331,9 +2363,10 @@ services:
 - Document Security Store (DSS) with CRLs and OCSP responses
 - PAdES B-LT and B-LTA profiles for decade-long verification
 
-**PDF/A-3 + ZUGFeRD v2.3:**
+**PDF/A-3 + ZUGFeRD v2.3 (hardening pass on top of Phase 13's compliance foundation):**
 - Full Factur-X/ZUGFeRD conformance with proper XMP extension schemas
-- Automated validation of embedded XML against Factur-X schema
+- Automated validation of embedded XML against Factur-X/EN16931 schema
+- PDF/A-4/4f/4e (ISO 19005-4:2020, PDF 2.0-based) -- lower priority than A-2/A-3 until adoption grows, but same foundation applies
 
 **Deliverable:** EggPdf produces print-ready PDFs for commercial printing and meets the strictest compliance requirements for archival, e-invoicing, and long-term signature validation.
 
@@ -3589,10 +3622,12 @@ Where EggPdf fits among existing .NET HTML-to-PDF solutions:
 - Migration guide from SelectPdf/wkhtmltopdf available
 
 ### Phase 13 (Business PDF Features)
+- PDF/A-2b/2u and PDF/A-3b/3u output validates clean against a real conformance checker (e.g. veraPDF) -- real embedded ICC profile, not the header-only stub
+- PDF/UA-1 output validates clean (tag tree, alt text, reading order, `/Lang`); PDF/A-2a/3a validate clean as the combination
 - Digital signatures work (sign PDF with X.509 certificate, visible appearance)
 - Fillable AcroForm fields generated from HTML `<input>`, `<select>`, `<textarea>`
 - QR codes and barcodes render as crisp vectors
-- File attachments embed correctly (ZUGFeRD/Factur-X XML validates)
+- File attachments embed correctly (ZUGFeRD/Factur-X XML validates against EN16931 schema)
 - PDF merging produces correct combined outlines, page labels, deduplicated resources
 - Page labels show correct numbering per section (Roman, decimal, prefixed)
 
@@ -3602,6 +3637,7 @@ Where EggPdf fits among existing .NET HTML-to-PDF solutions:
 - CMYK and spot colors in output
 - PAdES B-LT signatures with embedded validation data
 - ZUGFeRD v2.3 invoices pass official validator
+- PDF/A-4/4f/4e output validates clean where targeted
 
 ---
 
