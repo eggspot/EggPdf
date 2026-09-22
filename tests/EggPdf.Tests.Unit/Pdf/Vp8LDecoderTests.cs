@@ -321,12 +321,10 @@ public class Vp8LDecoderTests
     }
 
     [Fact]
-    public void Decode_WrongSignatureByte_ReturnsNullWithoutThrowing()
+    public void Decode_WrongSignatureByte_ReturnsNull()
     {
         var data = new byte[] { 0x00, 0x00, 0x00, 0x00, 0x00 };
-        var act = () => Vp8LDecoder.Decode(data);
-        act.Should().NotThrow();
-        act().Should().BeNull();
+        Vp8LDecoder.Decode(data).Should().BeNull("a VP8L stream must start with the 0x2F signature byte");
     }
 
     [Theory]

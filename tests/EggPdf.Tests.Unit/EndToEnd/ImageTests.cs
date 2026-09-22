@@ -13,14 +13,15 @@ public class ImageTests
     private const string RedPixelPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
 
     [Fact]
-    public async Task ImgWithBase64_DoesNotCrash()
+    public async Task ImgWithBase64_EmbedsImageDrawnAtRequestedSize()
     {
         var html = $"<img src='data:image/png;base64,{RedPixelPng}' width='100' height='100'>";
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf);
 
-        pdf.Should().NotBeEmpty();
-        Encoding.ASCII.GetString(pdf, 0, 8).Should().StartWith("%PDF");
+        text.Should().Contain("/Subtype /Image");
+        text.Should().Contain("75.00 0 0 75.00 6.00 766.89 cm", "100x100px image drawn as a 75pt square at the page margin");
     }
 
     /// <summary>Builds a minimal RIFF/WEBP container wrapping a hand-constructed 2x1 VP8L (lossless) payload.</summary>
@@ -122,13 +123,14 @@ public class ImageTests
     }
 
     [Fact]
-    public async Task BrokenImage_DoesNotCrash()
+    public async Task BrokenImage_UnreachableUrl_IsSkippedAndSurroundingTextRenders()
     {
-        var html = "<img src='https://nonexistent.example.com/image.png' alt='Broken'>";
+        var html = "<p>Before</p><img src='https://nonexistent.example.com/image.png' alt='Broken'><p>After</p>";
 
-        // Should not throw, should produce valid PDF
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        // Should not throw, should produce valid PDF without an embedded image
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "(Before) Tj", "(After) Tj");
+        text.Should().NotContain("/Subtype /Image");
     }
 
     [Fact]
@@ -172,11 +174,15 @@ public class ImageTests
     }
 
     [Fact]
-    public async Task GradientBackground_DoesNotCrash()
+    public async Task GradientBackground_PaintsRedToBlueBandsClippedToBox()
     {
         var html = "<div style='background: linear-gradient(red, blue); width: 200px; height: 100px'>Gradient</div>";
 
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf, "Gradient");
+
+        text.Should().Contain("6.00 766.89 150.00 75.00 re W n", "the gradient is clipped to the 200x100px box");
+        text.Should().Contain("1.00 0.00 0.00 rg", "red start");
+        text.Should().Contain("0.00 0.00 1.00 rg", "blue end");
     }
 }

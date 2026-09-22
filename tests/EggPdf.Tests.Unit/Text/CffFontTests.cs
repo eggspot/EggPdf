@@ -157,6 +157,14 @@ public class CffFontTests
 
         var act = () => TtfParser.Parse(data);
         act.Should().NotThrow();
+
+        // A corrupted CFF table is either rejected outright or yields a usable font, never a half-built one.
+        var font = act();
+        if (font != null)
+        {
+            font.UnitsPerEm.Should().BeGreaterThan(0);
+            font.NumGlyphs.Should().BeGreaterThan(0);
+        }
     }
 
     // ── Real fonts (skipped when absent) ─────────────────────────────────────

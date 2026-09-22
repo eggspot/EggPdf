@@ -139,7 +139,14 @@ public class CssStyleSheetParserTests
         {
             var act = () => CssStyleSheetParser.Parse(input);
             act.Should().NotThrow($"input '{input}' should not throw");
+
+            var sheet = act();
+            sheet.Should().NotBeNull($"input '{input}' still yields a (possibly empty) stylesheet");
+            sheet.Rules.Should().NotBeNull();
         }
+
+        CssStyleSheetParser.Parse("").Rules.Should().BeEmpty("empty input has no rules");
+        CssStyleSheetParser.Parse(";;;").Rules.Should().BeEmpty("stray semicolons are not rules");
     }
 
     // --- @supports ---

@@ -81,7 +81,7 @@ public class SvgBlurFilterTests
     }
 
     [Fact]
-    public async Task Shape_WithFillNone_UnderBlurFilter_DoesNotCrashOrEmbedImage()
+    public async Task Shape_WithFillNone_UnderBlurFilter_RasterizesStrokeAsImage()
     {
         var html = @"
             <svg width='100' height='100'>
@@ -89,8 +89,11 @@ public class SvgBlurFilterTests
                 <circle cx='50' cy='50' r='30' fill='none' stroke='red' filter='url(#b)'/>
             </svg>";
 
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        var pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf);
+
+        text.Should().Contain("/Subtype /Image", "the blurred stroke is rasterized and embedded as an image");
+        text.Should().MatchRegex(@"/SvgFx\w+ Do", "the raster is drawn via its SVG filter XObject");
     }
 
     [Fact]
@@ -148,10 +151,14 @@ public class SvgBlurFilterTests
     }
 
     [Fact]
-    public async Task UnknownFilterReference_DoesNotCrash()
+    public async Task UnknownFilterReference_IgnoresFilterAndPaintsShapeAsVector()
     {
         var html = "<svg width='100' height='100'><circle cx='50' cy='50' r='30' fill='red' filter='url(#doesNotExist)'/></svg>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        var pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf);
+
+        text.Should().Contain("1.00 0.00 0.00 rg", "the circle keeps its red fill");
+        text.Should().Contain("80.00 50.00 m 80.00 66.57 66.57 80.00 50.00 80.00 c", "the circle is emitted as Bezier path data");
+        text.Should().NotContain("/Subtype /Image", "an unresolvable filter reference must not trigger rasterization");
     }
 }

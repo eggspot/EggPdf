@@ -52,11 +52,15 @@ public class ColorEmojiFontTests
     }
 
     [Fact]
-    public async Task EmojiText_AlwaysRendersWithoutCrashing()
+    public async Task EmojiText_AlwaysRendersATextRun()
     {
         var html = "<p>Grinning face: \U0001F600</p>";
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf);
+
+        // Independent of which (if any) emoji font is installed, the paragraph is painted as text.
+        System.Text.RegularExpressions.Regex.IsMatch(text, @"BT [^\n]*(\) Tj|> Tj|\] TJ)[^\n]* ET").Should().BeTrue();
+        PdfAssert.PageCount(text).Should().Be(1);
     }
 
     [Fact]

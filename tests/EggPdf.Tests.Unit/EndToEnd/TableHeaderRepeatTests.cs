@@ -76,8 +76,14 @@ public class TableHeaderRepeatTests
             sb.Append($"<tr><td>Row {i}</td><td>{i}</td></tr>");
         sb.Append("</tbody></table></body></html>");
 
-        var act = async () => await HtmlToPdf.RenderAsync(sb.ToString());
-        await act.Should().NotThrowAsync("a table with no <thead> at all must render normally, without a repeat mechanism engaging");
+        byte[] pdf = await HtmlToPdf.RenderAsync(sb.ToString());
+        var text = PdfAssert.ValidPdf(pdf, "(Row 0) Tj", "(Row 59) Tj");
+
+        PdfAssert.PageCount(text).Should().BeGreaterThan(1, "60 rows at 40px each paginate");
+        // With no <thead> nothing is repeated, so every row's text is painted exactly once.
+        for (int i = 0; i < 60; i += 15)
+            Regex.Matches(text, Regex.Escape($"(Row {i}) Tj")).Count.Should().Be(1,
+                "a table with no <thead> must render normally, without a repeat mechanism engaging");
     }
 
     [Fact]

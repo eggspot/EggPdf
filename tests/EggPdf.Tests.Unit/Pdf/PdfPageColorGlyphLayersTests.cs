@@ -59,7 +59,7 @@ public class PdfPageColorGlyphLayersTests
     }
 
     [Fact]
-    public void AddColorGlyphLayers_EmptyLayers_DoesNotThrowOrEmitContent()
+    public void AddColorGlyphLayers_EmptyLayers_EmitsNoTextContent()
     {
         var doc = new PdfDocument();
         var page = doc.AddPage(595.28f, 841.89f);

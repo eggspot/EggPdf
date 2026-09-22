@@ -54,12 +54,13 @@ public class ContainmentTests
     }
 
     [Fact]
-    public async Task ContainLayout_DoesNotClipOrCrash()
+    public async Task ContainLayout_DoesNotClip()
     {
         // contain:layout alone (without paint/strict) has no observable effect in a
-        // single-pass renderer; it must not crash or spuriously clip.
-        var act = async () => await HtmlToPdf.RenderAsync(
+        // single-pass renderer; it must not spuriously clip.
+        var pdf = await HtmlToPdf.RenderAsync(
             "<div style='contain: layout; width: 50px; height: 50px'>Text</div>");
-        await act.Should().NotThrowAsync();
+        var text = PdfAssert.ValidPdf(pdf, "(Text) Tj");
+        text.Should().NotContain("re W n");
     }
 }

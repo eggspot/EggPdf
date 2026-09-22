@@ -111,8 +111,12 @@ public class ComplexScriptE2ETests
     [Fact]
     public async Task MixedLatinAndThai_RendersValidPdf()
     {
-        var act = async () => await HtmlToPdf.RenderAsync(
+        byte[] pdf = await HtmlToPdf.RenderAsync(
             "<html><body><p>Invoice ใบแจ้งหนี้ #42</p></body></html>");
-        await act.Should().NotThrowAsync();
+        var text = PdfAssert.ValidPdf(pdf);
+
+        text.Should().MatchRegex(@"BT [^\n]*(> Tj|\] TJ)", "the mixed Latin/Thai line is painted as glyph-id text");
+        if (HasFont("LeelawUI.ttf") || HasFont("tahoma.ttf"))
+            text.Should().Contain("-CXT", "the Thai run is embedded under its shaped-script font key");
     }
 }

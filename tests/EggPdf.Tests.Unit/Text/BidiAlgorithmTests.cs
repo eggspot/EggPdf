@@ -225,6 +225,9 @@ public class BidiAlgorithmTests
         var text = new string((char)0x202B, 200) + "a" + new string((char)0x202C, 200);
         var act = () => BidiAlgorithm.Reorder(text);
         act.Should().NotThrow();
+        var (visual, logicalOrder) = act();
+        visual.Should().Contain("a", "the embedded letter survives the deep embedding");
+        logicalOrder.Length.Should().Be(text.Length);
         Levels(text).Max().Should().BeLessThanOrEqualTo(126);
     }
 

@@ -55,13 +55,16 @@ public class FontFeatureSettingsRenderTests
     }
 
     [Fact]
-    public async Task FontFeatureSettings_DoesNotCrash_WhenNoMatchingGsubFeature()
+    public async Task FontFeatureSettings_NoMatchingGsubFeature_StillPaintsUnsubstitutedText()
     {
         // Most installed fonts have no "xyz1"-style custom feature; this must
         // degrade gracefully to the unsubstituted glyph, never throw.
         var html = "<p style=\"font-family: Arial; font-feature-settings: 'xyz1' 1\">Hello</p>";
 
-        var act = async () => await HtmlToPdf.RenderAsync(html);
-        await act.Should().NotThrowAsync();
+        byte[] pdf = await HtmlToPdf.RenderAsync(html);
+        var text = PdfAssert.ValidPdf(pdf);
+
+        // Embedded Arial: five glyph ids (4 hex digits each) under the feature-keyed font; standard-font fallback: literal.
+        text.Should().MatchRegex(@"\(Hello\) Tj|<[0-9A-F]{20}> Tj", "'Hello' is painted as five unsubstituted glyphs");
     }
 }

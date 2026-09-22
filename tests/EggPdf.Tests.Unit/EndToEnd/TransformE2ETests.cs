@@ -210,9 +210,10 @@ public class TransformE2ETests
     public async Task TranslateZ_NoVisualEffect()
     {
         // translateZ only affects the Z axis; in 2D PDF it has no visual effect
-        var act = async () => await HtmlToPdf.RenderAsync(
+        byte[] pdf = await HtmlToPdf.RenderAsync(
             "<div style='transform: translateZ(100px); width: 100px; height: 100px'>TZ</div>");
-        await act.Should().NotThrowAsync("translateZ should not crash");
+        var text = PdfAssert.ValidPdf(pdf, "(TZ) Tj");
+        text.Should().NotContain(" cm\n", "a pure Z translation reduces to the identity in 2D, so no matrix is emitted");
     }
 
     [Fact]
@@ -236,12 +237,14 @@ public class TransformE2ETests
     }
 
     [Fact]
-    public async Task Perspective_DoesNotCrash()
+    public async Task Perspective_IgnoredWhileRotateYStillFlattensToScaleX()
     {
         // perspective() in transform list is purely 3D; PDF ignores it
-        var act = async () => await HtmlToPdf.RenderAsync(
+        byte[] pdf = await HtmlToPdf.RenderAsync(
             "<div style='transform: perspective(500px) rotateY(30deg); width: 100px; height: 100px'>P3D</div>");
-        await act.Should().NotThrowAsync("perspective() should not crash");
+        var text = PdfAssert.ValidPdf(pdf, "(P3D) Tj");
+        // rotateY(30deg) -> scaleX(cos 30deg = 0.87), no vertical or skew component
+        text.Should().MatchRegex(@"0\.87 -?0\.00 -?0\.00 1\.00 -?\d+\.\d+ -?\d+\.\d+ cm");
     }
 
     [Fact]
@@ -281,12 +284,13 @@ public class TransformE2ETests
     }
 
     [Fact]
-    public async Task ScaleZ_NoVisualEffect_DoesNotCrash()
+    public async Task ScaleZ_NoVisualEffect_EmitsNoMatrix()
     {
         // scaleZ only affects the Z axis; in 2D PDF it has no visual effect
-        var act = async () => await HtmlToPdf.RenderAsync(
+        byte[] pdf = await HtmlToPdf.RenderAsync(
             "<div style='transform: scaleZ(3); width: 100px; height: 100px'>SZ</div>");
-        await act.Should().NotThrowAsync("scaleZ should not crash");
+        var text = PdfAssert.ValidPdf(pdf, "(SZ) Tj");
+        text.Should().NotContain(" cm\n", "scaleZ reduces to the identity in 2D, so no matrix is emitted");
     }
 
     private static int CountSubstring(string text, string pattern)
