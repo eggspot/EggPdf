@@ -9,6 +9,7 @@ Built by Eggspot (https://eggspot.app). Open source on GitHub: https://github.co
 - [Docker Guide](https://eggspot.github.io/EggPdf/docker.html)
 - [CLI Guide](https://eggspot.github.io/EggPdf/cli.html)
 - [REST API](https://eggspot.github.io/EggPdf/rest-api.html)
+- [PDF Compliance](https://eggspot.github.io/EggPdf/compliance.html)
 - [Full docs (GitHub Wiki)](https://github.com/eggspot/EggPdf/wiki)
 - [AI/LLM usage guide](https://raw.githubusercontent.com/eggspot/EggPdf/main/llms.txt)
 
@@ -62,6 +63,10 @@ byte[] signed = EggPdf.Pdf.PdfSigner.Sign(pdf, x509CertWithPrivateKey,
 ## Performance
 - Simple page: 13 µs — Invoice: 86 µs — Large table (100 rows): 1.2 ms
 - Thread-safe, streaming output, zero allocations on hot path
+
+## Compliance
+- PDF/A-2b / PDF/A-2u / PDF/A-3b / PDF/A-3u: `HtmlToPdf.Render(html, PdfAConformance.PdfA2b)` — embedded ICC output intent, XMP metadata, every font embedded with a correct ToUnicode mapping
+- Not yet implemented: PDF/A-1b/1u, PDF/UA (accessibility), ZUGFeRD/Factur-X — see [PDF Compliance](https://eggspot.github.io/EggPdf/compliance.html)
 
 ## Target frameworks
 netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0

@@ -37,13 +37,15 @@ public class PdfAConformanceTests
     }
 
     [Theory]
-    [InlineData(PdfAConformance.PdfA2b, "2")]
-    [InlineData(PdfAConformance.PdfA3b, "3")]
-    public void XmpMetadata_DeclaresRequestedPartAndConformanceB(PdfAConformance conformance, string expectedPart)
+    [InlineData(PdfAConformance.PdfA2b, "2", "B")]
+    [InlineData(PdfAConformance.PdfA3b, "3", "B")]
+    [InlineData(PdfAConformance.PdfA2u, "2", "U")]
+    [InlineData(PdfAConformance.PdfA3u, "3", "U")]
+    public void XmpMetadata_DeclaresRequestedPartAndConformanceLevel(PdfAConformance conformance, string expectedPart, string expectedLevel)
     {
         var text = Encoding.Latin1.GetString(DocWithPage(conformance).ToByteArray());
         text.Should().Contain($"<pdfaid:part>{expectedPart}</pdfaid:part>");
-        text.Should().Contain("<pdfaid:conformance>B</pdfaid:conformance>");
+        text.Should().Contain($"<pdfaid:conformance>{expectedLevel}</pdfaid:conformance>");
     }
 
     [Fact]

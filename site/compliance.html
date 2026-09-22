@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF Compliance — EggPdf | Eggspot</title>
+  <meta name="description" content="PDF/A, PDF/UA and e-invoicing standards EggPdf supports today, and what's on the roadmap.">
+  <link rel="canonical" href="https://eggspot.github.io/EggPdf/compliance.html">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="apple-touch-icon" href="assets/favicon.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://eggspot.github.io/EggPdf/compliance.html">
+  <meta property="og:title" content="PDF Compliance — EggPdf">
+  <meta property="og:description" content="PDF/A, PDF/UA and e-invoicing standards EggPdf supports today, and what's on the roadmap.">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container">
+    <a class="nav-logo" href="index.html">
+      <svg width="22" height="16" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+      <span class="logo-text">Egg<span class="logo-accent">Pdf</span></span>
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle navigation" aria-expanded="false"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="5" x2="19" y2="5"/><line x1="3" y1="11" x2="19" y2="11"/><line x1="3" y1="17" x2="19" y2="17"/></svg></button>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="getting-started.html">Docs</a>
+      <a href="docker.html">Docker</a>
+      <a href="cli.html">CLI</a>
+      <a href="rest-api.html">REST API</a>
+      <a href="architecture.html">Internals</a>
+      <a href="https://github.com/eggspot/EggPdf" class="nav-github" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page-header">
+  <div class="container">
+    <h1>PDF Compliance</h1>
+    <p>Archival, accessibility and e-invoicing standards EggPdf supports today, and what's still on the roadmap.</p>
+  </div>
+</div>
+
+<div class="container">
+  <div class="docs-layout">
+
+    <aside class="docs-sidebar">
+      <nav aria-label="Documentation navigation">
+        <div class="sidebar-section">Guides</div>
+        <a href="getting-started.html">Getting Started</a>
+        <a href="configuration.html">Configuration</a>
+        <a href="page-layout.html">Page Layout</a>
+        <a href="tables.html">Tables</a>
+        <a href="fonts.html">Fonts</a>
+        <a href="headers-footers.html">Headers &amp; Footers</a>
+        <a href="performance.html">Performance</a>
+        <a href="compliance.html" class="active">Compliance</a>
+        <div class="sidebar-section">Deploy</div>
+        <a href="docker.html">Docker</a>
+        <a href="cli.html">CLI</a>
+        <a href="rest-api.html">REST API</a>
+        <div class="sidebar-section">Internals</div>
+        <a href="architecture.html">Architecture</a>
+      </nav>
+    </aside>
+
+    <main class="docs-content">
+
+      <h2 id="supported-now">Supported now: PDF/A-2b, PDF/A-2u, PDF/A-3b, PDF/A-3u</h2>
+      <p>
+        Pass a <code>PdfAConformance</code> value to render an archival-conformant PDF instead of the
+        default output:
+      </p>
+      <div class="code-block"><pre><code><span class="typ">byte</span><span class="pun">[]</span> pdf <span class="pun">=</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="typ">Render</span><span class="pun">(</span>html<span class="pun">,</span> <span class="typ">PdfAConformance</span><span class="pun">.</span><span class="typ">PdfA2b</span><span class="pun">);</span>
+
+<span class="com">// or asynchronously</span>
+<span class="typ">byte</span><span class="pun">[]</span> pdf <span class="pun">=</span> <span class="kw">await</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="typ">RenderAsync</span><span class="pun">(</span>html<span class="pun">,</span> <span class="typ">PdfAConformance</span><span class="pun">.</span><span class="typ">PdfA3u</span><span class="pun">);</span></code></pre></div>
+      <p>Each render with a conformance level set:</p>
+      <ul>
+        <li>Embeds a real ICC sRGB output intent, so color reproduces the same on any conformant viewer</li>
+        <li>Embeds spec-correct XMP metadata declaring the <code>pdfaid:part</code>/<code>pdfaid:conformance</code> identifiers</li>
+        <li>Embeds <strong>every</strong> font referenced in the document — including the standard 14
+          (Helvetica, Times, Courier, etc.), which render output normally leaves non-embedded since
+          every PDF viewer has them built in. PDF/A requires full embedding regardless</li>
+        <li>Guarantees correct Unicode text extraction (the <code>u</code> conformance letter) —
+          every embedded font always carries a real <code>ToUnicode</code> CMap</li>
+        <li>Rejects the combination with <code>PdfEncryption</code> by throwing
+          <code>InvalidOperationException</code> — PDF/A forbids encryption outright, so a silently
+          mislabeled PDF is never produced</li>
+      </ul>
+      <p>
+        <code>PdfA3b</code>/<code>PdfA3u</code> additionally permit embedding arbitrary file
+        attachments (the mechanism ZUGFeRD/Factur-X e-invoicing builds on — see below).
+      </p>
+      <p>
+        This is reachable only through the
+        <code>HtmlToPdf.Render(html, PdfAConformance)</code>/<code>RenderAsync</code> overloads today —
+        not yet combinable with <code>PdfRenderOptions</code> or <code>PdfEncryption</code> in a single
+        call, and not yet exposed by the CLI or REST API.
+      </p>
+
+      <h2 id="roadmap">On the roadmap</h2>
+      <p>
+        Not yet implemented. Listed here so the gap is explicit rather than silently assumed —
+        <a href="https://github.com/eggspot/EggPdf/blob/main/BLUEPRINT.md#core-components-deep-dive" target="_blank" rel="noopener">BLUEPRINT.md</a>
+        has the full dependency-ordered plan.
+      </p>
+      <ul>
+        <li><strong>PDF/A-1b / PDF/A-1u</strong> — blocked on a PDF-version-selection feature, since
+          PDF/A-1 requires PDF 1.4 file structure and EggPdf's writer currently targets PDF 1.7</li>
+        <li><strong>PDF/UA-1</strong> (accessibility, ISO 14289-1) — needs a full tagged-PDF structure
+          tree (heading levels, table header association, list structure, alt text, reading order,
+          <code>/Lang</code>) that spans the layout, paint and PDF-writer layers</li>
+        <li><strong>PDF/A-2a / PDF/A-3a</strong> — PDF/A plus the same structure-tree work as PDF/UA-1;
+          once that's built, the <code>a</code> conformance levels follow directly from it</li>
+        <li><strong>ZUGFeRD / Factur-X</strong> (EN 16931-based e-invoicing) — builds on PDF/A-3's file
+          attachments, but needs a structured invoice data model (buyer/seller, line items, tax) that
+          can't be inferred from arbitrary HTML, so it implies its own API surface</li>
+        <li><strong>PDF/UA-2</strong> and <strong>WTPDF</strong> (the PDF Association's newer,
+          PDF 2.0-based tagging model) — tracked as the eventual target for the structure-tree work
+          above, not started</li>
+      </ul>
+
+    </main>
+  </div>
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-logo" aria-hidden="true">
+      <svg width="28" height="20" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+    </div>
+    <p>An open-source project by <a href="https://eggspot.app" target="_blank" rel="noopener">Eggspot</a> &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a></p>
+  </div>
+</footer>
+
+<script>
+(function() {
+  var btn = document.querySelector(".nav-hamburger");
+  var nav = document.querySelector(".nav-links");
+  btn.addEventListener("click", function() {
+    var open = nav.classList.toggle("open");
+    btn.setAttribute("aria-expanded", open);
+  });
+  document.addEventListener("click", function(e) {
+    if (!e.target.closest(".nav")) {
+      nav.classList.remove("open");
+      btn.setAttribute("aria-expanded", "false");
+    }
+  });
+})();
+</script>
+</body>
+</html>
