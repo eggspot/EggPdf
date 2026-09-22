@@ -877,7 +877,11 @@ ZUGFeRD/Factur-X (`10g`) builds on PDF/A-3 (1) and does not need (2). Priority o
 - **EN 16931** is the umbrella semantic invoice data model underneath ZUGFeRD Comfort/Extended, Factur-X, XRechnung, and PEPPOL BIS Billing 3.0 (CII syntax for the first two, UBL or CII for the latter two). Model `invoiceData` in `RenderInvoiceAsync` (10g) against EN 16931 directly -- not a ZUGFeRD-specific shape -- so pure-XML XRechnung/PEPPOL output later is a serialization change, not a new data model
 - **XRechnung / PEPPOL BIS Billing as pure XML** (no PDF at all) -- explicitly out of scope for a PDF rendering engine, but flagged since Germany mandates XRechnung for B2G and the EU's ViDA initiative pushes mandatory EN 16931-based e-invoicing more broadly (~2030). Revisit if a customer needs it; the EN 16931 data-model choice above keeps that option cheap
 
-**Current status (as of this writing):** step (1), the conformance foundation, is built for **PDF/A-2b, PDF/A-2u, PDF/A-3b, and PDF/A-3u**: `PdfDocument.Conformance` (see `PdfDocument.PdfA.cs`) embeds a real ICC profile (`IccSrgbProfile`, a structurally valid hand-built sRGB profile -- the previous 128-byte header-only stub is gone), spec-correct XMP (`PdfACompliance`), and forces standard fonts to be embedded (`HtmlToPdf.cs`); encryption + conformance together throws, since PDF/A forbids encryption. The `u` levels needed no extra writer behavior -- every conformance level already routes fonts through CIDFont Type 2 embedding, which always carries a real `ToUnicode` CMap, so `u` only had to assert that guarantee in the XMP conformance letter. Reachable via `HtmlToPdf.Render(html, PdfAConformance.___)` only -- not yet wired into `PdfRenderOptions`, the CLI, or the REST API. Still not built: PDF/A-1b/1u (blocked on the PDF-version-selection feature, since our header is fixed at PDF 1.7), step (2) tagging, PDF/UA-1, and ZUGFeRD/Factur-X (10g). `PdfTaggedStructure.cs` and `PdfAttachment.cs` still exist but are not wired into the writer -- that's step (2) and the file-attachments work below, not assumed complete.
+**Current status (as of this writing):** step (1), the conformance foundation, is built for **PDF/A-2b, PDF/A-2u, PDF/A-3b, and PDF/A-3u**: `PdfDocument.Conformance` (see `PdfDocument.PdfA.cs`) embeds a real ICC profile (`IccSrgbProfile`, a structurally valid hand-built sRGB profile -- the previous 128-byte header-only stub is gone), spec-correct XMP (`PdfACompliance`), and forces standard fonts to be embedded (`HtmlToPdf.cs`); encryption + conformance together throws, since PDF/A forbids encryption. The `u` levels needed no extra writer behavior -- every conformance level already routes fonts through CIDFont Type 2 embedding, which always carries a real `ToUnicode` CMap, so `u` only had to assert that guarantee in the XMP conformance letter. Reachable via `HtmlToPdf.Render(html, PdfAConformance.___)`, or via `PdfRenderOptions.Conformance`/`.Invoice`/`.Encryption` (all three now live on `PdfRenderOptions`, not just CSS-translatable settings -- see its updated doc comment), the CLI's `--pdfa`/`--invoice` flags, and the REST API's `options.conformance`/`options.invoice` JSON fields. This is the "Feature Parity Across Entry Points" rule in `CLAUDE.md`, added after this exact gap was flagged.
+
+**ZUGFeRD/Factur-X (10g) is also built, for the MINIMUM profile**: `PdfDocument.Invoice` (see `PdfDocument.FacturX.cs`) takes a `FacturXInvoice` (seller/buyer, dates, totals -- modeled as a strict subset of EN 16931's fields, not a MINIMUM-specific shape, so growing it toward BASIC/Comfort later is additive) and embeds its UN/CEFACT CII XML (`FacturXCiiWriter`, structure verified against the reference sample at github.com/invoice-x/factur-x-ng) as a PDF/A-3 file attachment: `/EmbeddedFiles` name tree, PDF 2.0 `/AF` associated-file array, `/AFRelationship /Data`, and the Factur-X XMP extension schema (`fx:` namespace, verified against github.com/atgp/factur-x) declared alongside the PDF/A metadata. Setting `Invoice` without `PdfA3b`/`PdfA3u` conformance throws, matching the Encryption+Conformance guard. Reachable via `HtmlToPdf.Render(html, PdfAConformance.PdfA3b, FacturXInvoice)`, `PdfRenderOptions.Invoice`, the CLI's `--invoice` flag, or the REST API's `options.invoice` field (see the "Reachable via" note above for the full list). Only the MINIMUM profile is implemented -- BASIC/EN16931/EXTENDED (line items, full tax breakdown, `/AFRelationship /Alternative` for German legal validity) are not; `PdfAttachment.cs`'s general-purpose attachment scaffold was not reused (Factur-X's Names-tree/AF wiring is written directly in `PdfDocument.FacturX.cs` instead) and remains unwired.
+
+Still not built: PDF/A-1b/1u (blocked on the PDF-version-selection feature, since our header is fixed at PDF 1.7), and step (2) tagging / PDF/UA-1 (needs a full structure tree spanning the layout, paint and PDF-writer layers). `PdfTaggedStructure.cs` still exists but is not wired into the writer.
 
 #### 10d. Security
 
@@ -913,8 +917,8 @@ ZUGFeRD/Factur-X (`10g`) builds on PDF/A-3 (1) and does not need (2). Priority o
 
 | Subsystem | Details |
 |---|---|
-| **File attachments** | `/EmbeddedFiles` name tree. Embed any file within the PDF (XML, CSV, JSON, images). File spec with `/UF` (Unicode filename), `/EF` (embedded file stream), `/Desc` |
-| **ZUGFeRD / Factur-X** | PDF/A-3 with embedded XML invoice. `/AFRelationship /Alternative`. Factur-X XMP extension schema. This is the European e-invoicing standard |
+| **File attachments** | `/EmbeddedFiles` name tree. Embed any file within the PDF (XML, CSV, JSON, images). File spec with `/UF` (Unicode filename), `/EF` (embedded file stream), `/Desc`. `PdfAttachment.cs`'s general-purpose collection scaffold is not yet wired into the writer -- only the Factur-X-specific path below is |
+| **ZUGFeRD / Factur-X** | Built for the MINIMUM profile (`PdfDocument.Invoice`, see 10c): PDF/A-3 with embedded CII XML invoice, `/AFRelationship /Data`, Factur-X XMP extension schema. BASIC/EN16931/EXTENDED profiles (line items, full tax breakdown, `/AFRelationship /Alternative`) are not built. This is the European e-invoicing standard |
 | **Associated Files** | PDF 2.0 `/AF` array on document catalog. Relationship types: Source, Data, Alternative, Supplement |
 
 #### 10h. Barcode and QR Code Generation
@@ -2325,11 +2329,10 @@ services:
 - Pre-filled from HTML values. Optionally left editable in the PDF
 - API: `PdfOptions.FormMode = FormMode.Fillable` (default: `ReadOnly` -- just renders visually)
 
-**File attachments (ZUGFeRD / Factur-X, depends on PDF/A-3 above):**
-- Embed arbitrary files within the PDF (XML, CSV, JSON)
-- ZUGFeRD/Factur-X (EN16931 profile) support: PDF/A-3 with embedded CII XML invoice data, `/AFRelationship /Alternative`, Factur-X XMP extension schema
-- **API design gap:** ZUGFeRD/Factur-X requires structured invoice data (buyer/seller, line items, tax) that cannot be inferred from arbitrary HTML. This implies a distinct entry point from the generic renderer, e.g. `HtmlToPdf.RenderInvoiceAsync(html, invoiceData, options)`, rather than trying to extract invoice semantics from markup
-- General attachments API: `PdfOptions.Attachments.Add("invoice.xml", xmlBytes, relationship: Alternative)`
+**File attachments (ZUGFeRD / Factur-X MINIMUM profile -- built, depends on PDF/A-3 above):**
+- ZUGFeRD/Factur-X MINIMUM profile support is done: `HtmlToPdf.Render(html, PdfAConformance.PdfA3b, FacturXInvoice)` embeds the CII XML as a PDF/A-3 attachment (`/AFRelationship /Data`, Factur-X XMP extension schema). `FacturXInvoice`'s fields are a strict subset of EN 16931, not MINIMUM-specific, so this is the foundation BASIC/Comfort build on, not a separate model
+- Not built: BASIC/EN16931/EXTENDED profiles (line items, full tax breakdown, `/AFRelationship /Alternative` where legally required), and a general-purpose attachments API (`PdfAttachment.cs`'s collection scaffold exists but isn't wired into the writer -- Factur-X's embedding was written directly rather than through it)
+- The API design question this section used to flag is resolved: structured invoice data doesn't fit a generic `RenderInvoiceAsync(html, invoiceData)` shape well since the HTML is still the visual layout and the invoice data is a separate parallel input -- `Render(html, conformance, invoice)` (mirroring the existing `Render(html, encryption)` overload) turned out to compose better than a dedicated method name
 
 **Barcode / QR code generation:**
 - QR Code, Code 128, Code 39, EAN-13, PDF417, Data Matrix
@@ -2364,8 +2367,8 @@ services:
 - PAdES B-LT and B-LTA profiles for decade-long verification
 
 **PDF/A-3 + ZUGFeRD v2.3 (hardening pass on top of Phase 13's compliance foundation):**
-- Full Factur-X/ZUGFeRD conformance with proper XMP extension schemas
-- Automated validation of embedded XML against Factur-X/EN16931 schema
+- MINIMUM profile is built (Phase 13); this phase is BASIC/EN16931/Comfort/EXTENDED profile support (line items, full tax breakdown) on the same `FacturXInvoice` model
+- Automated validation of embedded XML against Factur-X/EN16931 schema (no validator run yet -- verified only against reference sample structure)
 - PDF/A-4/4f/4e (ISO 19005-4:2020, PDF 2.0-based) -- lower priority than A-2/A-3 until adoption grows, but same foundation applies
 
 **Deliverable:** EggPdf produces print-ready PDFs for commercial printing and meets the strictest compliance requirements for archival, e-invoicing, and long-term signature validation.
@@ -3627,7 +3630,7 @@ Where EggPdf fits among existing .NET HTML-to-PDF solutions:
 - Digital signatures work (sign PDF with X.509 certificate, visible appearance)
 - Fillable AcroForm fields generated from HTML `<input>`, `<select>`, `<textarea>`
 - QR codes and barcodes render as crisp vectors
-- File attachments embed correctly (ZUGFeRD/Factur-X XML validates against EN16931 schema)
+- File attachments embed correctly (ZUGFeRD/Factur-X MINIMUM profile XML validates against a real Factur-X validator -- not run yet, only checked against reference sample structure)
 - PDF merging produces correct combined outlines, page labels, deduplicated resources
 - Page labels show correct numbering per section (Roman, decimal, prefixed)
 

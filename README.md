@@ -167,9 +167,10 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Mixed page sizes/orientations via named pages (`page: name` on top-level blocks + `@page name { size; margin; margin boxes }`)
 - Watermarks
 - PDF/A-2b / PDF/A-2u / PDF/A-3b / PDF/A-3u archival conformance
-  (`HtmlToPdf.Render(html, PdfAConformance.PdfA2b)`): embedded ICC output intent, XMP conformance
-  metadata, every font embedded (including the standard 14) with a correct ToUnicode mapping.
-  PDF/A-1b/1u and PDF/UA (accessibility) are not implemented yet
+  (`HtmlToPdf.Render(html, PdfAConformance.PdfA2b)`, `PdfRenderOptions.Conformance`, the CLI's
+  `--pdfa` flag, or the REST API's `options.conformance` field): embedded ICC output intent, XMP
+  conformance metadata, every font embedded (including the standard 14) with a correct ToUnicode
+  mapping. PDF/A-1b/1u and PDF/UA (accessibility) are not implemented yet
 - Pin content (e.g. a signature/acceptance box) to the bottom of whichever page dynamic content ends on (`-eggpdf-pin-bottom: page`)
 
 ### Typography
@@ -222,6 +223,11 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - AcroForm fields (fillable forms from HTML form elements)
 - PDF merging
 - QR codes and barcodes
+- ZUGFeRD/Factur-X e-invoicing, MINIMUM profile (`HtmlToPdf.Render(html, PdfAConformance.PdfA3b, new FacturXInvoice {...})`,
+  `PdfRenderOptions.Invoice`, the CLI's `--invoice <path>` flag, or the REST API's `options.invoice`
+  field): embeds the UN/CEFACT CII invoice XML as a PDF/A-3 attachment with the Factur-X XMP
+  extension schema. BASIC/EN16931/EXTENDED profiles (line items, full tax breakdown) are not
+  implemented yet
 
 ### Performance
 - Streaming output (constant memory for large documents)

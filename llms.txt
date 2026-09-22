@@ -61,13 +61,37 @@ byte[] encrypted = HtmlToPdf.Render(html, new EggPdf.Pdf.PdfEncryption
 // PDF/A-2b/2u/3b/3u conformant PDF (ICC output intent, XMP metadata, all fonts embedded --
 // including the standard 14 -- with a correct ToUnicode mapping). Cannot be combined with PdfEncryption.
 byte[] pdfA = HtmlToPdf.Render(html, EggPdf.Pdf.PdfAConformance.PdfA2b);
+
+// ZUGFeRD/Factur-X e-invoice, MINIMUM profile: embeds the CII invoice XML as a PDF/A-3
+// attachment. Requires PdfA3b or PdfA3u -- throws otherwise.
+byte[] invoice = HtmlToPdf.Render(html, EggPdf.Pdf.PdfAConformance.PdfA3b, new EggPdf.Pdf.FacturXInvoice
+{
+    InvoiceNumber = "2026-042", IssueDate = DateTime.UtcNow, CurrencyCode = "EUR",
+    SellerName = "Seller GmbH", BuyerName = "Buyer SARL",
+    TaxBasisTotal = 100.00m, TaxTotal = 20.00m, GrandTotal = 120.00m, DuePayableAmount = 120.00m,
+});
 ```
 
 Document metadata (Title/Author) is configurable via `PdfRenderOptions` (see above). PDF/A
-conformance is configurable only as `PdfAConformance.PdfA2b`/`PdfA2u`/`PdfA3b`/`PdfA3u` via the
-overload above -- not yet combinable with `PdfRenderOptions` or `PdfEncryption` in one call, and
-not yet exposed by the CLI or REST API. PDF/A-1b/1u and PDF/UA (accessibility) conformance are not
-implemented yet — don't suggest properties for them.
+conformance and Factur-X invoice data are also available on `PdfRenderOptions` itself
+(`.Conformance`, `.Invoice`, `.Encryption`) -- same fields, so any entry point can use them:
+
+```csharp
+// Same effect as the standalone overloads above, via one options object
+byte[] pdf = HtmlToPdf.Render(html, new PdfRenderOptions
+{
+    Conformance = EggPdf.Pdf.PdfAConformance.PdfA3b,
+    Invoice = new EggPdf.Pdf.FacturXInvoice { InvoiceNumber = "2026-042", SellerName = "Seller", BuyerName = "Buyer" },
+});
+```
+
+CLI: `eggpdf input.html -o output.pdf --pdfa 3b --invoice invoice-data.json` (JSON fields match
+`FacturXInvoice`'s properties). REST API: `POST /api/render` with
+`{"html": "...", "options": {"conformance": "PdfA3b", "invoice": {...}}}`.
+
+ZUGFeRD/Factur-X only supports the MINIMUM profile (no line items) -- don't suggest
+BASIC/EN16931/Comfort/EXTENDED properties, they don't exist. PDF/A-1b/1u and PDF/UA
+(accessibility) conformance are not implemented yet — don't suggest properties for them.
 
 ## ASP.NET Core integration
 

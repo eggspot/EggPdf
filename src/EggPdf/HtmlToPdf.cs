@@ -183,15 +183,35 @@ public static partial class HtmlToPdf
     }
 
     /// <summary>
-    /// Render HTML to PDF, applying <see cref="PdfRenderOptions"/> (page size, margins,
-    /// orientation, title/author metadata, extra CSS) by translating them into an injected
-    /// <c>@page</c> rule and &lt;head&gt; tags before parsing. The generated rule is appended
+    /// Render HTML to a Factur-X/ZUGFeRD e-invoice: a PDF/A-3 PDF with the invoice's CII XML
+    /// (MINIMUM profile) embedded as a file attachment. <paramref name="conformance"/> must be
+    /// <see cref="Pdf.PdfAConformance.PdfA3b"/> or <see cref="Pdf.PdfAConformance.PdfA3u"/>.
+    /// </summary>
+    public static byte[] Render(string? html, Pdf.PdfAConformance conformance, Pdf.FacturXInvoice invoice)
+    {
+        return RenderInternal(html ?? "", null, null, conformance, invoice);
+    }
+
+    /// <summary>Render HTML to a Factur-X/ZUGFeRD e-invoice asynchronously.</summary>
+    public static Task<byte[]> RenderAsync(string? html, Pdf.PdfAConformance conformance, Pdf.FacturXInvoice invoice, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(RenderInternal(html ?? "", null, null, conformance, invoice));
+    }
+
+    /// <summary>
+    /// Render HTML to PDF, applying <see cref="PdfRenderOptions"/>. Page size, margins,
+    /// orientation, title/author metadata, and extra CSS are translated into an injected
+    /// <c>@page</c> rule and &lt;head&gt; tags before parsing (the generated rule is appended
     /// last in the HTML's &lt;head&gt;, so it wins the CSS cascade over any conflicting
-    /// <c>@page</c> rule already in the document.
+    /// <c>@page</c> rule already in the document). <see cref="PdfRenderOptions.Encryption"/>,
+    /// <see cref="PdfRenderOptions.Conformance"/> and <see cref="PdfRenderOptions.Invoice"/> are
+    /// applied directly to the PDF writer, same as the dedicated overloads.
     /// </summary>
     public static byte[] Render(string? html, PdfRenderOptions options)
     {
-        return RenderInternal(ApplyRenderOptions(html ?? "", options), null);
+        return RenderInternal(ApplyRenderOptions(html ?? "", options), null,
+            options?.Encryption, options?.Conformance, options?.Invoice);
     }
 
     /// <summary>Render HTML to PDF asynchronously, applying <see cref="PdfRenderOptions"/>.</summary>
@@ -260,7 +280,7 @@ public static partial class HtmlToPdf
         return $"<head>{inject}</head>{html}";
     }
 
-    private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null)
+    private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null)
     {
         // 1. Parse HTML -> DOM
         var document = HtmlParser.Parse(html);
@@ -337,7 +357,7 @@ public static partial class HtmlToPdf
                 : LayoutPageGroups(document, namedGroups, pageSettings, cascadeResolver);
 
             // 6. Resolve images (load data from src attributes)
-            var pdfDoc = new PdfDocument { Encryption = encryption, Conformance = conformance };
+            var pdfDoc = new PdfDocument { Encryption = encryption, Conformance = conformance, Invoice = invoice };
             pdfDoc.Title = FindTitleTagText(document);
             pdfDoc.Author = FindMetaContent(document, "author");
             var layoutRoots = new List<LayoutBox>(layouts.Count);

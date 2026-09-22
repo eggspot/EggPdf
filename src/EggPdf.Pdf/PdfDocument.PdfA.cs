@@ -42,7 +42,8 @@ public partial class PdfDocument
         writer.WriteLine("endstream");
         writer.WriteLine("endobj");
 
-        byte[] xmpBytes = Encoding.UTF8.GetBytes(PdfACompliance.GenerateXmpMetadata(Title, Author, Conformance.Value));
+        string? facturXFileName = Invoice != null ? FacturXFileName : null;
+        byte[] xmpBytes = Encoding.UTF8.GetBytes(PdfACompliance.GenerateXmpMetadata(Title, Author, Conformance.Value, facturXFileName));
         alloc.RecordOffset(metadataObj, writer.Position);
         writer.WriteLine($"{metadataObj} 0 obj");
         writer.WriteLine($"<< /Type /Metadata /Subtype /XML /Length {xmpBytes.Length} >>");

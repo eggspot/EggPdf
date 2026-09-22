@@ -42,6 +42,40 @@ public class PdfAConformanceE2ETests
         PdfAssert.ValidPdf(pdf).Should().Contain("/OutputIntents [");
     }
 
+    [Fact]
+    public void FacturX_RendersInvoicePdfWithEmbeddedCiiXml()
+    {
+        var html = "<html><body><h1>Invoice 2026-TEST-01</h1></body></html>";
+        var invoice = new FacturXInvoice
+        {
+            InvoiceNumber = "2026-TEST-01",
+            IssueDate = new System.DateTime(2026, 9, 22),
+            CurrencyCode = "EUR",
+            SellerName = "Eggspot SARL",
+            BuyerName = "Acme Corp",
+            TaxBasisTotal = 100.00m,
+            TaxTotal = 20.00m,
+            GrandTotal = 120.00m,
+            DuePayableAmount = 120.00m,
+        };
+
+        var pdf = HtmlToPdf.Render(html, PdfAConformance.PdfA3b, invoice);
+        var text = PdfAssert.ValidPdf(pdf);
+
+        text.Should().Contain("/AFRelationship /Data");
+        text.Should().Contain("<rsm:CrossIndustryInvoice");
+        text.Should().Contain("<ram:ID>2026-TEST-01</ram:ID>");
+        text.Should().Contain("<fx:DocumentType>INVOICE</fx:DocumentType>");
+    }
+
+    [Fact]
+    public void FacturX_WithoutPdfA3_Throws()
+    {
+        var invoice = new FacturXInvoice { InvoiceNumber = "1", SellerName = "S", BuyerName = "B" };
+        System.Action act = () => HtmlToPdf.Render("<h1>x</h1>", PdfAConformance.PdfA2b, invoice);
+        act.Should().Throw<System.InvalidOperationException>();
+    }
+
     [Theory]
     [InlineData(PdfAConformance.PdfA2u, "2")]
     [InlineData(PdfAConformance.PdfA3u, "3")]

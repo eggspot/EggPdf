@@ -1,6 +1,8 @@
 using System;
 using System.IO;
+using System.Text.Json;
 using System.Threading.Tasks;
+using EggPdf.Pdf;
 
 namespace EggPdf.Cli;
 
@@ -29,6 +31,8 @@ public class Program
         // Parse arguments
         string? inputPath = null;
         string? outputPath = null;
+        string? pdfaFlag = null;
+        string? invoicePath = null;
         bool verbose = HasFlag(args, "--verbose") || HasFlag(args, "-v");
 
         for (int i = 0; i < args.Length; i++)
@@ -37,9 +41,61 @@ public class Program
             {
                 if (i + 1 < args.Length) outputPath = args[++i];
             }
+            else if (args[i] == "--pdfa")
+            {
+                if (i + 1 < args.Length) pdfaFlag = args[++i];
+            }
+            else if (args[i] == "--invoice")
+            {
+                if (i + 1 < args.Length) invoicePath = args[++i];
+            }
             else if (!args[i].StartsWith("-"))
             {
                 inputPath ??= args[i];
+            }
+        }
+
+        PdfAConformance? conformance = null;
+        if (pdfaFlag != null)
+        {
+            conformance = pdfaFlag.ToLowerInvariant() switch
+            {
+                "2b" => PdfAConformance.PdfA2b,
+                "2u" => PdfAConformance.PdfA2u,
+                "3b" => PdfAConformance.PdfA3b,
+                "3u" => PdfAConformance.PdfA3u,
+                _ => null,
+            };
+            if (conformance == null)
+            {
+                Console.Error.WriteLine($"Error: Invalid --pdfa value '{pdfaFlag}'. Expected one of: 2b, 2u, 3b, 3u.");
+                return 1;
+            }
+        }
+
+        FacturXInvoice? invoice = null;
+        if (invoicePath != null)
+        {
+            if (conformance != PdfAConformance.PdfA3b && conformance != PdfAConformance.PdfA3u)
+            {
+                Console.Error.WriteLine("Error: --invoice requires --pdfa 3b or --pdfa 3u (Factur-X's embedded XML attachment is only permitted under PDF/A-3).");
+                return 1;
+            }
+            if (!File.Exists(invoicePath))
+            {
+                Console.Error.WriteLine($"Error: Invoice file not found: {invoicePath}");
+                return 1;
+            }
+            try
+            {
+                var invoiceJson = await File.ReadAllTextAsync(invoicePath);
+                invoice = JsonSerializer.Deserialize<FacturXInvoice>(invoiceJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Error: Failed to parse invoice JSON: {ex.Message}");
+                return 1;
             }
         }
 
@@ -84,16 +140,19 @@ public class Program
             // Render
             var startTime = DateTime.UtcNow;
 
+            PdfRenderOptions? options = conformance != null
+                ? new PdfRenderOptions { Conformance = conformance, Invoice = invoice }
+                : null;
+            var pdf = options != null ? HtmlToPdf.Render(html, options) : HtmlToPdf.Render(html);
+
             if (outputPath == "-")
             {
-                // Write to stdout
-                var pdf = HtmlToPdf.Render(html);
                 using var stdout = Console.OpenStandardOutput();
                 await stdout.WriteAsync(pdf, 0, pdf.Length);
             }
             else
             {
-                await HtmlToPdf.RenderToFileAsync(html, outputPath);
+                await File.WriteAllBytesAsync(outputPath, pdf);
             }
 
             var elapsed = DateTime.UtcNow - startTime;
@@ -142,6 +201,9 @@ ARGUMENTS:
 
 OPTIONS:
     -o, --output <path>      Output file path (default: input.pdf, or - for stdout)
+    --pdfa <level>           PDF/A conformance: 2b, 2u, 3b, or 3u
+    --invoice <path>         ZUGFeRD/Factur-X invoice JSON (MINIMUM profile) to embed.
+                              Requires --pdfa 3b or --pdfa 3u
     -v, --verbose            Show render timing and file size
     --version                Show version
     -h, --help               Show this help
@@ -151,6 +213,13 @@ EXAMPLES:
     eggpdf https://example.com -o page.pdf
     echo ""<h1>Hello</h1>"" | eggpdf - -o hello.pdf
     eggpdf input.html -o - > output.pdf
+    eggpdf report.html -o report.pdf --pdfa 2b
+    eggpdf invoice.html -o invoice.pdf --pdfa 3b --invoice invoice-data.json
+
+INVOICE JSON (--invoice) FIELDS:
+    invoiceNumber, issueDate, currencyCode, sellerName, sellerCountryCode,
+    sellerVatId, buyerName, buyerReference, taxBasisTotal, taxTotal,
+    grandTotal, duePayableAmount
 
 MORE INFO:
     https://github.com/eggspot/EggPdf");

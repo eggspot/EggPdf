@@ -188,6 +188,23 @@ underlying gap or correct the doc -- don't leave the mismatch. The `/docs` skill
 audit pass (versions, benchmarks, Docker image names, wiki pages) -- use it periodically, but
 per-change doc updates above shouldn't wait for that pass.
 
+## Feature Parity Across Entry Points
+
+EggPdf exposes rendering through multiple entry points: the core `HtmlToPdf` API, `PdfRenderOptions`
+(the C#-properties convenience wrapper over CSS), the CLI (`EggPdf.Cli`), and the REST API
+(`EggPdf.Service`). When a new PDF-writer-level capability is added -- a new `HtmlToPdf.Render`/
+`RenderAsync` overload, a new `PdfDocument` property (e.g. `Conformance`, `Invoice`, `Encryption`) --
+wire it into the other entry points in the SAME change, not as a follow-up:
+
+- `PdfRenderOptions` -- add the corresponding property, if it's a per-render setting
+- CLI (`EggPdf.Cli`) -- add the corresponding flag/argument
+- REST API (`EggPdf.Service`) -- add the corresponding request field
+- Update the "Docs Stay in Sync" targets above for every surface actually wired, not just the core API
+
+If wiring every entry point in the same change is genuinely too large (e.g. it needs its own
+request/response schema design), say so explicitly and track the gap in BLUEPRINT.md/the relevant
+doc -- don't silently ship a feature reachable from only one of the four surfaces.
+
 ## Skills (invoke with /slash commands)
 
 - `/feat` -- implement a new feature (test-first workflow)

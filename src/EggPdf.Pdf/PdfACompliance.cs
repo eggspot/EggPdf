@@ -10,10 +10,13 @@ namespace EggPdf.Pdf;
 public static class PdfACompliance
 {
     /// <summary>
-    /// Generate XMP metadata for PDF/A conformance.
-    /// This XML must be embedded as a metadata stream in the PDF catalog.
+    /// Generate XMP metadata for PDF/A conformance. This XML must be embedded as a metadata
+    /// stream in the PDF catalog. When <paramref name="facturXFileName"/> is set, the Factur-X
+    /// PDF/A extension schema is declared and populated (see
+    /// <see cref="AppendFacturXExtensionSchema"/>) -- required so PDF/A validators and Factur-X
+    /// readers recognize the embedded invoice XML attachment.
     /// </summary>
-    public static string GenerateXmpMetadata(string? title, string? author, PdfAConformance conformance)
+    public static string GenerateXmpMetadata(string? title, string? author, PdfAConformance conformance, string? facturXFileName = null)
     {
         string part = conformance.Part();
         string level = conformance.Level();
@@ -57,6 +60,10 @@ public static class PdfACompliance
         xmp.AppendLine("  <pdf:Producer>EggPdf</pdf:Producer>");
 
         xmp.AppendLine("</rdf:Description>");
+
+        if (!string.IsNullOrEmpty(facturXFileName))
+            AppendFacturXExtensionSchema(xmp, facturXFileName!);
+
         xmp.AppendLine("</rdf:RDF>");
         xmp.AppendLine("</x:xmpmeta>");
 
@@ -84,6 +91,57 @@ public static class PdfACompliance
         sb.Append($" /DestOutputProfile {iccProfileObjRef} 0 R");
         sb.Append(" >>");
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Declare and populate the Factur-X PDF/A extension schema (namespace prefix <c>fx</c>,
+    /// <c>urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#</c>) -- the PDF/A Extension
+    /// Schema mechanism a validator uses to know what <c>fx:*</c> properties mean, plus the
+    /// actual property values identifying the embedded invoice attachment. Verified against the
+    /// reference schema published at github.com/atgp/factur-x (xmp/Factur-X_extension_schema.xmp).
+    /// </summary>
+    private static void AppendFacturXExtensionSchema(StringBuilder xmp, string facturXFileName)
+    {
+        xmp.AppendLine("<rdf:Description rdf:about=''");
+        xmp.AppendLine("  xmlns:pdfaExtension='http://www.aiim.org/pdfa/ns/extension/'");
+        xmp.AppendLine("  xmlns:pdfaSchema='http://www.aiim.org/pdfa/ns/schema#'");
+        xmp.AppendLine("  xmlns:pdfaProperty='http://www.aiim.org/pdfa/ns/property#'>");
+        xmp.AppendLine("  <pdfaExtension:schemas>");
+        xmp.AppendLine("    <rdf:Bag>");
+        xmp.AppendLine("      <rdf:li rdf:parseType='Resource'>");
+        xmp.AppendLine("        <pdfaSchema:schema>Factur-X PDFA Extension Schema</pdfaSchema:schema>");
+        xmp.AppendLine("        <pdfaSchema:namespaceURI>urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#</pdfaSchema:namespaceURI>");
+        xmp.AppendLine("        <pdfaSchema:prefix>fx</pdfaSchema:prefix>");
+        xmp.AppendLine("        <pdfaSchema:property>");
+        xmp.AppendLine("          <rdf:Seq>");
+        AppendFacturXPropertyDef(xmp, "DocumentFileName", "name of the embedded XML invoice file");
+        AppendFacturXPropertyDef(xmp, "DocumentType", "INVOICE");
+        AppendFacturXPropertyDef(xmp, "Version", "The actual version of the Factur-X XML schema");
+        AppendFacturXPropertyDef(xmp, "ConformanceLevel", "The conformance level of the embedded Factur-X data");
+        xmp.AppendLine("          </rdf:Seq>");
+        xmp.AppendLine("        </pdfaSchema:property>");
+        xmp.AppendLine("      </rdf:li>");
+        xmp.AppendLine("    </rdf:Bag>");
+        xmp.AppendLine("  </pdfaExtension:schemas>");
+        xmp.AppendLine("</rdf:Description>");
+
+        xmp.AppendLine("<rdf:Description rdf:about=''");
+        xmp.AppendLine("  xmlns:fx='urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#'>");
+        xmp.AppendLine("  <fx:DocumentType>INVOICE</fx:DocumentType>");
+        xmp.AppendLine($"  <fx:DocumentFileName>{EscapeXml(facturXFileName)}</fx:DocumentFileName>");
+        xmp.AppendLine("  <fx:Version>1.0</fx:Version>");
+        xmp.AppendLine("  <fx:ConformanceLevel>MINIMUM</fx:ConformanceLevel>");
+        xmp.AppendLine("</rdf:Description>");
+    }
+
+    private static void AppendFacturXPropertyDef(StringBuilder xmp, string name, string description)
+    {
+        xmp.AppendLine("            <rdf:li rdf:parseType='Resource'>");
+        xmp.AppendLine($"              <pdfaProperty:name>{name}</pdfaProperty:name>");
+        xmp.AppendLine("              <pdfaProperty:valueType>Text</pdfaProperty:valueType>");
+        xmp.AppendLine("              <pdfaProperty:category>external</pdfaProperty:category>");
+        xmp.AppendLine($"              <pdfaProperty:description>{EscapeXml(description)}</pdfaProperty:description>");
+        xmp.AppendLine("            </rdf:li>");
     }
 
     /// <summary>

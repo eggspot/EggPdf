@@ -193,6 +193,8 @@ public partial class PdfDocument
     {
         if (Conformance != null && Encryption != null)
             throw new InvalidOperationException("PDF/A conformance forbids encryption (ISO 19005 disallows /Encrypt).");
+        if (Invoice != null && Conformance != PdfAConformance.PdfA3b && Conformance != PdfAConformance.PdfA3u)
+            throw new InvalidOperationException("Factur-X/ZUGFeRD invoice attachment requires PDF/A-3 conformance (PdfA3b or PdfA3u).");
 
         var writer = new PdfStreamWriter(output);
 
@@ -306,6 +308,9 @@ public partial class PdfDocument
         // PDF/A conformance objects: ICC profile stream + XMP metadata stream
         var (iccProfileObj, metadataObj) = AllocateConformanceObjects(alloc);
 
+        // Factur-X/ZUGFeRD objects: embedded invoice XML stream + its filespec
+        var (facturXEmbeddedFileObj, facturXFilespecObj) = AllocateFacturXObjects(alloc);
+
         // Write Catalog
         alloc.RecordOffset(catalogObj, writer.Position);
         writer.WriteLine($"{catalogObj} 0 obj");
@@ -315,6 +320,7 @@ public partial class PdfDocument
         if (outlineRootObj > 0)
             catalogDict.Append($" /Outlines {outlineRootObj} 0 R");
         AppendConformanceCatalogEntries(catalogDict, iccProfileObj, metadataObj);
+        AppendFacturXCatalogEntries(catalogDict, facturXFilespecObj);
         catalogDict.Append(" >>");
         writer.WriteLine(catalogDict.ToString());
         writer.WriteLine("endobj");
@@ -550,6 +556,9 @@ public partial class PdfDocument
         // PDF/A conformance: ICC profile stream (referenced by the catalog's
         // /OutputIntents) and XMP metadata stream (referenced by /Metadata).
         WriteConformanceObjects(writer, alloc, iccProfileObj, metadataObj);
+
+        // Factur-X/ZUGFeRD: embedded invoice XML stream and its filespec.
+        WriteFacturXObjects(writer, alloc, facturXEmbeddedFileObj, facturXFilespecObj);
 
         // Cross-reference table
         long xrefOffset = writer.Position;

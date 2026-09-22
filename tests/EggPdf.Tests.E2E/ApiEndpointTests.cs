@@ -72,6 +72,82 @@ public class ApiEndpointTests
     }
 
     [Fact]
+    public async Task Render_ConformanceOption_ReturnsPdfAOutput()
+    {
+        var content = new StringContent(
+            JsonSerializer.Serialize(new { html = "<h1>Test</h1>", options = new { conformance = "PdfA2b" } }),
+            Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/render", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        var bytes = await resp.Content.ReadAsByteArrayAsync();
+        var pdfText = Encoding.Latin1.GetString(bytes);
+        pdfText.Should().Contain("/OutputIntents [");
+    }
+
+    [Fact]
+    public async Task Render_InvoiceOption_EmbedsFacturXAttachment()
+    {
+        var content = new StringContent(
+            JsonSerializer.Serialize(new
+            {
+                html = "<h1>Invoice</h1>",
+                options = new
+                {
+                    conformance = "PdfA3b",
+                    invoice = new
+                    {
+                        invoiceNumber = "2026-042",
+                        sellerName = "Seller GmbH",
+                        buyerName = "Buyer SARL",
+                        taxBasisTotal = 100.00,
+                        taxTotal = 20.00,
+                        grandTotal = 120.00,
+                        duePayableAmount = 120.00,
+                    },
+                },
+            }),
+            Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/render", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        var bytes = await resp.Content.ReadAsByteArrayAsync();
+        var pdfText = Encoding.Latin1.GetString(bytes);
+        pdfText.Should().Contain("<rsm:CrossIndustryInvoice");
+        pdfText.Should().Contain("/AFRelationship /Data");
+    }
+
+    [Fact]
+    public async Task Render_InvalidConformanceValue_ReturnsBadRequest()
+    {
+        var content = new StringContent(
+            JsonSerializer.Serialize(new { html = "<h1>x</h1>", options = new { conformance = "bogus" } }),
+            Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/render", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Render_InvoiceWithoutPdfA3_ReturnsBadRequest()
+    {
+        var content = new StringContent(
+            JsonSerializer.Serialize(new
+            {
+                html = "<h1>x</h1>",
+                options = new { conformance = "PdfA2b", invoice = new { invoiceNumber = "1", sellerName = "S", buyerName = "B" } },
+            }),
+            Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/render", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Render_EmptyHtml_ReturnsBadRequest()
     {
         var content = new StringContent(

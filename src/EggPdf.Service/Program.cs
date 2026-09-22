@@ -28,7 +28,7 @@ app.MapGet("/api/info", () => Results.Ok(new
 {
     version = typeof(EggPdf.HtmlToPdf).Assembly.GetName().Version?.ToString(3) ?? "unknown",
     engine = "EggPdf",
-    features = new[] { "html-to-pdf", "multi-page", "css-cascade", "links" },
+    features = new[] { "html-to-pdf", "multi-page", "css-cascade", "links", "pdf-a-conformance", "zugferd-factur-x" },
     limits = new { maxBodySizeMb = 10, timeoutSeconds = 30 }
 }));
 
@@ -64,6 +64,15 @@ app.MapPost("/api/render", async (HttpContext ctx) =>
         ctx.Response.Headers["X-EggPdf-Size"] = pdf.Length.ToString();
 
         return Results.File(pdf, "application/pdf", "output.pdf");
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        // Client-input conflicts (e.g. conformance + encryption together, invoice without PDF/A-3)
+        return Results.BadRequest(new { error = ex.Message });
     }
     catch (Exception ex)
     {
@@ -400,6 +409,12 @@ record RenderOptions
     public string? Title { get; init; }
     public string? Author { get; init; }
 
+    /// <summary>PDF/A conformance level: "PdfA2b", "PdfA2u", "PdfA3b", or "PdfA3u".</summary>
+    public string? Conformance { get; init; }
+
+    /// <summary>ZUGFeRD/Factur-X invoice data (MINIMUM profile). Requires Conformance = PdfA3b or PdfA3u.</summary>
+    public InvoiceRequest? Invoice { get; init; }
+
     public EggPdf.PdfRenderOptions ToCoreOptions() => new()
     {
         PageSize = PageSize,
@@ -411,6 +426,53 @@ record RenderOptions
         MarginLeft = MarginLeft,
         Title = Title,
         Author = Author,
+        Conformance = ParseConformance(Conformance),
+        Invoice = Invoice?.ToFacturXInvoice(),
+    };
+
+    private static EggPdf.Pdf.PdfAConformance? ParseConformance(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return null;
+        return value.ToLowerInvariant() switch
+        {
+            "pdfa2b" or "2b" => EggPdf.Pdf.PdfAConformance.PdfA2b,
+            "pdfa2u" or "2u" => EggPdf.Pdf.PdfAConformance.PdfA2u,
+            "pdfa3b" or "3b" => EggPdf.Pdf.PdfAConformance.PdfA3b,
+            "pdfa3u" or "3u" => EggPdf.Pdf.PdfAConformance.PdfA3u,
+            _ => throw new ArgumentException($"Invalid conformance value '{value}'. Expected one of: PdfA2b, PdfA2u, PdfA3b, PdfA3u."),
+        };
+    }
+}
+
+record InvoiceRequest
+{
+    public string? InvoiceNumber { get; init; }
+    public DateTime? IssueDate { get; init; }
+    public string? CurrencyCode { get; init; }
+    public string? SellerName { get; init; }
+    public string? SellerCountryCode { get; init; }
+    public string? SellerVatId { get; init; }
+    public string? BuyerName { get; init; }
+    public string? BuyerReference { get; init; }
+    public decimal? TaxBasisTotal { get; init; }
+    public decimal? TaxTotal { get; init; }
+    public decimal? GrandTotal { get; init; }
+    public decimal? DuePayableAmount { get; init; }
+
+    public EggPdf.Pdf.FacturXInvoice ToFacturXInvoice() => new()
+    {
+        InvoiceNumber = InvoiceNumber ?? "",
+        IssueDate = IssueDate ?? DateTime.UtcNow,
+        CurrencyCode = CurrencyCode ?? "EUR",
+        SellerName = SellerName ?? "",
+        SellerCountryCode = SellerCountryCode,
+        SellerVatId = SellerVatId,
+        BuyerName = BuyerName ?? "",
+        BuyerReference = BuyerReference,
+        TaxBasisTotal = TaxBasisTotal ?? 0,
+        TaxTotal = TaxTotal ?? 0,
+        GrandTotal = GrandTotal ?? 0,
+        DuePayableAmount = DuePayableAmount ?? 0,
     };
 }
 
