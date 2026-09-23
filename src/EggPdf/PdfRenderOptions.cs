@@ -52,13 +52,26 @@ public class PdfRenderOptions
     /// <summary>Optional PDF/A conformance level for the rendered PDF.</summary>
     public PdfAConformance? Conformance { get; set; }
 
-    /// <summary>Optional Factur-X/ZUGFeRD invoice data (MINIMUM profile) to embed. Requires <see cref="Conformance"/> to be <see cref="PdfAConformance.PdfA3b"/> or <see cref="PdfAConformance.PdfA3u"/>.</summary>
+    /// <summary>
+    /// Optional Factur-X/ZUGFeRD invoice data to embed (MINIMUM profile when <see cref="FacturXInvoice.LineItems"/>
+    /// is empty, EN 16931/Comfort when it isn't). Requires <see cref="Conformance"/> to be
+    /// <see cref="PdfAConformance.PdfA3b"/> or <see cref="PdfAConformance.PdfA3u"/>.
+    /// </summary>
     public FacturXInvoice? Invoice { get; set; }
 
     /// <summary>
-    /// Produce a PDF/UA-1 tagged PDF (structure tree, alt text, /Lang, /MarkInfo). Combinable
-    /// with <see cref="Conformance"/> for a PDF/A + PDF/UA-1 document. Not yet supported with
-    /// named page groups (<c>page: &lt;name&gt;</c> + <c>@page &lt;name&gt;</c>).
+    /// Produce a tagged PDF (structure tree, alt text, /Lang, /MarkInfo). Combinable with
+    /// <see cref="Conformance"/> for a PDF/A + PDF/UA-1 document (see <see cref="UaVersion"/> for
+    /// why PDF/A doesn't combine with UA-2), and with named page groups (<c>page: &lt;name&gt;</c>
+    /// + <c>@page &lt;name&gt;</c>).
     /// </summary>
     public bool Tagged { get; set; }
+
+    /// <summary>
+    /// Which PDF/UA specification version <see cref="Tagged"/> targets. Defaults to
+    /// <see cref="PdfUaVersion.Ua1"/> (ISO 14289-1, PDF 1.7-based). <see cref="PdfUaVersion.Ua2"/>
+    /// (ISO 14289-2:2024, PDF 2.0-based) cannot be combined with <see cref="Conformance"/> --
+    /// there is no defined joint PDF/A + PDF/UA-2 standard.
+    /// </summary>
+    public PdfUaVersion UaVersion { get; set; } = PdfUaVersion.Ua1;
 }

@@ -35,6 +35,21 @@ internal static class StructureTreeBuilder
     };
 
     /// <summary>
+    /// Under PDF/UA-2, the same landmark tags resolve straight to their standard fallback type
+    /// instead of a custom name -- avoiding the need for PDF 2.0's dual-namespace <c>/RoleMapNS</c>
+    /// mechanism (structurally different from, and more involved than, PDF 1.7's flat <c>/RoleMap</c>
+    /// used for UA-1; see veraPDF UA-2 rules 8.2.4-3/-4 on same-namespace and standard-to-non-standard
+    /// role mapping). Div/Sect are valid standard types under either PDF version, so resolving here
+    /// keeps UA-2 output correct without implementing that mechanism. Values match
+    /// <c>PdfDocument.Tagging.cs</c>'s <c>LandmarkRoleMap</c> (the UA-1 RoleMap fallback target).
+    /// </summary>
+    private static readonly Dictionary<string, string> Ua2LandmarkFallback = new()
+    {
+        ["Nav"] = "Div", ["Header"] = "Div", ["Footer"] = "Div", ["Aside"] = "Div", ["Main"] = "Div",
+        ["Article"] = "Sect", ["Section"] = "Sect",
+    };
+
+    /// <summary>
     /// Walk one or more laid-out box trees (before pagination splits them into per-page paint
     /// calls -- see PageFragmenter.CollectPaintableBoxes, which this mirrors) -- more than one
     /// root only when named page groups (<c>page: &lt;name&gt;</c> + <c>@page &lt;name&gt;</c>)
@@ -43,18 +58,23 @@ internal static class StructureTreeBuilder
     /// one Document root even when the content came from multiple layout passes) and a map from
     /// every box, across every group, to the element its content belongs under.
     /// </summary>
-    public static (PdfStructureElement root, Dictionary<LayoutBox, PdfStructureElement> boxToElement) Build(IReadOnlyList<LayoutBox> roots)
+    public static (PdfStructureElement root, Dictionary<LayoutBox, PdfStructureElement> boxToElement) Build(
+        IReadOnlyList<LayoutBox> roots, PdfUaVersion uaVersion = PdfUaVersion.Ua1)
     {
         var rootElem = new PdfStructureElement("Document");
         var map = new Dictionary<LayoutBox, PdfStructureElement>();
         var spanElements = new Dictionary<InlineElementSpan, PdfStructureElement>();
         foreach (var root in roots)
-            BuildRecursive(root, rootElem, map, spanElements);
+            BuildRecursive(root, rootElem, map, spanElements, uaVersion);
         return (rootElem, map);
     }
 
+    private static string ResolveType(string type, PdfUaVersion uaVersion) =>
+        uaVersion == PdfUaVersion.Ua2 && Ua2LandmarkFallback.TryGetValue(type, out var fallback) ? fallback : type;
+
     private static void BuildRecursive(LayoutBox box, PdfStructureElement currentAncestor,
-        Dictionary<LayoutBox, PdfStructureElement> map, Dictionary<InlineElementSpan, PdfStructureElement> spanElements)
+        Dictionary<LayoutBox, PdfStructureElement> map, Dictionary<InlineElementSpan, PdfStructureElement> spanElements,
+        PdfUaVersion uaVersion)
     {
         var target = currentAncestor;
 
@@ -71,7 +91,7 @@ internal static class StructureTreeBuilder
             {
                 if (!spanElements.TryGetValue(box.InlineSpan, out var spanElem))
                 {
-                    spanElem = new PdfStructureElement(spanType);
+                    spanElem = new PdfStructureElement(ResolveType(spanType, uaVersion));
                     ApplyAttributes(spanElem, box, spanTag);
                     currentAncestor.AddChild(spanElem);
                     spanElements[box.InlineSpan] = spanElem;
@@ -84,7 +104,7 @@ internal static class StructureTreeBuilder
             var tag = box.TagName;
             if (tag != null && TagToType.TryGetValue(tag, out var type))
             {
-                var elem = new PdfStructureElement(type);
+                var elem = new PdfStructureElement(ResolveType(type, uaVersion));
                 ApplyAttributes(elem, box, tag);
                 currentAncestor.AddChild(elem);
                 target = elem;
@@ -104,7 +124,7 @@ internal static class StructureTreeBuilder
         map[box] = target;
 
         foreach (var child in box.Children)
-            BuildRecursive(child, target, map, spanElements);
+            BuildRecursive(child, target, map, spanElements, uaVersion);
     }
 
     private static void ApplyAttributes(PdfStructureElement elem, LayoutBox box, string tag)

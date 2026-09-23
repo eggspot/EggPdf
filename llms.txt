@@ -135,6 +135,18 @@ also fixed the plain (non-tagged) link annotation's rectangle, which was previou
 the first word for any multi-word link. A link that wraps across lines gets one Link element and
 one annotation per line (a rectangle can't itself wrap).
 
+```csharp
+// PDF/UA-2 (ISO 14289-2:2024, PDF 2.0-based) instead of the default UA-1: same tagging
+// machinery, plus a %PDF-2.0 header, a declared PDF 2.0 structure namespace every element
+// references via /NS, and XMP pdfuaid:part=2/pdfuaid:rev=2024. Landmark regions resolve
+// straight to Div/Sect (not a custom type + /RoleMap). Cannot combine with PdfAConformance --
+// no defined joint PDF/A + PDF/UA-2 standard; throws if you try.
+byte[] ua2 = HtmlToPdf.Render(html, tagged: true, EggPdf.Pdf.PdfUaVersion.Ua2);
+```
+
+CLI: `--ua-version 2` (requires `--tagged`; default is 1). REST API: `options.uaVersion: "Ua2"`.
+Don't suggest PDF/UA-2 + `--pdfa`/`options.conformance` together -- it throws.
+
 ## ASP.NET Core integration
 
 ```bash

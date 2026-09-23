@@ -13,6 +13,10 @@ public partial class PdfDocument
     private readonly Dictionary<PdfStructureElement, int> _structElemObjs = new();
     private int _structTreeRootObj;
     private int _parentTreeObj;
+    private int _pdf2NamespaceObj;
+
+    /// <summary>The PDF 2.0 standard structure namespace URI (ISO 32000-2), declared on StructTreeRoot and referenced by every StructElem's /NS under PDF/UA-2.</summary>
+    private const string Pdf2StructureNamespaceUri = "http://iso.org/pdf2/ssn";
 
     /// <summary>
     /// Custom (non-standard) structure types this MVP's HTML5 landmark tagging emits, mapped to
@@ -40,6 +44,16 @@ public partial class PdfDocument
     /// </summary>
     public PdfStructureElement? StructureTree { get; set; }
 
+    /// <summary>
+    /// Which PDF/UA specification version tagging targets (only meaningful when
+    /// <see cref="StructureTree"/> is set). Defaults to <see cref="PdfUaVersion.Ua1"/> (ISO
+    /// 14289-1, PDF 1.7-based) for backward compatibility; <see cref="PdfUaVersion.Ua2"/> (ISO
+    /// 14289-2:2024, PDF 2.0-based) switches the header to <c>%PDF-2.0</c>, declares the PDF 2.0
+    /// structure namespace on every structure element, and resolves landmark regions straight to
+    /// their standard fallback type instead of a custom name + RoleMap.
+    /// </summary>
+    public PdfUaVersion UaVersion { get; set; } = PdfUaVersion.Ua1;
+
     /// <summary>Document language for /Lang (e.g. "en-US"), from the HTML's own <c>lang</c> attribute. Defaults to "en" when tagging is on and none was set.</summary>
     public string? DocumentLanguage { get; set; }
 
@@ -49,6 +63,8 @@ public partial class PdfDocument
         if (StructureTree == null) return;
         _structTreeRootObj = alloc.Allocate();
         _parentTreeObj = alloc.Allocate();
+        if (UaVersion == PdfUaVersion.Ua2)
+            _pdf2NamespaceObj = alloc.Allocate();
         AllocateStructElemObjectsRecursive(StructureTree, alloc);
     }
 
@@ -116,21 +132,47 @@ public partial class PdfDocument
 
         WriteStructElemRecursive(writer, alloc, StructureTree, _structTreeRootObj, pageObjs, parentTreeEntries, annotParentTreeEntries);
 
+        // PDF/UA-2's Namespace object, written before StructTreeRoot references it.
+        if (_pdf2NamespaceObj != 0)
+        {
+            alloc.RecordOffset(_pdf2NamespaceObj, writer.Position);
+            writer.WriteLine($"{_pdf2NamespaceObj} 0 obj");
+            writer.WriteLine($"<< /Type /Namespace /NS ({Pdf2StructureNamespaceUri}) >>");
+            writer.WriteLine("endobj");
+        }
+
         int nextKey = 0;
         foreach (var pageIdx in parentTreeEntries.Keys)
             if (pageIdx >= nextKey) nextKey = pageIdx + 1;
         foreach (var key in annotParentTreeEntries.Keys)
             if (key >= nextKey) nextKey = key + 1;
 
-        var roleMap = new StringBuilder();
-        roleMap.Append("<< ");
-        foreach (var kv in LandmarkRoleMap)
-            roleMap.Append('/').Append(kv.Key).Append(" /").Append(kv.Value).Append(' ');
-        roleMap.Append(">>");
-
         alloc.RecordOffset(_structTreeRootObj, writer.Position);
         writer.WriteLine($"{_structTreeRootObj} 0 obj");
-        writer.WriteLine($"<< /Type /StructTreeRoot /K [{_structElemObjs[StructureTree]} 0 R] /ParentTree {_parentTreeObj} 0 R /ParentTreeNextKey {nextKey} /RoleMap {roleMap} >>");
+        var rootDict = new StringBuilder();
+        rootDict.Append("<< /Type /StructTreeRoot");
+        rootDict.Append($" /K [{_structElemObjs[StructureTree]} 0 R]");
+        rootDict.Append($" /ParentTree {_parentTreeObj} 0 R");
+        rootDict.Append($" /ParentTreeNextKey {nextKey}");
+        if (_pdf2NamespaceObj != 0)
+        {
+            // PDF/UA-2 (veraPDF 8.2.4-1): every structure element must belong to a declared
+            // namespace -- landmark regions are resolved straight to their standard fallback type
+            // (see StructureTreeBuilder's Ua2LandmarkFallback) rather than needing a custom-type
+            // RoleMapNS entry, so a plain /RoleMap (PDF 1.7's simpler mechanism) isn't needed here.
+            rootDict.Append($" /Namespaces [{_pdf2NamespaceObj} 0 R]");
+        }
+        else
+        {
+            var roleMap = new StringBuilder();
+            roleMap.Append("<< ");
+            foreach (var kv in LandmarkRoleMap)
+                roleMap.Append('/').Append(kv.Key).Append(" /").Append(kv.Value).Append(' ');
+            roleMap.Append(">>");
+            rootDict.Append($" /RoleMap {roleMap}");
+        }
+        rootDict.Append(" >>");
+        writer.WriteLine(rootDict.ToString());
         writer.WriteLine("endobj");
 
         alloc.RecordOffset(_parentTreeObj, writer.Position);
@@ -207,6 +249,8 @@ public partial class PdfDocument
         dict.Append($" /S /{elem.Type}");
         dict.Append($" /P {parentObj} 0 R");
         dict.Append($" /K {kArray}");
+        if (_pdf2NamespaceObj != 0)
+            dict.Append($" /NS {_pdf2NamespaceObj} 0 R");
         if (!string.IsNullOrEmpty(elem.Alt))
             dict.Append($" /Alt ({EscapePdfString(elem.Alt!)})");
         if (!string.IsNullOrEmpty(elem.Lang))

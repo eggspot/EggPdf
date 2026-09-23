@@ -17,8 +17,20 @@ public partial class PdfDocument
     /// </summary>
     public PdfAConformance? Conformance { get; set; }
 
-    /// <summary>The PDF header version PDF/A-1 requires (it's based on PDF 1.4); every other mode keeps the writer's normal 1.7.</summary>
-    private string PdfVersionHeader => Conformance != null && Conformance.Value.IsPart1() ? "%PDF-1.4" : "%PDF-1.7";
+    /// <summary>
+    /// The PDF header version: <c>%PDF-2.0</c> when tagging targets PDF/UA-2 (ISO 14289-2:2024,
+    /// PDF 2.0-based -- see <see cref="UaVersion"/>), <c>%PDF-1.4</c> for PDF/A-1 (it's based on
+    /// PDF 1.4), otherwise the writer's normal 1.7.
+    /// </summary>
+    private string PdfVersionHeader
+    {
+        get
+        {
+            if (StructureTree != null && UaVersion == PdfUaVersion.Ua2) return "%PDF-2.0";
+            if (Conformance != null && Conformance.Value.IsPart1()) return "%PDF-1.4";
+            return "%PDF-1.7";
+        }
+    }
 
     /// <summary>
     /// PDF/A-1 (ISO 19005-1) forbids transparency outright: partial opacity, blend modes other
@@ -104,7 +116,9 @@ public partial class PdfDocument
             string? facturXFileName = Invoice != null ? FacturXFileName : null;
             string facturXLevel = Invoice != null && FacturXCiiWriter.IsEn16931(Invoice) ? "EN16931" : "MINIMUM";
             byte[] xmpBytes = Encoding.UTF8.GetBytes(
-                PdfACompliance.GenerateXmpMetadata(Title, Author, Conformance, facturXFileName, includePdfUA: StructureTree != null, facturXLevel));
+                PdfACompliance.GenerateXmpMetadata(Title, Author, Conformance, facturXFileName,
+                    includePdfUA: StructureTree != null, facturXLevel,
+                    isUa2: StructureTree != null && UaVersion == PdfUaVersion.Ua2));
             alloc.RecordOffset(metadataObj, writer.Position);
             writer.WriteLine($"{metadataObj} 0 obj");
             writer.WriteLine($"<< /Type /Metadata /Subtype /XML /Length {xmpBytes.Length} >>");

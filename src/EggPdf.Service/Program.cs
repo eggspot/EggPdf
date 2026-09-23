@@ -28,7 +28,7 @@ app.MapGet("/api/info", () => Results.Ok(new
 {
     version = typeof(EggPdf.HtmlToPdf).Assembly.GetName().Version?.ToString(3) ?? "unknown",
     engine = "EggPdf",
-    features = new[] { "html-to-pdf", "multi-page", "css-cascade", "links", "pdf-a-conformance", "zugferd-factur-x", "pdf-ua-tagging" },
+    features = new[] { "html-to-pdf", "multi-page", "css-cascade", "links", "pdf-a-conformance", "zugferd-factur-x", "pdf-ua-tagging", "pdf-ua-2" },
     limits = new { maxBodySizeMb = 10, timeoutSeconds = 30 }
 }));
 
@@ -412,11 +412,14 @@ record RenderOptions
     /// <summary>PDF/A conformance level: "PdfA1b", "PdfA1a", "PdfA2b", "PdfA2u", "PdfA2a", "PdfA3b", "PdfA3u", or "PdfA3a". Level A (1a/2a/3a) requires Tagged = true.</summary>
     public string? Conformance { get; init; }
 
-    /// <summary>ZUGFeRD/Factur-X invoice data (MINIMUM profile). Requires Conformance = PdfA3b or PdfA3u.</summary>
+    /// <summary>ZUGFeRD/Factur-X invoice data (MINIMUM profile, or EN 16931/Comfort when lineItems is non-empty). Requires Conformance = PdfA3b or PdfA3u.</summary>
     public InvoiceRequest? Invoice { get; init; }
 
-    /// <summary>Produce a PDF/UA-1 tagged PDF (structure tree, alt text, /Lang). Combinable with Conformance. Not yet supported with named page groups.</summary>
+    /// <summary>Produce a tagged PDF (structure tree, alt text, /Lang, landmark regions, Link OBJR cross-reference). Combinable with Conformance and with named page groups.</summary>
     public bool? Tagged { get; init; }
+
+    /// <summary>PDF/UA spec version Tagged targets: "Ua1" (default, ISO 14289-1, PDF 1.7) or "Ua2" (ISO 14289-2:2024, PDF 2.0 -- cannot combine with Conformance).</summary>
+    public string? UaVersion { get; init; }
 
     public EggPdf.PdfRenderOptions ToCoreOptions() => new()
     {
@@ -432,7 +435,19 @@ record RenderOptions
         Conformance = ParseConformance(Conformance),
         Invoice = Invoice?.ToFacturXInvoice(),
         Tagged = Tagged ?? false,
+        UaVersion = ParseUaVersion(UaVersion),
     };
+
+    private static EggPdf.Pdf.PdfUaVersion ParseUaVersion(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return EggPdf.Pdf.PdfUaVersion.Ua1;
+        return value.ToLowerInvariant() switch
+        {
+            "ua1" or "1" => EggPdf.Pdf.PdfUaVersion.Ua1,
+            "ua2" or "2" => EggPdf.Pdf.PdfUaVersion.Ua2,
+            _ => throw new ArgumentException($"Invalid uaVersion value '{value}'. Expected 'Ua1' or 'Ua2'."),
+        };
+    }
 
     private static EggPdf.Pdf.PdfAConformance? ParseConformance(string? value)
     {

@@ -219,6 +219,23 @@ public static partial class HtmlToPdf
         return Task.FromResult(RenderInternal(html ?? "", null, tagged: tagged));
     }
 
+    /// <summary>
+    /// Render a tagged PDF targeting a specific PDF/UA version. <see cref="Pdf.PdfUaVersion.Ua2"/>
+    /// (ISO 14289-2:2024, PDF 2.0-based) cannot be combined with PDF/A conformance -- there is no
+    /// defined joint standard for that combination, unlike PDF/UA-1's level-A conformance.
+    /// </summary>
+    public static byte[] Render(string? html, bool tagged, Pdf.PdfUaVersion uaVersion)
+    {
+        return RenderInternal(html ?? "", null, tagged: tagged, uaVersion: uaVersion);
+    }
+
+    /// <summary>Render a tagged PDF targeting a specific PDF/UA version, asynchronously.</summary>
+    public static Task<byte[]> RenderAsync(string? html, bool tagged, Pdf.PdfUaVersion uaVersion, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(RenderInternal(html ?? "", null, tagged: tagged, uaVersion: uaVersion));
+    }
+
     /// <summary>Render a PDF/UA-1 tagged, PDF/A-conformant PDF in one call (see the single-argument overloads of each).</summary>
     public static byte[] Render(string? html, Pdf.PdfAConformance conformance, bool tagged)
     {
@@ -233,6 +250,23 @@ public static partial class HtmlToPdf
     }
 
     /// <summary>
+    /// Render a tagged, PDF/A-conformant PDF, explicit about targeting PDF/UA-1 (the only UA
+    /// version definable jointly with PDF/A -- see the single-argument <see cref="Pdf.PdfUaVersion"/>
+    /// overload's doc comment). Throws if <paramref name="uaVersion"/> is <see cref="Pdf.PdfUaVersion.Ua2"/>.
+    /// </summary>
+    public static byte[] Render(string? html, Pdf.PdfAConformance conformance, bool tagged, Pdf.PdfUaVersion uaVersion)
+    {
+        return RenderInternal(html ?? "", null, null, conformance, tagged: tagged, uaVersion: uaVersion);
+    }
+
+    /// <summary>Render a tagged, PDF/A-conformant PDF targeting a specific PDF/UA version, asynchronously.</summary>
+    public static Task<byte[]> RenderAsync(string? html, Pdf.PdfAConformance conformance, bool tagged, Pdf.PdfUaVersion uaVersion, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(RenderInternal(html ?? "", null, null, conformance, tagged: tagged, uaVersion: uaVersion));
+    }
+
+    /// <summary>
     /// Render HTML to PDF, applying <see cref="PdfRenderOptions"/>. Page size, margins,
     /// orientation, title/author metadata, and extra CSS are translated into an injected
     /// <c>@page</c> rule and &lt;head&gt; tags before parsing (the generated rule is appended
@@ -244,7 +278,8 @@ public static partial class HtmlToPdf
     public static byte[] Render(string? html, PdfRenderOptions options)
     {
         return RenderInternal(ApplyRenderOptions(html ?? "", options), null,
-            options?.Encryption, options?.Conformance, options?.Invoice, options?.Tagged ?? false);
+            options?.Encryption, options?.Conformance, options?.Invoice, options?.Tagged ?? false,
+            options?.UaVersion ?? Pdf.PdfUaVersion.Ua1);
     }
 
     /// <summary>Render HTML to PDF asynchronously, applying <see cref="PdfRenderOptions"/>.</summary>
@@ -313,7 +348,7 @@ public static partial class HtmlToPdf
         return $"<head>{inject}</head>{html}";
     }
 
-    private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false)
+    private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1)
     {
         // 1. Parse HTML -> DOM
         var document = HtmlParser.Parse(html);
@@ -408,8 +443,9 @@ public static partial class HtmlToPdf
             // PaintBox can wrap each box's output in the right marked-content tag as it paints.
             if (tagged)
             {
-                var (structRoot, boxToElement) = StructureTreeBuilder.Build(layoutRoots);
+                var (structRoot, boxToElement) = StructureTreeBuilder.Build(layoutRoots, uaVersion);
                 pdfDoc.StructureTree = structRoot;
+                pdfDoc.UaVersion = uaVersion;
                 pdfDoc.DocumentLanguage = document.DocumentElement?.GetAttribute("lang");
                 Paint.BoxPainter.StructureMap = boxToElement;
             }

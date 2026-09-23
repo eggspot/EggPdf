@@ -199,6 +199,8 @@ public partial class PdfDocument
             throw new InvalidOperationException("Tagged PDF (PDF/UA-1) output does not support encryption.");
         if (Conformance != null && Conformance.Value.RequiresTagging() && StructureTree == null)
             throw new InvalidOperationException($"{Conformance} conformance requires accessibility tagging -- set StructureTree (e.g. via HtmlToPdf.Render(html, conformance, tagged: true)) or use the corresponding b/u level instead.");
+        if (StructureTree != null && UaVersion == PdfUaVersion.Ua2 && Conformance != null)
+            throw new InvalidOperationException("PDF/UA-2 combined with PDF/A conformance is not a defined joint standard -- use PDF/UA-1 (tagged: true with a PdfAConformance b/u/a level) for combined archival+accessibility conformance instead.");
         ValidatePdfA1NoTransparency();
 
         var writer = new PdfStreamWriter(output);

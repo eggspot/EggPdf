@@ -183,6 +183,12 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   content via marked content, plus `/MarkInfo`, `/Lang` and the required XMP identification. A link
   that wraps across lines gets one Link element and one annotation per line (a PDF rectangle can't
   itself wrap)
+- PDF/UA-2 (ISO 14289-2:2024, `HtmlToPdf.Render(html, tagged: true, PdfUaVersion.Ua2)` or
+  `PdfRenderOptions.UaVersion`): the same tagging machinery as PDF/UA-1, plus PDF 2.0's own
+  requirements -- a `%PDF-2.0` header, a declared PDF 2.0 structure namespace every element
+  references via `/NS`, and XMP `pdfuaid:part`/`pdfuaid:rev`. Landmark regions resolve straight to
+  `Div`/`Sect` under UA-2 rather than a custom type + `/RoleMap`. Cannot combine with PDF/A
+  conformance (no defined joint standard); throws rather than silently claim one
 - Pin content (e.g. a signature/acceptance box) to the bottom of whichever page dynamic content ends on (`-eggpdf-pin-bottom: page`)
 
 ### Typography

@@ -233,6 +233,51 @@
         can't itself wrap) rather than one continuous element spanning the whole link.
       </p>
 
+      <h2 id="pdfua2">Supported now: PDF/UA-2 (ISO 14289-2:2024)</h2>
+      <p>
+        Pass <code>PdfUaVersion.Ua2</code> alongside <code>tagged: true</code> to target PDF/UA-2
+        instead of the default UA-1. PDF/UA-2 is based on WTPDF and PDF 2.0 (ISO 32000-2) rather
+        than PDF 1.7, so it needs more than just a different XMP identification:
+      </p>
+      <div class="code-block"><pre><code><span class="typ">byte</span><span class="pun">[]</span> pdf <span class="pun">=</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="typ">Render</span><span class="pun">(</span>html<span class="pun">,</span> <span class="kw">tagged</span><span class="pun">:</span> <span class="kw">true</span><span class="pun">,</span> <span class="typ">PdfUaVersion</span><span class="pun">.</span><span class="typ">Ua2</span><span class="pun">);</span></code></pre></div>
+      <p>This produces:</p>
+      <ul>
+        <li>A <code>%PDF-2.0</code> header instead of the usual 1.7</li>
+        <li>A declared PDF 2.0 structure namespace (<code>/Namespaces</code> on StructTreeRoot,
+          <code>http://iso.org/pdf2/ssn</code>) that every structure element references via
+          <code>/NS</code> — veraPDF's UA-2 rule 8.2.4-1 requires every element to belong to a
+          declared namespace</li>
+        <li>XMP <code>pdfuaid:part</code> of <code>2</code> plus a <code>pdfuaid:rev</code> of
+          <code>2024</code>, identifying the referenced ISO 32000-2 edition</li>
+      </ul>
+      <p>
+        Landmark regions (<code>nav</code>/<code>header</code>/<code>footer</code>/<code>aside</code>/<code>main</code>/<code>article</code>/<code>section</code>)
+        resolve straight to their standard fallback type (<code>Div</code> or <code>Sect</code>)
+        under UA-2, rather than the custom type name + <code>/RoleMap</code> indirection UA-1 uses.
+        PDF 2.0's namespace-scoped role mapping (<code>/RoleMapNS</code>) is a materially different
+        and more involved mechanism than PDF 1.7's flat <code>/RoleMap</code> — resolving directly
+        to a standard type sidesteps needing it, at the cost of losing the semantic landmark
+        distinction specifically under UA-2 (the content is still tagged, just as a generic
+        Div/Sect rather than a Nav/Header/etc.).
+      </p>
+      <p>
+        <code>PdfUaVersion.Ua2</code> cannot be combined with <code>PdfAConformance</code> — there
+        is no defined joint PDF/A + PDF/UA-2 standard (unlike PDF/UA-1's level-A conformance);
+        combining throws. Reachable via the overloads above, <code>PdfRenderOptions.UaVersion</code>,
+        the CLI's <code>--ua-version 2</code> flag (requires <code>--tagged</code>), and the REST
+        API's <code>options.uaVersion</code> field.
+      </p>
+      <p>
+        <strong>Known limitations:</strong> no structure destinations for internal links (EggPdf
+        doesn't yet support internal anchor links at all, tagged or not); table cells still rely on
+        the same <code>&lt;th scope&gt;</code>-derived <code>/Scope</code> attribute UA-1 uses
+        rather than PDF 2.0's <code>/Headers</code> mechanism or its algorithmic-determination
+        alternative; <code>/Info</code> is kept alongside XMP rather than dropped, since sources on
+        whether PDF/UA-2 actually forbids it (rather than just deprecating it in favor of XMP)
+        disagreed and removing it is a large, hard-to-reverse-safely change across every existing
+        PDF-writing path — kept as the conservative choice pending clearer verification.
+      </p>
+
       <h2 id="roadmap">On the roadmap</h2>
       <p>
         Not yet implemented. Listed here so the gap is explicit rather than silently assumed —
@@ -244,11 +289,11 @@
           (Comfort) is implemented (see above) and is a superset of BASIC's requirements, but
           EXTENDED-only fields (allowances/charges, multiple deliveries, additional references) are
           not modeled</li>
-        <li><strong>PDF/UA-2</strong> and <strong>WTPDF</strong> (the PDF Association's newer,
-          PDF 2.0-based tagging model, ISO 14289-2:2024, requires a PDF 2.0 substrate: new header,
-          <code>/Namespaces</code> + <code>/RoleMapNS</code> on StructTreeRoot, a single Document
-          root in the PDF 2.0 structure namespace, structure destinations for internal links, and
-          <code>pdfuaid:rev</code> in XMP) — not started</li>
+        <li><strong>PDF/UA-2 structure destinations, <code>/Headers</code> table cells, and full
+          <code>/RoleMapNS</code></strong> — see the known limitations above</li>
+        <li><strong>WTPDF's Level 1 "for reuse" conformance</strong> (a weaker tier than PDF/UA-2's
+          accessibility conformance, both defined by the same PDF Association WTPDF 1.0
+          specification) — not modeled; EggPdf's UA-2 support targets the accessibility tier only</li>
       </ul>
 
     </main>

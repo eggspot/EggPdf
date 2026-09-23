@@ -33,6 +33,7 @@ public class Program
         string? outputPath = null;
         string? pdfaFlag = null;
         string? invoicePath = null;
+        string? uaVersionFlag = null;
         bool verbose = HasFlag(args, "--verbose") || HasFlag(args, "-v");
         bool tagged = HasFlag(args, "--tagged");
 
@@ -50,10 +51,30 @@ public class Program
             {
                 if (i + 1 < args.Length) invoicePath = args[++i];
             }
+            else if (args[i] == "--ua-version")
+            {
+                if (i + 1 < args.Length) uaVersionFlag = args[++i];
+            }
             else if (!args[i].StartsWith("-"))
             {
                 inputPath ??= args[i];
             }
+        }
+
+        PdfUaVersion uaVersion = PdfUaVersion.Ua1;
+        if (uaVersionFlag != null)
+        {
+            if (uaVersionFlag != "1" && uaVersionFlag != "2")
+            {
+                Console.Error.WriteLine($"Error: Invalid --ua-version value '{uaVersionFlag}'. Expected 1 or 2.");
+                return 1;
+            }
+            if (!tagged)
+            {
+                Console.Error.WriteLine("Error: --ua-version requires --tagged.");
+                return 1;
+            }
+            uaVersion = uaVersionFlag == "2" ? PdfUaVersion.Ua2 : PdfUaVersion.Ua1;
         }
 
         PdfAConformance? conformance = null;
@@ -79,6 +100,11 @@ public class Program
             if (conformance.Value.RequiresTagging() && !tagged)
             {
                 Console.Error.WriteLine($"Error: --pdfa {pdfaFlag} requires --tagged (level A conformance requires accessibility tagging).");
+                return 1;
+            }
+            if (uaVersion == PdfUaVersion.Ua2)
+            {
+                Console.Error.WriteLine("Error: --ua-version 2 cannot be combined with --pdfa -- there is no defined joint PDF/A + PDF/UA-2 standard. Use --ua-version 1 (the default) for a combined PDF/A + PDF/UA-1 document.");
                 return 1;
             }
         }
@@ -151,7 +177,7 @@ public class Program
             var startTime = DateTime.UtcNow;
 
             PdfRenderOptions? options = (conformance != null || tagged)
-                ? new PdfRenderOptions { Conformance = conformance, Invoice = invoice, Tagged = tagged }
+                ? new PdfRenderOptions { Conformance = conformance, Invoice = invoice, Tagged = tagged, UaVersion = uaVersion }
                 : null;
             var pdf = options != null ? HtmlToPdf.Render(html, options) : HtmlToPdf.Render(html);
 
@@ -216,11 +242,15 @@ OPTIONS:
                               modes, or images with alpha (PDF/A-1 forbids
                               transparency outright). Level A (1a/2a/3a)
                               requires --tagged (full accessibility conformance)
-    --invoice <path>         ZUGFeRD/Factur-X invoice JSON (MINIMUM profile) to embed.
-                              Requires --pdfa 3b or --pdfa 3u
-    --tagged                 Produce a PDF/UA-1 tagged PDF (structure tree, alt
-                              text, /Lang). Combinable with --pdfa. Not yet
-                              supported with named page groups
+    --invoice <path>         ZUGFeRD/Factur-X invoice JSON to embed (MINIMUM profile,
+                              or EN 16931/Comfort when the JSON's lineItems is
+                              non-empty). Requires --pdfa 3b or --pdfa 3u
+    --tagged                 Produce a tagged PDF (structure tree, alt text,
+                              /Lang, landmark regions, Link OBJR cross-reference).
+                              Combinable with --pdfa and with named page groups
+    --ua-version <1|2>       PDF/UA spec version --tagged targets: 1 (default,
+                              ISO 14289-1, PDF 1.7) or 2 (ISO 14289-2:2024,
+                              PDF 2.0 -- cannot combine with --pdfa). Requires --tagged
     -v, --verbose            Show render timing and file size
     --version                Show version
     -h, --help               Show this help

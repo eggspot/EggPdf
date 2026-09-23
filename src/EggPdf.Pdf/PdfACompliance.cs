@@ -18,10 +18,13 @@ public static class PdfACompliance
     /// readers recognize the embedded invoice XML attachment. When
     /// <paramref name="includePdfUA"/> is set, <c>pdfuaid:part</c> is declared and
     /// <paramref name="title"/> is required (PDF/UA-1 rule 7.1-8/7.1-9) -- an empty title is
-    /// replaced with a placeholder rather than silently omitted.
+    /// replaced with a placeholder rather than silently omitted. <paramref name="isUa2"/> selects
+    /// PDF/UA-2 (ISO 14289-2:2024) instead of the default UA-1: <c>pdfuaid:part</c> becomes 2 and
+    /// a <c>pdfuaid:rev</c> of 2024 is added.
     /// </summary>
     public static string GenerateXmpMetadata(string? title, string? author, PdfAConformance? conformance,
-        string? facturXFileName = null, bool includePdfUA = false, string facturXConformanceLevel = "MINIMUM")
+        string? facturXFileName = null, bool includePdfUA = false, string facturXConformanceLevel = "MINIMUM",
+        bool isUa2 = false)
     {
         var now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
 
@@ -45,9 +48,16 @@ public static class PdfACompliance
             xmp.AppendLine($"  <pdfaid:conformance>{conformance.Value.Level()}</pdfaid:conformance>");
         }
 
-        // PDF/UA identification (part only -- PDF/UA-1 has no conformance letter, unlike PDF/A)
+        // PDF/UA identification (part only -- neither UA-1 nor UA-2 has a conformance letter,
+        // unlike PDF/A). UA-2 (ISO 14289-2:2024) additionally requires pdfuaid:rev identifying
+        // the year of the referenced ISO 32000-2 edition, per the PDF Association's own
+        // "future-proofing XMP identification" guidance for versioned UA parts.
         if (includePdfUA)
-            xmp.AppendLine("  <pdfuaid:part>1</pdfuaid:part>");
+        {
+            xmp.AppendLine($"  <pdfuaid:part>{(isUa2 ? 2 : 1)}</pdfuaid:part>");
+            if (isUa2)
+                xmp.AppendLine("  <pdfuaid:rev>2024</pdfuaid:rev>");
+        }
 
         // Dublin Core metadata. PDF/UA-1 requires a title (rule 7.1-8/7.1-9); default rather
         // than silently omit it when the caller didn't set one.
