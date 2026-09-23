@@ -232,11 +232,15 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - AcroForm fields (fillable forms from HTML form elements)
 - PDF merging
 - QR codes and barcodes
-- ZUGFeRD/Factur-X e-invoicing, MINIMUM profile (`HtmlToPdf.Render(html, PdfAConformance.PdfA3b, new FacturXInvoice {...})`,
+- ZUGFeRD/Factur-X e-invoicing (`HtmlToPdf.Render(html, PdfAConformance.PdfA3b, new FacturXInvoice {...})`,
   `PdfRenderOptions.Invoice`, the CLI's `--invoice <path>` flag, or the REST API's `options.invoice`
   field): embeds the UN/CEFACT CII invoice XML as a PDF/A-3 attachment with the Factur-X XMP
-  extension schema. BASIC/EN16931/EXTENDED profiles (line items, full tax breakdown) are not
-  implemented yet
+  extension schema. MINIMUM profile when `FacturXInvoice.LineItems` is empty; adding line items
+  automatically produces EN 16931 (Comfort)-level output instead -- per-line tax detail, a grouped
+  header tax breakdown, and computed (not caller-supplied) monetary totals, with
+  `/AFRelationship /Alternative` for German legal validity. BASIC and EXTENDED are not modeled as
+  distinct profiles -- populating line items always targets EN 16931, a superset of BASIC's
+  requirements but without EXTENDED-only fields (allowances/charges, multiple deliveries, etc.)
 
 ### Performance
 - Streaming output (constant memory for large documents)

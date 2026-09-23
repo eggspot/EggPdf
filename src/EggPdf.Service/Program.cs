@@ -467,6 +467,9 @@ record InvoiceRequest
     public decimal? GrandTotal { get; init; }
     public decimal? DuePayableAmount { get; init; }
 
+    /// <summary>Line items (EN 16931 profile). Non-empty produces an EN 16931-conformant document instead of MINIMUM; header totals above are then computed from these lines.</summary>
+    public List<InvoiceLineItemRequest>? LineItems { get; init; }
+
     public EggPdf.Pdf.FacturXInvoice ToFacturXInvoice() => new()
     {
         InvoiceNumber = InvoiceNumber ?? "",
@@ -481,6 +484,31 @@ record InvoiceRequest
         TaxTotal = TaxTotal ?? 0,
         GrandTotal = GrandTotal ?? 0,
         DuePayableAmount = DuePayableAmount ?? 0,
+        LineItems = LineItems?.ConvertAll(l => l.ToFacturXLineItem()) ?? new(),
+    };
+}
+
+record InvoiceLineItemRequest
+{
+    public string? LineId { get; init; }
+    public string? ItemName { get; init; }
+    public decimal? NetUnitPrice { get; init; }
+    public decimal? BilledQuantity { get; init; }
+    public string? UnitCode { get; init; }
+    public decimal? LineTotalAmount { get; init; }
+    public string? VatCategoryCode { get; init; }
+    public decimal? VatRatePercent { get; init; }
+
+    public EggPdf.Pdf.FacturXLineItem ToFacturXLineItem() => new()
+    {
+        LineId = LineId ?? "",
+        ItemName = ItemName ?? "",
+        NetUnitPrice = NetUnitPrice ?? 0,
+        BilledQuantity = BilledQuantity ?? 0,
+        UnitCode = UnitCode ?? "C62",
+        LineTotalAmount = LineTotalAmount ?? 0,
+        VatCategoryCode = VatCategoryCode ?? "S",
+        VatRatePercent = VatRatePercent ?? 0,
     };
 }
 

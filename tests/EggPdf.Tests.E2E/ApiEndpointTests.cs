@@ -137,6 +137,45 @@ public class ApiEndpointTests
     }
 
     [Fact]
+    public async Task Render_InvoiceWithLineItems_ProducesEn16931WithAlternativeRelationship()
+    {
+        var content = new StringContent(
+            JsonSerializer.Serialize(new
+            {
+                html = "<h1>Invoice</h1>",
+                options = new
+                {
+                    conformance = "PdfA3b",
+                    invoice = new
+                    {
+                        invoiceNumber = "2026-042",
+                        sellerName = "Seller GmbH",
+                        buyerName = "Buyer SARL",
+                        lineItems = new[]
+                        {
+                            new
+                            {
+                                lineId = "1", itemName = "Consulting", netUnitPrice = 100.00,
+                                billedQuantity = 3, unitCode = "HUR", lineTotalAmount = 300.00,
+                                vatCategoryCode = "S", vatRatePercent = 20,
+                            },
+                        },
+                    },
+                },
+            }),
+            Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/render", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        var bytes = await resp.Content.ReadAsByteArrayAsync();
+        var pdfText = Encoding.Latin1.GetString(bytes);
+        pdfText.Should().Contain("<ram:IncludedSupplyChainTradeLineItem>");
+        pdfText.Should().Contain("<fx:ConformanceLevel>EN16931</fx:ConformanceLevel>");
+        pdfText.Should().Contain("/AFRelationship /Alternative");
+    }
+
+    [Fact]
     public async Task Render_InvalidConformanceValue_ReturnsBadRequest()
     {
         var content = new StringContent(

@@ -21,7 +21,7 @@ public static class PdfACompliance
     /// replaced with a placeholder rather than silently omitted.
     /// </summary>
     public static string GenerateXmpMetadata(string? title, string? author, PdfAConformance? conformance,
-        string? facturXFileName = null, bool includePdfUA = false)
+        string? facturXFileName = null, bool includePdfUA = false, string facturXConformanceLevel = "MINIMUM")
     {
         var now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
 
@@ -76,7 +76,7 @@ public static class PdfACompliance
         xmp.AppendLine("</rdf:Description>");
 
         if (!string.IsNullOrEmpty(facturXFileName))
-            AppendFacturXExtensionSchema(xmp, facturXFileName!);
+            AppendFacturXExtensionSchema(xmp, facturXFileName!, facturXConformanceLevel);
 
         xmp.AppendLine("</rdf:RDF>");
         xmp.AppendLine("</x:xmpmeta>");
@@ -114,7 +114,7 @@ public static class PdfACompliance
     /// actual property values identifying the embedded invoice attachment. Verified against the
     /// reference schema published at github.com/atgp/factur-x (xmp/Factur-X_extension_schema.xmp).
     /// </summary>
-    private static void AppendFacturXExtensionSchema(StringBuilder xmp, string facturXFileName)
+    private static void AppendFacturXExtensionSchema(StringBuilder xmp, string facturXFileName, string conformanceLevel)
     {
         xmp.AppendLine("<rdf:Description rdf:about=''");
         xmp.AppendLine("  xmlns:pdfaExtension='http://www.aiim.org/pdfa/ns/extension/'");
@@ -144,7 +144,7 @@ public static class PdfACompliance
         xmp.AppendLine("  <fx:DocumentType>INVOICE</fx:DocumentType>");
         xmp.AppendLine($"  <fx:DocumentFileName>{EscapeXml(facturXFileName)}</fx:DocumentFileName>");
         xmp.AppendLine("  <fx:Version>1.0</fx:Version>");
-        xmp.AppendLine("  <fx:ConformanceLevel>MINIMUM</fx:ConformanceLevel>");
+        xmp.AppendLine($"  <fx:ConformanceLevel>{EscapeXml(conformanceLevel)}</fx:ConformanceLevel>");
         xmp.AppendLine("</rdf:Description>");
     }
 

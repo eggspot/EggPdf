@@ -12,8 +12,9 @@ public partial class PdfDocument
     internal const string FacturXFileName = "factur-x.xml";
 
     /// <summary>
-    /// Optional Factur-X/ZUGFeRD invoice data (MINIMUM profile). When set, requires
-    /// <see cref="Conformance"/> to be <see cref="PdfAConformance.PdfA3b"/> or
+    /// Optional Factur-X/ZUGFeRD invoice data. Produces the MINIMUM profile with no line items,
+    /// or an EN 16931-conformant document with one or more (see <see cref="FacturXInvoice"/>).
+    /// When set, requires <see cref="Conformance"/> to be <see cref="PdfAConformance.PdfA3b"/> or
     /// <see cref="PdfAConformance.PdfA3u"/> -- Factur-X's embedded-XML attachment is only
     /// permitted under PDF/A-3.
     /// </summary>
@@ -47,14 +48,17 @@ public partial class PdfDocument
         writer.WriteLine("endstream");
         writer.WriteLine("endobj");
 
+        // /AFRelationship /Data is correct for the MINIMUM/BASIC WL profiles; EN16931 (and above)
+        // requires /Alternative for German legal validity.
+        bool en16931 = FacturXCiiWriter.IsEn16931(Invoice);
+        string relationship = en16931 ? "Alternative" : "Data";
+        string desc = en16931 ? "Factur-X EN 16931 invoice data" : "Factur-X MINIMUM invoice data";
+
         alloc.RecordOffset(filespecObj, writer.Position);
         writer.WriteLine($"{filespecObj} 0 obj");
         writer.WriteLine($"<< /Type /Filespec /F ({FacturXFileName}) /UF ({FacturXFileName})");
         writer.WriteLine($"/EF << /F {embeddedFileObj} 0 R /UF {embeddedFileObj} 0 R >>");
-        // /AFRelationship /Data is correct for the MINIMUM/BASIC WL profiles this writer targets;
-        // BASIC/EN16931/EXTENDED profiles require /Alternative for German legal validity -- revisit
-        // if/when those profiles are added.
-        writer.WriteLine("/AFRelationship /Data /Desc (Factur-X MINIMUM invoice data) >>");
+        writer.WriteLine($"/AFRelationship /{relationship} /Desc ({desc}) >>");
         writer.WriteLine("endobj");
     }
 }

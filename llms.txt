@@ -62,13 +62,27 @@ byte[] encrypted = HtmlToPdf.Render(html, new EggPdf.Pdf.PdfEncryption
 // including the standard 14 -- with a correct ToUnicode mapping). Cannot be combined with PdfEncryption.
 byte[] pdfA = HtmlToPdf.Render(html, EggPdf.Pdf.PdfAConformance.PdfA2b);
 
-// ZUGFeRD/Factur-X e-invoice, MINIMUM profile: embeds the CII invoice XML as a PDF/A-3
-// attachment. Requires PdfA3b or PdfA3u -- throws otherwise.
+// ZUGFeRD/Factur-X e-invoice: embeds the CII invoice XML as a PDF/A-3 attachment.
+// Requires PdfA3b or PdfA3u -- throws otherwise. No LineItems -> MINIMUM profile.
 byte[] invoice = HtmlToPdf.Render(html, EggPdf.Pdf.PdfAConformance.PdfA3b, new EggPdf.Pdf.FacturXInvoice
 {
     InvoiceNumber = "2026-042", IssueDate = DateTime.UtcNow, CurrencyCode = "EUR",
     SellerName = "Seller GmbH", BuyerName = "Buyer SARL",
     TaxBasisTotal = 100.00m, TaxTotal = 20.00m, GrandTotal = 120.00m, DuePayableAmount = 120.00m,
+});
+
+// Non-empty LineItems -> EN 16931 (Comfort) profile instead: per-line tax, a grouped header
+// tax breakdown, and computed (not caller-supplied) totals. /AFRelationship becomes
+// /Alternative (German legal validity) instead of MINIMUM's /Data.
+byte[] en16931Invoice = HtmlToPdf.Render(html, EggPdf.Pdf.PdfAConformance.PdfA3b, new EggPdf.Pdf.FacturXInvoice
+{
+    InvoiceNumber = "2026-042", IssueDate = DateTime.UtcNow, CurrencyCode = "EUR",
+    SellerName = "Seller GmbH", BuyerName = "Buyer SARL",
+    LineItems = { new EggPdf.Pdf.FacturXLineItem
+    {
+        LineId = "1", ItemName = "Widget", NetUnitPrice = 10.00m, BilledQuantity = 5,
+        LineTotalAmount = 50.00m, VatCategoryCode = "S", VatRatePercent = 20m,
+    }},
 });
 ```
 
@@ -89,8 +103,10 @@ CLI: `eggpdf input.html -o output.pdf --pdfa 3b --invoice invoice-data.json` (JS
 `FacturXInvoice`'s properties). REST API: `POST /api/render` with
 `{"html": "...", "options": {"conformance": "PdfA3b", "invoice": {...}}}`.
 
-ZUGFeRD/Factur-X only supports the MINIMUM profile (no line items) -- don't suggest
-BASIC/EN16931/Comfort/EXTENDED properties, they don't exist. `PdfAConformance` also has
+ZUGFeRD/Factur-X profile is derived from `FacturXInvoice.LineItems`, not a separate enum: empty
+-> MINIMUM, non-empty -> EN 16931 (Comfort). BASIC and EXTENDED are not modeled as distinct
+profiles -- don't suggest BASIC-only or EXTENDED-only properties (allowances/charges, multiple
+deliveries, etc.), they don't exist; populating line items always targets EN 16931. `PdfAConformance` also has
 `PdfA1b` (PDF/A-1, PDF 1.4-based) -- throws `InvalidOperationException` if the document uses
 opacity, blend modes, or images with an alpha channel, since PDF/A-1 forbids transparency
 outright; suggest PdfA2b/2u/3b/3u instead when the document needs any of those. Note: PDF/A-1

@@ -102,8 +102,9 @@ public partial class PdfDocument
         if (metadataObj != 0)
         {
             string? facturXFileName = Invoice != null ? FacturXFileName : null;
+            string facturXLevel = Invoice != null && FacturXCiiWriter.IsEn16931(Invoice) ? "EN16931" : "MINIMUM";
             byte[] xmpBytes = Encoding.UTF8.GetBytes(
-                PdfACompliance.GenerateXmpMetadata(Title, Author, Conformance, facturXFileName, includePdfUA: StructureTree != null));
+                PdfACompliance.GenerateXmpMetadata(Title, Author, Conformance, facturXFileName, includePdfUA: StructureTree != null, facturXLevel));
             alloc.RecordOffset(metadataObj, writer.Position);
             writer.WriteLine($"{metadataObj} 0 obj");
             writer.WriteLine($"<< /Type /Metadata /Subtype /XML /Length {xmpBytes.Length} >>");

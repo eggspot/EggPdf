@@ -119,7 +119,7 @@
         <code>options.conformance</code> JSON field.
       </p>
 
-      <h2 id="zugferd">Supported now: ZUGFeRD / Factur-X (MINIMUM profile)</h2>
+      <h2 id="zugferd">Supported now: ZUGFeRD / Factur-X (MINIMUM &amp; EN 16931)</h2>
       <p>
         Pass a <code>FacturXInvoice</code> alongside <code>PdfA3b</code> or <code>PdfA3u</code>
         conformance to embed the invoice as a UN/CEFACT Cross Industry Invoice (CII) XML attachment —
@@ -134,22 +134,48 @@
       <p>This embeds:</p>
       <ul>
         <li>The CII invoice XML as a PDF/A-3 attachment (<code>/EmbeddedFiles</code> name tree, PDF 2.0
-          <code>/AF</code> associated-file array, <code>/AFRelationship /Data</code>)</li>
+          <code>/AF</code> associated-file array)</li>
         <li>The Factur-X XMP extension schema (<code>fx:</code> namespace) declaring the attachment's
           document type, filename, version and conformance level, so Factur-X readers and PDF/A
           validators recognize it</li>
       </ul>
       <p>
-        Only the <strong>MINIMUM</strong> profile is implemented — no line items, no detailed tax
-        breakdown, just parties, dates and totals. <code>FacturXInvoice</code>'s fields are a strict
-        subset of the EN 16931 semantic data model rather than a MINIMUM-specific shape, so BASIC and
-        EN 16931 (Comfort) profile support extends the same model rather than replacing it.
+        The profile is derived from <code>FacturXInvoice.LineItems</code> rather than a separate
+        enum. Leave it empty and you get the <strong>MINIMUM</strong> profile above — parties, dates
+        and totals only, <code>/AFRelationship /Data</code>. Populate it and the writer instead
+        produces <strong>EN 16931 (Comfort)</strong>-level output:
+      </p>
+      <div class="code-block"><pre><code><span class="typ">byte</span><span class="pun">[]</span> pdf <span class="pun">=</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="typ">Render</span><span class="pun">(</span>html<span class="pun">,</span> <span class="typ">PdfAConformance</span><span class="pun">.</span><span class="typ">PdfA3b</span><span class="pun">,</span> <span class="kw">new</span> <span class="typ">FacturXInvoice</span>
+<span class="pun">{</span>
+    <span class="typ">InvoiceNumber</span> <span class="pun">=</span> <span class="str">"2026-042"</span><span class="pun">,</span> <span class="typ">IssueDate</span> <span class="pun">=</span> <span class="typ">DateTime</span><span class="pun">.</span><span class="typ">UtcNow</span><span class="pun">,</span> <span class="typ">CurrencyCode</span> <span class="pun">=</span> <span class="str">"EUR"</span><span class="pun">,</span>
+    <span class="typ">SellerName</span> <span class="pun">=</span> <span class="str">"Seller GmbH"</span><span class="pun">,</span> <span class="typ">BuyerName</span> <span class="pun">=</span> <span class="str">"Buyer SARL"</span><span class="pun">,</span>
+    <span class="typ">LineItems</span> <span class="pun">=</span> <span class="pun">{</span> <span class="kw">new</span> <span class="typ">FacturXLineItem</span>
+    <span class="pun">{</span>
+        <span class="typ">LineId</span> <span class="pun">=</span> <span class="str">"1"</span><span class="pun">,</span> <span class="typ">ItemName</span> <span class="pun">=</span> <span class="str">"Widget"</span><span class="pun">,</span> <span class="typ">NetUnitPrice</span> <span class="pun">=</span> <span class="pun">10.00</span><span class="pun">,</span> <span class="typ">BilledQuantity</span> <span class="pun">=</span> <span class="pun">5</span><span class="pun">,</span>
+        <span class="typ">LineTotalAmount</span> <span class="pun">=</span> <span class="pun">50.00</span><span class="pun">,</span> <span class="typ">VatCategoryCode</span> <span class="pun">=</span> <span class="str">"S"</span><span class="pun">,</span> <span class="typ">VatRatePercent</span> <span class="pun">=</span> <span class="pun">20</span><span class="pun">,</span>
+    <span class="pun">} },</span>
+<span class="pun">});</span></code></pre></div>
+      <p>
+        With line items present, the writer computes line-level tax per item, groups lines into a
+        header-level tax breakdown by <code>(VatCategoryCode, VatRatePercent)</code>, and computes
+        the header monetary summation (<code>TaxBasisTotalAmount</code>/<code>TaxTotalAmount</code>/
+        <code>GrandTotalAmount</code>/<code>DuePayableAmount</code>) from the line items — any values
+        set on the invoice's own header total properties are ignored rather than trusted, so the two
+        can never disagree. The attachment relationship also switches to
+        <code>/AFRelationship /Alternative</code> (required for German legal validity per the
+        Factur-X spec), versus MINIMUM's <code>/Data</code>.
+      </p>
+      <p>
+        <strong>Scoping note:</strong> BASIC and EXTENDED are not modeled as separate profiles.
+        Populating line items always targets EN 16931 — a strict superset of BASIC's requirements —
+        but doesn't add EXTENDED-only fields (allowances/charges, multiple deliveries, additional
+        references, etc.). Don't assume EXTENDED-level data is accepted or emitted.
       </p>
       <p>
         Also reachable via <code>PdfRenderOptions.Invoice</code>, the CLI's
         <code>--invoice &lt;path-to-json&gt;</code> flag (JSON field names match
-        <code>FacturXInvoice</code>'s properties), and the REST API's <code>options.invoice</code>
-        JSON object.
+        <code>FacturXInvoice</code>'s properties, including <code>lineItems</code>), and the REST
+        API's <code>options.invoice</code> JSON object (with its own <code>lineItems</code> array).
       </p>
 
       <h2 id="pdfua">Supported now: PDF/UA-1 (accessibility)</h2>
@@ -200,9 +226,10 @@
         has the full dependency-ordered plan.
       </p>
       <ul>
-        <li><strong>ZUGFeRD/Factur-X BASIC / EN 16931 (Comfort) / EXTENDED profiles</strong> — line
-          items and full tax breakdown, extending the MINIMUM-profile support above (same data model,
-          more fields)</li>
+        <li><strong>ZUGFeRD/Factur-X BASIC and EXTENDED as distinct profiles</strong> — EN 16931
+          (Comfort) is implemented (see above) and is a superset of BASIC's requirements, but
+          EXTENDED-only fields (allowances/charges, multiple deliveries, additional references) are
+          not modeled</li>
         <li><strong>PDF/UA-2</strong> and <strong>WTPDF</strong> (the PDF Association's newer,
           PDF 2.0-based tagging model) — tracked as the eventual target for the structure-tree work
           above, not started</li>
