@@ -27,7 +27,7 @@ public partial class PdfDocument
     /// (producing visually wrong output) or silently ignoring the violation (producing a
     /// mislabeled non-conformant PDF), this throws so the caller can either remove the
     /// transparency or use PdfA2b/PdfA2u/PdfA3b/PdfA3u instead. A no-op unless Conformance is
-    /// PdfA1b/PdfA1u.
+    /// PdfA1b/PdfA1a.
     /// </summary>
     private void ValidatePdfA1NoTransparency()
     {

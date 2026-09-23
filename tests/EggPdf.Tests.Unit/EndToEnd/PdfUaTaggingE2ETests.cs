@@ -91,6 +91,26 @@ public class PdfUaTaggingE2ETests
     }
 
     [Fact]
+    public void PdfA2a_WithTagged_ProducesLevelAConformance()
+    {
+        var html = "<h1>Title</h1><p>Body text</p>";
+
+        var pdf = HtmlToPdf.Render(html, PdfAConformance.PdfA2a, tagged: true);
+        var text = PdfAssert.ValidPdf(pdf);
+
+        text.Should().Contain("<pdfaid:part>2</pdfaid:part>");
+        text.Should().Contain("<pdfaid:conformance>A</pdfaid:conformance>");
+        text.Should().Contain("/Type /StructTreeRoot");
+    }
+
+    [Fact]
+    public void PdfA2a_WithoutTagged_Throws()
+    {
+        Action act = () => HtmlToPdf.Render("<h1>Title</h1>", PdfAConformance.PdfA2a, tagged: false);
+        act.Should().Throw<InvalidOperationException>().WithMessage("*accessibility tagging*");
+    }
+
+    [Fact]
     public void NotTagged_OmitsAllStructureOutput()
     {
         var pdf = HtmlToPdf.Render("<h1>Plain</h1><p>Text</p>");

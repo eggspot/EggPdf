@@ -197,6 +197,8 @@ public partial class PdfDocument
             throw new InvalidOperationException("Factur-X/ZUGFeRD invoice attachment requires PDF/A-3 conformance (PdfA3b or PdfA3u).");
         if (StructureTree != null && Encryption != null)
             throw new InvalidOperationException("Tagged PDF (PDF/UA-1) output does not support encryption.");
+        if (Conformance != null && Conformance.Value.RequiresTagging() && StructureTree == null)
+            throw new InvalidOperationException($"{Conformance} conformance requires accessibility tagging -- set StructureTree (e.g. via HtmlToPdf.Render(html, conformance, tagged: true)) or use the corresponding b/u level instead.");
         ValidatePdfA1NoTransparency();
 
         var writer = new PdfStreamWriter(output);

@@ -65,8 +65,10 @@ byte[] signed = EggPdf.Pdf.PdfSigner.Sign(pdf, x509CertWithPrivateKey,
 - Thread-safe, streaming output, zero allocations on hot path
 
 ## Compliance
-- PDF/A-2b / PDF/A-2u / PDF/A-3b / PDF/A-3u: `HtmlToPdf.Render(html, PdfAConformance.PdfA2b)` — embedded ICC output intent, XMP metadata, every font embedded with a correct ToUnicode mapping
-- Not yet implemented: PDF/A-1b/1u, PDF/UA (accessibility), ZUGFeRD/Factur-X — see [PDF Compliance](https://eggspot.github.io/EggPdf/compliance.html)
+- PDF/A-1b/1a/2b/2u/2a/3b/3u/3a: `HtmlToPdf.Render(html, PdfAConformance.PdfA2b)` — embedded ICC output intent, XMP metadata, every font embedded with a correct ToUnicode mapping. PDF/A-1 has no `u` level (only `a`/`b`, unlike parts 2/3). The `a` levels require `tagged: true` (level A is PDF/A + full accessibility tagging)
+- PDF/UA-1 tagged PDF: `HtmlToPdf.Render(html, tagged: true)` — structure tree, alt text, `/Lang`, `/MarkInfo`, combinable with PDF/A conformance
+- ZUGFeRD/Factur-X e-invoicing, MINIMUM profile: `HtmlToPdf.Render(html, PdfAConformance.PdfA3b, invoice)` — embeds the CII invoice XML as a PDF/A-3 attachment
+- Not yet implemented: ZUGFeRD/Factur-X BASIC/EN16931/EXTENDED profiles, PDF/UA-2 — see [PDF Compliance](https://eggspot.github.io/EggPdf/compliance.html)
 
 ## Target frameworks
 netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0

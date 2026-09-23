@@ -68,7 +68,7 @@
 
     <main class="docs-content">
 
-      <h2 id="supported-now">Supported now: PDF/A-1b, PDF/A-1u, PDF/A-2b, PDF/A-2u, PDF/A-3b, PDF/A-3u</h2>
+      <h2 id="supported-now">Supported now: PDF/A-1b/1a, PDF/A-2b/2u/2a, PDF/A-3b/3u/3a</h2>
       <p>
         Pass a <code>PdfAConformance</code> value to render an archival-conformant PDF instead of the
         default output:
@@ -95,7 +95,8 @@
         attachments (the mechanism ZUGFeRD/Factur-X e-invoicing builds on — see below).
       </p>
       <p>
-        <code>PdfA1b</code>/<code>PdfA1u</code> (PDF/A-1, based on PDF 1.4) write a
+        <code>PdfA1b</code>/<code>PdfA1a</code> (PDF/A-1, based on PDF 1.4 — note ISO 19005-1 has
+        no <code>u</code> level, only <code>a</code>/<code>b</code>, unlike parts 2/3) write a
         <code>%PDF-1.4</code> header instead of <code>1.7</code>, and — because PDF/A-1 forbids
         transparency outright — throw <code>InvalidOperationException</code> if the document uses
         CSS <code>opacity</code> below 1, a <code>mix-blend-mode</code> other than
@@ -104,10 +105,17 @@
         <code>3b</code>/<code>3u</code> for documents that need any of those.
       </p>
       <p>
+        The <strong>A</strong> conformance letter (<code>PdfA1a</code>, <code>PdfA2a</code>,
+        <code>PdfA3a</code>) is PDF/A plus full accessibility tagging as a single named level —
+        it requires <code>tagged: true</code> (see the PDF/UA-1 section below) and throws
+        otherwise, rather than claim accessibility conformance with no structure tree:
+      </p>
+      <div class="code-block"><pre><code><span class="typ">byte</span><span class="pun">[]</span> pdf <span class="pun">=</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="typ">Render</span><span class="pun">(</span>html<span class="pun">,</span> <span class="typ">PdfAConformance</span><span class="pun">.</span><span class="typ">PdfA2a</span><span class="pun">,</span> <span class="kw">tagged</span><span class="pun">:</span> <span class="kw">true</span><span class="pun">);</span></code></pre></div>
+      <p>
         Every entry point can reach it: the standalone <code>HtmlToPdf.Render(html, PdfAConformance)</code>
         overload shown above, <code>PdfRenderOptions.Conformance</code> (combinable with page size,
         margins, title, etc. in one call), the CLI's
-        <code>--pdfa &lt;1b|1u|2b|2u|3b|3u&gt;</code> flag, and the REST API's
+        <code>--pdfa &lt;1b|1a|2b|2u|2a|3b|3u|3a&gt;</code> flag, and the REST API's
         <code>options.conformance</code> JSON field.
       </p>
 
@@ -192,10 +200,6 @@
         has the full dependency-ordered plan.
       </p>
       <ul>
-        <li><strong>PDF/A-2a / PDF/A-3a</strong> — PDF/A plus PDF/UA-1-equivalent tagging as a named
-          conformance <em>level</em> (the two already combine today, e.g.
-          <code>Render(html, PdfAConformance.PdfA2b, tagged: true)</code> — this item is only about
-          adding the <code>PdfA2a</code>/<code>PdfA3a</code> enum members themselves)</li>
         <li><strong>ZUGFeRD/Factur-X BASIC / EN 16931 (Comfort) / EXTENDED profiles</strong> — line
           items and full tax breakdown, extending the MINIMUM-profile support above (same data model,
           more fields)</li>

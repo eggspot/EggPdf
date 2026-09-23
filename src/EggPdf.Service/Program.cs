@@ -409,7 +409,7 @@ record RenderOptions
     public string? Title { get; init; }
     public string? Author { get; init; }
 
-    /// <summary>PDF/A conformance level: "PdfA2b", "PdfA2u", "PdfA3b", or "PdfA3u".</summary>
+    /// <summary>PDF/A conformance level: "PdfA1b", "PdfA1a", "PdfA2b", "PdfA2u", "PdfA2a", "PdfA3b", "PdfA3u", or "PdfA3a". Level A (1a/2a/3a) requires Tagged = true.</summary>
     public string? Conformance { get; init; }
 
     /// <summary>ZUGFeRD/Factur-X invoice data (MINIMUM profile). Requires Conformance = PdfA3b or PdfA3u.</summary>
@@ -440,12 +440,14 @@ record RenderOptions
         return value.ToLowerInvariant() switch
         {
             "pdfa1b" or "1b" => EggPdf.Pdf.PdfAConformance.PdfA1b,
-            "pdfa1u" or "1u" => EggPdf.Pdf.PdfAConformance.PdfA1u,
+            "pdfa1a" or "1a" => EggPdf.Pdf.PdfAConformance.PdfA1a,
             "pdfa2b" or "2b" => EggPdf.Pdf.PdfAConformance.PdfA2b,
             "pdfa2u" or "2u" => EggPdf.Pdf.PdfAConformance.PdfA2u,
+            "pdfa2a" or "2a" => EggPdf.Pdf.PdfAConformance.PdfA2a,
             "pdfa3b" or "3b" => EggPdf.Pdf.PdfAConformance.PdfA3b,
             "pdfa3u" or "3u" => EggPdf.Pdf.PdfAConformance.PdfA3u,
-            _ => throw new ArgumentException($"Invalid conformance value '{value}'. Expected one of: PdfA1b, PdfA1u, PdfA2b, PdfA2u, PdfA3b, PdfA3u."),
+            "pdfa3a" or "3a" => EggPdf.Pdf.PdfAConformance.PdfA3a,
+            _ => throw new ArgumentException($"Invalid conformance value '{value}'. Expected one of: PdfA1b, PdfA1a, PdfA2b, PdfA2u, PdfA2a, PdfA3b, PdfA3u, PdfA3a."),
         };
     }
 }

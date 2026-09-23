@@ -91,18 +91,23 @@ CLI: `eggpdf input.html -o output.pdf --pdfa 3b --invoice invoice-data.json` (JS
 
 ZUGFeRD/Factur-X only supports the MINIMUM profile (no line items) -- don't suggest
 BASIC/EN16931/Comfort/EXTENDED properties, they don't exist. `PdfAConformance` also has
-`PdfA1b`/`PdfA1u` (PDF/A-1, PDF 1.4-based) -- these throw `InvalidOperationException` if the
-document uses opacity, blend modes, or images with an alpha channel, since PDF/A-1 forbids
-transparency outright; suggest PdfA2b/2u/3b/3u instead when the document needs any of those.
+`PdfA1b` (PDF/A-1, PDF 1.4-based) -- throws `InvalidOperationException` if the document uses
+opacity, blend modes, or images with an alpha channel, since PDF/A-1 forbids transparency
+outright; suggest PdfA2b/2u/3b/3u instead when the document needs any of those. Note: PDF/A-1
+has no `u` level (only `a`/`b`) -- don't suggest `PdfA1u`, it doesn't exist.
 
 ```csharp
 // PDF/UA-1 tagged PDF: structure tree, alt text, /Lang, /MarkInfo. Combinable with PdfAConformance.
 byte[] tagged = HtmlToPdf.Render(html, tagged: true);
 byte[] taggedPdfA = HtmlToPdf.Render(html, EggPdf.Pdf.PdfAConformance.PdfA2b, tagged: true);
+
+// PDF/A level A (PdfA1a/PdfA2a/PdfA3a) IS PDF/A + full accessibility tagging as a named
+// conformance level -- requires tagged: true, throws otherwise.
+byte[] pdfA2a = HtmlToPdf.Render(html, EggPdf.Pdf.PdfAConformance.PdfA2a, tagged: true);
 ```
 
-CLI: add `--tagged` (combinable with `--pdfa`). REST API: `options.tagged: true`. PDF/UA-1 tags
-`h1`-`h6`, `p`, `table`/`tr`/`th`/`td` (with `<th scope>`), `ul`/`ol`/`li`, `img` (with `alt`), and
+CLI: add `--tagged` (combinable with `--pdfa`; required when `--pdfa` is 1a/2a/3a). REST API:
+`options.tagged: true`. PDF/UA-1 tags `h1`-`h6`, `p`, `table`/`tr`/`th`/`td` (with `<th scope>`), `ul`/`ol`/`li`, `img` (with `alt`), and
 `a` -- other elements pass through untagged. Not yet supported with named page groups
 (`page: <name>` + `@page <name>`) -- throws `InvalidOperationException` rather than silently
 under-tag. `<a>` elements are tagged as content, not linked via a Link annotation cross-reference

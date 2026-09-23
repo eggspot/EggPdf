@@ -166,10 +166,12 @@
   <span class="pun">}</span>
 <span class="pun">}</span></code></pre></div>
       <p>
-        <code>conformance</code> accepts <code>PdfA1b</code>, <code>PdfA1u</code>, <code>PdfA2b</code>,
-        <code>PdfA2u</code>, <code>PdfA3b</code>, or <code>PdfA3u</code> (<code>PdfA1b</code>/<code>PdfA1u</code>
-        return <code>400</code> if the document uses opacity, blend modes, or image alpha, since PDF/A-1
-        forbids transparency). <code>invoice</code> requires <code>PdfA3b</code>/<code>PdfA3u</code>
+        <code>conformance</code> accepts <code>PdfA1b</code>, <code>PdfA1a</code>, <code>PdfA2b</code>,
+        <code>PdfA2u</code>, <code>PdfA2a</code>, <code>PdfA3b</code>, <code>PdfA3u</code>, or <code>PdfA3a</code>
+        (<code>PdfA1b</code>/<code>PdfA1a</code> return <code>400</code> if the document uses opacity,
+        blend modes, or image alpha, since PDF/A-1 forbids transparency; the <code>a</code> levels
+        return <code>400</code> unless <code>tagged: true</code> is also set — level A conformance
+        requires accessibility tagging). <code>invoice</code> requires <code>PdfA3b</code>/<code>PdfA3u</code>
         (returns <code>400</code> otherwise) and embeds the CII invoice XML as a PDF/A-3 attachment —
         MINIMUM profile only. See <a href="compliance.html">PDF Compliance</a> for details.
       </p>

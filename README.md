@@ -20,7 +20,7 @@ Write normal HTML and CSS. Get a perfect PDF. No WebKit, no Chromium, no native 
 | CSS Flexbox | Yes | Yes | No | Yes |
 | CSS Grid | Yes | Yes | No | Yes |
 | SVG Support | Yes (vector) | Yes | Partial | Yes |
-| PDF/A | 1b/1u/2b/2u/3b/3u | No | No | No |
+| PDF/A | 1b/1a/2b/2u/2a/3b/3u/3a | No | No | No |
 | PDF/UA | UA-1 | No | No | No |
 | Tagged PDF | Yes | No | No | No |
 | Digital Signatures | Yes | No | No | No |
@@ -166,12 +166,14 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Tables spanning any number of pages without row loss, with `<thead>` repeating on every continuation page
 - Mixed page sizes/orientations via named pages (`page: name` on top-level blocks + `@page name { size; margin; margin boxes }`)
 - Watermarks
-- PDF/A-1b / PDF/A-1u / PDF/A-2b / PDF/A-2u / PDF/A-3b / PDF/A-3u archival conformance
-  (`HtmlToPdf.Render(html, PdfAConformance.PdfA2b)`, `PdfRenderOptions.Conformance`, the CLI's
-  `--pdfa` flag, or the REST API's `options.conformance` field): embedded ICC output intent, XMP
-  conformance metadata, every font embedded (including the standard 14) with a correct ToUnicode
-  mapping. PDF/A-1b/1u writes a PDF 1.4 header and throws if the document uses transparency
-  (opacity, blend modes, image alpha) -- PDF/A-1 forbids it outright
+- PDF/A-1b / PDF/A-1a / PDF/A-2b / PDF/A-2u / PDF/A-2a / PDF/A-3b / PDF/A-3u / PDF/A-3a archival
+  conformance (`HtmlToPdf.Render(html, PdfAConformance.PdfA2b)`, `PdfRenderOptions.Conformance`,
+  the CLI's `--pdfa` flag, or the REST API's `options.conformance` field): embedded ICC output
+  intent, XMP conformance metadata, every font embedded (including the standard 14) with a
+  correct ToUnicode mapping. PDF/A-1b/1a writes a PDF 1.4 header and throws if the document uses
+  transparency (opacity, blend modes, image alpha) -- PDF/A-1 forbids it outright (ISO 19005-1 has
+  no `u` level, only `a`/`b`). The `a` levels require `tagged: true` (level A is PDF/A + full
+  accessibility tagging) and throw otherwise
 - PDF/UA-1 tagged PDF (`HtmlToPdf.Render(html, tagged: true)`, `PdfRenderOptions.Tagged`, the CLI's
   `--tagged` flag, or the REST API's `options.tagged` field, combinable with PDF/A conformance):
   a structure tree (headings, paragraphs, tables with `<th scope>`, lists, figures with `alt` text,

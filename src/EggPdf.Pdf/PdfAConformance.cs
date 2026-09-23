@@ -14,14 +14,17 @@ public enum PdfAConformance
     /// </summary>
     PdfA1b,
 
-    /// <summary>PDF/A-1u: PDF/A-1b plus guaranteed-correct Unicode text extraction (see <see cref="PdfA2u"/> for why this needs no extra writer behavior).</summary>
-    PdfA1u,
+    /// <summary>
+    /// PDF/A-1a: PDF/A-1b plus full accessibility tagging (structure tree, alt text, reading
+    /// order) and reliable Unicode text extraction. ISO 19005-1 has no separate "u" level --
+    /// level A folds that guarantee in directly. Requires <see cref="PdfDocument.StructureTree"/>
+    /// to be set (e.g. via <c>HtmlToPdf.Render(html, conformance, tagged: true)</c>); throws
+    /// otherwise rather than silently claim accessibility conformance without a structure tree.
+    /// </summary>
+    PdfA1a,
 
     /// <summary>PDF/A-2b: ISO 19005-2 basic (visual) conformance, based on PDF 1.7.</summary>
     PdfA2b,
-
-    /// <summary>PDF/A-3b: PDF/A-2b plus permission to embed arbitrary file attachments.</summary>
-    PdfA3b,
 
     /// <summary>
     /// PDF/A-2u: PDF/A-2b plus guaranteed-correct Unicode text extraction. EggPdf's
@@ -31,8 +34,17 @@ public enum PdfAConformance
     /// </summary>
     PdfA2u,
 
+    /// <summary>PDF/A-2a: PDF/A-2u plus full accessibility tagging. See <see cref="PdfA1a"/> for the StructureTree requirement.</summary>
+    PdfA2a,
+
+    /// <summary>PDF/A-3b: PDF/A-2b plus permission to embed arbitrary file attachments.</summary>
+    PdfA3b,
+
     /// <summary>PDF/A-3u: PDF/A-3b plus guaranteed-correct Unicode text extraction (see <see cref="PdfA2u"/>).</summary>
     PdfA3u,
+
+    /// <summary>PDF/A-3a: PDF/A-3u plus full accessibility tagging. See <see cref="PdfA1a"/> for the StructureTree requirement.</summary>
+    PdfA3a,
 }
 
 /// <summary>The XMP <c>pdfaid:part</c>/<c>pdfaid:conformance</c> identifiers for each level.</summary>
@@ -40,18 +52,23 @@ public static class PdfAConformanceExtensions
 {
     public static string Part(this PdfAConformance conformance) => conformance switch
     {
-        PdfAConformance.PdfA1b or PdfAConformance.PdfA1u => "1",
-        PdfAConformance.PdfA3b or PdfAConformance.PdfA3u => "3",
-        _ => "2", // PdfA2b, PdfA2u
+        PdfAConformance.PdfA1b or PdfAConformance.PdfA1a => "1",
+        PdfAConformance.PdfA3b or PdfAConformance.PdfA3u or PdfAConformance.PdfA3a => "3",
+        _ => "2", // PdfA2b, PdfA2u, PdfA2a
     };
 
     public static string Level(this PdfAConformance conformance) => conformance switch
     {
-        PdfAConformance.PdfA1u or PdfAConformance.PdfA2u or PdfAConformance.PdfA3u => "U",
+        PdfAConformance.PdfA1a or PdfAConformance.PdfA2a or PdfAConformance.PdfA3a => "A",
+        PdfAConformance.PdfA2u or PdfAConformance.PdfA3u => "U",
         _ => "B", // PdfA1b, PdfA2b, PdfA3b
     };
 
     /// <summary>PDF/A-1 is based on PDF 1.4 and forbids transparency outright.</summary>
     public static bool IsPart1(this PdfAConformance conformance)
-        => conformance == PdfAConformance.PdfA1b || conformance == PdfAConformance.PdfA1u;
+        => conformance == PdfAConformance.PdfA1b || conformance == PdfAConformance.PdfA1a;
+
+    /// <summary>Level A conformance requires full accessibility tagging -- see <see cref="PdfAConformance.PdfA1a"/>.</summary>
+    public static bool RequiresTagging(this PdfAConformance conformance)
+        => conformance == PdfAConformance.PdfA1a || conformance == PdfAConformance.PdfA2a || conformance == PdfAConformance.PdfA3a;
 }

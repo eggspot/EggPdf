@@ -62,16 +62,23 @@ public class Program
             conformance = pdfaFlag.ToLowerInvariant() switch
             {
                 "1b" => PdfAConformance.PdfA1b,
-                "1u" => PdfAConformance.PdfA1u,
+                "1a" => PdfAConformance.PdfA1a,
                 "2b" => PdfAConformance.PdfA2b,
                 "2u" => PdfAConformance.PdfA2u,
+                "2a" => PdfAConformance.PdfA2a,
                 "3b" => PdfAConformance.PdfA3b,
                 "3u" => PdfAConformance.PdfA3u,
+                "3a" => PdfAConformance.PdfA3a,
                 _ => null,
             };
             if (conformance == null)
             {
-                Console.Error.WriteLine($"Error: Invalid --pdfa value '{pdfaFlag}'. Expected one of: 1b, 1u, 2b, 2u, 3b, 3u.");
+                Console.Error.WriteLine($"Error: Invalid --pdfa value '{pdfaFlag}'. Expected one of: 1b, 1a, 2b, 2u, 2a, 3b, 3u, 3a.");
+                return 1;
+            }
+            if (conformance.Value.RequiresTagging() && !tagged)
+            {
+                Console.Error.WriteLine($"Error: --pdfa {pdfaFlag} requires --tagged (level A conformance requires accessibility tagging).");
                 return 1;
             }
         }
@@ -204,10 +211,11 @@ ARGUMENTS:
 
 OPTIONS:
     -o, --output <path>      Output file path (default: input.pdf, or - for stdout)
-    --pdfa <level>           PDF/A conformance: 1b, 1u, 2b, 2u, 3b, or 3u.
-                              1b/1u throw if the document uses opacity, blend
+    --pdfa <level>           PDF/A conformance: 1b, 1a, 2b, 2u, 2a, 3b, 3u, or 3a.
+                              1b/1a throw if the document uses opacity, blend
                               modes, or images with alpha (PDF/A-1 forbids
-                              transparency outright)
+                              transparency outright). Level A (1a/2a/3a)
+                              requires --tagged (full accessibility conformance)
     --invoice <path>         ZUGFeRD/Factur-X invoice JSON (MINIMUM profile) to embed.
                               Requires --pdfa 3b or --pdfa 3u
     --tagged                 Produce a PDF/UA-1 tagged PDF (structure tree, alt

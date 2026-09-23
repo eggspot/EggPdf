@@ -38,7 +38,6 @@ public class PdfAConformanceTests
 
     [Theory]
     [InlineData(PdfAConformance.PdfA1b, "1", "B")]
-    [InlineData(PdfAConformance.PdfA1u, "1", "U")]
     [InlineData(PdfAConformance.PdfA2b, "2", "B")]
     [InlineData(PdfAConformance.PdfA3b, "3", "B")]
     [InlineData(PdfAConformance.PdfA2u, "2", "U")]
@@ -51,11 +50,36 @@ public class PdfAConformanceTests
     }
 
     [Theory]
-    [InlineData(PdfAConformance.PdfA1b)]
-    [InlineData(PdfAConformance.PdfA1u)]
-    public void PdfA1_Header_UsesPdfVersion14(PdfAConformance conformance)
+    [InlineData(PdfAConformance.PdfA1a, "1")]
+    [InlineData(PdfAConformance.PdfA2a, "2")]
+    [InlineData(PdfAConformance.PdfA3a, "3")]
+    public void LevelAConformance_WithStructureTree_DeclaresPartAndLevelA(PdfAConformance conformance, string expectedPart)
     {
-        var bytes = DocWithPage(conformance).ToByteArray();
+        var doc = new PdfDocument { Conformance = conformance, StructureTree = new PdfStructureElement("Document") };
+        doc.AddPage(595.28f, 841.89f);
+
+        var text = Encoding.Latin1.GetString(doc.ToByteArray());
+        text.Should().Contain($"<pdfaid:part>{expectedPart}</pdfaid:part>");
+        text.Should().Contain("<pdfaid:conformance>A</pdfaid:conformance>");
+    }
+
+    [Theory]
+    [InlineData(PdfAConformance.PdfA1a)]
+    [InlineData(PdfAConformance.PdfA2a)]
+    [InlineData(PdfAConformance.PdfA3a)]
+    public void LevelAConformance_WithoutStructureTree_Throws(PdfAConformance conformance)
+    {
+        var doc = new PdfDocument { Conformance = conformance };
+        doc.AddPage(595.28f, 841.89f);
+
+        Action act = () => doc.ToByteArray();
+        act.Should().Throw<InvalidOperationException>().WithMessage("*accessibility tagging*");
+    }
+
+    [Fact]
+    public void PdfA1_Header_UsesPdfVersion14()
+    {
+        var bytes = DocWithPage(PdfAConformance.PdfA1b).ToByteArray();
         Encoding.ASCII.GetString(bytes, 0, 9).Should().Be("%PDF-1.4\n");
     }
 
@@ -84,7 +108,7 @@ public class PdfAConformanceTests
     [Fact]
     public void PdfA1_WithNonNormalBlendMode_Throws()
     {
-        var doc = new PdfDocument { Conformance = PdfAConformance.PdfA1u };
+        var doc = new PdfDocument { Conformance = PdfAConformance.PdfA1b };
         var page = doc.AddPage(595.28f, 841.89f);
         page.SetBlendMode("multiply");
         page.AddText("Hello", 72, 720, "Helvetica", 12);
