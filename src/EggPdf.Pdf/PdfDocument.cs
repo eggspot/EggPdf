@@ -242,7 +242,8 @@ public partial class PdfDocument
         // 2: Pages
         // 3..N: Page objects (each page = page dict + content stream = 2 objects;
         //   link annotations are written inline in the page dict, not as their
-        //   own objects, so pages never reserve numbers for them)
+        //   own objects, UNLESS the document is tagged -- a tagged link needs a stable
+        //   object number so its Link structure element's OBJR can reference it)
         // Then: font resources, info dict
         var alloc = new PdfObjectAllocator();
         int catalogObj = alloc.Allocate();
@@ -315,6 +316,11 @@ public partial class PdfDocument
 
         // Factur-X/ZUGFeRD objects: embedded invoice XML stream + its filespec
         var (facturXEmbeddedFileObj, facturXFilespecObj) = AllocateFacturXObjects(alloc);
+
+        // PDF/UA-1 tagged link annotations: allocate each one its own object number + /StructParent
+        // key (must run first -- it registers OBJR entries that AllocateStructureObjects's Kids
+        // walk doesn't need to know about, but WriteStructureObjects's /K-array walk does).
+        LinkAnnotationsToStructureTree(alloc);
 
         // PDF/UA-1 structure tree objects: StructTreeRoot, ParentTree, every structure element
         AllocateStructureObjects(alloc);
@@ -526,19 +532,28 @@ public partial class PdfDocument
                 pageDict.Append(" >>");
             }
 
-            // Add link annotations inline (simpler approach)
+            // Link annotations: written inline in most cases (simpler), but a tagged link (one
+            // whose <a> box mapped to a Link structure element) needs its own indirect object so
+            // that element's OBJR entry (see PdfDocument.Tagging.cs) can reference this exact dict.
             if (page.Links.Count > 0)
             {
                 pageDict.Append(" /Annots [");
                 foreach (var link in page.Links)
                 {
-                    float x1 = link.X;
-                    float y1 = link.Y;
-                    float x2 = link.X + link.Width;
-                    float y2 = link.Y + link.Height;
-                    pageDict.Append($" << /Type /Annot /Subtype /Link /Rect [{F(x1)} {F(y1)} {F(x2)} {F(y2)}]");
-                    pageDict.Append($" /Border [0 0 0]");
-                    pageDict.Append($" /A << /Type /Action /S /URI /URI {PdfString(enc, link.Url, pageDictObj)} >> >>");
+                    if (link.AnnotObj != 0)
+                    {
+                        pageDict.Append($" {link.AnnotObj} 0 R");
+                    }
+                    else
+                    {
+                        float x1 = link.X;
+                        float y1 = link.Y;
+                        float x2 = link.X + link.Width;
+                        float y2 = link.Y + link.Height;
+                        pageDict.Append($" << /Type /Annot /Subtype /Link /Rect [{F(x1)} {F(y1)} {F(x2)} {F(y2)}]");
+                        pageDict.Append($" /Border [0 0 0]");
+                        pageDict.Append($" /A << /Type /Action /S /URI /URI {PdfString(enc, link.Url, pageDictObj)} >> >>");
+                    }
                 }
                 pageDict.Append(" ]");
             }
@@ -546,6 +561,26 @@ public partial class PdfDocument
             pageDict.Append(" >>");
             writer.WriteLine(pageDict.ToString());
             writer.WriteLine("endobj");
+
+            // Write the tagged links (their own indirect objects) right after their page dict.
+            foreach (var link in page.Links)
+            {
+                if (link.AnnotObj == 0) continue;
+                float x1 = link.X;
+                float y1 = link.Y;
+                float x2 = link.X + link.Width;
+                float y2 = link.Y + link.Height;
+                alloc.RecordOffset(link.AnnotObj, writer.Position);
+                writer.WriteLine($"{link.AnnotObj} 0 obj");
+                var annotDict = new StringBuilder();
+                annotDict.Append($"<< /Type /Annot /Subtype /Link /Rect [{F(x1)} {F(y1)} {F(x2)} {F(y2)}]");
+                annotDict.Append(" /Border [0 0 0]");
+                annotDict.Append($" /A << /Type /Action /S /URI /URI {PdfString(enc, link.Url, link.AnnotObj)} >>");
+                annotDict.Append($" /StructParent {link.StructParentKey}");
+                annotDict.Append(" >>");
+                writer.WriteLine(annotDict.ToString());
+                writer.WriteLine("endobj");
+            }
         }
 
         // Write outline objects (bookmarks)

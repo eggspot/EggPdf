@@ -15,6 +15,25 @@ public partial class PdfDocument
     private int _parentTreeObj;
 
     /// <summary>
+    /// Custom (non-standard) structure types this MVP's HTML5 landmark tagging emits, mapped to
+    /// the nearest ISO 32000-1 standard type. PDF 1.7 -- what PDF/UA-1 is based on -- has no native
+    /// Nav/Header/Footer/Aside/Main types; the tagged-PDF architecture's own answer to that (ISO
+    /// 32000-1 14.7.5, "RoleMap") is exactly this: declare a custom type and map it to a standard
+    /// fallback so a reader/tool that doesn't recognize the custom name still gets correct-enough
+    /// semantics. Always written when tagged, whether or not a given landmark tag is actually used.
+    /// </summary>
+    private static readonly Dictionary<string, string> LandmarkRoleMap = new()
+    {
+        ["Nav"] = "Div",
+        ["Header"] = "Div",
+        ["Footer"] = "Div",
+        ["Aside"] = "Div",
+        ["Main"] = "Div",
+        ["Article"] = "Sect",
+        ["Section"] = "Sect",
+    };
+
+    /// <summary>
     /// Optional structure tree root. When set, the document is tagged: <see cref="PdfPage.BeginMarkedContent"/>
     /// calls made while painting must have their (page, MCID) pairs registered against tree nodes via
     /// <see cref="PdfStructureElement.AddContentRef"/> for the tagging to actually link to content.
@@ -31,6 +50,33 @@ public partial class PdfDocument
         _structTreeRootObj = alloc.Allocate();
         _parentTreeObj = alloc.Allocate();
         AllocateStructElemObjectsRecursive(StructureTree, alloc);
+    }
+
+    /// <summary>
+    /// When tagged, allocate an indirect object number for every <c>&lt;a&gt;</c> link annotation
+    /// the paint layer attributed to a Link structure element (<see cref="PdfLinkAnnotation.TaggedElement"/>)
+    /// and register an OBJR back-reference on that element via <see cref="PdfStructureElement.AddAnnotationRef"/>
+    /// -- ISO 14289-1 7.18.1 requires this cross-reference; without it, a reader can tell the anchor
+    /// text is a link by content alone but has no structural link to the clickable annotation. Must
+    /// run before <see cref="AllocateStructElemObjectsRecursive"/> reads Kids/AnnotationRefs while
+    /// writing. Each annotation's <c>/StructParent</c> key starts right after the last page index,
+    /// so it shares the ParentTree's single number space with pages' <c>/StructParents</c> without
+    /// colliding.
+    /// </summary>
+    private void LinkAnnotationsToStructureTree(PdfObjectAllocator alloc)
+    {
+        if (StructureTree == null) return;
+        int nextStructParentKey = _pages.Count;
+        foreach (var page in _pages)
+        {
+            foreach (var link in page.Links)
+            {
+                if (link.TaggedElement == null) continue;
+                link.AnnotObj = alloc.Allocate();
+                link.StructParentKey = nextStructParentKey++;
+                link.TaggedElement.AddAnnotationRef(link.AnnotObj, link.StructParentKey);
+            }
+        }
     }
 
     private void AllocateStructElemObjectsRecursive(PdfStructureElement elem, PdfObjectAllocator alloc)
@@ -64,16 +110,27 @@ public partial class PdfDocument
         // pageIndex -> (mcid -> owning structure element's object number), filled in while
         // writing each element's /K array so the ParentTree can be built from it afterward.
         var parentTreeEntries = new SortedDictionary<int, SortedDictionary<int, int>>();
+        // Link annotations' /StructParent key -> owning element's object number -- a direct entry
+        // (not an array), since unlike page content an annotation has exactly one owning element.
+        var annotParentTreeEntries = new SortedDictionary<int, int>();
 
-        WriteStructElemRecursive(writer, alloc, StructureTree, _structTreeRootObj, pageObjs, parentTreeEntries);
+        WriteStructElemRecursive(writer, alloc, StructureTree, _structTreeRootObj, pageObjs, parentTreeEntries, annotParentTreeEntries);
 
         int nextKey = 0;
         foreach (var pageIdx in parentTreeEntries.Keys)
             if (pageIdx >= nextKey) nextKey = pageIdx + 1;
+        foreach (var key in annotParentTreeEntries.Keys)
+            if (key >= nextKey) nextKey = key + 1;
+
+        var roleMap = new StringBuilder();
+        roleMap.Append("<< ");
+        foreach (var kv in LandmarkRoleMap)
+            roleMap.Append('/').Append(kv.Key).Append(" /").Append(kv.Value).Append(' ');
+        roleMap.Append(">>");
 
         alloc.RecordOffset(_structTreeRootObj, writer.Position);
         writer.WriteLine($"{_structTreeRootObj} 0 obj");
-        writer.WriteLine($"<< /Type /StructTreeRoot /K [{_structElemObjs[StructureTree]} 0 R] /ParentTree {_parentTreeObj} 0 R /ParentTreeNextKey {nextKey} >>");
+        writer.WriteLine($"<< /Type /StructTreeRoot /K [{_structElemObjs[StructureTree]} 0 R] /ParentTree {_parentTreeObj} 0 R /ParentTreeNextKey {nextKey} /RoleMap {roleMap} >>");
         writer.WriteLine("endobj");
 
         alloc.RecordOffset(_parentTreeObj, writer.Position);
@@ -98,13 +155,19 @@ public partial class PdfDocument
             }
             nums.Append("] ");
         }
+        // Annotation keys are all >= _pages.Count, i.e. strictly greater than every page key above,
+        // so appending them after the page entries keeps /Nums in the ascending order a PDF number
+        // tree requires without needing to interleave the two spaces.
+        foreach (var annotEntry in annotParentTreeEntries)
+            nums.Append(annotEntry.Key).Append(' ').Append(annotEntry.Value).Append(" 0 R ");
         nums.Append("] >>");
         writer.WriteLine(nums.ToString());
         writer.WriteLine("endobj");
     }
 
     private void WriteStructElemRecursive(PdfStreamWriter writer, PdfObjectAllocator alloc, PdfStructureElement elem, int parentObj,
-        List<(int pageDict, int contentStream)> pageObjs, SortedDictionary<int, SortedDictionary<int, int>> parentTreeEntries)
+        List<(int pageDict, int contentStream)> pageObjs, SortedDictionary<int, SortedDictionary<int, int>> parentTreeEntries,
+        SortedDictionary<int, int> annotParentTreeEntries)
     {
         int elemObj = _structElemObjs[elem];
 
@@ -114,7 +177,7 @@ public partial class PdfDocument
         {
             if (kid.Element != null)
             {
-                WriteStructElemRecursive(writer, alloc, kid.Element, elemObj, pageObjs, parentTreeEntries);
+                WriteStructElemRecursive(writer, alloc, kid.Element, elemObj, pageObjs, parentTreeEntries, annotParentTreeEntries);
                 kArray.Append(_structElemObjs[kid.Element]).Append(" 0 R ");
             }
             else
@@ -129,6 +192,11 @@ public partial class PdfDocument
                 int pageObj = pageObjs[kid.PageIndex].pageDict;
                 kArray.Append($"<< /Type /MCR /Pg {pageObj} 0 R /MCID {kid.Mcid} >> ");
             }
+        }
+        foreach (var annotRef in elem.AnnotationRefs)
+        {
+            annotParentTreeEntries[annotRef.StructParentKey] = elemObj;
+            kArray.Append($"<< /Type /OBJR /Obj {annotRef.AnnotObj} 0 R >> ");
         }
         kArray.Append(']');
 

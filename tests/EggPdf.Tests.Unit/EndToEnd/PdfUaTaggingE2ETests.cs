@@ -136,14 +136,65 @@ public class PdfUaTaggingE2ETests
     }
 
     [Fact]
-    public void Tagged_NamedPageGroups_Throws()
+    public void Tagged_NamedPageGroups_TagsContentAcrossAllGroups()
     {
         var html = "<html><head><style>" +
                     "@page wide { size: landscape; } " +
                     ".chart { page: wide; }" +
-                    "</style></head><body><p>Normal</p><div class=\"chart\">Wide content</div></body></html>";
+                    "</style></head><body><h1>Normal</h1><div class=\"chart\"><p>Wide content</p></div></body></html>";
 
-        Action act = () => HtmlToPdf.Render(html, tagged: true);
-        act.Should().Throw<InvalidOperationException>();
+        var pdf = HtmlToPdf.Render(html, tagged: true);
+        var text = PdfAssert.ValidPdf(pdf, "Normal", "Wide content");
+
+        text.Should().Contain("/Type /StructElem /S /H1");
+        text.Should().Contain("/Type /StructElem /S /P");
+
+        // Every MCID opened across BOTH page groups must resolve to a real StructElem MCR --
+        // this is what the old scratch/precount pass used to corrupt before it was suppressed.
+        var mcids = Regex.Matches(text, @"/MCID (\d+)");
+        mcids.Count.Should().BeGreaterThan(0);
+        foreach (Match m in mcids)
+            text.Should().Contain($"/MCID {m.Groups[1].Value} >>");
+    }
+
+    [Fact]
+    public void Tagged_LandmarkElements_MapToCustomTypesWithRoleMapFallback()
+    {
+        var html = "<html><body>" +
+                    "<nav>Menu</nav><header>Head</header>" +
+                    "<main><article>Art</article><section>Sec</section></main>" +
+                    "<aside>Side</aside><footer>Foot</footer>" +
+                    "</body></html>";
+
+        var pdf = HtmlToPdf.Render(html, tagged: true);
+        var text = PdfAssert.ValidPdf(pdf, "Menu", "Head", "Art", "Sec", "Side", "Foot");
+
+        text.Should().Contain("/Type /StructElem /S /Nav");
+        text.Should().Contain("/Type /StructElem /S /Header");
+        text.Should().Contain("/Type /StructElem /S /Main");
+        text.Should().Contain("/Type /StructElem /S /Article");
+        text.Should().Contain("/Type /StructElem /S /Section");
+        text.Should().Contain("/Type /StructElem /S /Aside");
+        text.Should().Contain("/Type /StructElem /S /Footer");
+        text.Should().Contain("/RoleMap");
+        text.Should().Contain("/Nav /Div");
+    }
+
+    [Fact]
+    public void Tagged_LinkElement_CrossReferencesAnnotationViaObjr()
+    {
+        // Single-word link text: multi-word inline content is split into one LayoutBox per word
+        // for line-breaking, and only the first word's box carries the <a> tag identity (see the
+        // "known limitations" note in site/compliance.html) -- a one-word link avoids that
+        // confound and isolates what this test actually checks, the OBJR cross-reference.
+        var html = "<html><body><p><a href=\"https://example.com\">Click</a></p></body></html>";
+
+        var pdf = HtmlToPdf.Render(html, tagged: true);
+        var text = PdfAssert.ValidPdf(pdf, "Click");
+
+        text.Should().Contain("/Type /StructElem /S /Link");
+        text.Should().Contain("/Type /OBJR");
+        text.Should().MatchRegex(@"/StructParent \d+");
+        text.Should().Contain("/Subtype /Link");
     }
 }

@@ -190,12 +190,28 @@ public static partial class HtmlToPdf
     {
         var counts = new int[layouts.Count];
         int total = 0;
-        for (int i = 0; i < layouts.Count; i++)
+
+        // The precount pass exists only to learn each group's page count for counter(pages) and
+        // margin boxes; its pages are thrown away. If PDF/UA-1 tagging is active, BoxPainter.StructureMap
+        // is already set (by the caller, before RenderPageGroups runs) and would register real (page,
+        // MCID) pairs from these discarded pages against the one shared structure tree -- doubling up
+        // every element's content refs, once for the discarded scratch pages and once for the real
+        // ones. Suppress it here and restore it for the real pass below.
+        var savedStructureMap = Paint.BoxPainter.StructureMap;
+        Paint.BoxPainter.StructureMap = null;
+        try
         {
-            var scratch = new PdfDocument();
-            RenderOneGroup(layouts[i].root, layouts[i].settings, scratch, 0, null);
-            counts[i] = scratch.PageCount;
-            total += counts[i];
+            for (int i = 0; i < layouts.Count; i++)
+            {
+                var scratch = new PdfDocument();
+                RenderOneGroup(layouts[i].root, layouts[i].settings, scratch, 0, null);
+                counts[i] = scratch.PageCount;
+                total += counts[i];
+            }
+        }
+        finally
+        {
+            Paint.BoxPainter.StructureMap = savedStructureMap;
         }
 
         int offset = 0;

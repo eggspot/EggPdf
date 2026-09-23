@@ -201,9 +201,11 @@ public static partial class HtmlToPdf
 
     /// <summary>
     /// Render a PDF/UA-1 tagged PDF: a structure tree (headings, paragraphs, tables, lists,
-    /// figures with alt text, links) linked to the page content via marked content, plus the
-    /// <c>/MarkInfo</c>, <c>/Lang</c> and XMP metadata PDF/UA-1 requires. Not yet supported
-    /// together with named page groups (<c>page: &lt;name&gt;</c> + <c>@page &lt;name&gt;</c>).
+    /// landmark regions (nav/header/footer/aside/main/article/section), figures with alt text,
+    /// links cross-referenced to their annotation via OBJR) linked to the page content via marked
+    /// content, plus the <c>/MarkInfo</c>, <c>/Lang</c> and XMP metadata PDF/UA-1 requires.
+    /// Combinable with named page groups (<c>page: &lt;name&gt;</c> + <c>@page &lt;name&gt;</c>) --
+    /// every group contributes to the same single Document structure tree root.
     /// </summary>
     public static byte[] Render(string? html, bool tagged)
     {
@@ -387,9 +389,6 @@ public static partial class HtmlToPdf
                 }
                 : LayoutPageGroups(document, namedGroups, pageSettings, cascadeResolver);
 
-            if (tagged && layouts.Count > 1)
-                throw new InvalidOperationException("PDF/UA-1 tagging does not support named page groups (page: <name> + @page <name>) yet.");
-
             // 6. Resolve images (load data from src attributes)
             var pdfDoc = new PdfDocument { Encryption = encryption, Conformance = conformance, Invoice = invoice };
             pdfDoc.Title = FindTitleTagText(document);
@@ -409,7 +408,7 @@ public static partial class HtmlToPdf
             // PaintBox can wrap each box's output in the right marked-content tag as it paints.
             if (tagged)
             {
-                var (structRoot, boxToElement) = StructureTreeBuilder.Build(layoutRoots[0]);
+                var (structRoot, boxToElement) = StructureTreeBuilder.Build(layoutRoots);
                 pdfDoc.StructureTree = structRoot;
                 pdfDoc.DocumentLanguage = document.DocumentElement?.GetAttribute("lang");
                 Paint.BoxPainter.StructureMap = boxToElement;

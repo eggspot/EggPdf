@@ -66,9 +66,9 @@ byte[] signed = EggPdf.Pdf.PdfSigner.Sign(pdf, x509CertWithPrivateKey,
 
 ## Compliance
 - PDF/A-1b/1a/2b/2u/2a/3b/3u/3a: `HtmlToPdf.Render(html, PdfAConformance.PdfA2b)` — embedded ICC output intent, XMP metadata, every font embedded with a correct ToUnicode mapping. PDF/A-1 has no `u` level (only `a`/`b`, unlike parts 2/3). The `a` levels require `tagged: true` (level A is PDF/A + full accessibility tagging)
-- PDF/UA-1 tagged PDF: `HtmlToPdf.Render(html, tagged: true)` — structure tree, alt text, `/Lang`, `/MarkInfo`, combinable with PDF/A conformance
+- PDF/UA-1 tagged PDF: `HtmlToPdf.Render(html, tagged: true)` — structure tree (incl. landmark regions nav/header/footer/aside/main/article/section, and `<a>` links cross-referenced to their annotation via OBJR), alt text, `/Lang`, `/MarkInfo`, combinable with PDF/A conformance and named page groups. Known gap: a multi-word `<a>` link only tags its first word (pre-existing inline-layout bug, also affects the plain link's clickable rectangle)
 - ZUGFeRD/Factur-X e-invoicing: `HtmlToPdf.Render(html, PdfAConformance.PdfA3b, invoice)` — embeds the CII invoice XML as a PDF/A-3 attachment. Empty `FacturXInvoice.LineItems` → MINIMUM profile; populating `LineItems` → EN 16931 (Comfort) profile instead (per-line tax, grouped header tax breakdown, computed totals, `/AFRelationship /Alternative`)
-- Not yet implemented: ZUGFeRD/Factur-X as distinct BASIC/EXTENDED profiles (EN 16931 line items is a superset of BASIC but doesn't model EXTENDED-only fields like allowances/charges), PDF/UA-1 landmark regions/link cross-referencing/named-page-group tagging, PDF/UA-2 — see [PDF Compliance](https://eggspot.github.io/EggPdf/compliance.html)
+- Not yet implemented: ZUGFeRD/Factur-X as distinct BASIC/EXTENDED profiles (EN 16931 line items is a superset of BASIC but doesn't model EXTENDED-only fields like allowances/charges), PDF/UA-2/WTPDF (ISO 14289-2:2024, needs a PDF 2.0 substrate) — see [PDF Compliance](https://eggspot.github.io/EggPdf/compliance.html)
 
 ## Target frameworks
 netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0

@@ -13,7 +13,15 @@ namespace EggPdf;
 /// </summary>
 internal static class StructureTreeBuilder
 {
-    /// <summary>HTML tag name -> PDF standard structure type, for the tags this MVP tags. Everything else passes through to its nearest tagged ancestor untouched.</summary>
+    /// <summary>
+    /// HTML tag name -> PDF structure type, for the tags this MVP tags. Everything else passes
+    /// through to its nearest tagged ancestor untouched. The landmark entries (nav/header/footer/
+    /// aside/main/article/section) map to custom, non-standard types -- PDF 1.7 (what PDF/UA-1 is
+    /// based on) has no native semantic-landmark types -- backed by a RoleMap fallback to a
+    /// standard type declared unconditionally on StructTreeRoot (see PdfDocument.Tagging.cs's
+    /// LandmarkRoleMap) so a reader that doesn't recognize the custom name still gets valid
+    /// fallback semantics, per the RoleMap mechanism ISO 32000-1 14.7.5 defines for exactly this.
+    /// </summary>
     private static readonly Dictionary<string, string> TagToType = new()
     {
         ["h1"] = "H1", ["h2"] = "H2", ["h3"] = "H3", ["h4"] = "H4", ["h5"] = "H5", ["h6"] = "H6",
@@ -22,19 +30,25 @@ internal static class StructureTreeBuilder
         ["ul"] = "L", ["ol"] = "L", ["li"] = "LI",
         ["img"] = "Figure",
         ["a"] = "Link",
+        ["nav"] = "Nav", ["header"] = "Header", ["footer"] = "Footer", ["aside"] = "Aside",
+        ["main"] = "Main", ["article"] = "Article", ["section"] = "Section",
     };
 
     /// <summary>
-    /// Walk a laid-out box tree (before pagination splits it into per-page paint calls -- see
-    /// PageFragmenter.CollectPaintableBoxes, which this mirrors), building a parallel structure
-    /// tree rooted at a synthetic "Document" element and a map from every box to the element its
-    /// content belongs under.
+    /// Walk one or more laid-out box trees (before pagination splits them into per-page paint
+    /// calls -- see PageFragmenter.CollectPaintableBoxes, which this mirrors) -- more than one
+    /// root only when named page groups (<c>page: &lt;name&gt;</c> + <c>@page &lt;name&gt;</c>)
+    /// split the document into several independently laid-out groups -- building one parallel
+    /// structure tree rooted at a synthetic "Document" element (ISO 14289-1 8.2.5.2 wants exactly
+    /// one Document root even when the content came from multiple layout passes) and a map from
+    /// every box, across every group, to the element its content belongs under.
     /// </summary>
-    public static (PdfStructureElement root, Dictionary<LayoutBox, PdfStructureElement> boxToElement) Build(LayoutBox root)
+    public static (PdfStructureElement root, Dictionary<LayoutBox, PdfStructureElement> boxToElement) Build(IReadOnlyList<LayoutBox> roots)
     {
         var rootElem = new PdfStructureElement("Document");
         var map = new Dictionary<LayoutBox, PdfStructureElement>();
-        BuildRecursive(root, rootElem, map);
+        foreach (var root in roots)
+            BuildRecursive(root, rootElem, map);
         return (rootElem, map);
     }
 

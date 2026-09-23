@@ -195,7 +195,15 @@
           with <code>&lt;th scope&gt;</code> mapped to the PDF <code>/Scope</code> attribute</li>
         <li><code>ul</code>/<code>ol</code>/<code>li</code> → list structure</li>
         <li><code>img</code> → a Figure element with its <code>alt</code> text</li>
-        <li><code>a</code> → a Link element</li>
+        <li><code>a</code> → a Link element, cross-referenced to its clickable annotation via an
+          <code>OBJR</code> entry and a <code>/StructParent</code> key (ISO 14289-1 7.18.1) — not
+          just wrapped as ordinary marked content</li>
+        <li><code>nav</code>/<code>header</code>/<code>footer</code>/<code>aside</code>/<code>main</code>/<code>article</code>/<code>section</code>
+          → landmark regions. PDF 1.7 (what PDF/UA-1 is based on) has no native semantic-landmark
+          structure types, so these use custom type names (<code>Nav</code>, <code>Header</code>, etc.)
+          backed by a <code>/RoleMap</code> fallback to the nearest standard type (<code>Div</code> or
+          <code>Sect</code>) — the mechanism ISO 32000-1 §14.7.5 defines for exactly this case, so a
+          reader that doesn't recognize the custom name still gets valid fallback semantics</li>
       </ul>
       <p>
         Every other element (wrapper <code>div</code>s, inline <code>span</code>s, text-run
@@ -207,16 +215,22 @@
         (defaulted to "Untitled Document" rather than omitted if none is set).
       </p>
       <p>
+        Combinable with named page groups (<code>page: &lt;name&gt;</code> + <code>@page &lt;name&gt;</code>):
+        every group's content attaches to the same single Document structure tree root, in group
+        order.
+      </p>
+      <p>
         Reachable via the overloads above, <code>PdfRenderOptions.Tagged</code>, the CLI's
         <code>--tagged</code> flag, and the REST API's <code>options.tagged</code> field.
       </p>
       <p>
-        <strong>Known limitations:</strong> only the tag set above is mapped (no landmark regions,
-        no inline emphasis/strong mapping); <code>a</code> elements are tagged as ordinary content,
-        not cross-referenced to their Link annotation via <code>OBJR</code>; position:fixed and
-        margin-box content (running headers/footers) isn't tagged; not yet supported together with
-        named page groups (<code>page: &lt;name&gt;</code> + <code>@page &lt;name&gt;</code>) —
-        throws rather than silently producing an incompletely-tagged PDF.
+        <strong>Known limitations:</strong> no inline emphasis/strong mapping; position:fixed and
+        margin-box content (running headers/footers) isn't tagged; a multi-word <code>&lt;a&gt;</code>
+        link (e.g. "Click here") only tags and cross-references its <strong>first word</strong> as
+        the Link element today — a pre-existing inline-layout gap (word-fragments after the first
+        lose their owning-element identity entirely, which also makes the plain, non-tagged link's
+        clickable rectangle too narrow) rather than something specific to tagging; tracked as a
+        separate bug, not fixed here.
       </p>
 
       <h2 id="roadmap">On the roadmap</h2>
@@ -231,11 +245,13 @@
           EXTENDED-only fields (allowances/charges, multiple deliveries, additional references) are
           not modeled</li>
         <li><strong>PDF/UA-2</strong> and <strong>WTPDF</strong> (the PDF Association's newer,
-          PDF 2.0-based tagging model) — tracked as the eventual target for the structure-tree work
-          above, not started</li>
-        <li><strong>Named page groups + tagging together</strong>, full landmark-region tagging
-          (nav/header/footer/aside), and Link-annotation cross-referencing — see the known
-          limitations above</li>
+          PDF 2.0-based tagging model, ISO 14289-2:2024, requires a PDF 2.0 substrate: new header,
+          <code>/Namespaces</code> + <code>/RoleMapNS</code> on StructTreeRoot, a single Document
+          root in the PDF 2.0 structure namespace, structure destinations for internal links, and
+          <code>pdfuaid:rev</code> in XMP) — not started</li>
+        <li><strong>Multi-word inline element identity</strong> (see the known limitation above) —
+          a pre-existing layout gap where only an inline element's first word-fragment keeps a
+          reference back to its DOM element</li>
       </ul>
 
     </main>

@@ -886,7 +886,9 @@ public static partial class BoxPainter
                 float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
                 float pdfW = box.Width * PdfCoordinates.PxToPt;
                 float pdfH = box.Height * PdfCoordinates.PxToPt;
-                page.AddLink(pdfX, pdfY, pdfW, pdfH, href);
+                var link = page.AddLink(pdfX, pdfY, pdfW, pdfH, href);
+                if (StructureMap != null && StructureMap.TryGetValue(box, out var linkElem))
+                    link.TaggedElement = linkElem;
             }
         }
 

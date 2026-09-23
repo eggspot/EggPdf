@@ -123,11 +123,16 @@ byte[] pdfA2a = HtmlToPdf.Render(html, EggPdf.Pdf.PdfAConformance.PdfA2a, tagged
 ```
 
 CLI: add `--tagged` (combinable with `--pdfa`; required when `--pdfa` is 1a/2a/3a). REST API:
-`options.tagged: true`. PDF/UA-1 tags `h1`-`h6`, `p`, `table`/`tr`/`th`/`td` (with `<th scope>`), `ul`/`ol`/`li`, `img` (with `alt`), and
-`a` -- other elements pass through untagged. Not yet supported with named page groups
-(`page: <name>` + `@page <name>`) -- throws `InvalidOperationException` rather than silently
-under-tag. `<a>` elements are tagged as content, not linked via a Link annotation cross-reference
-(OBJR) -- don't claim full Link-element conformance.
+`options.tagged: true`. PDF/UA-1 tags `h1`-`h6`, `p`, `table`/`tr`/`th`/`td` (with `<th scope>`),
+`ul`/`ol`/`li`, `img` (with `alt`), `a` (cross-referenced to its Link annotation via an OBJR entry
+and `/StructParent`, per ISO 14289-1 7.18.1), and the landmark set `nav`/`header`/`footer`/`aside`/
+`main`/`article`/`section` (custom structure types + a `/RoleMap` fallback to `Div`/`Sect`, since
+PDF 1.7 has no native landmark types) -- other elements pass through untagged. Combinable with
+named page groups (`page: <name>` + `@page <name>`); every group attaches to the same Document
+root. Known gap, not tagging-specific: a multi-word `<a>` (e.g. "Click here") only tags/cross-
+references its first word as Link -- a pre-existing inline-layout bug where later word-fragments
+of any inline element lose their DOM element reference entirely, which also under-sizes the
+plain (non-tagged) link annotation's clickable rectangle.
 
 ## ASP.NET Core integration
 

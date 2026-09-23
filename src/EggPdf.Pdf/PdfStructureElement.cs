@@ -29,6 +29,14 @@ public class PdfStructureElement
     /// </summary>
     public List<(PdfStructureElement? Element, int PageIndex, int Mcid)> Kids { get; } = new();
 
+    /// <summary>
+    /// Object-reference (OBJR) links to non-content-stream objects this element owns -- currently
+    /// just <c>&lt;a&gt;</c> Link annotations (ISO 14289-1 7.18.1 requires a Link structure element
+    /// to be cross-referenced to its annotation, not just wrap the anchor text's marked content).
+    /// Populated by <see cref="PdfDocument"/> during <see cref="PdfDocument.WriteTo"/>, not by callers directly.
+    /// </summary>
+    public List<(int AnnotObj, int StructParentKey)> AnnotationRefs { get; } = new();
+
     public PdfStructureElement(string type)
     {
         Type = type;
@@ -45,5 +53,11 @@ public class PdfStructureElement
     public void AddContentRef(int pageIndex, int mcid)
     {
         Kids.Add((null, pageIndex, mcid));
+    }
+
+    /// <summary>Append an OBJR reference to a non-content object (currently: a Link annotation) this element owns.</summary>
+    public void AddAnnotationRef(int annotObj, int structParentKey)
+    {
+        AnnotationRefs.Add((annotObj, structParentKey));
     }
 }
