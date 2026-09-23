@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-and-test:
-    name: Build & Test (.NET ${{ matrix.dotnet-version }})
+    name: Build & Test (${{ matrix.os }}, .NET ${{ matrix.dotnet-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
