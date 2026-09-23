@@ -22,6 +22,26 @@ public class HtmlParserTests
     }
 
     [Fact]
+    public void HtmlTag_AttributesArePreserved()
+    {
+        var doc = Parse("<html lang=\"en-US\" class=\"no-js\"><head></head><body></body></html>");
+
+        doc.DocumentElement!.GetAttribute("lang").Should().Be("en-US");
+        doc.DocumentElement.GetAttribute("class").Should().Be("no-js");
+    }
+
+    [Fact]
+    public void HtmlTag_AttributesPreserved_EvenWhenRootIsSynthesizedFirst()
+    {
+        // No literal <html> tag -- the tree builder synthesizes the root when it sees <body>,
+        // before any <html ...> token exists to read attributes from. A document that still
+        // opens with <html lang="..."> despite malformed nesting elsewhere should keep working.
+        var doc = Parse("<body><p>x</p></body><html lang=\"fr\"></html>");
+
+        doc.DocumentElement!.GetAttribute("lang").Should().Be("fr");
+    }
+
+    [Fact]
     public void SimpleHtml_CreatesCorrectStructure()
     {
         var doc = Parse("<html><head></head><body><p>Hello</p></body></html>");

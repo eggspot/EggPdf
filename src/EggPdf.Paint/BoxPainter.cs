@@ -42,6 +42,15 @@ public static partial class BoxPainter
     public static PdfDocument? CurrentPdfDoc;
 
     /// <summary>
+    /// PDF/UA-1 tagging: maps every LayoutBox in the current render to the structure element its
+    /// painted content should be attributed to (built by StructureTreeBuilder before painting
+    /// starts). Null when the render isn't tagged. Thread-static for the same reason as the
+    /// fields above.
+    /// </summary>
+    [ThreadStatic]
+    public static System.Collections.Generic.Dictionary<EggPdf.Layout.LayoutBox, EggPdf.Pdf.PdfStructureElement>? StructureMap;
+
+    /// <summary>
     /// Repaint every position:fixed box onto the given page, using its already page-local
     /// Y/X directly (no page-offset adjustment — its containing block IS the page origin).
     /// Any counter(page)/counter(pages) sentinel left in a box's text by
@@ -135,13 +144,40 @@ public static partial class BoxPainter
     public static void PaintBox(PdfPage page, LayoutBox box,
         float pageHeightPt, float pageHeightPx, float adjustedY)
     {
-        // Apply margin left offset: shift all X coordinates by the page margin
-        float effectiveX = box.X + MarginLeftPx;
-
         // Visibility:hidden - box takes space but is not painted
         var visibility = box.Style.Get("visibility");
         if (visibility == "hidden" || visibility == "collapse")
             return;
+
+        // PDF/UA-1 tagging: wrap this box's entire paint output in one BDC/EMC marked-content
+        // span, attributed to the structure element StructureTreeBuilder assigned it (its own
+        // element if it's a tagged HTML element, else the nearest tagged ancestor's -- see that
+        // class for why every reachable box gets an entry). Untagged renders (StructureMap null)
+        // skip straight to PaintBoxCore with no overhead.
+        if (StructureMap != null && StructureMap.TryGetValue(box, out var structElem))
+        {
+            int mcid = page.BeginMarkedContent(structElem.Type);
+            try
+            {
+                PaintBoxCore(page, box, pageHeightPt, pageHeightPx, adjustedY);
+            }
+            finally
+            {
+                page.EndMarkedContent();
+            }
+            structElem.AddContentRef(page.PageIndex, mcid);
+        }
+        else
+        {
+            PaintBoxCore(page, box, pageHeightPt, pageHeightPx, adjustedY);
+        }
+    }
+
+    private static void PaintBoxCore(PdfPage page, LayoutBox box,
+        float pageHeightPt, float pageHeightPx, float adjustedY)
+    {
+        // Apply margin left offset: shift all X coordinates by the page margin
+        float effectiveX = box.X + MarginLeftPx;
 
         // CSS transform: wrap entire box painting in SaveState/cm/RestoreState
         bool hasTransform = ApplyTransform(page, box, pageHeightPx, adjustedY, effectiveX);
@@ -840,17 +876,47 @@ public static partial class BoxPainter
             }
         }
 
-        // Paint links
-        if (box.Element?.TagName == "a")
+        // Paint links. A multi-word <a> splits into one LayoutBox per word for line-breaking
+        // (box.InlineSpan is set on every such fragment -- see InlineElementSpan); using the
+        // span's unioned rect instead of this one fragment's own bounds is what makes the
+        // annotation cover the whole line of link text, not just its first word.
+        var linkElement = box.InlineSpan?.Element ?? box.Element;
+        if (linkElement?.TagName == "a")
         {
-            var href = box.Element.GetAttribute("href");
+            var href = linkElement.GetAttribute("href");
             if (!string.IsNullOrEmpty(href) && href.StartsWith("http"))
             {
-                float pdfX = effectiveX * PdfCoordinates.PxToPt;
-                float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
-                float pdfW = box.Width * PdfCoordinates.PxToPt;
-                float pdfH = box.Height * PdfCoordinates.PxToPt;
-                page.AddLink(pdfX, pdfY, pdfW, pdfH, href);
+                var span = box.InlineSpan;
+                if (span != null)
+                {
+                    if (span.PaintTag is not PdfLinkAnnotation)
+                    {
+                        // Fragments on the same line share one span: map its bounds into this
+                        // box's page-local space via the offset between them (both are in the
+                        // same pre-pagination coordinate space, and a span never crosses a page
+                        // since pagination only ever breaks between lines).
+                        float spanEffectiveX = effectiveX + (span.X - box.X);
+                        float spanAdjustedY = adjustedY + (span.Y - box.Y);
+                        float pdfX = spanEffectiveX * PdfCoordinates.PxToPt;
+                        float pdfY = (pageHeightPx - spanAdjustedY - span.Height) * PdfCoordinates.PxToPt;
+                        float pdfW = span.Width * PdfCoordinates.PxToPt;
+                        float pdfH = span.Height * PdfCoordinates.PxToPt;
+                        span.PaintTag = page.AddLink(pdfX, pdfY, pdfW, pdfH, href);
+                    }
+                    if (span.PaintTag is PdfLinkAnnotation spanLink && StructureMap != null &&
+                        StructureMap.TryGetValue(box, out var spanLinkElem))
+                        spanLink.TaggedElement = spanLinkElem;
+                }
+                else
+                {
+                    float pdfX = effectiveX * PdfCoordinates.PxToPt;
+                    float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+                    float pdfW = box.Width * PdfCoordinates.PxToPt;
+                    float pdfH = box.Height * PdfCoordinates.PxToPt;
+                    var link = page.AddLink(pdfX, pdfY, pdfW, pdfH, href);
+                    if (StructureMap != null && StructureMap.TryGetValue(box, out var linkElem))
+                        link.TaggedElement = linkElem;
+                }
             }
         }
 

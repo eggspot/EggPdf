@@ -167,15 +167,119 @@ public static partial class HtmlToPdf
     }
 
     /// <summary>
-    /// Render HTML to PDF, applying <see cref="PdfRenderOptions"/> (page size, margins,
-    /// orientation, title/author metadata, extra CSS) by translating them into an injected
-    /// <c>@page</c> rule and &lt;head&gt; tags before parsing. The generated rule is appended
+    /// Render HTML to a PDF/A-conformant PDF: embeds an ICC output intent and XMP conformance
+    /// metadata, and forces every font (including the standard 14) to be embedded.
+    /// </summary>
+    public static byte[] Render(string? html, Pdf.PdfAConformance conformance)
+    {
+        return RenderInternal(html ?? "", null, null, conformance);
+    }
+
+    /// <summary>Render HTML to a PDF/A-conformant PDF asynchronously.</summary>
+    public static Task<byte[]> RenderAsync(string? html, Pdf.PdfAConformance conformance, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(RenderInternal(html ?? "", null, null, conformance));
+    }
+
+    /// <summary>
+    /// Render HTML to a Factur-X/ZUGFeRD e-invoice: a PDF/A-3 PDF with the invoice's CII XML
+    /// (MINIMUM profile) embedded as a file attachment. <paramref name="conformance"/> must be
+    /// <see cref="Pdf.PdfAConformance.PdfA3b"/> or <see cref="Pdf.PdfAConformance.PdfA3u"/>.
+    /// </summary>
+    public static byte[] Render(string? html, Pdf.PdfAConformance conformance, Pdf.FacturXInvoice invoice)
+    {
+        return RenderInternal(html ?? "", null, null, conformance, invoice);
+    }
+
+    /// <summary>Render HTML to a Factur-X/ZUGFeRD e-invoice asynchronously.</summary>
+    public static Task<byte[]> RenderAsync(string? html, Pdf.PdfAConformance conformance, Pdf.FacturXInvoice invoice, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(RenderInternal(html ?? "", null, null, conformance, invoice));
+    }
+
+    /// <summary>
+    /// Render a PDF/UA-1 tagged PDF: a structure tree (headings, paragraphs, tables, lists,
+    /// landmark regions (nav/header/footer/aside/main/article/section), figures with alt text,
+    /// links cross-referenced to their annotation via OBJR) linked to the page content via marked
+    /// content, plus the <c>/MarkInfo</c>, <c>/Lang</c> and XMP metadata PDF/UA-1 requires.
+    /// Combinable with named page groups (<c>page: &lt;name&gt;</c> + <c>@page &lt;name&gt;</c>) --
+    /// every group contributes to the same single Document structure tree root.
+    /// </summary>
+    public static byte[] Render(string? html, bool tagged)
+    {
+        return RenderInternal(html ?? "", null, tagged: tagged);
+    }
+
+    /// <summary>Render a PDF/UA-1 tagged PDF asynchronously.</summary>
+    public static Task<byte[]> RenderAsync(string? html, bool tagged, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(RenderInternal(html ?? "", null, tagged: tagged));
+    }
+
+    /// <summary>
+    /// Render a tagged PDF targeting a specific PDF/UA version. <see cref="Pdf.PdfUaVersion.Ua2"/>
+    /// (ISO 14289-2:2024, PDF 2.0-based) cannot be combined with PDF/A conformance -- there is no
+    /// defined joint standard for that combination, unlike PDF/UA-1's level-A conformance.
+    /// </summary>
+    public static byte[] Render(string? html, bool tagged, Pdf.PdfUaVersion uaVersion)
+    {
+        return RenderInternal(html ?? "", null, tagged: tagged, uaVersion: uaVersion);
+    }
+
+    /// <summary>Render a tagged PDF targeting a specific PDF/UA version, asynchronously.</summary>
+    public static Task<byte[]> RenderAsync(string? html, bool tagged, Pdf.PdfUaVersion uaVersion, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(RenderInternal(html ?? "", null, tagged: tagged, uaVersion: uaVersion));
+    }
+
+    /// <summary>Render a PDF/UA-1 tagged, PDF/A-conformant PDF in one call (see the single-argument overloads of each).</summary>
+    public static byte[] Render(string? html, Pdf.PdfAConformance conformance, bool tagged)
+    {
+        return RenderInternal(html ?? "", null, null, conformance, tagged: tagged);
+    }
+
+    /// <summary>Render a PDF/UA-1 tagged, PDF/A-conformant PDF asynchronously.</summary>
+    public static Task<byte[]> RenderAsync(string? html, Pdf.PdfAConformance conformance, bool tagged, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(RenderInternal(html ?? "", null, null, conformance, tagged: tagged));
+    }
+
+    /// <summary>
+    /// Render a tagged, PDF/A-conformant PDF, explicit about targeting PDF/UA-1 (the only UA
+    /// version definable jointly with PDF/A -- see the single-argument <see cref="Pdf.PdfUaVersion"/>
+    /// overload's doc comment). Throws if <paramref name="uaVersion"/> is <see cref="Pdf.PdfUaVersion.Ua2"/>.
+    /// </summary>
+    public static byte[] Render(string? html, Pdf.PdfAConformance conformance, bool tagged, Pdf.PdfUaVersion uaVersion)
+    {
+        return RenderInternal(html ?? "", null, null, conformance, tagged: tagged, uaVersion: uaVersion);
+    }
+
+    /// <summary>Render a tagged, PDF/A-conformant PDF targeting a specific PDF/UA version, asynchronously.</summary>
+    public static Task<byte[]> RenderAsync(string? html, Pdf.PdfAConformance conformance, bool tagged, Pdf.PdfUaVersion uaVersion, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(RenderInternal(html ?? "", null, null, conformance, tagged: tagged, uaVersion: uaVersion));
+    }
+
+    /// <summary>
+    /// Render HTML to PDF, applying <see cref="PdfRenderOptions"/>. Page size, margins,
+    /// orientation, title/author metadata, and extra CSS are translated into an injected
+    /// <c>@page</c> rule and &lt;head&gt; tags before parsing (the generated rule is appended
     /// last in the HTML's &lt;head&gt;, so it wins the CSS cascade over any conflicting
-    /// <c>@page</c> rule already in the document.
+    /// <c>@page</c> rule already in the document). <see cref="PdfRenderOptions.Encryption"/>,
+    /// <see cref="PdfRenderOptions.Conformance"/> and <see cref="PdfRenderOptions.Invoice"/> are
+    /// applied directly to the PDF writer, same as the dedicated overloads.
     /// </summary>
     public static byte[] Render(string? html, PdfRenderOptions options)
     {
-        return RenderInternal(ApplyRenderOptions(html ?? "", options), null);
+        return RenderInternal(ApplyRenderOptions(html ?? "", options), null,
+            options?.Encryption, options?.Conformance, options?.Invoice, options?.Tagged ?? false,
+            options?.UaVersion ?? Pdf.PdfUaVersion.Ua1);
     }
 
     /// <summary>Render HTML to PDF asynchronously, applying <see cref="PdfRenderOptions"/>.</summary>
@@ -244,7 +348,7 @@ public static partial class HtmlToPdf
         return $"<head>{inject}</head>{html}";
     }
 
-    private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null)
+    private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1)
     {
         // 1. Parse HTML -> DOM
         var document = HtmlParser.Parse(html);
@@ -321,7 +425,7 @@ public static partial class HtmlToPdf
                 : LayoutPageGroups(document, namedGroups, pageSettings, cascadeResolver);
 
             // 6. Resolve images (load data from src attributes)
-            var pdfDoc = new PdfDocument { Encryption = encryption };
+            var pdfDoc = new PdfDocument { Encryption = encryption, Conformance = conformance, Invoice = invoice };
             pdfDoc.Title = FindTitleTagText(document);
             pdfDoc.Author = FindMetaContent(document, "author");
             var layoutRoots = new List<LayoutBox>(layouts.Count);
@@ -334,11 +438,30 @@ public static partial class HtmlToPdf
             // 6b. Subset and embed TrueType fonts for non-standard fonts
             SubsetAndEmbedFonts(layoutRoots, pdfDoc, fontFaces);
 
-            // 7. Render to PDF
-            if (layouts.Count == 1)
-                RenderOneGroup(layouts[0].root, layouts[0].settings, pdfDoc, 0, null);
-            else
-                RenderPageGroups(layouts, pdfDoc);
+            // 6c. PDF/UA-1: build the structure tree from the (pre-pagination) layout tree and
+            // hand the box->element map to the paint layer via BoxPainter.StructureMap, so
+            // PaintBox can wrap each box's output in the right marked-content tag as it paints.
+            if (tagged)
+            {
+                var (structRoot, boxToElement) = StructureTreeBuilder.Build(layoutRoots, uaVersion);
+                pdfDoc.StructureTree = structRoot;
+                pdfDoc.UaVersion = uaVersion;
+                pdfDoc.DocumentLanguage = document.DocumentElement?.GetAttribute("lang");
+                Paint.BoxPainter.StructureMap = boxToElement;
+            }
+
+            try
+            {
+                // 7. Render to PDF
+                if (layouts.Count == 1)
+                    RenderOneGroup(layouts[0].root, layouts[0].settings, pdfDoc, 0, null);
+                else
+                    RenderPageGroups(layouts, pdfDoc);
+            }
+            finally
+            {
+                Paint.BoxPainter.StructureMap = null;
+            }
 
             return pdfDoc.ToByteArray();
         }
@@ -889,10 +1012,13 @@ public static partial class HtmlToPdf
             Text.TrueType.FontData? fontData =
                 TryResolveFontFace(familyList, fontFaces, targetWeight, italic, fontResolver);
 
-            // 2. Standard built-in Type1 fonts (WinAnsiEncoding) stay non-embedded
-            //    while every codepoint is WinAnsi-encodable and no webfont applies.
+            // 2. Standard built-in Type1 fonts (WinAnsiEncoding) stay non-embedded while every
+            //    codepoint is WinAnsi-encodable and no webfont applies -- unless PDF/A conformance
+            //    requires every font referenced in content to be embedded, in which case fall
+            //    through to resolving a real, embeddable font below instead.
+            bool mustEmbedAllFonts = pdfDoc.Conformance != null;
             bool isStandard = IsStandardPdfFont(pdfFontName);
-            if (fontData == null && isStandard && AllWinAnsiEncodable(codepoints))
+            if (fontData == null && isStandard && AllWinAnsiEncodable(codepoints) && !mustEmbedAllFonts)
                 continue;
 
             // 3. System fonts: real families from the list, then metric-compatible
@@ -929,7 +1055,15 @@ public static partial class HtmlToPdf
             }
 
             if (fontData == null || fontData.RawData == null || fontData.RawData.Length == 0)
+            {
+                // Under PDF/A, silently leaving this font non-embedded would ship a PDF that
+                // carries PDF/A conformance metadata while actually violating it -- surface the
+                // failure instead of emitting a mislabeled document.
+                if (mustEmbedAllFonts)
+                    throw new InvalidOperationException(
+                        $"PDF/A conformance requires every font to be embedded, but no embeddable substitute was found for '{pdfFontName}' on this host.");
                 continue;
+            }
 
             // System variable fonts (e.g. Bahnschrift) follow the requested weight too
             fontData = Text.TrueType.VariableFontInstancer.InstanceFor(fontData, targetWeight, variationAxes);

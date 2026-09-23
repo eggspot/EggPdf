@@ -28,7 +28,7 @@ app.MapGet("/api/info", () => Results.Ok(new
 {
     version = typeof(EggPdf.HtmlToPdf).Assembly.GetName().Version?.ToString(3) ?? "unknown",
     engine = "EggPdf",
-    features = new[] { "html-to-pdf", "multi-page", "css-cascade", "links" },
+    features = new[] { "html-to-pdf", "multi-page", "css-cascade", "links", "pdf-a-conformance", "zugferd-factur-x", "pdf-ua-tagging", "pdf-ua-2" },
     limits = new { maxBodySizeMb = 10, timeoutSeconds = 30 }
 }));
 
@@ -64,6 +64,15 @@ app.MapPost("/api/render", async (HttpContext ctx) =>
         ctx.Response.Headers["X-EggPdf-Size"] = pdf.Length.ToString();
 
         return Results.File(pdf, "application/pdf", "output.pdf");
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        // Client-input conflicts (e.g. conformance + encryption together, invoice without PDF/A-3)
+        return Results.BadRequest(new { error = ex.Message });
     }
     catch (Exception ex)
     {
@@ -400,6 +409,18 @@ record RenderOptions
     public string? Title { get; init; }
     public string? Author { get; init; }
 
+    /// <summary>PDF/A conformance level: "PdfA1b", "PdfA1a", "PdfA2b", "PdfA2u", "PdfA2a", "PdfA3b", "PdfA3u", or "PdfA3a". Level A (1a/2a/3a) requires Tagged = true.</summary>
+    public string? Conformance { get; init; }
+
+    /// <summary>ZUGFeRD/Factur-X invoice data (MINIMUM profile, or EN 16931/Comfort when lineItems is non-empty). Requires Conformance = PdfA3b or PdfA3u.</summary>
+    public InvoiceRequest? Invoice { get; init; }
+
+    /// <summary>Produce a tagged PDF (structure tree, alt text, /Lang, landmark regions, Link OBJR cross-reference). Combinable with Conformance and with named page groups.</summary>
+    public bool? Tagged { get; init; }
+
+    /// <summary>PDF/UA spec version Tagged targets: "Ua1" (default, ISO 14289-1, PDF 1.7) or "Ua2" (ISO 14289-2:2024, PDF 2.0 -- cannot combine with Conformance).</summary>
+    public string? UaVersion { get; init; }
+
     public EggPdf.PdfRenderOptions ToCoreOptions() => new()
     {
         PageSize = PageSize,
@@ -411,6 +432,98 @@ record RenderOptions
         MarginLeft = MarginLeft,
         Title = Title,
         Author = Author,
+        Conformance = ParseConformance(Conformance),
+        Invoice = Invoice?.ToFacturXInvoice(),
+        Tagged = Tagged ?? false,
+        UaVersion = ParseUaVersion(UaVersion),
+    };
+
+    private static EggPdf.Pdf.PdfUaVersion ParseUaVersion(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return EggPdf.Pdf.PdfUaVersion.Ua1;
+        return value.ToLowerInvariant() switch
+        {
+            "ua1" or "1" => EggPdf.Pdf.PdfUaVersion.Ua1,
+            "ua2" or "2" => EggPdf.Pdf.PdfUaVersion.Ua2,
+            _ => throw new ArgumentException($"Invalid uaVersion value '{value}'. Expected 'Ua1' or 'Ua2'."),
+        };
+    }
+
+    private static EggPdf.Pdf.PdfAConformance? ParseConformance(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return null;
+        return value.ToLowerInvariant() switch
+        {
+            "pdfa1b" or "1b" => EggPdf.Pdf.PdfAConformance.PdfA1b,
+            "pdfa1a" or "1a" => EggPdf.Pdf.PdfAConformance.PdfA1a,
+            "pdfa2b" or "2b" => EggPdf.Pdf.PdfAConformance.PdfA2b,
+            "pdfa2u" or "2u" => EggPdf.Pdf.PdfAConformance.PdfA2u,
+            "pdfa2a" or "2a" => EggPdf.Pdf.PdfAConformance.PdfA2a,
+            "pdfa3b" or "3b" => EggPdf.Pdf.PdfAConformance.PdfA3b,
+            "pdfa3u" or "3u" => EggPdf.Pdf.PdfAConformance.PdfA3u,
+            "pdfa3a" or "3a" => EggPdf.Pdf.PdfAConformance.PdfA3a,
+            _ => throw new ArgumentException($"Invalid conformance value '{value}'. Expected one of: PdfA1b, PdfA1a, PdfA2b, PdfA2u, PdfA2a, PdfA3b, PdfA3u, PdfA3a."),
+        };
+    }
+}
+
+record InvoiceRequest
+{
+    public string? InvoiceNumber { get; init; }
+    public DateTime? IssueDate { get; init; }
+    public string? CurrencyCode { get; init; }
+    public string? SellerName { get; init; }
+    public string? SellerCountryCode { get; init; }
+    public string? SellerVatId { get; init; }
+    public string? BuyerName { get; init; }
+    public string? BuyerReference { get; init; }
+    public decimal? TaxBasisTotal { get; init; }
+    public decimal? TaxTotal { get; init; }
+    public decimal? GrandTotal { get; init; }
+    public decimal? DuePayableAmount { get; init; }
+
+    /// <summary>Line items (EN 16931 profile). Non-empty produces an EN 16931-conformant document instead of MINIMUM; header totals above are then computed from these lines.</summary>
+    public List<InvoiceLineItemRequest>? LineItems { get; init; }
+
+    public EggPdf.Pdf.FacturXInvoice ToFacturXInvoice() => new()
+    {
+        InvoiceNumber = InvoiceNumber ?? "",
+        IssueDate = IssueDate ?? DateTime.UtcNow,
+        CurrencyCode = CurrencyCode ?? "EUR",
+        SellerName = SellerName ?? "",
+        SellerCountryCode = SellerCountryCode,
+        SellerVatId = SellerVatId,
+        BuyerName = BuyerName ?? "",
+        BuyerReference = BuyerReference,
+        TaxBasisTotal = TaxBasisTotal ?? 0,
+        TaxTotal = TaxTotal ?? 0,
+        GrandTotal = GrandTotal ?? 0,
+        DuePayableAmount = DuePayableAmount ?? 0,
+        LineItems = LineItems?.ConvertAll(l => l.ToFacturXLineItem()) ?? new(),
+    };
+}
+
+record InvoiceLineItemRequest
+{
+    public string? LineId { get; init; }
+    public string? ItemName { get; init; }
+    public decimal? NetUnitPrice { get; init; }
+    public decimal? BilledQuantity { get; init; }
+    public string? UnitCode { get; init; }
+    public decimal? LineTotalAmount { get; init; }
+    public string? VatCategoryCode { get; init; }
+    public decimal? VatRatePercent { get; init; }
+
+    public EggPdf.Pdf.FacturXLineItem ToFacturXLineItem() => new()
+    {
+        LineId = LineId ?? "",
+        ItemName = ItemName ?? "",
+        NetUnitPrice = NetUnitPrice ?? 0,
+        BilledQuantity = BilledQuantity ?? 0,
+        UnitCode = UnitCode ?? "C62",
+        LineTotalAmount = LineTotalAmount ?? 0,
+        VatCategoryCode = VatCategoryCode ?? "S",
+        VatRatePercent = VatRatePercent ?? 0,
     };
 }
 

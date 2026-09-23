@@ -20,8 +20,8 @@ Write normal HTML and CSS. Get a perfect PDF. No WebKit, no Chromium, no native 
 | CSS Flexbox | Yes | Yes | No | Yes |
 | CSS Grid | Yes | Yes | No | Yes |
 | SVG Support | Yes (vector) | Yes | Partial | Yes |
-| PDF/A | Yes | No | No | No |
-| PDF/UA | Yes | No | No | No |
+| PDF/A | 1b/1a/2b/2u/2a/3b/3u/3a | No | No | No |
+| PDF/UA | UA-1 | No | No | No |
 | Tagged PDF | Yes | No | No | No |
 | Digital Signatures | Yes | No | No | No |
 | License | MIT | Commercial | LGPL | Apache 2 |
@@ -166,6 +166,29 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Tables spanning any number of pages without row loss, with `<thead>` repeating on every continuation page
 - Mixed page sizes/orientations via named pages (`page: name` on top-level blocks + `@page name { size; margin; margin boxes }`)
 - Watermarks
+- PDF/A-1b / PDF/A-1a / PDF/A-2b / PDF/A-2u / PDF/A-2a / PDF/A-3b / PDF/A-3u / PDF/A-3a archival
+  conformance (`HtmlToPdf.Render(html, PdfAConformance.PdfA2b)`, `PdfRenderOptions.Conformance`,
+  the CLI's `--pdfa` flag, or the REST API's `options.conformance` field): embedded ICC output
+  intent, XMP conformance metadata, every font embedded (including the standard 14) with a
+  correct ToUnicode mapping. PDF/A-1b/1a writes a PDF 1.4 header and throws if the document uses
+  transparency (opacity, blend modes, image alpha) -- PDF/A-1 forbids it outright (ISO 19005-1 has
+  no `u` level, only `a`/`b`). The `a` levels require `tagged: true` (level A is PDF/A + full
+  accessibility tagging) and throw otherwise
+- PDF/UA-1 tagged PDF (`HtmlToPdf.Render(html, tagged: true)`, `PdfRenderOptions.Tagged`, the CLI's
+  `--tagged` flag, or the REST API's `options.tagged` field, combinable with PDF/A conformance and
+  with named page groups): a structure tree (headings, paragraphs, tables with `<th scope>`, lists,
+  landmark regions (`nav`/`header`/`footer`/`aside`/`main`/`article`/`section`, via custom types +
+  a `/RoleMap` fallback), figures with `alt` text, links cross-referenced to their annotation via
+  `OBJR`, correctly covering every word of a multi-word link, not just the first) linked to page
+  content via marked content, plus `/MarkInfo`, `/Lang` and the required XMP identification. A link
+  that wraps across lines gets one Link element and one annotation per line (a PDF rectangle can't
+  itself wrap)
+- PDF/UA-2 (ISO 14289-2:2024, `HtmlToPdf.Render(html, tagged: true, PdfUaVersion.Ua2)` or
+  `PdfRenderOptions.UaVersion`): the same tagging machinery as PDF/UA-1, plus PDF 2.0's own
+  requirements -- a `%PDF-2.0` header, a declared PDF 2.0 structure namespace every element
+  references via `/NS`, and XMP `pdfuaid:part`/`pdfuaid:rev`. Landmark regions resolve straight to
+  `Div`/`Sect` under UA-2 rather than a custom type + `/RoleMap`. Cannot combine with PDF/A
+  conformance (no defined joint standard); throws rather than silently claim one
 - Pin content (e.g. a signature/acceptance box) to the bottom of whichever page dynamic content ends on (`-eggpdf-pin-bottom: page`)
 
 ### Typography
@@ -218,6 +241,15 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - AcroForm fields (fillable forms from HTML form elements)
 - PDF merging
 - QR codes and barcodes
+- ZUGFeRD/Factur-X e-invoicing (`HtmlToPdf.Render(html, PdfAConformance.PdfA3b, new FacturXInvoice {...})`,
+  `PdfRenderOptions.Invoice`, the CLI's `--invoice <path>` flag, or the REST API's `options.invoice`
+  field): embeds the UN/CEFACT CII invoice XML as a PDF/A-3 attachment with the Factur-X XMP
+  extension schema. MINIMUM profile when `FacturXInvoice.LineItems` is empty; adding line items
+  automatically produces EN 16931 (Comfort)-level output instead -- per-line tax detail, a grouped
+  header tax breakdown, and computed (not caller-supplied) monetary totals, with
+  `/AFRelationship /Alternative` for German legal validity. BASIC and EXTENDED are not modeled as
+  distinct profiles -- populating line items always targets EN 16931, a superset of BASIC's
+  requirements but without EXTENDED-only fields (allowances/charges, multiple deliveries, etc.)
 
 ### Performance
 - Streaming output (constant memory for large documents)

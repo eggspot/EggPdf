@@ -9,6 +9,7 @@ Built by Eggspot (https://eggspot.app). Open source on GitHub: https://github.co
 - [Docker Guide](https://eggspot.github.io/EggPdf/docker.html)
 - [CLI Guide](https://eggspot.github.io/EggPdf/cli.html)
 - [REST API](https://eggspot.github.io/EggPdf/rest-api.html)
+- [PDF Compliance](https://eggspot.github.io/EggPdf/compliance.html)
 - [Full docs (GitHub Wiki)](https://github.com/eggspot/EggPdf/wiki)
 - [AI/LLM usage guide](https://raw.githubusercontent.com/eggspot/EggPdf/main/llms.txt)
 
@@ -62,6 +63,13 @@ byte[] signed = EggPdf.Pdf.PdfSigner.Sign(pdf, x509CertWithPrivateKey,
 ## Performance
 - Simple page: 13 µs — Invoice: 86 µs — Large table (100 rows): 1.2 ms
 - Thread-safe, streaming output, zero allocations on hot path
+
+## Compliance
+- PDF/A-1b/1a/2b/2u/2a/3b/3u/3a: `HtmlToPdf.Render(html, PdfAConformance.PdfA2b)` — embedded ICC output intent, XMP metadata, every font embedded with a correct ToUnicode mapping. PDF/A-1 has no `u` level (only `a`/`b`, unlike parts 2/3). The `a` levels require `tagged: true` (level A is PDF/A + full accessibility tagging)
+- PDF/UA-1 tagged PDF: `HtmlToPdf.Render(html, tagged: true)` — structure tree (incl. landmark regions nav/header/footer/aside/main/article/section, and `<a>` links cross-referenced to their annotation via OBJR, correctly covering every word of a multi-word link), alt text, `/Lang`, `/MarkInfo`, combinable with PDF/A conformance and named page groups
+- PDF/UA-2 (ISO 14289-2:2024): `HtmlToPdf.Render(html, tagged: true, PdfUaVersion.Ua2)` or `PdfRenderOptions.UaVersion` — same tagging machinery as UA-1, plus a `%PDF-2.0` header, a declared PDF 2.0 structure namespace, and `pdfuaid:rev`. Cannot combine with PDF/A conformance (throws)
+- ZUGFeRD/Factur-X e-invoicing: `HtmlToPdf.Render(html, PdfAConformance.PdfA3b, invoice)` — embeds the CII invoice XML as a PDF/A-3 attachment. Empty `FacturXInvoice.LineItems` → MINIMUM profile; populating `LineItems` → EN 16931 (Comfort) profile instead (per-line tax, grouped header tax breakdown, computed totals, `/AFRelationship /Alternative`)
+- Not yet implemented: ZUGFeRD/Factur-X as distinct BASIC/EXTENDED profiles (EN 16931 line items is a superset of BASIC but doesn't model EXTENDED-only fields like allowances/charges), PDF/UA-2 structure destinations/`/Headers` table cells/full `/RoleMapNS` — see [PDF Compliance](https://eggspot.github.io/EggPdf/compliance.html)
 
 ## Target frameworks
 netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0

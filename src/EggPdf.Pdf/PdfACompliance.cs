@@ -1,68 +1,77 @@
 using System;
-using System.Globalization;
 using System.Text;
 
 namespace EggPdf.Pdf;
 
 /// <summary>
-/// PDF/A-1b compliance support.
-/// Generates required metadata, ICC color profile reference, and conformance markers
-/// for archival PDF output per ISO 19005-1:2005.
+/// PDF/A metadata generation: XMP conformance identification and the OutputIntent
+/// dictionary referencing an embedded ICC profile (see <see cref="IccSrgbProfile"/>).
 /// </summary>
 public static class PdfACompliance
 {
-    /// <summary>PDF/A conformance levels.</summary>
-    public enum ConformanceLevel
-    {
-        /// <summary>PDF/A-1b: basic conformance (visual reproduction).</summary>
-        PdfA1b,
-        /// <summary>PDF/A-2b: based on PDF 1.7.</summary>
-        PdfA2b,
-        /// <summary>PDF/A-3b: allows file attachments.</summary>
-        PdfA3b,
-    }
-
     /// <summary>
-    /// Generate XMP metadata for PDF/A conformance.
-    /// This XML must be embedded as a metadata stream in the PDF catalog.
+    /// Generate XMP metadata for PDF/A and/or PDF/UA-1 conformance. This XML must be embedded as
+    /// a metadata stream in the PDF catalog. <paramref name="conformance"/> is null for a
+    /// PDF/UA-1-only document (no PDF/A claim). When <paramref name="facturXFileName"/> is set,
+    /// the Factur-X PDF/A extension schema is declared and populated (see
+    /// <see cref="AppendFacturXExtensionSchema"/>) -- required so PDF/A validators and Factur-X
+    /// readers recognize the embedded invoice XML attachment. When
+    /// <paramref name="includePdfUA"/> is set, <c>pdfuaid:part</c> is declared and
+    /// <paramref name="title"/> is required (PDF/UA-1 rule 7.1-8/7.1-9) -- an empty title is
+    /// replaced with a placeholder rather than silently omitted. <paramref name="isUa2"/> selects
+    /// PDF/UA-2 (ISO 14289-2:2024) instead of the default UA-1: <c>pdfuaid:part</c> becomes 2 and
+    /// a <c>pdfuaid:rev</c> of 2024 is added.
     /// </summary>
-    public static string GenerateXmpMetadata(string? title, string? author, ConformanceLevel level = ConformanceLevel.PdfA1b)
+    public static string GenerateXmpMetadata(string? title, string? author, PdfAConformance? conformance,
+        string? facturXFileName = null, bool includePdfUA = false, string facturXConformanceLevel = "MINIMUM",
+        bool isUa2 = false)
     {
-        string part, conformance;
-        switch (level)
-        {
-            case ConformanceLevel.PdfA2b: part = "2"; conformance = "B"; break;
-            case ConformanceLevel.PdfA3b: part = "3"; conformance = "B"; break;
-            default: part = "1"; conformance = "B"; break;
-        }
-
         var now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
 
         var xmp = new StringBuilder();
-        xmp.AppendLine("<?xpacket begin='\uFEFF' id='W5M0MpCehiHzreSzNTczkc9d'?>");
+        xmp.AppendLine("<?xpacket begin='" + (char)0xFEFF + "' id='W5M0MpCehiHzreSzNTczkc9d'?>");
         xmp.AppendLine("<x:xmpmeta xmlns:x='adobe:ns:meta/'>");
         xmp.AppendLine("<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>");
         xmp.AppendLine("<rdf:Description rdf:about=''");
         xmp.AppendLine("  xmlns:dc='http://purl.org/dc/elements/1.1/'");
         xmp.AppendLine("  xmlns:xmp='http://ns.adobe.com/xap/1.0/'");
-        xmp.AppendLine("  xmlns:pdfaid='http://www.aiim.org/pdfa/ns/id/'");
+        if (conformance != null)
+            xmp.AppendLine("  xmlns:pdfaid='http://www.aiim.org/pdfa/ns/id/'");
+        if (includePdfUA)
+            xmp.AppendLine("  xmlns:pdfuaid='http://www.aiim.org/pdfua/ns/id/'");
         xmp.AppendLine("  xmlns:pdf='http://ns.adobe.com/pdf/1.3/'>");
 
         // PDF/A identification
-        xmp.AppendLine($"  <pdfaid:part>{part}</pdfaid:part>");
-        xmp.AppendLine($"  <pdfaid:conformance>{conformance}</pdfaid:conformance>");
+        if (conformance != null)
+        {
+            xmp.AppendLine($"  <pdfaid:part>{conformance.Value.Part()}</pdfaid:part>");
+            xmp.AppendLine($"  <pdfaid:conformance>{conformance.Value.Level()}</pdfaid:conformance>");
+        }
 
-        // Dublin Core metadata
-        if (!string.IsNullOrEmpty(title))
+        // PDF/UA identification (part only -- neither UA-1 nor UA-2 has a conformance letter,
+        // unlike PDF/A). UA-2 (ISO 14289-2:2024) additionally requires pdfuaid:rev identifying
+        // the year of the referenced ISO 32000-2 edition, per the PDF Association's own
+        // "future-proofing XMP identification" guidance for versioned UA parts.
+        if (includePdfUA)
+        {
+            xmp.AppendLine($"  <pdfuaid:part>{(isUa2 ? 2 : 1)}</pdfuaid:part>");
+            if (isUa2)
+                xmp.AppendLine("  <pdfuaid:rev>2024</pdfuaid:rev>");
+        }
+
+        // Dublin Core metadata. PDF/UA-1 requires a title (rule 7.1-8/7.1-9); default rather
+        // than silently omit it when the caller didn't set one.
+        var effectiveTitle = includePdfUA && string.IsNullOrEmpty(title) ? "Untitled Document" : title;
+        if (!string.IsNullOrEmpty(effectiveTitle))
         {
             xmp.AppendLine("  <dc:title><rdf:Alt><rdf:li xml:lang='x-default'>");
-            xmp.AppendLine($"    {EscapeXml(title)}");
+            xmp.AppendLine($"    {EscapeXml(effectiveTitle!)}");
             xmp.AppendLine("  </rdf:li></rdf:Alt></dc:title>");
         }
         if (!string.IsNullOrEmpty(author))
         {
             xmp.AppendLine("  <dc:creator><rdf:Seq><rdf:li>");
-            xmp.AppendLine($"    {EscapeXml(author)}");
+            xmp.AppendLine($"    {EscapeXml(author!)}");
             xmp.AppendLine("  </rdf:li></rdf:Seq></dc:creator>");
         }
 
@@ -75,6 +84,10 @@ public static class PdfACompliance
         xmp.AppendLine("  <pdf:Producer>EggPdf</pdf:Producer>");
 
         xmp.AppendLine("</rdf:Description>");
+
+        if (!string.IsNullOrEmpty(facturXFileName))
+            AppendFacturXExtensionSchema(xmp, facturXFileName!, facturXConformanceLevel);
+
         xmp.AppendLine("</rdf:RDF>");
         xmp.AppendLine("</x:xmpmeta>");
 
@@ -87,9 +100,9 @@ public static class PdfACompliance
     }
 
     /// <summary>
-    /// Generate a minimal sRGB ICC color profile reference for PDF/A.
-    /// PDF/A requires an output intent with an ICC profile for color reproduction.
-    /// Returns the PDF objects needed for the OutputIntents array.
+    /// The /OutputIntent dictionary (as inline PDF syntax) PDF/A requires, referencing an
+    /// embedded ICC profile stream by object number. Returns the objects needed for the
+    /// catalog's /OutputIntents array.
     /// </summary>
     public static string GenerateOutputIntentDict(int iccProfileObjRef)
     {
@@ -105,67 +118,75 @@ public static class PdfACompliance
     }
 
     /// <summary>
-    /// Generate a minimal sRGB ICC profile (header only).
-    /// A full ICC profile is ~3KB; this is a minimal valid header for PDF/A compliance checking.
-    /// For production use, embed the full sRGB IEC61966-2.1 profile.
+    /// Declare and populate the Factur-X PDF/A extension schema (namespace prefix <c>fx</c>,
+    /// <c>urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#</c>) -- the PDF/A Extension
+    /// Schema mechanism a validator uses to know what <c>fx:*</c> properties mean, plus the
+    /// actual property values identifying the embedded invoice attachment. Verified against the
+    /// reference schema published at github.com/atgp/factur-x (xmp/Factur-X_extension_schema.xmp).
     /// </summary>
-    public static byte[] GenerateMinimalSrgbProfile()
+    private static void AppendFacturXExtensionSchema(StringBuilder xmp, string facturXFileName, string conformanceLevel)
     {
-        // Minimal ICC profile header (128 bytes)
-        var profile = new byte[128];
+        xmp.AppendLine("<rdf:Description rdf:about=''");
+        xmp.AppendLine("  xmlns:pdfaExtension='http://www.aiim.org/pdfa/ns/extension/'");
+        xmp.AppendLine("  xmlns:pdfaSchema='http://www.aiim.org/pdfa/ns/schema#'");
+        xmp.AppendLine("  xmlns:pdfaProperty='http://www.aiim.org/pdfa/ns/property#'>");
+        xmp.AppendLine("  <pdfaExtension:schemas>");
+        xmp.AppendLine("    <rdf:Bag>");
+        xmp.AppendLine("      <rdf:li rdf:parseType='Resource'>");
+        xmp.AppendLine("        <pdfaSchema:schema>Factur-X PDFA Extension Schema</pdfaSchema:schema>");
+        xmp.AppendLine("        <pdfaSchema:namespaceURI>urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#</pdfaSchema:namespaceURI>");
+        xmp.AppendLine("        <pdfaSchema:prefix>fx</pdfaSchema:prefix>");
+        xmp.AppendLine("        <pdfaSchema:property>");
+        xmp.AppendLine("          <rdf:Seq>");
+        AppendFacturXPropertyDef(xmp, "DocumentFileName", "name of the embedded XML invoice file");
+        AppendFacturXPropertyDef(xmp, "DocumentType", "INVOICE");
+        AppendFacturXPropertyDef(xmp, "Version", "The actual version of the Factur-X XML schema");
+        AppendFacturXPropertyDef(xmp, "ConformanceLevel", "The conformance level of the embedded Factur-X data");
+        xmp.AppendLine("          </rdf:Seq>");
+        xmp.AppendLine("        </pdfaSchema:property>");
+        xmp.AppendLine("      </rdf:li>");
+        xmp.AppendLine("    </rdf:Bag>");
+        xmp.AppendLine("  </pdfaExtension:schemas>");
+        xmp.AppendLine("</rdf:Description>");
 
-        // Profile size (128 bytes for header-only)
-        WriteU32BE(profile, 0, 128);
-
-        // Preferred CMM: 'ADBE' (Adobe)
-        profile[4] = 0x41; profile[5] = 0x44; profile[6] = 0x42; profile[7] = 0x45;
-
-        // Profile version: 2.1.0
-        profile[8] = 2; profile[9] = 0x10;
-
-        // Device class: 'mntr' (monitor)
-        profile[12] = 0x6D; profile[13] = 0x6E; profile[14] = 0x74; profile[15] = 0x72;
-
-        // Color space: 'RGB '
-        profile[16] = 0x52; profile[17] = 0x47; profile[18] = 0x42; profile[19] = 0x20;
-
-        // Connection space: 'XYZ '
-        profile[20] = 0x58; profile[21] = 0x59; profile[22] = 0x5A; profile[23] = 0x20;
-
-        // Date/time: 2024-01-01 00:00:00
-        WriteU16BE(profile, 24, 2024); // year
-        WriteU16BE(profile, 26, 1);    // month
-        WriteU16BE(profile, 28, 1);    // day
-
-        // Signature: 'acsp'
-        profile[36] = 0x61; profile[37] = 0x63; profile[38] = 0x73; profile[39] = 0x70;
-
-        // Primary platform: 'MSFT'
-        profile[40] = 0x4D; profile[41] = 0x53; profile[42] = 0x46; profile[43] = 0x54;
-
-        // Rendering intent: perceptual (0)
-        // Illuminant: D50 (standard for ICC)
-        WriteU32BE(profile, 68, 0x0000F6D6); // X = 0.9642
-        WriteU32BE(profile, 72, 0x00010000); // Y = 1.0000
-        WriteU32BE(profile, 76, 0x0000D32D); // Z = 0.8249
-
-        return profile;
+        xmp.AppendLine("<rdf:Description rdf:about=''");
+        xmp.AppendLine("  xmlns:fx='urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#'>");
+        xmp.AppendLine("  <fx:DocumentType>INVOICE</fx:DocumentType>");
+        xmp.AppendLine($"  <fx:DocumentFileName>{EscapeXml(facturXFileName)}</fx:DocumentFileName>");
+        xmp.AppendLine("  <fx:Version>1.0</fx:Version>");
+        xmp.AppendLine($"  <fx:ConformanceLevel>{EscapeXml(conformanceLevel)}</fx:ConformanceLevel>");
+        xmp.AppendLine("</rdf:Description>");
     }
 
-    private static void WriteU32BE(byte[] buf, int offset, uint value)
+    private static void AppendFacturXPropertyDef(StringBuilder xmp, string name, string description)
     {
-        buf[offset] = (byte)(value >> 24);
-        buf[offset + 1] = (byte)((value >> 16) & 0xFF);
-        buf[offset + 2] = (byte)((value >> 8) & 0xFF);
-        buf[offset + 3] = (byte)(value & 0xFF);
+        xmp.AppendLine("            <rdf:li rdf:parseType='Resource'>");
+        xmp.AppendLine($"              <pdfaProperty:name>{name}</pdfaProperty:name>");
+        xmp.AppendLine("              <pdfaProperty:valueType>Text</pdfaProperty:valueType>");
+        xmp.AppendLine("              <pdfaProperty:category>external</pdfaProperty:category>");
+        xmp.AppendLine($"              <pdfaProperty:description>{EscapeXml(description)}</pdfaProperty:description>");
+        xmp.AppendLine("            </rdf:li>");
     }
 
-    private static void WriteU16BE(byte[] buf, int offset, ushort value)
-    {
-        buf[offset] = (byte)(value >> 8);
-        buf[offset + 1] = (byte)(value & 0xFF);
-    }
-
+    /// <summary>
+    /// Escape XML special characters and drop characters XML 1.0 disallows outright (C0 controls
+    /// other than tab/LF/CR) -- title/author come from arbitrary HTML and must not be able to
+    /// produce a non-well-formed XMP packet.
+    /// </summary>
     private static string EscapeXml(string text)
-        => text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+    {
+        var sb = new StringBuilder(text.Length);
+        foreach (char c in text)
+        {
+            if (c < 0x20 && c != '\t' && c != '\n' && c != '\r') continue;
+            switch (c)
+            {
+                case '&': sb.Append("&amp;"); break;
+                case '<': sb.Append("&lt;"); break;
+                case '>': sb.Append("&gt;"); break;
+                default: sb.Append(c); break;
+            }
+        }
+        return sb.ToString();
+    }
 }

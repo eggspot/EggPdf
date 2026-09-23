@@ -1,0 +1,96 @@
+using EggPdf.Pdf;
+using FluentAssertions;
+using Xunit;
+
+namespace EggPdf.Tests.Unit.EndToEnd;
+
+public class PdfAConformanceE2ETests
+{
+    [Fact]
+    public void PdfA2b_EmbedsStandardFontInsteadOfReferencingIt()
+    {
+        var html = "<html><body><p style=\"font-family:Arial\">Hello World</p></body></html>";
+
+        var plain = HtmlToPdf.Render(html);
+        var plainText = PdfAssert.ValidPdf(plain, "Hello World");
+        plainText.Should().Contain("/Subtype /Type1");
+        plainText.Should().NotContain("/Subtype /CIDFontType2");
+
+        // Embedded CIDFont text is painted as glyph-ID hex, not the literal string, so
+        // only the structural checks (no expected visible text) apply here.
+        var pdfA = HtmlToPdf.Render(html, PdfAConformance.PdfA2b);
+        var pdfAText = PdfAssert.ValidPdf(pdfA);
+        pdfAText.Should().Contain("/Subtype /CIDFontType2");
+        pdfAText.Should().Contain("/OutputIntents [");
+    }
+
+    [Fact]
+    public void PdfA3b_ProducesValidPdfWithConformanceMetadata()
+    {
+        var html = "<html><body><h1>Invoice</h1></body></html>";
+
+        var pdf = HtmlToPdf.Render(html, PdfAConformance.PdfA3b);
+        var text = PdfAssert.ValidPdf(pdf);
+        text.Should().Contain("/Subtype /CIDFontType2");
+        text.Should().Contain("<pdfaid:part>3</pdfaid:part>");
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task PdfA_RenderAsync_Works()
+    {
+        var pdf = await HtmlToPdf.RenderAsync("<h1>Async</h1>", PdfAConformance.PdfA2b);
+        PdfAssert.ValidPdf(pdf).Should().Contain("/OutputIntents [");
+    }
+
+    [Fact]
+    public void FacturX_RendersInvoicePdfWithEmbeddedCiiXml()
+    {
+        var html = "<html><body><h1>Invoice 2026-TEST-01</h1></body></html>";
+        var invoice = new FacturXInvoice
+        {
+            InvoiceNumber = "2026-TEST-01",
+            IssueDate = new System.DateTime(2026, 9, 22),
+            CurrencyCode = "EUR",
+            SellerName = "Eggspot SARL",
+            BuyerName = "Acme Corp",
+            TaxBasisTotal = 100.00m,
+            TaxTotal = 20.00m,
+            GrandTotal = 120.00m,
+            DuePayableAmount = 120.00m,
+        };
+
+        var pdf = HtmlToPdf.Render(html, PdfAConformance.PdfA3b, invoice);
+        var text = PdfAssert.ValidPdf(pdf);
+
+        text.Should().Contain("/AFRelationship /Data");
+        text.Should().Contain("<rsm:CrossIndustryInvoice");
+        text.Should().Contain("<ram:ID>2026-TEST-01</ram:ID>");
+        text.Should().Contain("<fx:DocumentType>INVOICE</fx:DocumentType>");
+    }
+
+    [Fact]
+    public void FacturX_WithoutPdfA3_Throws()
+    {
+        var invoice = new FacturXInvoice { InvoiceNumber = "1", SellerName = "S", BuyerName = "B" };
+        System.Action act = () => HtmlToPdf.Render("<h1>x</h1>", PdfAConformance.PdfA2b, invoice);
+        act.Should().Throw<System.InvalidOperationException>();
+    }
+
+    [Theory]
+    [InlineData(PdfAConformance.PdfA2u, "2")]
+    [InlineData(PdfAConformance.PdfA3u, "3")]
+    public void PdfAu_EmbedsFontsWithToUnicodeCMap(PdfAConformance conformance, string expectedPart)
+    {
+        var html = "<html><body><p style=\"font-family:Arial\">Hello World</p></body></html>";
+
+        var pdf = HtmlToPdf.Render(html, conformance);
+        var text = PdfAssert.ValidPdf(pdf);
+
+        // u-level's guarantee (correct Unicode text extraction) rides on the same forced
+        // CIDFont embedding as b-level -- every embedded font always carries a ToUnicode CMap.
+        text.Should().Contain("/Subtype /CIDFontType2");
+        text.Should().Contain("/ToUnicode");
+        text.Should().Contain($"<pdfaid:part>{expectedPart}</pdfaid:part>");
+        text.Should().Contain("<pdfaid:conformance>U</pdfaid:conformance>");
+    }
+}

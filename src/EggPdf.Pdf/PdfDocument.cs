@@ -165,7 +165,7 @@ public partial class PdfDocument
     /// <summary>Add a page with dimensions in PDF points.</summary>
     public PdfPage AddPage(float widthPt, float heightPt)
     {
-        var page = new PdfPage(widthPt, heightPt);
+        var page = new PdfPage(widthPt, heightPt) { PageIndex = _pages.Count };
         _pages.Add(page);
         return page;
     }
@@ -191,6 +191,18 @@ public partial class PdfDocument
     /// <summary>Write the PDF to a stream.</summary>
     public void WriteTo(Stream output)
     {
+        if (Conformance != null && Encryption != null)
+            throw new InvalidOperationException("PDF/A conformance forbids encryption (ISO 19005 disallows /Encrypt).");
+        if (Invoice != null && Conformance != PdfAConformance.PdfA3b && Conformance != PdfAConformance.PdfA3u)
+            throw new InvalidOperationException("Factur-X/ZUGFeRD invoice attachment requires PDF/A-3 conformance (PdfA3b or PdfA3u).");
+        if (StructureTree != null && Encryption != null)
+            throw new InvalidOperationException("Tagged PDF (PDF/UA-1) output does not support encryption.");
+        if (Conformance != null && Conformance.Value.RequiresTagging() && StructureTree == null)
+            throw new InvalidOperationException($"{Conformance} conformance requires accessibility tagging -- set StructureTree (e.g. via HtmlToPdf.Render(html, conformance, tagged: true)) or use the corresponding b/u level instead.");
+        if (StructureTree != null && UaVersion == PdfUaVersion.Ua2 && Conformance != null)
+            throw new InvalidOperationException("PDF/UA-2 combined with PDF/A conformance is not a defined joint standard -- use PDF/UA-1 (tagged: true with a PdfAConformance b/u/a level) for combined archival+accessibility conformance instead.");
+        ValidatePdfA1NoTransparency();
+
         var writer = new PdfStreamWriter(output);
 
         // Encryption: compute the file key up front — every stream and string
@@ -209,9 +221,16 @@ public partial class PdfDocument
                 rng.GetBytes(encDocId);
             enc = Encryption.Compute(encDocId);
         }
+        else if (Conformance != null)
+        {
+            // PDF/A requires a file /ID even when the document is not encrypted.
+            encDocId = new byte[16];
+            using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+                rng.GetBytes(encDocId);
+        }
 
         // Header
-        writer.WriteLine("%PDF-1.7");
+        writer.WriteLine(PdfVersionHeader);
         writer.WriteLine("%\xE2\xE3\xCF\xD3"); // binary marker
 
         // Collect all fonts used across pages
@@ -225,7 +244,8 @@ public partial class PdfDocument
         // 2: Pages
         // 3..N: Page objects (each page = page dict + content stream = 2 objects;
         //   link annotations are written inline in the page dict, not as their
-        //   own objects, so pages never reserve numbers for them)
+        //   own objects, UNLESS the document is tagged -- a tagged link needs a stable
+        //   object number so its Link structure element's OBJR can reference it)
         // Then: font resources, info dict
         var alloc = new PdfObjectAllocator();
         int catalogObj = alloc.Allocate();
@@ -293,13 +313,33 @@ public partial class PdfDocument
                 outlineItemObjs.Add(alloc.Allocate());
         }
 
+        // PDF/A conformance objects: ICC profile stream + XMP metadata stream
+        var (iccProfileObj, metadataObj) = AllocateConformanceObjects(alloc);
+
+        // Factur-X/ZUGFeRD objects: embedded invoice XML stream + its filespec
+        var (facturXEmbeddedFileObj, facturXFilespecObj) = AllocateFacturXObjects(alloc);
+
+        // PDF/UA-1 tagged link annotations: allocate each one its own object number + /StructParent
+        // key (must run first -- it registers OBJR entries that AllocateStructureObjects's Kids
+        // walk doesn't need to know about, but WriteStructureObjects's /K-array walk does).
+        LinkAnnotationsToStructureTree(alloc);
+
+        // PDF/UA-1 structure tree objects: StructTreeRoot, ParentTree, every structure element
+        AllocateStructureObjects(alloc);
+
         // Write Catalog
         alloc.RecordOffset(catalogObj, writer.Position);
         writer.WriteLine($"{catalogObj} 0 obj");
+        var catalogDict = new StringBuilder();
+        catalogDict.Append("<< /Type /Catalog");
+        catalogDict.Append($" /Pages {pagesObj} 0 R");
         if (outlineRootObj > 0)
-            writer.WriteLine($"<< /Type /Catalog /Pages {pagesObj} 0 R /Outlines {outlineRootObj} 0 R >>");
-        else
-            writer.WriteLine($"<< /Type /Catalog /Pages {pagesObj} 0 R >>");
+            catalogDict.Append($" /Outlines {outlineRootObj} 0 R");
+        AppendConformanceCatalogEntries(catalogDict, iccProfileObj, metadataObj);
+        AppendFacturXCatalogEntries(catalogDict, facturXFilespecObj);
+        AppendStructureCatalogEntries(catalogDict);
+        catalogDict.Append(" >>");
+        writer.WriteLine(catalogDict.ToString());
         writer.WriteLine("endobj");
 
         // Write Pages
@@ -469,6 +509,12 @@ public partial class PdfDocument
             pageDict.Append($" /Parent {pagesObj} 0 R");
             pageDict.Append($" /MediaBox [0 0 {F(page.WidthPt)} {F(page.HeightPt)}]");
             pageDict.Append($" /Contents {contentStreamObj} 0 R");
+            if (StructureTree != null)
+            {
+                pageDict.Append(" /Tabs /S");
+                if (page.HasMarkedContent)
+                    pageDict.Append($" /StructParents {page.PageIndex}");
+            }
             // Resources
             bool hasResources = allFonts.Count > 0 || imageObjs.Count > 0 || extGStateObjs.Count > 0;
             if (hasResources)
@@ -488,19 +534,28 @@ public partial class PdfDocument
                 pageDict.Append(" >>");
             }
 
-            // Add link annotations inline (simpler approach)
+            // Link annotations: written inline in most cases (simpler), but a tagged link (one
+            // whose <a> box mapped to a Link structure element) needs its own indirect object so
+            // that element's OBJR entry (see PdfDocument.Tagging.cs) can reference this exact dict.
             if (page.Links.Count > 0)
             {
                 pageDict.Append(" /Annots [");
                 foreach (var link in page.Links)
                 {
-                    float x1 = link.X;
-                    float y1 = link.Y;
-                    float x2 = link.X + link.Width;
-                    float y2 = link.Y + link.Height;
-                    pageDict.Append($" << /Type /Annot /Subtype /Link /Rect [{F(x1)} {F(y1)} {F(x2)} {F(y2)}]");
-                    pageDict.Append($" /Border [0 0 0]");
-                    pageDict.Append($" /A << /Type /Action /S /URI /URI {PdfString(enc, link.Url, pageDictObj)} >> >>");
+                    if (link.AnnotObj != 0)
+                    {
+                        pageDict.Append($" {link.AnnotObj} 0 R");
+                    }
+                    else
+                    {
+                        float x1 = link.X;
+                        float y1 = link.Y;
+                        float x2 = link.X + link.Width;
+                        float y2 = link.Y + link.Height;
+                        pageDict.Append($" << /Type /Annot /Subtype /Link /Rect [{F(x1)} {F(y1)} {F(x2)} {F(y2)}]");
+                        pageDict.Append($" /Border [0 0 0]");
+                        pageDict.Append($" /A << /Type /Action /S /URI /URI {PdfString(enc, link.Url, pageDictObj)} >> >>");
+                    }
                 }
                 pageDict.Append(" ]");
             }
@@ -508,6 +563,26 @@ public partial class PdfDocument
             pageDict.Append(" >>");
             writer.WriteLine(pageDict.ToString());
             writer.WriteLine("endobj");
+
+            // Write the tagged links (their own indirect objects) right after their page dict.
+            foreach (var link in page.Links)
+            {
+                if (link.AnnotObj == 0) continue;
+                float x1 = link.X;
+                float y1 = link.Y;
+                float x2 = link.X + link.Width;
+                float y2 = link.Y + link.Height;
+                alloc.RecordOffset(link.AnnotObj, writer.Position);
+                writer.WriteLine($"{link.AnnotObj} 0 obj");
+                var annotDict = new StringBuilder();
+                annotDict.Append($"<< /Type /Annot /Subtype /Link /Rect [{F(x1)} {F(y1)} {F(x2)} {F(y2)}]");
+                annotDict.Append(" /Border [0 0 0]");
+                annotDict.Append($" /A << /Type /Action /S /URI /URI {PdfString(enc, link.Url, link.AnnotObj)} >>");
+                annotDict.Append($" /StructParent {link.StructParentKey}");
+                annotDict.Append(" >>");
+                writer.WriteLine(annotDict.ToString());
+                writer.WriteLine("endobj");
+            }
         }
 
         // Write outline objects (bookmarks)
@@ -530,6 +605,16 @@ public partial class PdfDocument
         writer.WriteLine(info.ToString());
         writer.WriteLine("endobj");
 
+        // PDF/A conformance: ICC profile stream (referenced by the catalog's
+        // /OutputIntents) and XMP metadata stream (referenced by /Metadata).
+        WriteConformanceObjects(writer, alloc, iccProfileObj, metadataObj);
+
+        // Factur-X/ZUGFeRD: embedded invoice XML stream and its filespec.
+        WriteFacturXObjects(writer, alloc, facturXEmbeddedFileObj, facturXFilespecObj);
+
+        // PDF/UA-1: every structure element, StructTreeRoot, and the ParentTree.
+        WriteStructureObjects(writer, alloc, pageObjs);
+
         // Cross-reference table
         long xrefOffset = writer.Position;
         int totalObjects = alloc.Count + 1;
@@ -550,6 +635,14 @@ public partial class PdfDocument
         var trailerDict = new StringBuilder();
         trailerDict.Append($"<< /Size {totalObjects} /Root {catalogObj} 0 R /Info {infoObj} 0 R");
 
+        // /ID is required whenever a document is encrypted (it seeds the file key) and is
+        // also required by PDF/A even when unencrypted — both cases populate encDocId above.
+        if (encDocId.Length > 0)
+        {
+            string idHex = BitConverter.ToString(encDocId).Replace("-", "");
+            trailerDict.Append($" /ID [<{idHex}> <{idHex}>]");
+        }
+
         // Add encryption dictionary if configured — reuses the parameters the
         // streams and strings above were actually encrypted with.
         if (enc != null)
@@ -558,9 +651,7 @@ public partial class PdfDocument
 
             string oHex = BitConverter.ToString(encParams.OValue).Replace("-", "");
             string uHex = BitConverter.ToString(encParams.UValue).Replace("-", "");
-            string idHex = BitConverter.ToString(encDocId).Replace("-", "");
 
-            trailerDict.Append($" /ID [<{idHex}> <{idHex}>]");
             trailerDict.Append($" /Encrypt << /Filter /Standard /V 2 /R 3 /Length {encParams.KeyLength}");
             trailerDict.Append($" /P {encParams.Permissions}");
             trailerDict.Append($" /O <{oHex}>");

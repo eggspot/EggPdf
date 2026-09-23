@@ -64,6 +64,7 @@
         <a href="fonts.html">Fonts</a>
         <a href="headers-footers.html">Headers &amp; Footers</a>
         <a href="performance.html">Performance</a>
+        <a href="compliance.html">Compliance</a>
         <div class="sidebar-section">Deploy</div>
         <a href="docker.html">Docker</a>
         <a href="cli.html">CLI</a>
@@ -102,7 +103,7 @@
           <thead><tr><th>Property</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
           <tbody>
             <tr><td><code>html</code></td><td><code>string</code></td><td>✅ Yes</td><td>The HTML document to render</td></tr>
-            <tr><td><code>options</code></td><td><code>object</code></td><td>No</td><td>Page size, margins, orientation, title/author (see below)</td></tr>
+            <tr><td><code>options</code></td><td><code>object</code></td><td>No</td><td>Page size, margins, orientation, title/author, PDF/A conformance, Factur-X invoice, PDF/UA-1/UA-2 tagging (see below)</td></tr>
           </tbody>
         </table>
       </div>
@@ -149,6 +150,82 @@
       <div class="code-block"><pre><code><span class="pun">{</span>
   <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;html&gt;&lt;head&gt;&lt;style&gt;@page{size:A4;margin:60px 50px}.footer{position:fixed;bottom:0;left:0;right:0;text-align:center}.footer::after{content:'Page ' counter(page) ' of ' counter(pages)}&lt;/style&gt;&lt;/head&gt;&lt;body&gt;&lt;div class='footer'&gt;&lt;/div&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"</span>
 <span class="pun">}</span></code></pre></div>
+
+      <h3>Example: PDF/A conformance and a Factur-X invoice attachment (MINIMUM profile)</h3>
+      <div class="code-header">JSON Request Body</div>
+      <div class="code-block"><pre><code><span class="pun">{</span>
+  <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;h1&gt;Invoice 2026-042&lt;/h1&gt;"</span><span class="pun">,</span>
+  <span class="str">"options"</span><span class="pun">:</span> <span class="pun">{</span>
+    <span class="str">"conformance"</span><span class="pun">:</span> <span class="str">"PdfA3b"</span><span class="pun">,</span>
+    <span class="str">"invoice"</span><span class="pun">:</span> <span class="pun">{</span>
+      <span class="str">"invoiceNumber"</span><span class="pun">:</span> <span class="str">"2026-042"</span><span class="pun">,</span>
+      <span class="str">"sellerName"</span><span class="pun">:</span> <span class="str">"Seller GmbH"</span><span class="pun">,</span> <span class="str">"buyerName"</span><span class="pun">:</span> <span class="str">"Buyer SARL"</span><span class="pun">,</span>
+      <span class="str">"taxBasisTotal"</span><span class="pun">:</span> <span class="num">100.00</span><span class="pun">,</span> <span class="str">"taxTotal"</span><span class="pun">:</span> <span class="num">20.00</span><span class="pun">,</span>
+      <span class="str">"grandTotal"</span><span class="pun">:</span> <span class="num">120.00</span><span class="pun">,</span> <span class="str">"duePayableAmount"</span><span class="pun">:</span> <span class="num">120.00</span>
+    <span class="pun">}</span>
+  <span class="pun">}</span>
+<span class="pun">}</span></code></pre></div>
+
+      <h3>Example: Factur-X invoice with line items (EN 16931 / Comfort profile)</h3>
+      <div class="code-header">JSON Request Body</div>
+      <div class="code-block"><pre><code><span class="pun">{</span>
+  <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;h1&gt;Invoice 2026-042&lt;/h1&gt;"</span><span class="pun">,</span>
+  <span class="str">"options"</span><span class="pun">:</span> <span class="pun">{</span>
+    <span class="str">"conformance"</span><span class="pun">:</span> <span class="str">"PdfA3b"</span><span class="pun">,</span>
+    <span class="str">"invoice"</span><span class="pun">:</span> <span class="pun">{</span>
+      <span class="str">"invoiceNumber"</span><span class="pun">:</span> <span class="str">"2026-042"</span><span class="pun">,</span>
+      <span class="str">"sellerName"</span><span class="pun">:</span> <span class="str">"Seller GmbH"</span><span class="pun">,</span> <span class="str">"buyerName"</span><span class="pun">:</span> <span class="str">"Buyer SARL"</span><span class="pun">,</span>
+      <span class="str">"lineItems"</span><span class="pun">:</span> <span class="pun">[</span> <span class="pun">{</span>
+        <span class="str">"lineId"</span><span class="pun">:</span> <span class="str">"1"</span><span class="pun">,</span> <span class="str">"itemName"</span><span class="pun">:</span> <span class="str">"Widget"</span><span class="pun">,</span>
+        <span class="str">"netUnitPrice"</span><span class="pun">:</span> <span class="num">10.00</span><span class="pun">,</span> <span class="str">"billedQuantity"</span><span class="pun">:</span> <span class="num">5</span><span class="pun">,</span>
+        <span class="str">"lineTotalAmount"</span><span class="pun">:</span> <span class="num">50.00</span><span class="pun">,</span>
+        <span class="str">"vatCategoryCode"</span><span class="pun">:</span> <span class="str">"S"</span><span class="pun">,</span> <span class="str">"vatRatePercent"</span><span class="pun">:</span> <span class="num">20</span>
+      <span class="pun">} ]</span>
+    <span class="pun">}</span>
+  <span class="pun">}</span>
+<span class="pun">}</span></code></pre></div>
+      <p>
+        <code>conformance</code> accepts <code>PdfA1b</code>, <code>PdfA1a</code>, <code>PdfA2b</code>,
+        <code>PdfA2u</code>, <code>PdfA2a</code>, <code>PdfA3b</code>, <code>PdfA3u</code>, or <code>PdfA3a</code>
+        (<code>PdfA1b</code>/<code>PdfA1a</code> return <code>400</code> if the document uses opacity,
+        blend modes, or image alpha, since PDF/A-1 forbids transparency; the <code>a</code> levels
+        return <code>400</code> unless <code>tagged: true</code> is also set — level A conformance
+        requires accessibility tagging). <code>invoice</code> requires <code>PdfA3b</code>/<code>PdfA3u</code>
+        (returns <code>400</code> otherwise) and embeds the CII invoice XML as a PDF/A-3 attachment.
+        Omitted/empty <code>lineItems</code> produces the MINIMUM profile; a non-empty
+        <code>lineItems</code> array produces EN 16931 (Comfort) instead, with the header tax
+        breakdown and totals computed from the line items (any header total fields you also send are
+        ignored in favor of the computed values). See <a href="compliance.html">PDF Compliance</a>
+        for details, including why BASIC/EXTENDED aren't modeled as separate profiles.
+      </p>
+
+      <h3>Example: PDF/UA-1 tagged PDF</h3>
+      <div class="code-header">JSON Request Body</div>
+      <div class="code-block"><pre><code><span class="pun">{</span>
+  <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;h1&gt;Title&lt;/h1&gt;&lt;p&gt;Body text&lt;/p&gt;"</span><span class="pun">,</span>
+  <span class="str">"options"</span><span class="pun">:</span> <span class="pun">{</span> <span class="str">"tagged"</span><span class="pun">:</span> <span class="kw">true</span> <span class="pun">}</span>
+<span class="pun">}</span></code></pre></div>
+      <p>
+        Produces a structure tree (headings, paragraphs, tables, lists, landmark regions, figures
+        with <code>alt</code> text, links cross-referenced to their annotation via OBJR) linked to
+        the page content, plus <code>/MarkInfo</code>, <code>/Lang</code> and the required XMP
+        identification. Combinable with <code>conformance</code> and with named page groups. See
+        <a href="compliance.html">PDF Compliance</a> for the full tag set and known limitations.
+      </p>
+
+      <h3>Example: PDF/UA-2 tagged PDF</h3>
+      <div class="code-header">JSON Request Body</div>
+      <div class="code-block"><pre><code><span class="pun">{</span>
+  <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;h1&gt;Title&lt;/h1&gt;&lt;p&gt;Body text&lt;/p&gt;"</span><span class="pun">,</span>
+  <span class="str">"options"</span><span class="pun">:</span> <span class="pun">{</span> <span class="str">"tagged"</span><span class="pun">:</span> <span class="kw">true</span><span class="pun">,</span> <span class="str">"uaVersion"</span><span class="pun">:</span> <span class="str">"Ua2"</span> <span class="pun">}</span>
+<span class="pun">}</span></code></pre></div>
+      <p>
+        <code>uaVersion</code> accepts <code>"Ua1"</code> (default) or <code>"Ua2"</code> (ISO
+        14289-2:2024, PDF 2.0-based — a <code>%PDF-2.0</code> header, a declared PDF 2.0 structure
+        namespace, and <code>pdfuaid:rev</code>). Returns <code>400</code> if combined with
+        <code>conformance</code> — there is no defined joint PDF/A + PDF/UA-2 standard. See
+        <a href="compliance.html">PDF Compliance</a> for details.
+      </p>
 
       <h2 id="get-health">GET /health</h2>
       <p>Returns the health status of the service. Use this for liveness probes in Kubernetes, ECS, or other orchestrators.</p>

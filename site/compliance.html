@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF Compliance — EggPdf | Eggspot</title>
+  <meta name="description" content="PDF/A, PDF/UA and e-invoicing standards EggPdf supports today, and what's on the roadmap.">
+  <link rel="canonical" href="https://eggspot.github.io/EggPdf/compliance.html">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="apple-touch-icon" href="assets/favicon.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://eggspot.github.io/EggPdf/compliance.html">
+  <meta property="og:title" content="PDF Compliance — EggPdf">
+  <meta property="og:description" content="PDF/A, PDF/UA and e-invoicing standards EggPdf supports today, and what's on the roadmap.">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container">
+    <a class="nav-logo" href="index.html">
+      <svg width="22" height="16" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+      <span class="logo-text">Egg<span class="logo-accent">Pdf</span></span>
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle navigation" aria-expanded="false"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="5" x2="19" y2="5"/><line x1="3" y1="11" x2="19" y2="11"/><line x1="3" y1="17" x2="19" y2="17"/></svg></button>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="getting-started.html">Docs</a>
+      <a href="docker.html">Docker</a>
+      <a href="cli.html">CLI</a>
+      <a href="rest-api.html">REST API</a>
+      <a href="architecture.html">Internals</a>
+      <a href="https://github.com/eggspot/EggPdf" class="nav-github" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page-header">
+  <div class="container">
+    <h1>PDF Compliance</h1>
+    <p>Archival, accessibility and e-invoicing standards EggPdf supports today, and what's still on the roadmap.</p>
+  </div>
+</div>
+
+<div class="container">
+  <div class="docs-layout">
+
+    <aside class="docs-sidebar">
+      <nav aria-label="Documentation navigation">
+        <div class="sidebar-section">Guides</div>
+        <a href="getting-started.html">Getting Started</a>
+        <a href="configuration.html">Configuration</a>
+        <a href="page-layout.html">Page Layout</a>
+        <a href="tables.html">Tables</a>
+        <a href="fonts.html">Fonts</a>
+        <a href="headers-footers.html">Headers &amp; Footers</a>
+        <a href="performance.html">Performance</a>
+        <a href="compliance.html" class="active">Compliance</a>
+        <div class="sidebar-section">Deploy</div>
+        <a href="docker.html">Docker</a>
+        <a href="cli.html">CLI</a>
+        <a href="rest-api.html">REST API</a>
+        <div class="sidebar-section">Internals</div>
+        <a href="architecture.html">Architecture</a>
+      </nav>
+    </aside>
+
+    <main class="docs-content">
+
+      <h2 id="supported-now">Supported now: PDF/A-1b/1a, PDF/A-2b/2u/2a, PDF/A-3b/3u/3a</h2>
+      <p>
+        Pass a <code>PdfAConformance</code> value to render an archival-conformant PDF instead of the
+        default output:
+      </p>
+      <div class="code-block"><pre><code><span class="typ">byte</span><span class="pun">[]</span> pdf <span class="pun">=</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="typ">Render</span><span class="pun">(</span>html<span class="pun">,</span> <span class="typ">PdfAConformance</span><span class="pun">.</span><span class="typ">PdfA2b</span><span class="pun">);</span>
+
+<span class="com">// or asynchronously</span>
+<span class="typ">byte</span><span class="pun">[]</span> pdf <span class="pun">=</span> <span class="kw">await</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="typ">RenderAsync</span><span class="pun">(</span>html<span class="pun">,</span> <span class="typ">PdfAConformance</span><span class="pun">.</span><span class="typ">PdfA3u</span><span class="pun">);</span></code></pre></div>
+      <p>Each render with a conformance level set:</p>
+      <ul>
+        <li>Embeds a real ICC sRGB output intent, so color reproduces the same on any conformant viewer</li>
+        <li>Embeds spec-correct XMP metadata declaring the <code>pdfaid:part</code>/<code>pdfaid:conformance</code> identifiers</li>
+        <li>Embeds <strong>every</strong> font referenced in the document — including the standard 14
+          (Helvetica, Times, Courier, etc.), which render output normally leaves non-embedded since
+          every PDF viewer has them built in. PDF/A requires full embedding regardless</li>
+        <li>Guarantees correct Unicode text extraction (the <code>u</code> conformance letter) —
+          every embedded font always carries a real <code>ToUnicode</code> CMap</li>
+        <li>Rejects the combination with <code>PdfEncryption</code> by throwing
+          <code>InvalidOperationException</code> — PDF/A forbids encryption outright, so a silently
+          mislabeled PDF is never produced</li>
+      </ul>
+      <p>
+        <code>PdfA3b</code>/<code>PdfA3u</code> additionally permit embedding arbitrary file
+        attachments (the mechanism ZUGFeRD/Factur-X e-invoicing builds on — see below).
+      </p>
+      <p>
+        <code>PdfA1b</code>/<code>PdfA1a</code> (PDF/A-1, based on PDF 1.4 — note ISO 19005-1 has
+        no <code>u</code> level, only <code>a</code>/<code>b</code>, unlike parts 2/3) write a
+        <code>%PDF-1.4</code> header instead of <code>1.7</code>, and — because PDF/A-1 forbids
+        transparency outright — throw <code>InvalidOperationException</code> if the document uses
+        CSS <code>opacity</code> below 1, a <code>mix-blend-mode</code> other than
+        <code>normal</code>, or an image with an alpha channel, rather than silently dropping the
+        effect or shipping a mislabeled non-conformant PDF. Use <code>PdfA2b</code>/<code>2u</code>/
+        <code>3b</code>/<code>3u</code> for documents that need any of those.
+      </p>
+      <p>
+        The <strong>A</strong> conformance letter (<code>PdfA1a</code>, <code>PdfA2a</code>,
+        <code>PdfA3a</code>) is PDF/A plus full accessibility tagging as a single named level —
+        it requires <code>tagged: true</code> (see the PDF/UA-1 section below) and throws
+        otherwise, rather than claim accessibility conformance with no structure tree:
+      </p>
+      <div class="code-block"><pre><code><span class="typ">byte</span><span class="pun">[]</span> pdf <span class="pun">=</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="typ">Render</span><span class="pun">(</span>html<span class="pun">,</span> <span class="typ">PdfAConformance</span><span class="pun">.</span><span class="typ">PdfA2a</span><span class="pun">,</span> <span class="kw">tagged</span><span class="pun">:</span> <span class="kw">true</span><span class="pun">);</span></code></pre></div>
+      <p>
+        Every entry point can reach it: the standalone <code>HtmlToPdf.Render(html, PdfAConformance)</code>
+        overload shown above, <code>PdfRenderOptions.Conformance</code> (combinable with page size,
+        margins, title, etc. in one call), the CLI's
+        <code>--pdfa &lt;1b|1a|2b|2u|2a|3b|3u|3a&gt;</code> flag, and the REST API's
+        <code>options.conformance</code> JSON field.
+      </p>
+
+      <h2 id="zugferd">Supported now: ZUGFeRD / Factur-X (MINIMUM &amp; EN 16931)</h2>
+      <p>
+        Pass a <code>FacturXInvoice</code> alongside <code>PdfA3b</code> or <code>PdfA3u</code>
+        conformance to embed the invoice as a UN/CEFACT Cross Industry Invoice (CII) XML attachment —
+        throws if conformance isn't PDF/A-3, since Factur-X's embedded-XML mechanism only exists there:
+      </p>
+      <div class="code-block"><pre><code><span class="typ">byte</span><span class="pun">[]</span> pdf <span class="pun">=</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="typ">Render</span><span class="pun">(</span>html<span class="pun">,</span> <span class="typ">PdfAConformance</span><span class="pun">.</span><span class="typ">PdfA3b</span><span class="pun">,</span> <span class="kw">new</span> <span class="typ">FacturXInvoice</span>
+<span class="pun">{</span>
+    <span class="typ">InvoiceNumber</span> <span class="pun">=</span> <span class="str">"2026-042"</span><span class="pun">,</span> <span class="typ">IssueDate</span> <span class="pun">=</span> <span class="typ">DateTime</span><span class="pun">.</span><span class="typ">UtcNow</span><span class="pun">,</span> <span class="typ">CurrencyCode</span> <span class="pun">=</span> <span class="str">"EUR"</span><span class="pun">,</span>
+    <span class="typ">SellerName</span> <span class="pun">=</span> <span class="str">"Seller GmbH"</span><span class="pun">,</span> <span class="typ">BuyerName</span> <span class="pun">=</span> <span class="str">"Buyer SARL"</span><span class="pun">,</span>
+    <span class="typ">TaxBasisTotal</span> <span class="pun">=</span> <span class="pun">100.00</span><span class="pun">,</span> <span class="typ">TaxTotal</span> <span class="pun">=</span> <span class="pun">20.00</span><span class="pun">,</span> <span class="typ">GrandTotal</span> <span class="pun">=</span> <span class="pun">120.00</span><span class="pun">,</span> <span class="typ">DuePayableAmount</span> <span class="pun">=</span> <span class="pun">120.00</span><span class="pun">,</span>
+<span class="pun">});</span></code></pre></div>
+      <p>This embeds:</p>
+      <ul>
+        <li>The CII invoice XML as a PDF/A-3 attachment (<code>/EmbeddedFiles</code> name tree, PDF 2.0
+          <code>/AF</code> associated-file array)</li>
+        <li>The Factur-X XMP extension schema (<code>fx:</code> namespace) declaring the attachment's
+          document type, filename, version and conformance level, so Factur-X readers and PDF/A
+          validators recognize it</li>
+      </ul>
+      <p>
+        The profile is derived from <code>FacturXInvoice.LineItems</code> rather than a separate
+        enum. Leave it empty and you get the <strong>MINIMUM</strong> profile above — parties, dates
+        and totals only, <code>/AFRelationship /Data</code>. Populate it and the writer instead
+        produces <strong>EN 16931 (Comfort)</strong>-level output:
+      </p>
+      <div class="code-block"><pre><code><span class="typ">byte</span><span class="pun">[]</span> pdf <span class="pun">=</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="typ">Render</span><span class="pun">(</span>html<span class="pun">,</span> <span class="typ">PdfAConformance</span><span class="pun">.</span><span class="typ">PdfA3b</span><span class="pun">,</span> <span class="kw">new</span> <span class="typ">FacturXInvoice</span>
+<span class="pun">{</span>
+    <span class="typ">InvoiceNumber</span> <span class="pun">=</span> <span class="str">"2026-042"</span><span class="pun">,</span> <span class="typ">IssueDate</span> <span class="pun">=</span> <span class="typ">DateTime</span><span class="pun">.</span><span class="typ">UtcNow</span><span class="pun">,</span> <span class="typ">CurrencyCode</span> <span class="pun">=</span> <span class="str">"EUR"</span><span class="pun">,</span>
+    <span class="typ">SellerName</span> <span class="pun">=</span> <span class="str">"Seller GmbH"</span><span class="pun">,</span> <span class="typ">BuyerName</span> <span class="pun">=</span> <span class="str">"Buyer SARL"</span><span class="pun">,</span>
+    <span class="typ">LineItems</span> <span class="pun">=</span> <span class="pun">{</span> <span class="kw">new</span> <span class="typ">FacturXLineItem</span>
+    <span class="pun">{</span>
+        <span class="typ">LineId</span> <span class="pun">=</span> <span class="str">"1"</span><span class="pun">,</span> <span class="typ">ItemName</span> <span class="pun">=</span> <span class="str">"Widget"</span><span class="pun">,</span> <span class="typ">NetUnitPrice</span> <span class="pun">=</span> <span class="pun">10.00</span><span class="pun">,</span> <span class="typ">BilledQuantity</span> <span class="pun">=</span> <span class="pun">5</span><span class="pun">,</span>
+        <span class="typ">LineTotalAmount</span> <span class="pun">=</span> <span class="pun">50.00</span><span class="pun">,</span> <span class="typ">VatCategoryCode</span> <span class="pun">=</span> <span class="str">"S"</span><span class="pun">,</span> <span class="typ">VatRatePercent</span> <span class="pun">=</span> <span class="pun">20</span><span class="pun">,</span>
+    <span class="pun">} },</span>
+<span class="pun">});</span></code></pre></div>
+      <p>
+        With line items present, the writer computes line-level tax per item, groups lines into a
+        header-level tax breakdown by <code>(VatCategoryCode, VatRatePercent)</code>, and computes
+        the header monetary summation (<code>TaxBasisTotalAmount</code>/<code>TaxTotalAmount</code>/
+        <code>GrandTotalAmount</code>/<code>DuePayableAmount</code>) from the line items — any values
+        set on the invoice's own header total properties are ignored rather than trusted, so the two
+        can never disagree. The attachment relationship also switches to
+        <code>/AFRelationship /Alternative</code> (required for German legal validity per the
+        Factur-X spec), versus MINIMUM's <code>/Data</code>.
+      </p>
+      <p>
+        <strong>Scoping note:</strong> BASIC and EXTENDED are not modeled as separate profiles.
+        Populating line items always targets EN 16931 — a strict superset of BASIC's requirements —
+        but doesn't add EXTENDED-only fields (allowances/charges, multiple deliveries, additional
+        references, etc.). Don't assume EXTENDED-level data is accepted or emitted.
+      </p>
+      <p>
+        Also reachable via <code>PdfRenderOptions.Invoice</code>, the CLI's
+        <code>--invoice &lt;path-to-json&gt;</code> flag (JSON field names match
+        <code>FacturXInvoice</code>'s properties, including <code>lineItems</code>), and the REST
+        API's <code>options.invoice</code> JSON object (with its own <code>lineItems</code> array).
+      </p>
+
+      <h2 id="pdfua">Supported now: PDF/UA-1 (accessibility)</h2>
+      <p>
+        Pass <code>tagged: true</code> to produce a tagged PDF — a structure tree linked to the
+        page content, so screen readers and other assistive technology can navigate it instead of
+        reading raw painted glyphs in an arbitrary order:
+      </p>
+      <div class="code-block"><pre><code><span class="typ">byte</span><span class="pun">[]</span> pdf <span class="pun">=</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="typ">Render</span><span class="pun">(</span>html<span class="pun">,</span> <span class="kw">tagged</span><span class="pun">:</span> <span class="kw">true</span><span class="pun">);</span>
+
+<span class="com">// combinable with PDF/A conformance</span>
+<span class="typ">byte</span><span class="pun">[]</span> pdf <span class="pun">=</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="typ">Render</span><span class="pun">(</span>html<span class="pun">,</span> <span class="typ">PdfAConformance</span><span class="pun">.</span><span class="typ">PdfA2b</span><span class="pun">,</span> <span class="kw">tagged</span><span class="pun">:</span> <span class="kw">true</span><span class="pun">);</span></code></pre></div>
+      <p>This builds a structure tree from the document's semantic HTML elements:</p>
+      <ul>
+        <li><code>h1</code>–<code>h6</code> → headings, <code>p</code> → paragraphs</li>
+        <li><code>table</code>/<code>tr</code>/<code>th</code>/<code>td</code> → table structure,
+          with <code>&lt;th scope&gt;</code> mapped to the PDF <code>/Scope</code> attribute</li>
+        <li><code>ul</code>/<code>ol</code>/<code>li</code> → list structure</li>
+        <li><code>img</code> → a Figure element with its <code>alt</code> text</li>
+        <li><code>a</code> → a Link element, cross-referenced to its clickable annotation via an
+          <code>OBJR</code> entry and a <code>/StructParent</code> key (ISO 14289-1 7.18.1) — not
+          just wrapped as ordinary marked content. A multi-word link (e.g. "Click here") splits
+          into one box per word for line-breaking, same as any inline element; every word on the
+          same line shares one Link structure element and one annotation sized to the full line,
+          not just the first word</li>
+        <li><code>nav</code>/<code>header</code>/<code>footer</code>/<code>aside</code>/<code>main</code>/<code>article</code>/<code>section</code>
+          → landmark regions. PDF 1.7 (what PDF/UA-1 is based on) has no native semantic-landmark
+          structure types, so these use custom type names (<code>Nav</code>, <code>Header</code>, etc.)
+          backed by a <code>/RoleMap</code> fallback to the nearest standard type (<code>Div</code> or
+          <code>Sect</code>) — the mechanism ISO 32000-1 §14.7.5 defines for exactly this case, so a
+          reader that doesn't recognize the custom name still gets valid fallback semantics</li>
+      </ul>
+      <p>
+        Every other element (wrapper <code>div</code>s, inline <code>span</code>s, text-run
+        fragments from line wrapping) attaches to its nearest tagged ancestor rather than being
+        dropped, so no content goes untagged even though not every HTML element gets its own
+        structure type. The catalog also gets <code>/MarkInfo</code>, <code>/Lang</code> (from
+        <code>&lt;html lang&gt;</code>), <code>/ViewerPreferences /DisplayDocTitle</code>, and the
+        XMP <code>pdfuaid:part</code> identification with a required <code>dc:title</code>
+        (defaulted to "Untitled Document" rather than omitted if none is set).
+      </p>
+      <p>
+        Combinable with named page groups (<code>page: &lt;name&gt;</code> + <code>@page &lt;name&gt;</code>):
+        every group's content attaches to the same single Document structure tree root, in group
+        order.
+      </p>
+      <p>
+        Reachable via the overloads above, <code>PdfRenderOptions.Tagged</code>, the CLI's
+        <code>--tagged</code> flag, and the REST API's <code>options.tagged</code> field.
+      </p>
+      <p>
+        <strong>Known limitations:</strong> no inline emphasis/strong mapping; position:fixed and
+        margin-box content (running headers/footers) isn't tagged. A link that wraps across
+        multiple lines gets one Link structure element and one annotation per line (a rectangle
+        can't itself wrap) rather than one continuous element spanning the whole link.
+      </p>
+
+      <h2 id="pdfua2">Supported now: PDF/UA-2 (ISO 14289-2:2024)</h2>
+      <p>
+        Pass <code>PdfUaVersion.Ua2</code> alongside <code>tagged: true</code> to target PDF/UA-2
+        instead of the default UA-1. PDF/UA-2 is based on WTPDF and PDF 2.0 (ISO 32000-2) rather
+        than PDF 1.7, so it needs more than just a different XMP identification:
+      </p>
+      <div class="code-block"><pre><code><span class="typ">byte</span><span class="pun">[]</span> pdf <span class="pun">=</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="typ">Render</span><span class="pun">(</span>html<span class="pun">,</span> <span class="kw">tagged</span><span class="pun">:</span> <span class="kw">true</span><span class="pun">,</span> <span class="typ">PdfUaVersion</span><span class="pun">.</span><span class="typ">Ua2</span><span class="pun">);</span></code></pre></div>
+      <p>This produces:</p>
+      <ul>
+        <li>A <code>%PDF-2.0</code> header instead of the usual 1.7</li>
+        <li>A declared PDF 2.0 structure namespace (<code>/Namespaces</code> on StructTreeRoot,
+          <code>http://iso.org/pdf2/ssn</code>) that every structure element references via
+          <code>/NS</code> — veraPDF's UA-2 rule 8.2.4-1 requires every element to belong to a
+          declared namespace</li>
+        <li>XMP <code>pdfuaid:part</code> of <code>2</code> plus a <code>pdfuaid:rev</code> of
+          <code>2024</code>, identifying the referenced ISO 32000-2 edition</li>
+      </ul>
+      <p>
+        Landmark regions (<code>nav</code>/<code>header</code>/<code>footer</code>/<code>aside</code>/<code>main</code>/<code>article</code>/<code>section</code>)
+        resolve straight to their standard fallback type (<code>Div</code> or <code>Sect</code>)
+        under UA-2, rather than the custom type name + <code>/RoleMap</code> indirection UA-1 uses.
+        PDF 2.0's namespace-scoped role mapping (<code>/RoleMapNS</code>) is a materially different
+        and more involved mechanism than PDF 1.7's flat <code>/RoleMap</code> — resolving directly
+        to a standard type sidesteps needing it, at the cost of losing the semantic landmark
+        distinction specifically under UA-2 (the content is still tagged, just as a generic
+        Div/Sect rather than a Nav/Header/etc.).
+      </p>
+      <p>
+        <code>PdfUaVersion.Ua2</code> cannot be combined with <code>PdfAConformance</code> — there
+        is no defined joint PDF/A + PDF/UA-2 standard (unlike PDF/UA-1's level-A conformance);
+        combining throws. Reachable via the overloads above, <code>PdfRenderOptions.UaVersion</code>,
+        the CLI's <code>--ua-version 2</code> flag (requires <code>--tagged</code>), and the REST
+        API's <code>options.uaVersion</code> field.
+      </p>
+      <p>
+        <strong>Known limitations:</strong> no structure destinations for internal links (EggPdf
+        doesn't yet support internal anchor links at all, tagged or not); table cells still rely on
+        the same <code>&lt;th scope&gt;</code>-derived <code>/Scope</code> attribute UA-1 uses
+        rather than PDF 2.0's <code>/Headers</code> mechanism or its algorithmic-determination
+        alternative; <code>/Info</code> is kept alongside XMP rather than dropped, since sources on
+        whether PDF/UA-2 actually forbids it (rather than just deprecating it in favor of XMP)
+        disagreed and removing it is a large, hard-to-reverse-safely change across every existing
+        PDF-writing path — kept as the conservative choice pending clearer verification.
+      </p>
+
+      <h2 id="roadmap">On the roadmap</h2>
+      <p>
+        Not yet implemented. Listed here so the gap is explicit rather than silently assumed —
+        <a href="https://github.com/eggspot/EggPdf/blob/main/BLUEPRINT.md#core-components-deep-dive" target="_blank" rel="noopener">BLUEPRINT.md</a>
+        has the full dependency-ordered plan.
+      </p>
+      <ul>
+        <li><strong>ZUGFeRD/Factur-X BASIC and EXTENDED as distinct profiles</strong> — EN 16931
+          (Comfort) is implemented (see above) and is a superset of BASIC's requirements, but
+          EXTENDED-only fields (allowances/charges, multiple deliveries, additional references) are
+          not modeled</li>
+        <li><strong>PDF/UA-2 structure destinations, <code>/Headers</code> table cells, and full
+          <code>/RoleMapNS</code></strong> — see the known limitations above</li>
+        <li><strong>WTPDF's Level 1 "for reuse" conformance</strong> (a weaker tier than PDF/UA-2's
+          accessibility conformance, both defined by the same PDF Association WTPDF 1.0
+          specification) — not modeled; EggPdf's UA-2 support targets the accessibility tier only</li>
+      </ul>
+
+    </main>
+  </div>
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-logo" aria-hidden="true">
+      <svg width="28" height="20" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+    </div>
+    <p>An open-source project by <a href="https://eggspot.app" target="_blank" rel="noopener">Eggspot</a> &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a></p>
+  </div>
+</footer>
+
+<script>
+(function() {
+  var btn = document.querySelector(".nav-hamburger");
+  var nav = document.querySelector(".nav-links");
+  btn.addEventListener("click", function() {
+    var open = nav.classList.toggle("open");
+    btn.setAttribute("aria-expanded", open);
+  });
+  document.addEventListener("click", function(e) {
+    if (!e.target.closest(".nav")) {
+      nav.classList.remove("open");
+      btn.setAttribute("aria-expanded", "false");
+    }
+  });
+})();
+</script>
+</body>
+</html>

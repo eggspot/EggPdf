@@ -104,6 +104,13 @@ public static partial class BlockLayout
         bool elementAssigned = false;
         bool prevRunTrailingSpace = false;
 
+        // Every word-fragment this call produces belongs to the same wrapperElement (see the
+        // call site in BlockLayout.cs -- one LayoutInlineRuns call per inline child element).
+        // currentSpan accumulates the union rect of fragments on one line; childY changing means
+        // a new line, so it starts a fresh span rather than extending across the line-break gap.
+        InlineElementSpan? currentSpan = null;
+        float currentSpanLineY = float.NaN;
+
         // Float-aware wrapping (including shape-outside): when floats are active, the left
         // inset and right wrap boundary are queried per line at that line's absolute Y
         // instead of the flat containerWidth used otherwise. atLineStart tracks "nothing
@@ -292,6 +299,19 @@ public static partial class BlockLayout
                         };
                         if (!elementAssigned && wrapperElement != null)
                             elementAssigned = true;
+                        if (wrapperElement != null)
+                        {
+                            if (currentSpan == null || childY != currentSpanLineY)
+                            {
+                                currentSpan = new InlineElementSpan(wrapperElement, chunkBox.X, chunkBox.Y, chunkBox.Width, chunkBox.Height);
+                                currentSpanLineY = childY;
+                            }
+                            else
+                            {
+                                currentSpan.Union(chunkBox.X, chunkBox.Y, chunkBox.Width, chunkBox.Height);
+                            }
+                            chunkBox.InlineSpan = currentSpan;
+                        }
                         box.Children.Add(chunkBox);
                         inlineX += chunkWidth;
                         atLineStart = false;
@@ -327,6 +347,20 @@ public static partial class BlockLayout
 
                 if (!elementAssigned && wrapperElement != null)
                     elementAssigned = true;
+
+                if (wrapperElement != null)
+                {
+                    if (currentSpan == null || childY != currentSpanLineY)
+                    {
+                        currentSpan = new InlineElementSpan(wrapperElement, textBox.X, textBox.Y, textBox.Width, textBox.Height);
+                        currentSpanLineY = childY;
+                    }
+                    else
+                    {
+                        currentSpan.Union(textBox.X, textBox.Y, textBox.Width, textBox.Height);
+                    }
+                    textBox.InlineSpan = currentSpan;
+                }
 
                 box.Children.Add(textBox);
                 inlineX += wordWidth;

@@ -41,6 +41,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://eggspot.github.io/EggPdf/compliance.html</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://eggspot.github.io/EggPdf/docker.html</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>

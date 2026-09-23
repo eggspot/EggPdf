@@ -57,10 +57,95 @@ byte[] encrypted = HtmlToPdf.Render(html, new EggPdf.Pdf.PdfEncryption
     AllowModifying = false,
     KeyLength = 128
 });
+
+// PDF/A-2b/2u/3b/3u conformant PDF (ICC output intent, XMP metadata, all fonts embedded --
+// including the standard 14 -- with a correct ToUnicode mapping). Cannot be combined with PdfEncryption.
+byte[] pdfA = HtmlToPdf.Render(html, EggPdf.Pdf.PdfAConformance.PdfA2b);
+
+// ZUGFeRD/Factur-X e-invoice: embeds the CII invoice XML as a PDF/A-3 attachment.
+// Requires PdfA3b or PdfA3u -- throws otherwise. No LineItems -> MINIMUM profile.
+byte[] invoice = HtmlToPdf.Render(html, EggPdf.Pdf.PdfAConformance.PdfA3b, new EggPdf.Pdf.FacturXInvoice
+{
+    InvoiceNumber = "2026-042", IssueDate = DateTime.UtcNow, CurrencyCode = "EUR",
+    SellerName = "Seller GmbH", BuyerName = "Buyer SARL",
+    TaxBasisTotal = 100.00m, TaxTotal = 20.00m, GrandTotal = 120.00m, DuePayableAmount = 120.00m,
+});
+
+// Non-empty LineItems -> EN 16931 (Comfort) profile instead: per-line tax, a grouped header
+// tax breakdown, and computed (not caller-supplied) totals. /AFRelationship becomes
+// /Alternative (German legal validity) instead of MINIMUM's /Data.
+byte[] en16931Invoice = HtmlToPdf.Render(html, EggPdf.Pdf.PdfAConformance.PdfA3b, new EggPdf.Pdf.FacturXInvoice
+{
+    InvoiceNumber = "2026-042", IssueDate = DateTime.UtcNow, CurrencyCode = "EUR",
+    SellerName = "Seller GmbH", BuyerName = "Buyer SARL",
+    LineItems = { new EggPdf.Pdf.FacturXLineItem
+    {
+        LineId = "1", ItemName = "Widget", NetUnitPrice = 10.00m, BilledQuantity = 5,
+        LineTotalAmount = 50.00m, VatCategoryCode = "S", VatRatePercent = 20m,
+    }},
+});
 ```
 
-Document metadata (Title/Author) and PDF/A/UA conformance are not currently configurable via
-the public API — don't suggest properties for them.
+Document metadata (Title/Author) is configurable via `PdfRenderOptions` (see above). PDF/A
+conformance and Factur-X invoice data are also available on `PdfRenderOptions` itself
+(`.Conformance`, `.Invoice`, `.Encryption`) -- same fields, so any entry point can use them:
+
+```csharp
+// Same effect as the standalone overloads above, via one options object
+byte[] pdf = HtmlToPdf.Render(html, new PdfRenderOptions
+{
+    Conformance = EggPdf.Pdf.PdfAConformance.PdfA3b,
+    Invoice = new EggPdf.Pdf.FacturXInvoice { InvoiceNumber = "2026-042", SellerName = "Seller", BuyerName = "Buyer" },
+});
+```
+
+CLI: `eggpdf input.html -o output.pdf --pdfa 3b --invoice invoice-data.json` (JSON fields match
+`FacturXInvoice`'s properties). REST API: `POST /api/render` with
+`{"html": "...", "options": {"conformance": "PdfA3b", "invoice": {...}}}`.
+
+ZUGFeRD/Factur-X profile is derived from `FacturXInvoice.LineItems`, not a separate enum: empty
+-> MINIMUM, non-empty -> EN 16931 (Comfort). BASIC and EXTENDED are not modeled as distinct
+profiles -- don't suggest BASIC-only or EXTENDED-only properties (allowances/charges, multiple
+deliveries, etc.), they don't exist; populating line items always targets EN 16931. `PdfAConformance` also has
+`PdfA1b` (PDF/A-1, PDF 1.4-based) -- throws `InvalidOperationException` if the document uses
+opacity, blend modes, or images with an alpha channel, since PDF/A-1 forbids transparency
+outright; suggest PdfA2b/2u/3b/3u instead when the document needs any of those. Note: PDF/A-1
+has no `u` level (only `a`/`b`) -- don't suggest `PdfA1u`, it doesn't exist.
+
+```csharp
+// PDF/UA-1 tagged PDF: structure tree, alt text, /Lang, /MarkInfo. Combinable with PdfAConformance.
+byte[] tagged = HtmlToPdf.Render(html, tagged: true);
+byte[] taggedPdfA = HtmlToPdf.Render(html, EggPdf.Pdf.PdfAConformance.PdfA2b, tagged: true);
+
+// PDF/A level A (PdfA1a/PdfA2a/PdfA3a) IS PDF/A + full accessibility tagging as a named
+// conformance level -- requires tagged: true, throws otherwise.
+byte[] pdfA2a = HtmlToPdf.Render(html, EggPdf.Pdf.PdfAConformance.PdfA2a, tagged: true);
+```
+
+CLI: add `--tagged` (combinable with `--pdfa`; required when `--pdfa` is 1a/2a/3a). REST API:
+`options.tagged: true`. PDF/UA-1 tags `h1`-`h6`, `p`, `table`/`tr`/`th`/`td` (with `<th scope>`),
+`ul`/`ol`/`li`, `img` (with `alt`), `a` (cross-referenced to its Link annotation via an OBJR entry
+and `/StructParent`, per ISO 14289-1 7.18.1), and the landmark set `nav`/`header`/`footer`/`aside`/
+`main`/`article`/`section` (custom structure types + a `/RoleMap` fallback to `Div`/`Sect`, since
+PDF 1.7 has no native landmark types) -- other elements pass through untagged. Combinable with
+named page groups (`page: <name>` + `@page <name>`); every group attaches to the same Document
+root. A multi-word `<a>` (e.g. "Click here") correctly tags/cross-references every word as one
+Link element with one annotation covering the full line -- not just the first word -- and this
+also fixed the plain (non-tagged) link annotation's rectangle, which was previously sized to only
+the first word for any multi-word link. A link that wraps across lines gets one Link element and
+one annotation per line (a rectangle can't itself wrap).
+
+```csharp
+// PDF/UA-2 (ISO 14289-2:2024, PDF 2.0-based) instead of the default UA-1: same tagging
+// machinery, plus a %PDF-2.0 header, a declared PDF 2.0 structure namespace every element
+// references via /NS, and XMP pdfuaid:part=2/pdfuaid:rev=2024. Landmark regions resolve
+// straight to Div/Sect (not a custom type + /RoleMap). Cannot combine with PdfAConformance --
+// no defined joint PDF/A + PDF/UA-2 standard; throws if you try.
+byte[] ua2 = HtmlToPdf.Render(html, tagged: true, EggPdf.Pdf.PdfUaVersion.Ua2);
+```
+
+CLI: `--ua-version 2` (requires `--tagged`; default is 1). REST API: `options.uaVersion: "Ua2"`.
+Don't suggest PDF/UA-2 + `--pdfa`/`options.conformance` together -- it throws.
 
 ## ASP.NET Core integration
 

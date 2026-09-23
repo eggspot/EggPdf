@@ -568,10 +568,12 @@ public partial class PdfPage
         }
     }
 
-    /// <summary>Add a clickable link annotation.</summary>
-    public void AddLink(float x, float y, float width, float height, string url)
+    /// <summary>Add a clickable link annotation. Returns it so a tagged render can attribute it to a structure element (see <see cref="PdfLinkAnnotation.TaggedElement"/>).</summary>
+    public PdfLinkAnnotation AddLink(float x, float y, float width, float height, string url)
     {
-        Links.Add(new PdfLinkAnnotation(x, y, width, height, url));
+        var link = new PdfLinkAnnotation(x, y, width, height, url);
+        Links.Add(link);
+        return link;
     }
 
     private static string F(float value) => value.ToString("F2", CultureInfo.InvariantCulture);
@@ -660,13 +662,35 @@ public partial class PdfPage
     }
 }
 
-internal class PdfLinkAnnotation
+/// <summary>
+/// A clickable link annotation (<c>/Subtype /Link</c>). Public -- not just <c>internal</c> -- because
+/// <c>EggPdf.Paint</c>'s <c>BoxPainter</c> (a separate assembly, no <c>InternalsVisibleTo</c> access)
+/// needs to set <see cref="TaggedElement"/> right after creating one, mirroring why
+/// <see cref="PdfPage.BeginMarkedContent"/>/<see cref="PdfPage.EndMarkedContent"/> are public too.
+/// </summary>
+public class PdfLinkAnnotation
 {
     public float X { get; }
     public float Y { get; }
     public float Width { get; }
     public float Height { get; }
     public string Url { get; }
+
+    /// <summary>
+    /// The Link structure element this annotation's <c>&lt;a&gt;</c> box was tagged as, when the
+    /// document is tagged (see <see cref="PdfDocument.StructureTree"/>). Set by the paint layer at
+    /// paint time; <see cref="PdfDocument.WriteTo"/> uses it to allocate an object number and a
+    /// <c>/StructParent</c> key and register an OBJR back-reference on the element (ISO 14289-1
+    /// 7.18.1). Left null for a non-tagged render or when tagging is on but this box wasn't mapped
+    /// to a Link element -- both leave the annotation written the plain, un-cross-referenced way.
+    /// </summary>
+    public PdfStructureElement? TaggedElement { get; set; }
+
+    /// <summary>Object number assigned to this annotation when <see cref="TaggedElement"/> is set (0 otherwise). Set by <see cref="PdfDocument.WriteTo"/>, not callers.</summary>
+    public int AnnotObj { get; set; }
+
+    /// <summary>The /StructParent key assigned to this annotation when <see cref="TaggedElement"/> is set (0 otherwise). Set by <see cref="PdfDocument.WriteTo"/>, not callers.</summary>
+    public int StructParentKey { get; set; }
 
     public PdfLinkAnnotation(float x, float y, float width, float height, string url)
     {
