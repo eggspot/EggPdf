@@ -179,10 +179,10 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   with named page groups): a structure tree (headings, paragraphs, tables with `<th scope>`, lists,
   landmark regions (`nav`/`header`/`footer`/`aside`/`main`/`article`/`section`, via custom types +
   a `/RoleMap` fallback), figures with `alt` text, links cross-referenced to their annotation via
-  `OBJR`) linked to page content via marked content, plus `/MarkInfo`, `/Lang` and the required XMP
-  identification. Known gap: a multi-word `<a>` link only tags/cross-references its first word (a
-  pre-existing inline-layout bug -- see BLUEPRINT.md -- that also under-sizes the plain link
-  annotation's clickable rectangle, not something specific to tagging)
+  `OBJR`, correctly covering every word of a multi-word link, not just the first) linked to page
+  content via marked content, plus `/MarkInfo`, `/Lang` and the required XMP identification. A link
+  that wraps across lines gets one Link element and one annotation per line (a PDF rectangle can't
+  itself wrap)
 - Pin content (e.g. a signature/acceptance box) to the bottom of whichever page dynamic content ends on (`-eggpdf-pin-bottom: page`)
 
 ### Typography

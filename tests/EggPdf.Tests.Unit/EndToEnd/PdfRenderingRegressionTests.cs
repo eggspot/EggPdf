@@ -80,6 +80,34 @@ public class PdfRenderingRegressionTests
     }
 
     [Fact]
+    public async Task MultiWordLink_AnnotationRectCoversFullText()
+    {
+        // Regression: multi-word inline elements split into one LayoutBox per word for line
+        // breaking, and only the FIRST word-fragment kept the <a>'s Element reference -- so
+        // AddLink's rectangle was sized to only the first word ("Click", not "Click here"),
+        // making most of a real-world multi-word link (e.g. "Click here", "Learn more")
+        // unclickable. Compare a one-word and a two-word link of the same first word: the
+        // two-word link's /Rect must be noticeably wider than the one-word link's.
+        byte[] oneWordPdf = await HtmlToPdf.RenderAsync("<p><a href='https://example.com'>Click</a></p>");
+        byte[] twoWordPdf = await HtmlToPdf.RenderAsync("<p><a href='https://example.com'>Click here</a></p>");
+
+        float oneWordRectWidth = ExtractLinkRectWidth(Encoding.ASCII.GetString(oneWordPdf));
+        float twoWordRectWidth = ExtractLinkRectWidth(Encoding.ASCII.GetString(twoWordPdf));
+
+        twoWordRectWidth.Should().BeGreaterThan(oneWordRectWidth * 1.5f,
+            "the annotation must cover both words, not just the first");
+    }
+
+    private static float ExtractLinkRectWidth(string pdfText)
+    {
+        var match = Regex.Match(pdfText, @"/Subtype /Link /Rect \[([\d.]+) [\d.]+ ([\d.]+) [\d.]+\]");
+        match.Success.Should().BeTrue("a /Subtype /Link annotation with a /Rect must be present");
+        float x1 = float.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        float x2 = float.Parse(match.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
+        return x2 - x1;
+    }
+
+    [Fact]
     public async Task BrAfterText_NoDoubleLineHeight()
     {
         // Regression: <br> after text nodes added extra line height

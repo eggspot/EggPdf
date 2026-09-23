@@ -183,10 +183,6 @@ public class PdfUaTaggingE2ETests
     [Fact]
     public void Tagged_LinkElement_CrossReferencesAnnotationViaObjr()
     {
-        // Single-word link text: multi-word inline content is split into one LayoutBox per word
-        // for line-breaking, and only the first word's box carries the <a> tag identity (see the
-        // "known limitations" note in site/compliance.html) -- a one-word link avoids that
-        // confound and isolates what this test actually checks, the OBJR cross-reference.
         var html = "<html><body><p><a href=\"https://example.com\">Click</a></p></body></html>";
 
         var pdf = HtmlToPdf.Render(html, tagged: true);
@@ -196,5 +192,33 @@ public class PdfUaTaggingE2ETests
         text.Should().Contain("/Type /OBJR");
         text.Should().MatchRegex(@"/StructParent \d+");
         text.Should().Contain("/Subtype /Link");
+    }
+
+    [Fact]
+    public void Tagged_MultiWordLinkElement_BothWordsShareOneLinkStructElemAndOneObjr()
+    {
+        // Regression for the multi-word inline-element bug: before the fix, only the first word
+        // ("Click") mapped to the Link structure element; " here" fell through to the parent P
+        // element instead, and the OBJR-cross-referenced annotation's /Rect only covered "Click".
+        var html = "<html><body><p><a href=\"https://example.com\">Click here</a></p></body></html>";
+
+        var pdf = HtmlToPdf.Render(html, tagged: true);
+        var text = PdfAssert.ValidPdf(pdf, "Click", "here");
+
+        // Exactly one Link StructElem -- both words attach to the SAME element, not one each.
+        Regex.Matches(text, @"/Type /StructElem /S /Link").Count.Should().Be(1);
+        // That one Link element's /K array must contain MCRs for both words' MCIDs plus the OBJR.
+        var linkElemMatch = Regex.Match(text, @"/Type /StructElem /S /Link /P \d+ 0 R /K \[([^\]]*)\]");
+        linkElemMatch.Success.Should().BeTrue();
+        Regex.Matches(linkElemMatch.Groups[1].Value, @"/Type /MCR").Count.Should().Be(2,
+            "both word fragments' marked content must be referenced by the one Link element");
+        linkElemMatch.Groups[1].Value.Should().Contain("/Type /OBJR");
+
+        // The annotation itself must cover the full "Click here" width, not just "Click".
+        var rectMatch = Regex.Match(text, @"/Subtype /Link /Rect \[([\d.]+) [\d.]+ ([\d.]+) [\d.]+\]");
+        rectMatch.Success.Should().BeTrue();
+        float rectWidth = float.Parse(rectMatch.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture)
+            - float.Parse(rectMatch.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        rectWidth.Should().BeGreaterThan(20f, "the rect must span both words, not just the first");
     }
 }

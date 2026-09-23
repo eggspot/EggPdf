@@ -61,6 +61,48 @@ public class InlineLayoutTests
     }
 
     [Fact]
+    public void MultiWordInlineElement_WordFragmentsShareOneInlineSpanCoveringFullWidth()
+    {
+        var root = LayoutTestHelper.Layout("<p><a href='https://example.com'>Click here</a></p>", 600, 800);
+
+        var wordBoxes = root.FindAll(b => b.Text != null && (b.Text.Contains("Click") || b.Text.Contains("here")));
+        wordBoxes.Should().HaveCount(2, "the two words should still be separate LayoutBoxes for line-breaking");
+
+        wordBoxes[0].InlineSpan.Should().NotBeNull();
+        wordBoxes[1].InlineSpan.Should().NotBeNull();
+        wordBoxes[0].InlineSpan.Should().BeSameAs(wordBoxes[1].InlineSpan,
+            "both words are on the same line of the same <a> and must share one span so a consumer only creates one link/tag for it");
+        wordBoxes[0].InlineSpan!.Element.TagName.Should().Be("a");
+        wordBoxes[0].InlineSpan!.Width.Should().BeGreaterThan(wordBoxes[0].Width,
+            "the shared span must cover both words, not just the first fragment's own width");
+    }
+
+    [Fact]
+    public void SingleWordInlineElement_InlineSpanDegeneratesToItsOwnBox()
+    {
+        var root = LayoutTestHelper.Layout("<p><a href='https://example.com'>Click</a></p>", 600, 800);
+
+        var a = root.FindByTag("a");
+        a.Should().NotBeNull();
+        a!.InlineSpan.Should().NotBeNull();
+        a.InlineSpan!.Width.Should().BeApproximately(a.Width, 0.01f);
+    }
+
+    [Fact]
+    public void MultiWordInlineElement_WrappedAcrossLines_GetsOneSpanPerLine()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div style='width: 60px'><p><a href='https://example.com'>Click here now</a></p></div>", 600, 800);
+
+        var wordBoxes = root.FindAll(b => b.Text != null && b.InlineSpan != null && b.InlineSpan.Element.TagName == "a");
+        wordBoxes.Should().HaveCountGreaterOrEqualTo(2, "the narrow container should force at least one wrap");
+
+        var distinctSpans = new System.Collections.Generic.HashSet<EggPdf.Layout.InlineElementSpan>();
+        foreach (var w in wordBoxes) distinctSpans.Add(w.InlineSpan!);
+        distinctSpans.Count.Should().BeGreaterThan(1, "wrapping to a new line must start a new span, not extend the first line's rect across the gap");
+    }
+
+    [Fact]
     public void TextAlign_Center_AppliedToBlock()
     {
         var root = LayoutTestHelper.Layout(

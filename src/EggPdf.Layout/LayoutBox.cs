@@ -29,6 +29,14 @@ public class LayoutBox
     public float MarginLeft { get; set; }
 
     public HtmlElement? Element { get; set; }
+
+    /// <summary>
+    /// Set on every per-word fragment a multi-word inline element's text splits into (see
+    /// <see cref="InlineElementSpan"/>) -- null for anything not produced by that word-splitting
+    /// path. Fragments on the same line of the same element share one instance.
+    /// </summary>
+    public InlineElementSpan? InlineSpan { get; set; }
+
     public ComputedStyle Style { get; set; } = new();
     public string? Text { get; set; }
     public bool IsListMarker { get; set; }

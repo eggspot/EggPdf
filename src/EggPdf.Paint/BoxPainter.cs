@@ -876,19 +876,47 @@ public static partial class BoxPainter
             }
         }
 
-        // Paint links
-        if (box.Element?.TagName == "a")
+        // Paint links. A multi-word <a> splits into one LayoutBox per word for line-breaking
+        // (box.InlineSpan is set on every such fragment -- see InlineElementSpan); using the
+        // span's unioned rect instead of this one fragment's own bounds is what makes the
+        // annotation cover the whole line of link text, not just its first word.
+        var linkElement = box.InlineSpan?.Element ?? box.Element;
+        if (linkElement?.TagName == "a")
         {
-            var href = box.Element.GetAttribute("href");
+            var href = linkElement.GetAttribute("href");
             if (!string.IsNullOrEmpty(href) && href.StartsWith("http"))
             {
-                float pdfX = effectiveX * PdfCoordinates.PxToPt;
-                float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
-                float pdfW = box.Width * PdfCoordinates.PxToPt;
-                float pdfH = box.Height * PdfCoordinates.PxToPt;
-                var link = page.AddLink(pdfX, pdfY, pdfW, pdfH, href);
-                if (StructureMap != null && StructureMap.TryGetValue(box, out var linkElem))
-                    link.TaggedElement = linkElem;
+                var span = box.InlineSpan;
+                if (span != null)
+                {
+                    if (span.PaintTag is not PdfLinkAnnotation)
+                    {
+                        // Fragments on the same line share one span: map its bounds into this
+                        // box's page-local space via the offset between them (both are in the
+                        // same pre-pagination coordinate space, and a span never crosses a page
+                        // since pagination only ever breaks between lines).
+                        float spanEffectiveX = effectiveX + (span.X - box.X);
+                        float spanAdjustedY = adjustedY + (span.Y - box.Y);
+                        float pdfX = spanEffectiveX * PdfCoordinates.PxToPt;
+                        float pdfY = (pageHeightPx - spanAdjustedY - span.Height) * PdfCoordinates.PxToPt;
+                        float pdfW = span.Width * PdfCoordinates.PxToPt;
+                        float pdfH = span.Height * PdfCoordinates.PxToPt;
+                        span.PaintTag = page.AddLink(pdfX, pdfY, pdfW, pdfH, href);
+                    }
+                    if (span.PaintTag is PdfLinkAnnotation spanLink && StructureMap != null &&
+                        StructureMap.TryGetValue(box, out var spanLinkElem))
+                        spanLink.TaggedElement = spanLinkElem;
+                }
+                else
+                {
+                    float pdfX = effectiveX * PdfCoordinates.PxToPt;
+                    float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+                    float pdfW = box.Width * PdfCoordinates.PxToPt;
+                    float pdfH = box.Height * PdfCoordinates.PxToPt;
+                    var link = page.AddLink(pdfX, pdfY, pdfW, pdfH, href);
+                    if (StructureMap != null && StructureMap.TryGetValue(box, out var linkElem))
+                        link.TaggedElement = linkElem;
+                }
             }
         }
 

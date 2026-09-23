@@ -47,37 +47,64 @@ internal static class StructureTreeBuilder
     {
         var rootElem = new PdfStructureElement("Document");
         var map = new Dictionary<LayoutBox, PdfStructureElement>();
+        var spanElements = new Dictionary<InlineElementSpan, PdfStructureElement>();
         foreach (var root in roots)
-            BuildRecursive(root, rootElem, map);
+            BuildRecursive(root, rootElem, map, spanElements);
         return (rootElem, map);
     }
 
-    private static void BuildRecursive(LayoutBox box, PdfStructureElement currentAncestor, Dictionary<LayoutBox, PdfStructureElement> map)
+    private static void BuildRecursive(LayoutBox box, PdfStructureElement currentAncestor,
+        Dictionary<LayoutBox, PdfStructureElement> map, Dictionary<InlineElementSpan, PdfStructureElement> spanElements)
     {
-        var tag = box.TagName;
         var target = currentAncestor;
 
-        if (tag != null && TagToType.TryGetValue(tag, out var type))
+        if (box.InlineSpan != null)
         {
-            var elem = new PdfStructureElement(type);
-            ApplyAttributes(elem, box, tag);
-            currentAncestor.AddChild(elem);
-            target = elem;
+            // A word-fragment of a multi-word inline element (e.g. <a>Click here</a> -- see
+            // InlineElementSpan and LayoutBox.InlineSpan). Element is null on every fragment
+            // after the first, so box.TagName alone would silently fall through to the ancestor
+            // for those; reuse the ONE structure element every fragment sharing this span (i.e.
+            // on the same line) belongs under, created on the first fragment encountered, rather
+            // than creating one per word.
+            var spanTag = box.InlineSpan.Element.TagName;
+            if (TagToType.TryGetValue(spanTag, out var spanType))
+            {
+                if (!spanElements.TryGetValue(box.InlineSpan, out var spanElem))
+                {
+                    spanElem = new PdfStructureElement(spanType);
+                    ApplyAttributes(spanElem, box, spanTag);
+                    currentAncestor.AddChild(spanElem);
+                    spanElements[box.InlineSpan] = spanElem;
+                }
+                target = spanElem;
+            }
         }
-
-        // LI's only allowed children are Lbl/LBody (ISO 14289-1 7.2-17..20) -- wrap its content
-        // in LBody so the tree stays structurally valid without modeling list-item labels separately.
-        if (tag == "li")
+        else
         {
-            var lbody = new PdfStructureElement("LBody");
-            target.AddChild(lbody);
-            target = lbody;
+            var tag = box.TagName;
+            if (tag != null && TagToType.TryGetValue(tag, out var type))
+            {
+                var elem = new PdfStructureElement(type);
+                ApplyAttributes(elem, box, tag);
+                currentAncestor.AddChild(elem);
+                target = elem;
+            }
+
+            // LI's only allowed children are Lbl/LBody (ISO 14289-1 7.2-17..20) -- wrap its
+            // content in LBody so the tree stays structurally valid without modeling list-item
+            // labels separately.
+            if (tag == "li")
+            {
+                var lbody = new PdfStructureElement("LBody");
+                target.AddChild(lbody);
+                target = lbody;
+            }
         }
 
         map[box] = target;
 
         foreach (var child in box.Children)
-            BuildRecursive(child, target, map);
+            BuildRecursive(child, target, map, spanElements);
     }
 
     private static void ApplyAttributes(PdfStructureElement elem, LayoutBox box, string tag)

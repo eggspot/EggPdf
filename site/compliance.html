@@ -197,7 +197,10 @@
         <li><code>img</code> → a Figure element with its <code>alt</code> text</li>
         <li><code>a</code> → a Link element, cross-referenced to its clickable annotation via an
           <code>OBJR</code> entry and a <code>/StructParent</code> key (ISO 14289-1 7.18.1) — not
-          just wrapped as ordinary marked content</li>
+          just wrapped as ordinary marked content. A multi-word link (e.g. "Click here") splits
+          into one box per word for line-breaking, same as any inline element; every word on the
+          same line shares one Link structure element and one annotation sized to the full line,
+          not just the first word</li>
         <li><code>nav</code>/<code>header</code>/<code>footer</code>/<code>aside</code>/<code>main</code>/<code>article</code>/<code>section</code>
           → landmark regions. PDF 1.7 (what PDF/UA-1 is based on) has no native semantic-landmark
           structure types, so these use custom type names (<code>Nav</code>, <code>Header</code>, etc.)
@@ -225,12 +228,9 @@
       </p>
       <p>
         <strong>Known limitations:</strong> no inline emphasis/strong mapping; position:fixed and
-        margin-box content (running headers/footers) isn't tagged; a multi-word <code>&lt;a&gt;</code>
-        link (e.g. "Click here") only tags and cross-references its <strong>first word</strong> as
-        the Link element today — a pre-existing inline-layout gap (word-fragments after the first
-        lose their owning-element identity entirely, which also makes the plain, non-tagged link's
-        clickable rectangle too narrow) rather than something specific to tagging; tracked as a
-        separate bug, not fixed here.
+        margin-box content (running headers/footers) isn't tagged. A link that wraps across
+        multiple lines gets one Link structure element and one annotation per line (a rectangle
+        can't itself wrap) rather than one continuous element spanning the whole link.
       </p>
 
       <h2 id="roadmap">On the roadmap</h2>
@@ -249,9 +249,6 @@
           <code>/Namespaces</code> + <code>/RoleMapNS</code> on StructTreeRoot, a single Document
           root in the PDF 2.0 structure namespace, structure destinations for internal links, and
           <code>pdfuaid:rev</code> in XMP) — not started</li>
-        <li><strong>Multi-word inline element identity</strong> (see the known limitation above) —
-          a pre-existing layout gap where only an inline element's first word-fragment keeps a
-          reference back to its DOM element</li>
       </ul>
 
     </main>

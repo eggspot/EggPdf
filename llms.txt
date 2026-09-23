@@ -129,10 +129,11 @@ and `/StructParent`, per ISO 14289-1 7.18.1), and the landmark set `nav`/`header
 `main`/`article`/`section` (custom structure types + a `/RoleMap` fallback to `Div`/`Sect`, since
 PDF 1.7 has no native landmark types) -- other elements pass through untagged. Combinable with
 named page groups (`page: <name>` + `@page <name>`); every group attaches to the same Document
-root. Known gap, not tagging-specific: a multi-word `<a>` (e.g. "Click here") only tags/cross-
-references its first word as Link -- a pre-existing inline-layout bug where later word-fragments
-of any inline element lose their DOM element reference entirely, which also under-sizes the
-plain (non-tagged) link annotation's clickable rectangle.
+root. A multi-word `<a>` (e.g. "Click here") correctly tags/cross-references every word as one
+Link element with one annotation covering the full line -- not just the first word -- and this
+also fixed the plain (non-tagged) link annotation's rectangle, which was previously sized to only
+the first word for any multi-word link. A link that wraps across lines gets one Link element and
+one annotation per line (a rectangle can't itself wrap).
 
 ## ASP.NET Core integration
 
