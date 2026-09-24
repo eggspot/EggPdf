@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Generates the Fluent API reference in site/fluent-api.html from the assembly and its XML doc
+       comments, so the docs cannot drift from the code. See Program.cs for the two run modes. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>EggPdf.DocGen</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\EggPdf\EggPdf.csproj" />
+    <ProjectReference Include="..\..\src\EggPdf.Pdf\EggPdf.Pdf.csproj" />
+  </ItemGroup>
+
+</Project>

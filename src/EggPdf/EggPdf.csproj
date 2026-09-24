@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="EggPdf.Tests.Unit" />
+    <InternalsVisibleTo Include="EggPdf.Tests.Fluent" />
   </ItemGroup>
 
   <!-- PrivateAssets="all" hides sub-packages from .nuspec dependencies.

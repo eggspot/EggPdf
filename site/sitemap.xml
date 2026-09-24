@@ -26,6 +26,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://eggspot.github.io/EggPdf/fluent-api.html</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://eggspot.github.io/EggPdf/fonts.html</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>

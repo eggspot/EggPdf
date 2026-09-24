@@ -352,7 +352,15 @@ public static partial class HtmlToPdf
     {
         // 1. Parse HTML -> DOM
         var document = HtmlParser.Parse(html);
+        return RenderInternal(document, basePath, encryption, conformance, invoice, tagged, uaVersion);
+    }
 
+    /// <summary>
+    /// Same pipeline as the HTML-string overload, starting from an already-built DOM (e.g. from
+    /// EggPdf.Fluent's document builder) instead of parsing HTML text.
+    /// </summary>
+    private static byte[] RenderInternal(HtmlDocument document, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1)
+    {
         // 1b. Decode Cloudflare email obfuscation (browsers do this via script,
         // which a PDF engine does not run).
         if (document.Body != null)
@@ -374,7 +382,7 @@ public static partial class HtmlToPdf
         // 4b. When @font-face webfonts are declared, measure text with the real
         // font metrics so layout matches the glyphs the PDF paints.
         var fontFaces = BuildFontFaceMap(stylesheets);
-        bool usesVariations = UsesFontVariations(html, stylesheets);
+        bool usesVariations = UsesFontVariations(document, stylesheets);
         if (fontFaces.Count > 0 || usesVariations)
         {
             PrefetchWebFonts(fontFaces);

@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fluent C# API — EggPdf | Eggspot</title>
+  <meta name="description" content="Define PDFs in C# with EggPdf.Fluent: a strongly typed document builder that renders through the same engine as HTML.">
+  <link rel="canonical" href="https://eggspot.github.io/EggPdf/fluent-api.html">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="apple-touch-icon" href="assets/favicon.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://eggspot.github.io/EggPdf/fluent-api.html">
+  <meta property="og:title" content="Fluent C# API — EggPdf">
+  <meta property="og:description" content="Define PDFs in C# with EggPdf.Fluent: a strongly typed document builder that renders through the same engine as HTML.">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- Nav -->
+<header class="nav">
+  <div class="container">
+    <a class="nav-logo" href="index.html">
+      <svg width="22" height="16" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+      <span class="logo-text">Egg<span class="logo-accent">Pdf</span></span>
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle navigation" aria-expanded="false"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="5" x2="19" y2="5"/><line x1="3" y1="11" x2="19" y2="11"/><line x1="3" y1="17" x2="19" y2="17"/></svg></button>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="getting-started.html">Docs</a>
+      <a href="docker.html">Docker</a>
+      <a href="cli.html">CLI</a>
+      <a href="rest-api.html">REST API</a>
+      <a href="architecture.html">Internals</a>
+      <a href="https://github.com/eggspot/EggPdf" class="nav-github" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<!-- Page header -->
+<div class="page-header">
+  <div class="container">
+    <h1>Fluent C# API</h1>
+    <p>Define a PDF in C# instead of HTML — strongly typed, same engine, same output.</p>
+  </div>
+</div>
+
+<!-- Docs layout -->
+<div class="container">
+  <div class="docs-layout">
+
+    <!-- Sidebar -->
+    <aside class="docs-sidebar">
+      <nav aria-label="Documentation navigation">
+        <div class="sidebar-section">Guides</div>
+        <a href="getting-started.html">Getting Started</a>
+        <a href="configuration.html">Configuration</a>
+        <a href="page-layout.html">Page Layout</a>
+        <a href="tables.html">Tables</a>
+        <a href="fonts.html">Fonts</a>
+        <a href="headers-footers.html">Headers &amp; Footers</a>
+        <a href="fluent-api.html" class="active">Fluent C# API</a>
+        <a href="performance.html">Performance</a>
+        <a href="compliance.html">Compliance</a>
+        <div class="sidebar-section">Deploy</div>
+        <a href="docker.html">Docker</a>
+        <a href="cli.html">CLI</a>
+        <a href="rest-api.html">REST API</a>
+        <div class="sidebar-section">Internals</div>
+        <a href="architecture.html">Architecture</a>
+      </nav>
+    </aside>
+
+    <!-- Content -->
+    <main class="docs-content">
+
+      <h2 id="overview">Overview</h2>
+      <p>
+        <code>EggPdf.Fluent</code> lets you describe a document with C# method calls. It builds the
+        same DOM the HTML parser would produce and hands it to the normal pipeline — cascade,
+        layout, pagination, paint, PDF writer — so there is <strong>no HTML string in the middle</strong>,
+        no escaping to get wrong, and the output is byte-for-byte the kind of PDF the HTML API makes.
+        Because it is the same engine, anything HTML/CSS can express, the fluent API can express
+        (see <a href="#escape-hatches">escape hatches</a>).
+      </p>
+      <p>
+        It ships inside the main <code>EggPdf</code> package — there is nothing extra to install. Add
+        <code>using EggPdf.Fluent;</code> and call <code>Document.Create(...)</code>.
+      </p>
+      <div class="code-block"><pre><code>dotnet add package EggPdf</code></pre></div>
+
+      <h2 id="quick-start">Quick start</h2>
+      <div class="code-block"><pre><code>using EggPdf.Fluent;
+
+byte[] pdf = Document.Create(doc =&gt; doc
+    .Title("Invoice INV-142")
+    .Page(page =&gt; page
+        .Size(PageSize.A4)
+        .Margin(top: 70, right: 30, bottom: 50, left: 30)
+        .Header(h =&gt; h.Text("Acme Corp").Bold().FontSize(18))
+        .Footer(f =&gt; f.AlignCenter().PageNumberOfTotal())      // "Page 2 of 5"
+        .Watermark("DRAFT")
+        .Content(c =&gt;
+        {
+            c.Heading(HeadingLevel.H1, "Invoice");              // also a PDF bookmark
+            c.Item().Row(row =&gt;
+            {
+                row.RelativeItem().Text("Bill to: Jane Doe");
+                row.ConstantItem(Length.Mm(40)).AlignRight().Text("2026-09-24");
+            });
+            c.Item().Table(table =&gt;
+            {
+                table.Header(h =&gt; { h.Cell().Text("Item").Bold(); h.Cell().Text("Qty").Bold(); });
+                foreach (var line in lines)
+                    table.Row(r =&gt; { r.Cell().Text(line.Name); r.Cell().Text(line.Qty.ToString()); })
+                         .AvoidBreakInside();
+            });
+            c.Item().PinBottom().Border(1, Colors.Gray).Padding(10).Text("Signature");
+        })))
+    .Render();</code></pre></div>
+      <p>
+        <code>Document.Create(...)</code> returns a <code>DocumentBuilder</code> with
+        <code>Render()</code>, <code>RenderAsync(ct)</code> and <code>RenderToFileAsync(path, ct)</code>.
+      </p>
+
+      <h2 id="step-by-step">Building step by step</h2>
+      <p>
+        The nested form above is one style. You can equally create the document, keep it in a variable,
+        and fill in the header, footer and body in separate statements — or separate methods. Every
+        callback method has a parameterless twin that returns the thing to fill in
+        (<code>Header()</code>, <code>Footer()</code>, <code>Content()</code>, <code>Row()</code>,
+        <code>Table()</code>, <code>Grid(...)</code>, <code>BulletList()</code>,
+        <code>NumberedList()</code>, <code>Column()</code>), and <code>Document.New()</code> /
+        <code>AddPage()</code> replace <code>Document.Create</code> / <code>Page</code>. Both styles
+        produce byte-identical PDFs.
+      </p>
+      <div class="code-block"><pre><code>var doc  = Document.New().Title("Report");
+var page = doc.AddPage().Size(PageSize.A4).Margin(30);
+
+page.Header().Text("Acme").Bold();
+page.Footer().AlignCenter().PageNumberOfTotal();
+
+var body = page.Content();
+body.Heading(HeadingLevel.H1, "Summary");
+body.Item().Text("Quarterly results");
+AddSalesTable(body);                       // ordinary helper method: one per report section
+
+byte[] pdf = doc.Render();                 // or RenderAsync(ct) / RenderToFileAsync(path, ct)
+
+static void AddSalesTable(ColumnDescriptor content)
+{
+    var table = content.Item().Table();
+    table.Header(h =&gt; { h.Cell().Text("Region").Bold(); h.Cell().Text("Sales").Bold(); });
+    table.Row(r =&gt; { r.Cell().Text("North"); r.Cell().Text("1,200"); });
+}</code></pre></div>
+      <ul>
+        <li>Page settings can be changed at any point before rendering (<code>page.Size(...)</code> after adding content is fine) — the <code>@page</code> rule is written when the document is built.</li>
+        <li><code>page.Content()</code> can be called more than once; items append in call order.</li>
+        <li>Rendering builds and <strong>freezes</strong> the document. You can render it again (identical output), but any further change — <code>AddPage()</code>, <code>Text(...)</code>, <code>Bold()</code>, <code>Title(...)</code>, … — throws <code>InvalidOperationException</code> rather than being silently lost. Call <code>Build()</code> to freeze it explicitly.</li>
+        <li>The nested callbacks also accept normal statements and calls to helper methods that take a <code>Container</code>/<code>ColumnDescriptor</code>, so you can mix the two styles freely.</li>
+      </ul>
+
+      <h2 id="chaining">Method chaining</h2>
+      <p>
+        Styling and configuration methods return the object they were called on, so they chain
+        (<code>.Text("Hi").FontSize(20).Bold().Padding(8)</code>). The methods that <em>add a child</em>
+        (<code>Item</code>, <code>Cell</code>, <code>RelativeItem</code>, <code>ConstantItem</code>,
+        <code>Heading</code>, table <code>Header</code>/<code>Row</code>) normally return that child, which
+        is what lets you style it. Each also has an overload taking a callback that returns the
+        <em>parent</em> instead, so siblings chain too and a whole document is one expression:
+      </p>
+      <div class="code-block"><pre><code>Document.Create(doc =&gt; doc
+    .Title("Chained")
+    .Page(p =&gt; p.Size(PageSize.A4).Margin(30).Content(c =&gt; c
+        .Item(i =&gt; i.Text("Intro").Bold())
+        .Heading(HeadingLevel.H2, "Section", h =&gt; h.FontColor(Colors.Navy))
+        .Item(i =&gt; i.Row(r =&gt; r
+            .Gap(5)
+            .RelativeItem(x =&gt; x.Text("Left"))
+            .ConstantItem(60, x =&gt; x.Text("Mid"))
+            .RelativeItem(2, x =&gt; x.Text("Wide"))))
+        .Item(i =&gt; i.Grid(2, g =&gt; g
+            .Item(x =&gt; x.Text("G1"))
+            .Item(2, x =&gt; x.Text("Spans both columns"))))
+        .Item(i =&gt; i.BulletList(l =&gt; l.Item(x =&gt; x.Text("One")).Item(x =&gt; x.Text("Two"))))
+        .Item(i =&gt; i.Table(t =&gt; t
+            .Header(h =&gt; h.Cell(x =&gt; x.Text("Item")).Cell(x =&gt; x.Text("Qty")), r =&gt; r.Background(Colors.LightGray))
+            .Row(r =&gt; r.Cell(x =&gt; x.Text("Widget")).Cell(x =&gt; x.Text("3")), r =&gt; r.AvoidBreakInside()))))))
+    .Render();</code></pre></div>
+      <p>
+        The table overloads take a second callback that styles the row box itself. All three styles —
+        chained, nested statements, and <a href="#step-by-step">step by step</a> — can be mixed freely and
+        produce identical PDFs. Pages chain through <code>Page(...)</code>:
+        <code>doc.Page(...).Page(...)</code>.
+      </p>
+
+      <h2 id="structure">Structure</h2>
+      <p>The builder is a tree of small descriptor types; each callback receives the one you need next:</p>
+      <table>
+        <thead><tr><th>Type</th><th>What it configures</th></tr></thead>
+        <tbody>
+          <tr><td><code>DocumentDescriptor</code></td><td>Document-wide: title, author, language, CSS, fonts, PDF options, and <code>Page(...)</code> groups.</td></tr>
+          <tr><td><code>PageDescriptor</code></td><td>One page group: size, margins, header, footer, watermark, <code>Content(...)</code>.</td></tr>
+          <tr><td><code>ColumnDescriptor</code></td><td>Stacked children: <code>Item()</code> and <code>Heading(level, text)</code>.</td></tr>
+          <tr><td><code>Container</code></td><td>A box. Everything you place returns a <code>Container</code>, so styling always applies to what you just placed.</td></tr>
+          <tr><td><code>RowDescriptor</code> / <code>GridDescriptor</code> / <code>TableDescriptor</code> / <code>ListDescriptor</code></td><td>Children of a row (flex), grid, table or list.</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="typed-values">Typed values — no magic strings</h2>
+      <p>
+        A misspelled CSS keyword, color or unit is silently ignored by a CSS engine, which makes for
+        PDFs that look wrong with no error anywhere. Every typed method therefore takes a typed value,
+        and constructing an invalid one fails immediately.
+      </p>
+      <table>
+        <thead><tr><th>Type</th><th>Use</th><th>Validation</th></tr></thead>
+        <tbody>
+          <tr><td><code>Color</code> / <code>Colors</code></td><td><code>Colors.Red</code>, <code>Color.FromRgb(255, 0, 0)</code>, <code>Color.FromRgba(0, 0, 0, 128)</code>, <code>Color.FromHex("#f00")</code></td><td><code>FromHex</code> accepts <code>#rgb</code>, <code>#rgba</code>, <code>#rrggbb</code>, <code>#rrggbbaa</code> only. There is deliberately no implicit conversion from <code>string</code>.</td></tr>
+          <tr><td><code>Length</code></td><td><code>Length.Px</code>/<code>Pt</code>/<code>Mm</code>/<code>Cm</code>/<code>In</code>/<code>Em</code>/<code>Percent</code>, <code>Length.Auto</code>. A bare number converts to pixels: <code>Width(200)</code>.</td><td>NaN / infinity throw.</td></tr>
+          <tr><td>Keyword enums</td><td><code>OverflowMode</code>, <code>PositionMode</code>, <code>DisplayMode</code>, <code>FloatSide</code>, <code>FlexJustify</code>, <code>FlexAlign</code>, <code>TextCase</code>, <code>BorderLineStyle</code>, <code>WhiteSpaceMode</code>, <code>TextDirection</code>, <code>HeadingLevel</code></td><td>Exhaustive mapping to CSS; an undefined value throws.</td></tr>
+          <tr><td><code>CssTransform</code></td><td><code>CssTransform.Rotate(10).Then(CssTransform.Scale(1.2f))</code>; also <code>Translate</code>, <code>SkewX</code>, <code>SkewY</code></td><td>Composes in order.</td></tr>
+          <tr><td><code>GridTrack</code></td><td><code>GridTrack.Fr(2)</code>, <code>GridTrack.Fixed(Length.Px(80))</code>, <code>GridTrack.Auto</code></td><td><code>Fr</code> must be positive.</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Numeric ranges are checked too: <code>Opacity</code> (0–1), <code>FontWeight</code> (1–1000),
+        <code>LineHeight</code> (positive), grid column counts and spans (≥ 1). Plain <code>string</code>
+        parameters remain only where the value is genuinely free text: content, URLs and paths, ids and
+        class names, font family names, titles.
+      </p>
+
+      <h2 id="content">Content</h2>
+      <h3 id="text">Text and styling</h3>
+      <div class="code-block"><pre><code>c.Item()
+    .Text("Quarterly report")
+    .FontSize(20).Bold().FontColor(Colors.Navy)
+    .LetterSpacing(Length.Px(0.5f)).TextTransform(TextCase.Uppercase)
+    .Padding(8, 12).Background(Color.FromHex("#f1f5f9"))
+    .Border(1, Colors.LightGray, BorderLineStyle.Dashed).BorderRadius(6)
+    .BoxShadow(0, 2, 6, Color.FromRgba(0, 0, 0, 64));</code></pre></div>
+      <table>
+        <thead><tr><th>Area</th><th>Methods</th></tr></thead>
+        <tbody>
+          <tr><td>Typography</td><td><code>FontSize</code>, <code>FontFamily</code>, <code>Bold</code>, <code>Italic</code>, <code>FontWeight</code>, <code>FontColor</code>, <code>LineHeight</code> (multiplier or <code>Length</code>), <code>LetterSpacing</code>, <code>Underline</code>, <code>StrikeThrough</code>, <code>NoTextDecoration</code>, <code>TextTransform</code>, <code>WhiteSpace</code>, <code>AlignLeft</code>/<code>AlignCenter</code>/<code>AlignRight</code></td></tr>
+          <tr><td>Box model</td><td><code>Padding</code> and <code>Margin</code> (1, 2 or 4 values), <code>Width</code>, <code>Height</code>, <code>MinWidth</code>, <code>MaxWidth</code>, <code>MinHeight</code>, <code>MaxHeight</code></td></tr>
+          <tr><td>Decoration</td><td><code>Background</code>, <code>Border</code>, <code>BorderTop</code>/<code>Right</code>/<code>Bottom</code>/<code>Left</code>, <code>BorderRadius</code>, <code>BoxShadow</code>, <code>Opacity</code></td></tr>
+          <tr><td>Layout / effects</td><td><code>Overflow</code>, <code>Position</code>, <code>Display</code>, <code>Float</code>, <code>Transform</code></td></tr>
+          <tr><td>Attributes</td><td><code>Id</code>, <code>Class</code> (repeatable), <code>Direction</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3 id="column-row">Column and Row</h3>
+      <p>
+        A column is normal block flow (<code>Item()</code> per child). A row is a flex container: items
+        are <code>RelativeItem(weight)</code> (shares remaining space) or <code>ConstantItem(width)</code>
+        (fixed). The row itself is styled through <code>RowDescriptor</code>:
+      </p>
+      <div class="code-block"><pre><code>c.Item().Row(row =&gt;
+{
+    row.Gap(12).JustifyContent(FlexJustify.SpaceBetween).AlignItems(FlexAlign.Center).Wrap();
+    row.RelativeItem(2).Text("Wide");
+    row.RelativeItem(1).Text("Narrow");
+    row.ConstantItem(Length.Mm(30)).Text("Fixed");
+});</code></pre></div>
+
+      <h3 id="grid">Grid</h3>
+      <div class="code-block"><pre><code>c.Item().Grid(new[] { GridTrack.Fr(1), GridTrack.Fr(2) }, g =&gt;
+{
+    g.Gap(10).AutoRows(Length.Px(40));
+    g.Item().Text("A");
+    g.Item().Text("B");
+    g.Item(columnSpan: 2).Text("Spans both columns");
+});
+c.Item().Grid(3, g =&gt; { /* three equal columns */ });</code></pre></div>
+
+      <h3 id="tables">Tables</h3>
+      <p>
+        <code>table.Header(...)</code> emits a real <code>&lt;thead&gt;</code>, which repeats at the top of
+        every continuation page when the table spans pages (see <a href="tables.html">Tables</a>).
+        <code>Header</code> and <code>Row</code> return the row so you can style it —
+        <code>.AvoidBreakInside()</code> keeps a row from splitting across a page break. Cells default to
+        4×8 px padding and a light 1 px border; restyle any cell through the returned
+        <code>Container</code>. Tables default to 100% width with collapsed borders.
+      </p>
+
+      <h3 id="lists-images-links">Lists, images, links, headings</h3>
+      <div class="code-block"><pre><code>c.Item().BulletList(l =&gt; { l.Item().Text("One"); l.Item().Text("Two"); });
+c.Item().NumberedList(l =&gt; l.Item().Text("First"));
+c.Item().Image("logo.png", widthPx: 80, heightPx: 40);      // path, URL or data: URI
+c.Item().Hyperlink("https://example.com", "Visit us");
+c.Heading(HeadingLevel.H2, "Section");                       // real &lt;h2&gt;: bookmark + PDF/UA heading</code></pre></div>
+      <p>
+        Relative image paths resolve against <code>DocumentDescriptor.BasePath(...)</code>. Headings must be
+        created with <code>Heading(...)</code> (not a styled <code>Item()</code>) — bookmarks and the
+        accessibility structure tree key off the real <code>h1</code>–<code>h6</code> tags.
+      </p>
+
+      <h3 id="internal-links">Internal links</h3>
+      <p>
+        Give a box an id and link to it. The link is a real PDF destination (page + position), so it jumps
+        forward or backward to any page:
+      </p>
+      <div class="code-block"><pre><code>c.Item().Hyperlink("#terms", "See the terms");
+// ...
+c.Item().Id("terms").Text("Terms and conditions");</code></pre></div>
+      <div class="callout callout-info">
+        <span class="callout-icon">ℹ️</span>
+        <div>
+          The same works in HTML (<code>&lt;a href="#terms"&gt;</code> +
+          <code>&lt;div id="terms"&gt;</code>). If the id doesn't exist (or its element is
+          <code>display: none</code>) the link is dropped rather than written as a dead annotation. When
+          an id appears twice, the first one wins, as in a browser.
+        </div>
+      </div>
+
+      <h2 id="pages">Pages, headers, footers</h2>
+      <div class="code-block"><pre><code>page.Size(PageSize.Letter.Landscape())
+    .Margin(top: 60, right: 20, bottom: 60, left: 20)   // reserve room for the header/footer
+    .Header(h =&gt; h.Text("Confidential").FontColor(Colors.Gray))
+    .Footer(f =&gt; f.AlignRight().PageNumberOfTotal(prefix: "Page ", separator: " / "))
+    .Watermark("DRAFT", fontSize: Length.Px(120), rotationDegrees: -35, opacity: 0.1f, color: Colors.Red)</code></pre></div>
+      <ul>
+        <li><strong>Sizes:</strong> <code>PageSize.A3/A4/A5/Letter/Legal</code>, <code>.Landscape()</code>, or <code>new PageSize(widthMm, heightMm)</code>.</li>
+        <li><strong>Header / footer</strong> repeat on every physical page of the group (<code>position: fixed</code>). They don't push content down — leave room with the page margins.</li>
+        <li><strong>Page numbers:</strong> <code>CurrentPageNumber()</code>, <code>TotalPages()</code>, <code>PageNumberOfTotal()</code>. CSS allows a single generated <code>::after</code> per element, so use one of these per <code>Container</code> — a second call on the same container throws instead of silently replacing the first. Use separate containers (e.g. row items) for separate pieces.</li>
+        <li><strong>Watermark</strong> is composed from <code>position: fixed</code>, <code>transform</code> and <code>opacity</code> — there is no dedicated watermark feature in the CSS engine either.</li>
+        <li><strong><code>PinBottom()</code></strong> pins a box (e.g. a signature block) to the bottom of whichever page the preceding content ends on.</li>
+      </ul>
+
+      <h3 id="page-groups">Multiple page groups (mixed sizes)</h3>
+      <p>
+        Content that overflows a page flows onto the next automatically. Call <code>Page(...)</code> more
+        than once to change size or orientation partway through — the first group is the base
+        <code>@page</code> rule and each later group gets its own named page (CSS Paged Media named pages):
+      </p>
+      <div class="code-block"><pre><code>Document.Create(doc =&gt; doc
+    .Page(p =&gt; p.Size(PageSize.A4).Content(c =&gt; c.Item().Text("Report body")))
+    .Page(p =&gt; p.Size(PageSize.A4.Landscape()).Content(c =&gt; c.Item().Text("Wide appendix table"))));</code></pre></div>
+
+      <h2 id="document">Document-level options</h2>
+      <div class="code-block"><pre><code>Document.Create(doc =&gt; doc
+    .Title("Annual report").Author("Finance team").Language("en")
+    .BasePath(@"C:\assets")                                  // resolves relative images/fonts/CSS
+    .FontFace("Brand Sans", "fonts/brand.ttf", weight: 700)
+    .Css(".total { font-weight: 700 } @media print { .noprint { display: none } }")
+    .Conformance(PdfAConformance.PdfA2b)                     // PDF/A archival
+    .Tagged()                                                // PDF/UA accessible
+    .Page(...));</code></pre></div>
+      <table>
+        <thead><tr><th>Method</th><th>Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>Title</code>, <code>Author</code></td><td>PDF document info.</td></tr>
+          <tr><td><code>Language</code></td><td><code>lang</code> on the root; used by tagged output.</td></tr>
+          <tr><td><code>Css</code></td><td>Raw stylesheet in <code>&lt;head&gt;</code>; target boxes with <code>Class(...)</code>/<code>Id(...)</code>.</td></tr>
+          <tr><td><code>FontFace</code></td><td><code>@font-face</code> webfont (URL, file path or <code>data:</code> URI); see <a href="fonts.html">Fonts</a>.</td></tr>
+          <tr><td><code>BasePath</code></td><td>Base directory for relative resources.</td></tr>
+          <tr><td><code>Encrypt</code></td><td>RC4 permission/password protection (<code>PdfEncryption</code>).</td></tr>
+          <tr><td><code>Conformance</code>, <code>Invoice</code></td><td>PDF/A levels; Factur-X e-invoice (needs PDF/A-3b/3u). See <a href="compliance.html">Compliance</a>.</td></tr>
+          <tr><td><code>Tagged</code></td><td>PDF/UA-1 (or UA-2) tagged output.</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="escape-hatches">Escape hatches</h2>
+      <p>
+        When a feature has no typed method yet, four explicitly unchecked hatches guarantee you are never
+        blocked. They are named <code>Raw*</code> on purpose, so unchecked strings are visible at every call site:
+      </p>
+      <div class="code-block"><pre><code>c.Item().RawStyle("column-count", "2");                     // any CSS declaration
+c.Item().RawAttribute("data-section", "intro");              // any HTML attribute
+c.Item().Raw("&lt;dl&gt;&lt;dt&gt;Term&lt;/dt&gt;&lt;dd&gt;Definition&lt;/dd&gt;&lt;/dl&gt;");   // any HTML markup, spliced into the tree
+doc.Css("@page :first { @top-center { content: 'Cover' } }"); // any stylesheet</code></pre></div>
+      <div class="callout callout-info">
+        <span class="callout-icon">ℹ️</span>
+        <div>
+          Raw values are not validated: a typo in a property name or value is silently ignored by the CSS
+          engine. Prefer the typed methods, and treat a <code>Raw*</code> call as a sign a typed method is missing.
+        </div>
+      </div>
+
+      <h2 id="errors">Validation and errors</h2>
+      <ul>
+        <li>Invalid typed values throw at the call site: <code>Color.FromHex("red")</code> and <code>Length.Px(float.NaN)</code> throw <code>ArgumentException</code>/<code>ArgumentOutOfRangeException</code>.</li>
+        <li>Out-of-range numbers (<code>Opacity(1.5f)</code>, <code>FontWeight(0)</code>, <code>Grid(0, ...)</code>, <code>Heading((HeadingLevel)9, ...)</code>) throw <code>ArgumentOutOfRangeException</code>.</li>
+        <li>A second page-number/generated-content call on one container throws <code>InvalidOperationException</code>.</li>
+        <li>Rendering problems behave exactly as in the HTML API (missing images and fonts degrade gracefully; PDF/A rule violations throw).</li>
+      </ul>
+
+      <h2 id="how-it-works">How it works</h2>
+      <p>
+        Fluent calls accumulate typed style declarations per element. When <code>Document.Create</code>
+        returns, they are serialized once into <code>style</code>/<code>class</code> attributes on an
+        in-memory <code>HtmlDocument</code>, which is passed to
+        <code>HtmlToPdf.RenderDocument(...)</code> — the same entry the HTML string API reaches after
+        parsing. See <a href="architecture.html">Architecture</a>. Because nothing is generated as text,
+        content is never HTML-escaped or re-parsed, and a fluent document and the equivalent HTML render identically.
+      </p>
+
+      <h2 id="api-reference">API reference</h2>
+      <p>
+        Every public type and member of <code>EggPdf.Fluent</code>, with its purpose. This section is
+        <strong>generated from the code and its XML doc comments</strong>
+        (<code>dotnet run --project tools/EggPdf.DocGen</code>), so it always matches the API; the same
+        summaries appear as IntelliSense in your editor.
+        A <em>callback overload</em> takes an <code>Action</code> and returns the parent (for chaining); the
+        parameterless overload returns the child (to style it or fill it in with separate statements).
+      </p>
+
+<!-- BEGIN GENERATED API REFERENCE: dotnet run --project tools/EggPdf.DocGen (edit the XML doc comments, not this block) -->
+      <p>Types: <a href="#ref-Document">Document</a>, <a href="#ref-DocumentBuilder">DocumentBuilder</a>, <a href="#ref-DocumentDescriptor">DocumentDescriptor</a>, <a href="#ref-PageDescriptor">PageDescriptor</a>, <a href="#ref-ColumnDescriptor">ColumnDescriptor</a>, <a href="#ref-Container">Container</a>, <a href="#ref-RowDescriptor">RowDescriptor</a>, <a href="#ref-GridDescriptor">GridDescriptor</a>, <a href="#ref-ListDescriptor">ListDescriptor</a>, <a href="#ref-TableDescriptor">TableDescriptor</a>, <a href="#ref-TableRowDescriptor">TableRowDescriptor</a>, <a href="#ref-Color">Color</a>, <a href="#ref-Colors">Colors</a>, <a href="#ref-Length">Length</a>, <a href="#ref-CssTransform">CssTransform</a>, <a href="#ref-GridTrack">GridTrack</a>, <a href="#ref-PageSize">PageSize</a>, and the <a href="#ref-enums">keyword enums</a>.</p>
+
+      <h3 id="ref-Document">Document (static)</h3>
+      <p>Entry point for defining PDF content in C# instead of HTML. It builds a DOM directly from the fluent calls and hands it to <code>HtmlToPdf</code> unchanged -- same cascade/layout/paint/ PDF-write pipeline as the HTML API, just without ever going through an HTML string. Two styles, same result: declarative (<code>Create</code>, one callback) or step by step (<code>New</code>).</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>static DocumentBuilder Create(Action&lt;DocumentDescriptor&gt; build)</code></td><td>Builds a document from <code>build</code>&#39;s fluent calls, ready to render.</td></tr>
+        <tr><td><code>static DocumentDescriptor New()</code></td><td>Starts an empty document to fill in step by step -- keep the returned descriptor, add pages, headers, footers and content in separate statements (or separate methods), then call <code>Render</code>: <pre><code>var doc = Document.New().Title(&quot;Report&quot;); var page = doc.AddPage().Size(PageSize.A4); page.Header().Text(&quot;Acme&quot;); page.Footer().PageNumberOfTotal(); var body = page.Content(); body.Item().Text(&quot;Hello&quot;); byte[] pdf = doc.Render();</code></pre></td></tr>
+      </tbody></table>
+
+      <h3 id="ref-DocumentBuilder">DocumentBuilder</h3>
+      <p>The finished document, ready to render. Returned by <code>Create</code>.</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>byte[] Render()</code></td><td>Renders the document to PDF bytes. May be called repeatedly; the output is identical each time.</td></tr>
+        <tr><td><code>Task&lt;byte[]&gt; RenderAsync(CancellationToken ct = default)</code></td><td>Renders the document to PDF bytes asynchronously.</td></tr>
+        <tr><td><code>Task RenderToFileAsync(string filePath, CancellationToken ct = default)</code></td><td>Renders the document and writes the PDF to <code>filePath</code>.</td></tr>
+      </tbody></table>
+
+      <h3 id="ref-DocumentDescriptor">DocumentDescriptor</h3>
+      <p>Root of the fluent builder: a document is one or more page groups, plus document-wide PDF options. Build it either declaratively inside <code>Create</code>&#39;s callback, or step by step: <code>var doc = Document.New(); var page = doc.AddPage(); page.Header().Text(&quot;...&quot;); ... doc.Render();</code> Both produce the same document. Once built or rendered a document is frozen -- further changes throw.</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>PageDescriptor AddPage()</code></td><td>Adds a page group and returns it to configure imperatively (size, margins, header, footer, content) at any later point before the document is built. The first group is the document&#39;s base (unnamed) page size; every group after that gets its own named <code>@page</code> rule and a matching <code>page: &lt;name&gt;</code> on its content root, so later groups can use a different size/orientation (e.g. a landscape appendix) -- the same CSS Paged Media named-page mechanism HTML documents use for mixed page sizes.</td></tr>
+        <tr><td><code>DocumentDescriptor Page(Action&lt;PageDescriptor&gt; build)</code></td><td>Adds a page group configured inside <code>build</code> (see <code>AddPage</code>).</td></tr>
+        <tr><td><code>DocumentBuilder Build()</code></td><td>Finishes the document: serializes every accumulated style and page rule, and freezes it. Called automatically by <code>Render</code>, <code>RenderAsync</code> and <code>RenderToFileAsync</code>; calling it again returns the same result. After this, changing the document throws.</td></tr>
+        <tr><td><code>byte[] Render()</code></td><td>Builds the document (see <code>Build</code>) and renders it to PDF bytes.</td></tr>
+        <tr><td><code>Task&lt;byte[]&gt; RenderAsync(CancellationToken ct = default)</code></td><td>Builds the document and renders it to PDF bytes asynchronously.</td></tr>
+        <tr><td><code>Task RenderToFileAsync(string filePath, CancellationToken ct = default)</code></td><td>Builds the document and renders it to a PDF file.</td></tr>
+        <tr><td><code>DocumentDescriptor Title(string title)</code></td><td>The PDF&#39;s title metadata (HTML &lt;title&gt;).</td></tr>
+        <tr><td><code>DocumentDescriptor Author(string author)</code></td><td>The PDF&#39;s author metadata (HTML &lt;meta name=&quot;author&quot;&gt;).</td></tr>
+        <tr><td><code>DocumentDescriptor Language(string lang)</code></td><td>The document language (<code>lang</code> on &lt;html&gt;), e.g. &quot;en&quot;; used by tagged (PDF/UA) output.</td></tr>
+        <tr><td><code>DocumentDescriptor Css(string css)</code></td><td>Adds a raw stylesheet to the document&#39;s &lt;head&gt; -- the head-level counterpart to <code>Style</code>/<code>Raw</code>: selectors, @media print, @import, anything. Pair with <code>Attribute</code> to give elements classes/ids to target.</td></tr>
+        <tr><td><code>DocumentDescriptor FontFace(string family, string src, int weight = 400, bool italic = false)</code></td><td>Declares an <code>@font-face</code> webfont; <code>src</code> is a URL, file path or data: URI.</td></tr>
+        <tr><td><code>DocumentDescriptor BasePath(string basePath)</code></td><td>Base directory for resolving relative resource paths (images, stylesheets, fonts).</td></tr>
+        <tr><td><code>DocumentDescriptor Encrypt(PdfEncryption encryption)</code></td><td>Encrypts the PDF (RC4 view-only protection / permission flags).</td></tr>
+        <tr><td><code>DocumentDescriptor Conformance(PdfAConformance conformance)</code></td><td>Renders a PDF/A-conformant PDF (ICC output intent, XMP conformance metadata, forced font embedding).</td></tr>
+        <tr><td><code>DocumentDescriptor Invoice(FacturXInvoice invoice)</code></td><td>Attaches a Factur-X/ZUGFeRD e-invoice XML. <code>Conformance</code> must be set to <code>PdfA3b</code> or <code>PdfA3u</code> first.</td></tr>
+        <tr><td><code>DocumentDescriptor Tagged(PdfUaVersion uaVersion = PdfUaVersion.Ua1)</code></td><td>Renders a PDF/UA tagged (accessible) PDF: structure tree, headings, landmarks, alt text, tagged links.</td></tr>
+      </tbody></table>
+
+      <h3 id="ref-PageDescriptor">PageDescriptor</h3>
+      <p>Configures one page group&#39;s size, margins, running header/footer/watermark and content. Size/margin become an injected <code>@page</code> rule (named, for every group after the first -- see <code>Page</code>); content becomes the group&#39;s stacked (<code>Column</code>) body, the same way HTML&#39;s &lt;body&gt; is.</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>PageDescriptor Size(PageSize size)</code></td><td>The physical page size and orientation.</td></tr>
+        <tr><td><code>PageDescriptor Margin(Length all)</code></td><td>Same margin on all four sides.</td></tr>
+        <tr><td><code>PageDescriptor Margin(Length top, Length right, Length bottom, Length left)</code></td><td>Per-side margins, in CSS shorthand order (top, right, bottom, left).</td></tr>
+        <tr><td><code>PageDescriptor Header(Action&lt;Container&gt; build)</code></td><td>A running header repeated on every physical page of this group (CSS <code>position: fixed</code> pinned to the page&#39;s top edge). Reserve room for it with <code>Margin</code>.</td></tr>
+        <tr><td><code>Container Header()</code></td><td>The running header (see <code>Header</code>) as a <code>Container</code> to fill in with separate statements.</td></tr>
+        <tr><td><code>PageDescriptor Footer(Action&lt;Container&gt; build)</code></td><td>A running footer repeated on every physical page of this group, pinned to the page&#39;s bottom edge.</td></tr>
+        <tr><td><code>Container Footer()</code></td><td>The running footer (see <code>Footer</code>) as a <code>Container</code> to fill in with separate statements.</td></tr>
+        <tr><td><code>PageDescriptor Watermark(string text, Length? fontSize = null, float rotationDegrees = -30f, float opacity = 0.12f, Color? color = null)</code></td><td>A rotated, translucent text overlay (&quot;DRAFT&quot;, &quot;CONFIDENTIAL&quot;, ...) repeated centered on every physical page of this group. Composed from position:fixed/transform/opacity, the same primitives an HTML author would reach for -- there&#39;s no dedicated watermark keyword in the CSS engine either. <code>color</code> defaults to mid gray.</td></tr>
+        <tr><td><code>PageDescriptor Content(Action&lt;ColumnDescriptor&gt; build)</code></td><td>Builds the group&#39;s content, stacked top to bottom like a &lt;body&gt;.</td></tr>
+        <tr><td><code>ColumnDescriptor Content()</code></td><td>The group&#39;s content column, to add items to with separate statements. May be used more than once (items append in call order) -- e.g. one method per section of the report.</td></tr>
+      </tbody></table>
+
+      <h3 id="ref-ColumnDescriptor">ColumnDescriptor</h3>
+      <p>Builds the stacked (top-to-bottom) children of a <code>Column</code>.</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>Container Item()</code></td><td>Appends a new block-level item to the column and returns it for styling/content.</td></tr>
+        <tr><td><code>ColumnDescriptor Item(Action&lt;Container&gt; build)</code></td><td>Appends an item configured inside <code>build</code> and returns the column, so items chain: <code>col.Item(i =&gt; ...).Item(i =&gt; ...)</code>.</td></tr>
+        <tr><td><code>ColumnDescriptor Heading(HeadingLevel level, string text, Action&lt;Container&gt; style)</code></td><td>Appends a heading styled inside <code>style</code> and returns the column, so it chains with <code>Item</code>.</td></tr>
+        <tr><td><code>Container Heading(HeadingLevel level, string text)</code></td><td>Appends a real &lt;h1&gt;-&lt;h6&gt; (not a styled div): headings are what the PDF/UA structure tree and auto-generated PDF bookmarks key off, so this is the only way to get a document&#39;s table of contents/outline from the fluent API.</td></tr>
+      </tbody></table>
+
+      <h3 id="ref-Container">Container</h3>
+      <p>A single box in the document tree (a &lt;div&gt; under the hood). Every content-producing fluent call (<code>Column</code>, <code>Row</code>, page content, row/column items) hands back a <code>Container</code>, so text and styling always apply to &quot;whatever was placed last&quot;. Styling takes typed values (<code>Color</code>, <code>Length</code>, keyword enums); the <code>Raw*</code> methods are the explicit, unchecked escape hatches.</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>Container Text(string text)</code></td><td>Sets this container&#39;s text content (equivalent to a text node child).</td></tr>
+        <tr><td><code>Container Column(Action&lt;ColumnDescriptor&gt; build)</code></td><td>Stacks children top to bottom (normal block flow -- CSS&#39;s default).</td></tr>
+        <tr><td><code>ColumnDescriptor Column()</code></td><td>The children column of this container, to add items to with separate statements.</td></tr>
+        <tr><td><code>Container Row(Action&lt;RowDescriptor&gt; build)</code></td><td>Lays out children left to right (<code>display: flex</code>).</td></tr>
+        <tr><td><code>RowDescriptor Row()</code></td><td>Starts a row (flex container) appended here and returns it to fill in with separate statements.</td></tr>
+        <tr><td><code>Container Table(Action&lt;TableDescriptor&gt; build)</code></td><td>Builds a &lt;table&gt; -- &lt;thead&gt; rows added via <code>Header</code> repeat on every continuation page for tables that span more than one page, the same as a hand-written &lt;thead&gt; does.</td></tr>
+        <tr><td><code>TableDescriptor Table()</code></td><td>Starts a table appended here and returns it to fill in with separate statements (see <code>Table</code>).</td></tr>
+        <tr><td><code>Container BulletList(Action&lt;ListDescriptor&gt; build)</code></td><td>Appends a bulleted list (&lt;ul&gt;).</td></tr>
+        <tr><td><code>ListDescriptor BulletList()</code></td><td>Starts a bulleted list and returns it to add items to with separate statements.</td></tr>
+        <tr><td><code>Container NumberedList(Action&lt;ListDescriptor&gt; build)</code></td><td>Appends a numbered list (&lt;ol&gt;).</td></tr>
+        <tr><td><code>ListDescriptor NumberedList()</code></td><td>Starts a numbered list and returns it to add items to with separate statements.</td></tr>
+        <tr><td><code>Container Grid(GridTrack[] columns, Action&lt;GridDescriptor&gt; build)</code></td><td>Lays out children in a CSS grid with the given column tracks.</td></tr>
+        <tr><td><code>GridDescriptor Grid(GridTrack[] columns)</code></td><td>Starts a grid with the given column tracks and returns it to add cells to with separate statements.</td></tr>
+        <tr><td><code>Container Grid(int columnCount, Action&lt;GridDescriptor&gt; build)</code></td><td>Lays out children in a CSS grid of <code>columnCount</code> equal columns.</td></tr>
+        <tr><td><code>GridDescriptor Grid(int columnCount)</code></td><td>Starts a grid of <code>columnCount</code> equal columns and returns it to add cells to with separate statements.</td></tr>
+        <tr><td><code>Container Image(string src, float? widthPx = null, float? heightPx = null)</code></td><td>Appends an &lt;img&gt;. Width/height (in px) are HTML attributes, matching plain &lt;img width height&gt; sizing.</td></tr>
+        <tr><td><code>Container Hyperlink(string url, string text)</code></td><td>Appends a clickable &lt;a href&gt; link.</td></tr>
+        <tr><td><code>Container Id(string id)</code></td><td>Sets this box&#39;s <code>id</code>, the target of internal links (<code>Hyperlink(&quot;#id&quot;, ...)</code>) and of <code>Css</code> selectors.</td></tr>
+        <tr><td><code>Container Class(string className)</code></td><td>Adds a CSS class (repeatable; classes accumulate) for <code>Css</code> selectors to target.</td></tr>
+        <tr><td><code>Container Direction(TextDirection direction)</code></td><td>Text direction of this box (<code>dir</code>).</td></tr>
+        <tr><td><code>Container PinBottom()</code></td><td>Pins this box to the bottom of whichever physical page its surrounding dynamic content ends on (e.g. a signature block).</td></tr>
+        <tr><td><code>Container AvoidBreakInside()</code></td><td>Keeps this box from being split across a page break (<code>break-inside: avoid</code>) -- e.g. a table row that must not straddle two pages.</td></tr>
+        <tr><td><code>Container CurrentPageNumber()</code></td><td>Renders as the current physical page number, e.g. inside a <code>Footer</code>. Generated content (CSS counter()) can only be expressed via a real ::after rule, not an inline style=&quot;&quot; attribute, so this registers one under a fresh class name.</td></tr>
+        <tr><td><code>Container TotalPages()</code></td><td>Renders as the document&#39;s total physical page count.</td></tr>
+        <tr><td><code>Container PageNumberOfTotal(string prefix = &quot;Page &quot;, string separator = &quot; of &quot;, string suffix = &quot;&quot;)</code></td><td>Renders as e.g. &quot;Page 3 of 12&quot;.</td></tr>
+        <tr><td><code>Container FontSize(Length size)</code></td><td>Font size (a bare number is px).</td></tr>
+        <tr><td><code>Container FontFamily(string family)</code></td><td>Font family name or comma-separated fallback list, e.g. <code>&quot;Inter, Arial&quot;</code> (free text -- a family, not a CSS keyword).</td></tr>
+        <tr><td><code>Container Bold()</code></td><td>Bold text (<code>font-weight: bold</code>).</td></tr>
+        <tr><td><code>Container Italic()</code></td><td>Italic (slanted) text.</td></tr>
+        <tr><td><code>Container FontWeight(int weight)</code></td><td>Numeric weight, 1-1000 (400 = normal, 700 = bold).</td></tr>
+        <tr><td><code>Container FontColor(Color color)</code></td><td>Text color.</td></tr>
+        <tr><td><code>Container LineHeight(float multiplier)</code></td><td>Unitless line-height multiplier (1.4 = 140% of the font size).</td></tr>
+        <tr><td><code>Container LineHeight(Length height)</code></td><td>Absolute line-height.</td></tr>
+        <tr><td><code>Container LetterSpacing(Length spacing)</code></td><td>Extra space between characters.</td></tr>
+        <tr><td><code>Container Underline()</code></td><td>Underlined text.</td></tr>
+        <tr><td><code>Container StrikeThrough()</code></td><td>Struck-through text.</td></tr>
+        <tr><td><code>Container NoTextDecoration()</code></td><td>Removes text decoration (e.g. the underline links get by default).</td></tr>
+        <tr><td><code>Container TextTransform(TextCase textCase)</code></td><td>Upper/lower/capitalize case transformation of the rendered text.</td></tr>
+        <tr><td><code>Container WhiteSpace(WhiteSpaceMode mode)</code></td><td>How white space and line breaks in the text are handled.</td></tr>
+        <tr><td><code>Container AlignLeft()</code></td><td>Aligns text to the left edge.</td></tr>
+        <tr><td><code>Container AlignCenter()</code></td><td>Centers text.</td></tr>
+        <tr><td><code>Container AlignRight()</code></td><td>Aligns text to the right edge.</td></tr>
+        <tr><td><code>Container Padding(Length all)</code></td><td>Inner spacing on all four sides.</td></tr>
+        <tr><td><code>Container Padding(Length vertical, Length horizontal)</code></td><td>Inner spacing: vertical (top and bottom), then horizontal (left and right).</td></tr>
+        <tr><td><code>Container Padding(Length top, Length right, Length bottom, Length left)</code></td><td>Inner spacing per side, in CSS order: top, right, bottom, left.</td></tr>
+        <tr><td><code>Container Margin(Length all)</code></td><td>Outer spacing on all four sides.</td></tr>
+        <tr><td><code>Container Margin(Length vertical, Length horizontal)</code></td><td>Outer spacing: vertical (top and bottom), then horizontal (left and right).</td></tr>
+        <tr><td><code>Container Margin(Length top, Length right, Length bottom, Length left)</code></td><td>Outer spacing per side, in CSS order: top, right, bottom, left.</td></tr>
+        <tr><td><code>Container Width(Length width)</code></td><td>Box width.</td></tr>
+        <tr><td><code>Container Height(Length height)</code></td><td>Box height.</td></tr>
+        <tr><td><code>Container MinWidth(Length width)</code></td><td>Minimum box width.</td></tr>
+        <tr><td><code>Container MaxWidth(Length width)</code></td><td>Maximum box width.</td></tr>
+        <tr><td><code>Container MinHeight(Length height)</code></td><td>Minimum box height.</td></tr>
+        <tr><td><code>Container MaxHeight(Length height)</code></td><td>Maximum box height.</td></tr>
+        <tr><td><code>Container Background(Color color)</code></td><td>Background fill color.</td></tr>
+        <tr><td><code>Container Border(Length width, Color color, BorderLineStyle style = BorderLineStyle.Solid)</code></td><td>Border on all four sides.</td></tr>
+        <tr><td><code>Container BorderTop(Length width, Color color, BorderLineStyle style = BorderLineStyle.Solid)</code></td><td>Top border only.</td></tr>
+        <tr><td><code>Container BorderRight(Length width, Color color, BorderLineStyle style = BorderLineStyle.Solid)</code></td><td>Right border only.</td></tr>
+        <tr><td><code>Container BorderBottom(Length width, Color color, BorderLineStyle style = BorderLineStyle.Solid)</code></td><td>Bottom border only.</td></tr>
+        <tr><td><code>Container BorderLeft(Length width, Color color, BorderLineStyle style = BorderLineStyle.Solid)</code></td><td>Left border only.</td></tr>
+        <tr><td><code>Container BorderRadius(Length radius)</code></td><td>Rounded corners.</td></tr>
+        <tr><td><code>Container BoxShadow(Length offsetX, Length offsetY, Length blur, Color color)</code></td><td>Drop shadow: horizontal offset, vertical offset, blur radius, color.</td></tr>
+        <tr><td><code>Container Opacity(float value)</code></td><td>0 (transparent) to 1 (opaque).</td></tr>
+        <tr><td><code>Container Overflow(OverflowMode mode)</code></td><td>What happens to content that doesn&#39;t fit the box (<code>Hidden</code> clips it).</td></tr>
+        <tr><td><code>Container Position(PositionMode mode)</code></td><td>Positioning scheme (<code>position</code>).</td></tr>
+        <tr><td><code>Container Display(DisplayMode mode)</code></td><td>Display type (<code>display</code>).</td></tr>
+        <tr><td><code>Container Float(FloatSide side)</code></td><td>Floats the box left or right so following inline content wraps around it.</td></tr>
+        <tr><td><code>Container Transform(CssTransform transform)</code></td><td>Applies a 2D transform (rotate, scale, translate, skew), e.g. <code>CssTransform.Rotate(10)</code>.</td></tr>
+        <tr><td><code>Container RawStyle(string property, string value)</code></td><td>Unchecked escape hatch: sets any CSS declaration by name and value. Nothing validates either string, so a typo is silently ignored by the CSS engine -- prefer the typed methods above, and use this only for a property that has none yet.</td></tr>
+        <tr><td><code>Container RawAttribute(string name, string value)</code></td><td>Unchecked escape hatch: sets any HTML attribute by name. The first value set for a name wins; use <code>RawStyle</code>, not a <code>style</code> attribute.</td></tr>
+        <tr><td><code>Container Raw(string html)</code></td><td>Unchecked escape hatch: parses <code>html</code> as an HTML fragment and appends its nodes as children -- anything expressible in HTML is expressible here, even before a typed wrapper exists for it.</td></tr>
+      </tbody></table>
+
+      <h3 id="ref-RowDescriptor">RowDescriptor</h3>
+      <p>Builds the side-by-side (flex) children of a <code>Row</code>.</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>RowDescriptor Gap(Length gap)</code></td><td>Space between items along the row (<code>gap</code>). It applies to the row itself, so it can be set before or after adding items.</td></tr>
+        <tr><td><code>RowDescriptor JustifyContent(FlexJustify justify)</code></td><td>How items distribute along the row (<code>justify-content</code>).</td></tr>
+        <tr><td><code>RowDescriptor AlignItems(FlexAlign align)</code></td><td>How items align across the row&#39;s height (<code>align-items</code>).</td></tr>
+        <tr><td><code>RowDescriptor Wrap()</code></td><td>Lets items wrap onto additional lines instead of shrinking to fit one row (<code>flex-wrap: wrap</code>).</td></tr>
+        <tr><td><code>Container RelativeItem(float weight = 1f)</code></td><td>Appends an item that shares the row&#39;s remaining space by <code>weight</code> (flex-grow).</td></tr>
+        <tr><td><code>RowDescriptor RelativeItem(Action&lt;Container&gt; build)</code></td><td>Appends a flexible item configured inside <code>build</code> and returns the row, so items chain.</td></tr>
+        <tr><td><code>RowDescriptor RelativeItem(float weight, Action&lt;Container&gt; build)</code></td><td>Appends a flexible item of the given <code>weight</code> configured inside <code>build</code> and returns the row.</td></tr>
+        <tr><td><code>RowDescriptor ConstantItem(Length width, Action&lt;Container&gt; build)</code></td><td>Appends a fixed-width item configured inside <code>build</code> and returns the row, so items chain.</td></tr>
+        <tr><td><code>Container ConstantItem(Length width)</code></td><td>Appends an item with a fixed width that does not grow or shrink.</td></tr>
+      </tbody></table>
+
+      <h3 id="ref-GridDescriptor">GridDescriptor</h3>
+      <p>Builds the cells of a CSS grid container (<code>Grid</code>).</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>GridDescriptor Gap(Length gap)</code></td><td>Space between rows and columns (<code>gap</code>).</td></tr>
+        <tr><td><code>GridDescriptor AutoRows(Length height)</code></td><td>Height of implicitly created rows (<code>grid-auto-rows</code>).</td></tr>
+        <tr><td><code>GridDescriptor Item(Action&lt;Container&gt; build)</code></td><td>Appends a single-column cell configured inside <code>build</code> and returns the grid, so cells chain.</td></tr>
+        <tr><td><code>GridDescriptor Item(int columnSpan, Action&lt;Container&gt; build)</code></td><td>Appends a cell spanning <code>columnSpan</code> columns configured inside <code>build</code> and returns the grid.</td></tr>
+        <tr><td><code>Container Item(int columnSpan = 1)</code></td><td>Appends a cell spanning <code>columnSpan</code> columns and returns it for content/styling.</td></tr>
+      </tbody></table>
+
+      <h3 id="ref-ListDescriptor">ListDescriptor</h3>
+      <p>Builds the &lt;li&gt; items of a bullet (&lt;ul&gt;) or numbered (&lt;ol&gt;) list.</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>ListDescriptor Item(Action&lt;Container&gt; build)</code></td><td>Appends a list item configured inside <code>build</code> and returns the list, so items chain.</td></tr>
+        <tr><td><code>Container Item()</code></td><td>Appends a list item and returns it for content/styling (it may itself hold nested lists, tables, etc.).</td></tr>
+      </tbody></table>
+
+      <h3 id="ref-TableDescriptor">TableDescriptor</h3>
+      <p>Builds a table&#39;s &lt;thead&gt; and &lt;tbody&gt; rows.</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>Container Header(Action&lt;TableRowDescriptor&gt; build)</code></td><td>Adds a header row inside &lt;thead&gt;, which repeats on every continuation page for tables spanning more than one page. Returns the row for styling (e.g. a header background).</td></tr>
+        <tr><td><code>TableDescriptor Header(Action&lt;TableRowDescriptor&gt; cells, Action&lt;Container&gt; rowStyle)</code></td><td>Adds a header row whose cells are built by <code>cells</code> and whose row box is styled by <code>rowStyle</code>; returns the table, so rows chain.</td></tr>
+        <tr><td><code>TableDescriptor Row(Action&lt;TableRowDescriptor&gt; cells, Action&lt;Container&gt; rowStyle)</code></td><td>Adds a body row whose cells are built by <code>cells</code> and whose row box is styled by <code>rowStyle</code>; returns the table, so rows chain.</td></tr>
+        <tr><td><code>Container Row(Action&lt;TableRowDescriptor&gt; build)</code></td><td>Adds a body row inside &lt;tbody&gt;. Returns the row for styling (e.g. striping, <code>AvoidBreakInside</code>).</td></tr>
+      </tbody></table>
+
+      <h3 id="ref-TableRowDescriptor">TableRowDescriptor</h3>
+      <p>Builds one table row&#39;s cells.</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>TableRowDescriptor Cell(Action&lt;Container&gt; build)</code></td><td>Appends a cell configured inside <code>build</code> and returns the row, so cells chain.</td></tr>
+        <tr><td><code>Container Cell()</code></td><td>Appends a cell (&lt;th&gt; in a header row, &lt;td&gt; otherwise) and returns it for content/styling.</td></tr>
+      </tbody></table>
+
+      <h3 id="ref-Color">Color (struct)</h3>
+      <p>A validated color. There is deliberately no implicit conversion from string: a typo like &quot;rde&quot; must fail at the call site (<code>FromHex</code> throws) rather than be silently ignored by the CSS engine. <code>default(Color)</code> is fully transparent.</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>static Color FromRgb(byte r, byte g, byte b)</code></td><td>An opaque color from red, green and blue components (0-255).</td></tr>
+        <tr><td><code>static Color FromRgba(byte r, byte g, byte b, byte a)</code></td><td>RGB plus alpha (0 = transparent, 255 = opaque).</td></tr>
+        <tr><td><code>static Color FromHex(string hex)</code></td><td>Parses &quot;#rgb&quot;, &quot;#rgba&quot;, &quot;#rrggbb&quot; or &quot;#rrggbbaa&quot;; anything else throws.</td></tr>
+      </tbody></table>
+
+      <h3 id="ref-Colors">Colors (static)</h3>
+      <p>Common named colors, as <code>Color</code> values.</p>
+      <p>Named colors: <code>Transparent</code>, <code>Black</code>, <code>White</code>, <code>Red</code>, <code>Green</code>, <code>Blue</code>, <code>Yellow</code>, <code>Orange</code>, <code>Purple</code>, <code>Pink</code>, <code>Brown</code>, <code>Navy</code>, <code>Teal</code>, <code>Gray</code>, <code>LightGray</code>, <code>DarkGray</code>.</p>
+
+      <h3 id="ref-Length">Length (struct)</h3>
+      <p>A CSS length with its unit. A bare number converts implicitly to pixels, so <code>Width(200)</code> still works; use <code>Mm</code>, <code>Percent</code> etc. for anything else. <code>default(Length)</code> is 0px.</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>static Length Px(float value)</code></td><td>A length in CSS pixels.</td></tr>
+        <tr><td><code>static Length Pt(float value)</code></td><td>A length in points (1/72 inch).</td></tr>
+        <tr><td><code>static Length Mm(float value)</code></td><td>A length in millimeters.</td></tr>
+        <tr><td><code>static Length Cm(float value)</code></td><td>A length in centimeters.</td></tr>
+        <tr><td><code>static Length In(float value)</code></td><td>A length in inches.</td></tr>
+        <tr><td><code>static Length Em(float value)</code></td><td>A length relative to the element&#39;s font size (1 em = one font size).</td></tr>
+        <tr><td><code>static Length Percent(float value)</code></td><td>A length as a percentage of the containing box.</td></tr>
+        <tr><td><code>implicit operator Length(float px)</code></td><td>A bare number converts to pixels, so <code>Width(200)</code> means 200 px.</td></tr>
+        <tr><td><code>static Length Zero { get; }</code></td><td>A zero length (0 px).</td></tr>
+        <tr><td><code>static Length Auto { get; }</code></td><td>The CSS keyword <code>auto</code> (the browser/engine picks the size).</td></tr>
+      </tbody></table>
+
+      <h3 id="ref-CssTransform">CssTransform (struct)</h3>
+      <p>A 2D transform, composable with <code>Then</code>: <code>CssTransform.Rotate(10).Then(CssTransform.Scale(1.2f))</code>.</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>static CssTransform Rotate(float degrees)</code></td><td>Rotates clockwise by <code>degrees</code> around the box&#39;s center.</td></tr>
+        <tr><td><code>static CssTransform Scale(float factor)</code></td><td>Scales uniformly by <code>factor</code> (1 = unchanged, 2 = double size).</td></tr>
+        <tr><td><code>static CssTransform Scale(float x, float y)</code></td><td>Scales by separate horizontal and vertical factors.</td></tr>
+        <tr><td><code>static CssTransform Translate(Length x, Length y)</code></td><td>Moves the box by a horizontal and a vertical offset.</td></tr>
+        <tr><td><code>static CssTransform SkewX(float degrees)</code></td><td>Skews (slants) horizontally by <code>degrees</code>.</td></tr>
+        <tr><td><code>static CssTransform SkewY(float degrees)</code></td><td>Skews (slants) vertically by <code>degrees</code>.</td></tr>
+        <tr><td><code>CssTransform Then(CssTransform next)</code></td><td>Applies <code>next</code> after this transform.</td></tr>
+      </tbody></table>
+
+      <h3 id="ref-GridTrack">GridTrack (struct)</h3>
+      <p>One column of a <code>Grid</code>.</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>static GridTrack Fr(float share)</code></td><td>A flexible share of the remaining space (<code>Nfr</code>).</td></tr>
+        <tr><td><code>static GridTrack Fixed(Length size)</code></td><td>A fixed-size column.</td></tr>
+        <tr><td><code>static GridTrack Auto { get; }</code></td><td>Sized to its content.</td></tr>
+      </tbody></table>
+
+      <h3 id="ref-PageSize">PageSize (struct)</h3>
+      <p>A page&#39;s physical dimensions in millimeters, matching CSS <code>@page { size: ... }</code>.</p>
+      <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
+        <tr><td><code>static readonly PageSize A3</code></td><td>A3 portrait (297 x 420 mm).</td></tr>
+        <tr><td><code>static readonly PageSize A4</code></td><td>A4 portrait (210 x 297 mm) -- the default.</td></tr>
+        <tr><td><code>static readonly PageSize A5</code></td><td>A5 portrait (148 x 210 mm).</td></tr>
+        <tr><td><code>static readonly PageSize Letter</code></td><td>US Letter portrait (8.5 x 11 in).</td></tr>
+        <tr><td><code>static readonly PageSize Legal</code></td><td>US Legal portrait (8.5 x 14 in).</td></tr>
+        <tr><td><code>PageSize(float widthMm, float heightMm)</code></td><td>A custom page size in millimeters.</td></tr>
+        <tr><td><code>PageSize Landscape()</code></td><td>Same physical page, rotated: width and height swapped.</td></tr>
+        <tr><td><code>float WidthMm { get; }</code></td><td>Page width in millimeters.</td></tr>
+        <tr><td><code>float HeightMm { get; }</code></td><td>Page height in millimeters.</td></tr>
+      </tbody></table>
+
+      <h3 id="ref-enums">Keyword enums</h3>
+      <table><thead><tr><th>Enum</th><th>Purpose</th><th>Values</th></tr></thead><tbody>
+        <tr><td id="ref-BorderLineStyle"><code>BorderLineStyle</code></td><td>Border line style.</td><td><code>None</code>, <code>Solid</code>, <code>Dashed</code>, <code>Dotted</code>, <code>Double</code>, <code>Groove</code>, <code>Ridge</code>, <code>Inset</code>, <code>Outset</code></td></tr>
+        <tr><td id="ref-DisplayMode"><code>DisplayMode</code></td><td><code>display</code>.</td><td><code>None</code>, <code>Block</code>, <code>Inline</code>, <code>InlineBlock</code>, <code>Flex</code>, <code>Grid</code></td></tr>
+        <tr><td id="ref-FlexAlign"><code>FlexAlign</code></td><td>Flex <code>align-items</code>: alignment across the row&#39;s height.</td><td><code>Stretch</code>, <code>Start</code>, <code>Center</code>, <code>End</code>, <code>Baseline</code></td></tr>
+        <tr><td id="ref-FlexJustify"><code>FlexJustify</code></td><td>Flex <code>justify-content</code>: distribution along the row.</td><td><code>Start</code>, <code>Center</code>, <code>End</code>, <code>SpaceBetween</code>, <code>SpaceAround</code>, <code>SpaceEvenly</code></td></tr>
+        <tr><td id="ref-FloatSide"><code>FloatSide</code></td><td><code>float</code>.</td><td><code>None</code>, <code>Left</code>, <code>Right</code></td></tr>
+        <tr><td id="ref-HeadingLevel"><code>HeadingLevel</code></td><td>Heading level; the value is the N of &lt;hN&gt;.</td><td><code>H1</code>, <code>H2</code>, <code>H3</code>, <code>H4</code>, <code>H5</code>, <code>H6</code></td></tr>
+        <tr><td id="ref-OverflowMode"><code>OverflowMode</code></td><td><code>overflow</code>: what happens to content that doesn&#39;t fit the box.</td><td><code>Visible</code>, <code>Hidden</code>, <code>Clip</code>, <code>Scroll</code>, <code>Auto</code></td></tr>
+        <tr><td id="ref-PositionMode"><code>PositionMode</code></td><td><code>position</code>.</td><td><code>Static</code>, <code>Relative</code>, <code>Absolute</code>, <code>Fixed</code>, <code>Sticky</code></td></tr>
+        <tr><td id="ref-TextCase"><code>TextCase</code></td><td><code>text-transform</code>.</td><td><code>None</code>, <code>Uppercase</code>, <code>Lowercase</code>, <code>Capitalize</code></td></tr>
+        <tr><td id="ref-TextDirection"><code>TextDirection</code></td><td>Text direction (<code>dir</code>).</td><td><code>Ltr</code>, <code>Rtl</code></td></tr>
+        <tr><td id="ref-WhiteSpaceMode"><code>WhiteSpaceMode</code></td><td><code>white-space</code>.</td><td><code>Normal</code>, <code>NoWrap</code>, <code>Pre</code>, <code>PreWrap</code>, <code>PreLine</code></td></tr>
+      </tbody></table>
+      <!-- END GENERATED API REFERENCE -->
+
+    </main>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-logo" aria-hidden="true">
+      <svg width="28" height="20" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M12.4779 6.59873V10.509L6.23153 14L2.74336 12.0505L12.4779 6.59873ZM8.36572 3.92357V3.92637L8.35529 3.93218L8.3035 5.93641L10 6.93847L1.78262 11.5032L0 10.515V8.57059L8.36572 3.92357ZM6.29532 0L9.82301 1.95269L0 7.40127V3.48468L6.29532 0ZM10.7889 2.58599L12.1769 3.35248L12.5664 3.58158V3.66989L12.5172 5.56508L10.6492 6.59873L8.93805 5.59192L8.99021 3.58127L10.7889 2.58599Z" fill="#FAB400"/>
+      </svg>
+    </div>
+    <p>An open-source project by <a href="https://eggspot.app" target="_blank" rel="noopener">Eggspot</a> &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; <a href="https://github.com/eggspot/EggPdf" target="_blank" rel="noopener">GitHub</a></p>
+  </div>
+</footer>
+
+<script>
+(function() {
+  var btn = document.querySelector(".nav-hamburger");
+  var nav = document.querySelector(".nav-links");
+  btn.addEventListener("click", function() {
+    var open = nav.classList.toggle("open");
+    btn.setAttribute("aria-expanded", open);
+  });
+  document.addEventListener("click", function(e) {
+    if (!e.target.closest(".nav")) {
+      nav.classList.remove("open");
+      btn.setAttribute("aria-expanded", "false");
+    }
+  });
+})();
+</script>
+</body>
+</html>

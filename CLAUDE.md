@@ -61,7 +61,9 @@ write ALL the code for the task first, then run the test suite and fix.
 
 ```
 src/
-  EggPdf/              -- main library (public API: HtmlToPdf.RenderAsync)
+  EggPdf/              -- main library (public API: HtmlToPdf.RenderAsync; Fluent/ = the fluent C# document builder,
+                          namespace EggPdf.Fluent, compiled into this assembly/package -- no separate NuGet package --
+                          builds the DOM directly and renders through HtmlToPdf.RenderDocument, no HTML string involved)
   EggPdf.Core/         -- shared primitives (Color, geometry, warnings, resource resolver)
   EggPdf.Html/         -- HTML5 parser (tokenizer, tree builder, DOM types)
   EggPdf.Css/          -- CSS parser + cascade + selectors + inline parser
@@ -85,9 +87,14 @@ tests/
   EggPdf.Tests.Unit/   -- ~1440 unit tests (parsers, CSS, fonts/webfonts, signing, PDF, image decoders, SVG filters, E2E render checks)
   EggPdf.Tests.Layout/ -- ~659 layout tests (block, inline, flex, float, table, grid, margins, lists)
   EggPdf.Tests.E2E/    -- ~221 Playwright tests (WebUI, API endpoints; needs `playwright.ps1 install chromium` once)
+  EggPdf.Tests.Fluent/ -- EggPdf.Fluent document-builder tests
 
 benchmarks/
   EggPdf.Benchmarks/   -- BenchmarkDotNet suite (3 scenarios)
+
+tools/
+  EggPdf.DocGen/       -- generates the Fluent API reference block in site/fluent-api.html from the assembly + XML doc comments
+                          (`dotnet run --project tools/EggPdf.DocGen`; add `-- --check` in CI)
 
 design/
   architecture/        -- 8 detailed component design docs + E2E testing doc
@@ -191,19 +198,70 @@ per-change doc updates above shouldn't wait for that pass.
 ## Feature Parity Across Entry Points
 
 EggPdf exposes rendering through multiple entry points: the core `HtmlToPdf` API, `PdfRenderOptions`
-(the C#-properties convenience wrapper over CSS), the CLI (`EggPdf.Cli`), and the REST API
-(`EggPdf.Service`). When a new PDF-writer-level capability is added -- a new `HtmlToPdf.Render`/
-`RenderAsync` overload, a new `PdfDocument` property (e.g. `Conformance`, `Invoice`, `Encryption`) --
-wire it into the other entry points in the SAME change, not as a follow-up:
+(the C#-properties convenience wrapper over CSS), the CLI (`EggPdf.Cli`), the REST API
+(`EggPdf.Service`), and the fluent C# document-builder (`EggPdf.Fluent`). When a new PDF-writer-level
+capability is added -- a new `HtmlToPdf.Render`/`RenderAsync` overload, a new `PdfDocument` property
+(e.g. `Conformance`, `Invoice`, `Encryption`) -- wire it into the other entry points in the SAME
+change, not as a follow-up:
 
 - `PdfRenderOptions` -- add the corresponding property, if it's a per-render setting
 - CLI (`EggPdf.Cli`) -- add the corresponding flag/argument
 - REST API (`EggPdf.Service`) -- add the corresponding request field
+- `EggPdf.Fluent` -- add the corresponding `DocumentDescriptor`/`PageDescriptor` method (see below)
 - Update the "Docs Stay in Sync" targets above for every surface actually wired, not just the core API
 
 If wiring every entry point in the same change is genuinely too large (e.g. it needs its own
 request/response schema design), say so explicitly and track the gap in BLUEPRINT.md/the relevant
 doc -- don't silently ship a feature reachable from only one of the four surfaces.
+
+### HTML/CSS and EggPdf.Fluent stay at parity
+
+No gap is acceptable between what HTML/CSS can express and what `EggPdf.Fluent` can express. Three
+explicitly-unchecked escape hatches guarantee this at the capability level even before a feature has
+typed sugar: `Container.RawStyle(property, value)` (any CSS declaration), `Container.RawAttribute(name,
+value)` and `Container.Raw(html)` (any HTML markup/element, parsed and spliced into the DOM being
+built), plus `DocumentDescriptor.Css(css)` for head-level stylesheets. Together they mean nothing is
+ever literally unreachable from the fluent API -- treat that as the floor, not the goal.
+
+**No magic strings in the typed API.** A typo in a CSS keyword/color/unit is silently ignored by the
+CSS engine, so every typed `EggPdf.Fluent` method takes a typed value, never a string: keyword enums
+(`OverflowMode`, `PositionMode`, `FlexJustify`, `BorderLineStyle`, ... in `CssKeywords.cs`, each
+mapped by an exhaustive `ToCss()` switch), `Color`/`Colors` (validated hex, no implicit string
+conversion), `Length` (unit-explicit; a bare number is px), `CssTransform`, `GridTrack`, `HeadingLevel`.
+Internal CSS property names live in `CssProp` -- never type a property name string twice. When adding a
+method: add a new enum/struct for any new keyword set or unit (with a test that every member maps and
+bad input throws, see `TypedValueTests`), validate numeric ranges, and only take `string` where the
+value is genuinely free text (content, URLs, paths, ids, class names, font family names). The `Raw*`
+escape hatches are the ONLY place raw CSS/HTML strings are accepted; keep the `Raw` prefix so their
+unchecked nature is visible at every call site.
+
+When a change adds or fixes a user-facing HTML/CSS/PDF capability (the same trigger as "Docs Stay in
+Sync" above), also do one of, in the SAME change:
+
+- Add a typed `EggPdf.Fluent` method for it (e.g. `Container.Border(...)`, `PageDescriptor.Watermark(...)`),
+  mirroring the naming/shape of nearby methods in `Container`/`PageDescriptor`/`ColumnDescriptor`/
+  `RowDescriptor`/`TableDescriptor`
+- Or confirm it's already reachable via `.RawStyle()`/`.RawAttribute()`/`.Raw()`/`.Css()` and say so explicitly (e.g. in the PR
+  description or a code comment) -- don't leave it silently undiscoverable
+- Or, if typed sugar is genuinely out of scope for this change, say so explicitly and track it as a
+  known gap (e.g. in BLUEPRINT.md) rather than letting the two APIs silently drift apart
+
+**The `EggPdf.Fluent` API reference is generated, not hand-written.** Write an XML `<summary>` on
+every public type and member (it is also the IntelliSense text); the "API reference" block in
+`site/fluent-api.html` (between the `BEGIN/END GENERATED API REFERENCE` markers) is produced from the
+code by `tools/EggPdf.DocGen`. After adding/renaming/re-documenting any public `EggPdf.Fluent` member,
+run `dotnet run --project tools/EggPdf.DocGen` and commit the regenerated page -- never edit inside the
+markers by hand. `ApiReferenceUpToDateTests` fails when a public member has no `<summary>` (generation
+throws, listing them) or when the committed page differs from the code, so the reference can't go
+stale or incomplete. (`dotnet run --project tools/EggPdf.DocGen -- --check` does the staleness check
+without writing.) The rest of `fluent-api.html` (guide prose) is still hand-written.
+
+As with docs, never claim an `EggPdf.Fluent` method supports something until it's verified
+end-to-end (rendered, inspected in the actual PDF bytes via `tests/EggPdf.Tests.Fluent`) -- code
+that merely doesn't throw is not "supported". `Container`, `ColumnDescriptor`, `RowDescriptor`,
+`TableDescriptor`/`TableRowDescriptor`, `PageDescriptor` and `DocumentDescriptor` are the extension
+points; keep new fluent surface in those files (or a new `ClassName.Feature.cs` partial per the
+file-size rule above) rather than inventing parallel builder types for the same concept.
 
 ## Skills (invoke with /slash commands)
 

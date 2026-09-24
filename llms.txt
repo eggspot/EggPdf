@@ -147,6 +147,68 @@ byte[] ua2 = HtmlToPdf.Render(html, tagged: true, EggPdf.Pdf.PdfUaVersion.Ua2);
 CLI: `--ua-version 2` (requires `--tagged`; default is 1). REST API: `options.uaVersion: "Ua2"`.
 Don't suggest PDF/UA-2 + `--pdfa`/`options.conformance` together -- it throws.
 
+## Fluent C# API (define a PDF in code, no HTML)
+
+Part of the main `EggPdf` package (namespace `EggPdf.Fluent`) -- no separate package. It builds the
+same DOM the HTML parser produces and renders through the same pipeline via
+`HtmlToPdf.RenderDocument`, so output is identical to equivalent HTML and anything HTML/CSS can do is
+reachable. All values are strongly typed (no CSS strings): `Color`/`Colors`, `Length` (a bare number is
+px), keyword enums (`OverflowMode`, `PositionMode`, `FlexJustify`, `FlexAlign`, `BorderLineStyle`,
+`TextCase`, `DisplayMode`, `FloatSide`, `WhiteSpaceMode`, `TextDirection`, `HeadingLevel`),
+`CssTransform`, `GridTrack`. Unchecked escape hatches are named `Raw*`: `RawStyle(prop, value)`,
+`RawAttribute(name, value)`, `Raw(html)`, and `DocumentDescriptor.Css(css)`. Don't suggest passing CSS
+strings to typed methods -- they take typed values.
+
+```csharp
+using EggPdf.Fluent;
+
+byte[] pdf = Document.Create(doc => doc
+    .Title("Invoice").Author("Acme").Language("en")
+    .Page(page => page
+        .Size(PageSize.A4).Margin(top: 70, right: 30, bottom: 50, left: 30)
+        .Header(h => h.Text("Acme Corp").Bold())
+        .Footer(f => f.AlignCenter().PageNumberOfTotal())      // "Page 2 of 5"
+        .Watermark("DRAFT")
+        .Content(c =>
+        {
+            c.Heading(HeadingLevel.H1, "Invoice");              // real <h1>: PDF bookmark + PDF/UA heading
+            c.Item().Row(r => { r.JustifyContent(FlexJustify.SpaceBetween);
+                                r.RelativeItem().Text("Bill to"); r.ConstantItem(Length.Mm(40)).AlignRight().Text("Date"); });
+            c.Item().Table(t =>
+            {
+                t.Header(h => { h.Cell().Text("Item").Bold(); h.Cell().Text("Qty").Bold(); });   // <thead> repeats per page
+                t.Row(r => { r.Cell().Text("Widget"); r.Cell().Text("3"); }).AvoidBreakInside();
+            });
+            c.Item().Grid(new[] { GridTrack.Fr(1), GridTrack.Fr(2) }, g => { g.Item().Text("A"); g.Item().Text("B"); });
+            c.Item().Hyperlink("#terms", "See terms");          // internal link
+            c.Item().Id("terms").Text("Terms").Border(1, Colors.Gray, BorderLineStyle.Dashed).Padding(8);
+            c.Item().PinBottom().Text("Signature");
+        })))
+    .Render();                                                  // also RenderAsync(ct), RenderToFileAsync(path, ct)
+```
+
+Complete member-by-member reference (every type, method and enum value with its purpose):
+https://eggspot.github.io/EggPdf/fluent-api.html#api-reference
+
+Step-by-step form (same output, byte for byte): `var doc = Document.New(); var page = doc.AddPage();
+page.Header().Text("Acme"); page.Footer().PageNumberOfTotal(); var body = page.Content();
+body.Item().Text("Hi"); byte[] pdf = doc.Render();` -- every callback method has a parameterless twin
+returning the thing to fill in (`Header()`, `Footer()`, `Content()`, `Row()`, `Table()`, `Grid(...)`,
+`BulletList()`, `NumberedList()`, `Column()`). Rendering freezes the document; changing it afterwards throws.
+
+Pure method-chain form (same output): child-adding methods have callback overloads returning the parent --
+`c.Item(i => i.Text("A")).Item(i => i.Row(r => r.RelativeItem(x => x.Text("L")).ConstantItem(60, x => x.Text("R"))))`,
+`g.Item(x => ...)` (grid), `l.Item(x => ...)` (list), `row.Cell(x => ...)`, `c.Heading(level, text, h => ...)`,
+`t.Header(cells, rowStyle)`/`t.Row(cells, rowStyle)`.
+
+Structure: `Document.Create` -> `DocumentDescriptor` (Title, Author, Language, Css, FontFace, BasePath,
+Encrypt, Conformance, Invoice, Tagged, Page) -> `PageDescriptor` (Size, Margin, Header, Footer,
+Watermark, Content) -> `ColumnDescriptor` (Item, Heading) -> `Container` (Text, Column, Row, Grid,
+Table, BulletList, NumberedList, Image, Hyperlink, Id, Class, styling, Raw*). Several `Page(...)` calls
+give later groups their own size/orientation (named pages). `CurrentPageNumber`/`TotalPages`/
+`PageNumberOfTotal` may be used once per container (a second call throws). Invalid typed input throws
+at the call site (`Color.FromHex("red")`, `Length.Px(float.NaN)`, `Opacity(1.5f)`).
+
 ## ASP.NET Core integration
 
 ```bash
@@ -242,7 +304,7 @@ netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0
 - SVG (vector, not rasterized), including `filter="url(#id)"` filter graphs (feGaussianBlur, feOffset, feFlood, feColorMatrix, feComponentTransfer, feMerge, feBlend, feComposite, feMorphology, feDropShadow, feTurbulence, feConvolveMatrix, feDisplacementMap, feTile, feImage, feDiffuse/SpecularLighting; the filtered shape/text/use/group (incl. gradient fills) is rasterized and re-embedded as an image; filtered <image> elements and pattern paints paint unfiltered)
 - Image formats: JPEG, PNG (incl. 1/2/4-bit grayscale QR codes), GIF, WebP (lossy VP8 incl. alpha, lossless VP8L, VP8X extended containers; animated files render their first frame), BMP, Base64
 - Responsive/generated images: <img srcset>/<picture> and CSS image-set()/image() resolve to their best or direction-matched candidate; image()'s <color> fallback paints when no candidate resolves. paint() (CSS Houdini) is not supported -- it needs a JS worklet engine EggPdf doesn't have
-- Bookmarks, links, TOC
+- Bookmarks, links (external URI links and internal `<a href="#id">` links that jump to the element with that id via a PDF /Dest; links to a missing id are dropped), TOC
 - Running headers/footers via `position: fixed` (repeats on every physical page) or native `@page` margin boxes (`@top-center`, `@bottom-right`, etc., all 16 positions, including `@page :first`/`:left`/`:right` content overrides); `counter(page)`/`counter(pages)` resolve per page; named pages (`page: name` on top-level body blocks + `@page name { size; margin }`) give sections their own page size/orientation
 - Pin content to the bottom of the page it lands on (e.g. a signature block after variable-length content): `-eggpdf-pin-bottom: page`
 - Tables spanning any number of pages without row loss, with `<thead>` repeating at the top of every continuation page
