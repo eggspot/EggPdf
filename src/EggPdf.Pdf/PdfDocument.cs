@@ -205,6 +205,13 @@ public partial class PdfDocument
 
         var writer = new PdfStreamWriter(output);
 
+        // Internal links whose target id was never painted (display:none, typo'd href) would be
+        // dead annotations; drop them before anything (tagging allocation included) counts them.
+        // A document is painted once and written once, so removing here is safe; a tagged render's
+        // Link structure element for a dropped link simply keeps its content and gets no OBJR.
+        foreach (var page in _pages)
+            page.Links.RemoveAll(l => l.TargetId != null && !_anchors.ContainsKey(l.TargetId));
+
         // Encryption: compute the file key up front — every stream and string
         // below is RC4-encrypted with a per-object key derived from it.
         // Setting Encryption at all opts in: permission-only configurations
@@ -554,7 +561,8 @@ public partial class PdfDocument
                         float y2 = link.Y + link.Height;
                         pageDict.Append($" << /Type /Annot /Subtype /Link /Rect [{F(x1)} {F(y1)} {F(x2)} {F(y2)}]");
                         pageDict.Append($" /Border [0 0 0]");
-                        pageDict.Append($" /A << /Type /Action /S /URI /URI {PdfString(enc, link.Url, pageDictObj)} >> >>");
+                        pageDict.Append(LinkTarget(link, enc, pageDictObj, pageObjs));
+                        pageDict.Append(" >>");
                     }
                 }
                 pageDict.Append(" ]");
@@ -577,7 +585,7 @@ public partial class PdfDocument
                 var annotDict = new StringBuilder();
                 annotDict.Append($"<< /Type /Annot /Subtype /Link /Rect [{F(x1)} {F(y1)} {F(x2)} {F(y2)}]");
                 annotDict.Append(" /Border [0 0 0]");
-                annotDict.Append($" /A << /Type /Action /S /URI /URI {PdfString(enc, link.Url, link.AnnotObj)} >>");
+                annotDict.Append(LinkTarget(link, enc, link.AnnotObj, pageObjs));
                 annotDict.Append($" /StructParent {link.StructParentKey}");
                 annotDict.Append(" >>");
                 writer.WriteLine(annotDict.ToString());
@@ -995,6 +1003,36 @@ public partial class PdfDocument
     /// <summary>Encrypt stream bytes for their containing object (no-op when unencrypted).</summary>
     private static byte[] EncryptBytes(EncryptionParams? enc, byte[] data, int objNum)
         => enc == null ? data : PdfEncryption.EncryptForObject(enc.EncryptionKey, objNum, 0, data);
+
+    private readonly Dictionary<string, (int PageIndex, float TopPt)> _anchors = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The action/destination entry of a link annotation: <c>/Dest [page /XYZ 0 top 0]</c> for an
+    /// internal link (its target anchor is guaranteed present -- unresolved ones were pruned at the
+    /// start of <see cref="WriteTo"/>), a URI action for an external one.
+    /// </summary>
+    private string LinkTarget(PdfLinkAnnotation link, EncryptionParams? enc, int objNum, List<(int pageDict, int contentStream)> pageObjs)
+    {
+        if (link.TargetId != null)
+        {
+            var anchor = _anchors[link.TargetId];
+            int pageIdx = Math.Min(anchor.PageIndex, pageObjs.Count - 1);
+            return $" /Dest [{pageObjs[pageIdx].pageDict} 0 R /XYZ 0 {F(anchor.TopPt)} 0]";
+        }
+        return $" /A << /Type /Action /S /URI /URI {PdfString(enc, link.Url, objNum)} >>";
+    }
+
+    /// <summary>
+    /// Register the destination of an HTML element <c>id</c>: the page it was painted on and its top
+    /// edge in PDF points. The first registration of an id wins, matching browsers resolving
+    /// <c>#id</c> to the first element carrying it. Internal links (<see cref="PdfPage.AddInternalLink"/>)
+    /// resolve against these when the file is written.
+    /// </summary>
+    public void RegisterAnchor(string id, int pageIndex, float topPt)
+    {
+        if (!_anchors.ContainsKey(id))
+            _anchors[id] = (pageIndex, topPt);
+    }
 
     /// <summary>
     /// Serialize a PDF string for the given containing object: a literal

@@ -576,6 +576,19 @@ public partial class PdfPage
         return link;
     }
 
+    /// <summary>
+    /// Add a clickable link annotation that jumps to the element registered under
+    /// <paramref name="targetId"/> via <see cref="PdfDocument.RegisterAnchor"/> (HTML <c>&lt;a href="#id"&gt;</c>).
+    /// The target is resolved when the file is written, so it may be on a later page; a link whose
+    /// target was never registered is dropped rather than written as a dead annotation.
+    /// </summary>
+    public PdfLinkAnnotation AddInternalLink(float x, float y, float width, float height, string targetId)
+    {
+        var link = new PdfLinkAnnotation(x, y, width, height, "") { TargetId = targetId };
+        Links.Add(link);
+        return link;
+    }
+
     private static string F(float value) => value.ToString("F2", CultureInfo.InvariantCulture);
 
     private static string EscapePdfString(string text)
@@ -675,6 +688,9 @@ public class PdfLinkAnnotation
     public float Width { get; }
     public float Height { get; }
     public string Url { get; }
+
+    /// <summary>The anchor id this annotation jumps to (an internal <c>#id</c> link); null for an external <see cref="Url"/> link.</summary>
+    public string? TargetId { get; set; }
 
     /// <summary>
     /// The Link structure element this annotation's <c>&lt;a&gt;</c> box was tagged as, when the

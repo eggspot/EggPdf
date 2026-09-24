@@ -141,6 +141,14 @@ public static partial class BoxPainter
     }
 
 
+    /// <summary>The element id an internal <c>#fragment</c> href targets, percent-decoded like a browser does (<c>#sec%20one</c> -> "sec one"); malformed escapes are used as written.</summary>
+    private static string AnchorIdFromHref(string href)
+    {
+        var fragment = href.Substring(1);
+        try { return Uri.UnescapeDataString(fragment); }
+        catch (UriFormatException) { return fragment; }
+    }
+
     public static void PaintBox(PdfPage page, LayoutBox box,
         float pageHeightPt, float pageHeightPx, float adjustedY)
     {
@@ -178,6 +186,11 @@ public static partial class BoxPainter
     {
         // Apply margin left offset: shift all X coordinates by the page margin
         float effectiveX = box.X + MarginLeftPx;
+
+        // Internal-link destination: an element's id marks where "#id" links jump to.
+        var anchorId = box.Element?.GetAttribute("id");
+        if (!string.IsNullOrEmpty(anchorId) && CurrentPdfDoc != null)
+            CurrentPdfDoc.RegisterAnchor(anchorId!, page.PageIndex, (pageHeightPx - adjustedY) * PdfCoordinates.PxToPt);
 
         // CSS transform: wrap entire box painting in SaveState/cm/RestoreState
         bool hasTransform = ApplyTransform(page, box, pageHeightPx, adjustedY, effectiveX);
@@ -884,7 +897,8 @@ public static partial class BoxPainter
         if (linkElement?.TagName == "a")
         {
             var href = linkElement.GetAttribute("href");
-            if (!string.IsNullOrEmpty(href) && href.StartsWith("http"))
+            bool isInternalLink = href != null && href.Length > 1 && href[0] == '#';
+            if (!string.IsNullOrEmpty(href) && (href.StartsWith("http") || isInternalLink))
             {
                 var span = box.InlineSpan;
                 if (span != null)
@@ -901,7 +915,9 @@ public static partial class BoxPainter
                         float pdfY = (pageHeightPx - spanAdjustedY - span.Height) * PdfCoordinates.PxToPt;
                         float pdfW = span.Width * PdfCoordinates.PxToPt;
                         float pdfH = span.Height * PdfCoordinates.PxToPt;
-                        span.PaintTag = page.AddLink(pdfX, pdfY, pdfW, pdfH, href);
+                        span.PaintTag = isInternalLink
+                            ? page.AddInternalLink(pdfX, pdfY, pdfW, pdfH, AnchorIdFromHref(href!))
+                            : page.AddLink(pdfX, pdfY, pdfW, pdfH, href);
                     }
                     if (span.PaintTag is PdfLinkAnnotation spanLink && StructureMap != null &&
                         StructureMap.TryGetValue(box, out var spanLinkElem))
@@ -913,7 +929,9 @@ public static partial class BoxPainter
                     float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
                     float pdfW = box.Width * PdfCoordinates.PxToPt;
                     float pdfH = box.Height * PdfCoordinates.PxToPt;
-                    var link = page.AddLink(pdfX, pdfY, pdfW, pdfH, href);
+                    var link = isInternalLink
+                        ? page.AddInternalLink(pdfX, pdfY, pdfW, pdfH, AnchorIdFromHref(href!))
+                        : page.AddLink(pdfX, pdfY, pdfW, pdfH, href);
                     if (StructureMap != null && StructureMap.TryGetValue(box, out var linkElem))
                         link.TaggedElement = linkElem;
                 }
