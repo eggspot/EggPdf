@@ -75,7 +75,10 @@ public static class PageFragmenter
                         !string.IsNullOrEmpty(box.Style.BackgroundColor) &&
                         box.Style.BackgroundColor != "transparent" ||
                         box.Element?.TagName == "a" ||
-                        box.Element?.TagName == "svg";
+                        box.Element?.TagName == "svg" ||
+                        // an id is an internal-link destination: it paints nothing, but BoxPainter
+                        // registers its page/position when it runs for the box
+                        box.Element?.HasAttribute("id") == true;
 
         if (hasPaint)
             result.Add(box);

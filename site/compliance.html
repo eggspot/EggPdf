@@ -55,6 +55,7 @@
         <a href="tables.html">Tables</a>
         <a href="fonts.html">Fonts</a>
         <a href="headers-footers.html">Headers &amp; Footers</a>
+        <a href="fluent-api.html">Fluent C# API</a>
         <a href="performance.html">Performance</a>
         <a href="compliance.html" class="active">Compliance</a>
         <div class="sidebar-section">Deploy</div>
@@ -268,8 +269,8 @@
         API's <code>options.uaVersion</code> field.
       </p>
       <p>
-        <strong>Known limitations:</strong> no structure destinations for internal links (EggPdf
-        doesn't yet support internal anchor links at all, tagged or not); table cells still rely on
+        <strong>Known limitations:</strong> internal <code>#id</code> links jump via a page destination
+        (<code>/Dest</code>), not a PDF 2.0 structure destination (<code>/SD</code>); table cells still rely on
         the same <code>&lt;th scope&gt;</code>-derived <code>/Scope</code> attribute UA-1 uses
         rather than PDF 2.0's <code>/Headers</code> mechanism or its algorithmic-determination
         alternative; <code>/Info</code> is kept alongside XMP rather than dropped, since sources on

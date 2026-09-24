@@ -70,6 +70,88 @@ byte[] pdf = await EggPdf.HtmlToPdf.RenderAsync(html, new EggPdf.PdfRenderOption
 });
 ```
 
+## Fluent C# API (no HTML)
+
+Rather define the document in C#? The fluent API (`using EggPdf.Fluent;`) is part of the same
+`EggPdf` package -- nothing extra to install. It builds the same DOM the HTML parser would and
+renders it through the exact same pipeline (same layout, same fonts, same PDF writer) -- there is
+no HTML string in the middle, and anything HTML/CSS can do, the fluent API can do:
+
+```csharp
+using EggPdf.Fluent;
+
+byte[] pdf = Document.Create(doc => doc
+    .Title("Invoice INV-142")
+    .Page(page => page
+        .Size(PageSize.A4).Margin(top: 70, right: 30, bottom: 50, left: 30)
+        .Header(h => h.Text("Acme Corp").Bold().FontSize(18))
+        .Footer(f => f.AlignCenter().PageNumberOfTotal())          // "Page 2 of 5"
+        .Watermark("DRAFT")
+        .Content(c =>
+        {
+            c.Heading(HeadingLevel.H1, "Invoice");                  // also becomes a PDF bookmark
+            c.Item().Row(row =>
+            {
+                row.RelativeItem().Text("Bill to: Jane Doe");
+                row.ConstantItem(Length.Mm(40)).AlignRight().Text("2026-09-24");
+            });
+            c.Item().Table(table =>
+            {
+                table.Header(h => { h.Cell().Text("Item").Bold(); h.Cell().Text("Qty").Bold(); });
+                foreach (var line in lines)
+                    table.Row(r => { r.Cell().Text(line.Name); r.Cell().Text(line.Qty.ToString()); })
+                         .AvoidBreakInside();
+            });
+            c.Item().PinBottom().Border(1, Colors.Gray).Padding(10).Text("Signature");
+        })))
+    .Render();
+```
+
+Prefer statements over one big nested expression? Build it step by step -- same result, byte for byte:
+
+```csharp
+var doc  = Document.New().Title("Report");
+var page = doc.AddPage().Size(PageSize.A4).Margin(30);
+
+page.Header().Text("Acme").Bold();
+page.Footer().AlignCenter().PageNumberOfTotal();
+
+var body = page.Content();
+body.Heading(HeadingLevel.H1, "Summary");
+body.Item().Text("Quarterly results");
+AddSalesTable(body);                 // ordinary helper methods, one per section
+
+byte[] pdf = doc.Render();
+
+static void AddSalesTable(ColumnDescriptor content)
+{
+    var table = content.Item().Table();
+    table.Header(h => { h.Cell().Text("Region").Bold(); h.Cell().Text("Sales").Bold(); });
+    table.Row(r => { r.Cell().Text("North"); r.Cell().Text("1,200"); });
+}
+```
+
+Or as one pure method chain -- every child-adding method (`Item`, `Cell`, `RelativeItem`, `ConstantItem`,
+`Heading`, table `Header`/`Row`) has a callback overload that returns its parent, so siblings chain:
+
+```csharp
+Document.Create(doc => doc.Page(p => p.Content(c => c
+    .Item(i => i.Text("Intro").Bold())
+    .Item(i => i.Row(r => r.Gap(5).RelativeItem(x => x.Text("Left")).RelativeItem(x => x.Text("Right"))))
+    .Item(i => i.Table(t => t
+        .Header(h => h.Cell(x => x.Text("Item")).Cell(x => x.Text("Qty")))
+        .Row(r => r.Cell(x => x.Text("Widget")).Cell(x => x.Text("3"))))))))
+    .Render();
+```
+
+Every value is typed -- `Colors.Red`/`Color.FromHex("#ff0000")` (malformed hex throws), `Length.Mm(5)`
+/`Length.Percent(50)` (a bare number is px), keyword enums such as `FlexJustify.SpaceBetween` or
+`BorderLineStyle.Dashed`, `CssTransform.Rotate(10)` -- so a typo is a compile error instead of a CSS
+declaration the engine silently ignores. `.RawStyle(...)`, `.RawAttribute(...)`, `.Raw(html)` and
+`.Css(...)` are the explicit, unchecked escape hatches for anything without a typed method yet.
+See the [Fluent API guide](https://eggspot.github.io/EggPdf/fluent-api.html) and its
+[complete API reference](https://eggspot.github.io/EggPdf/fluent-api.html#api-reference) (every type and member, with its purpose).
+
 ## ASP.NET Core Integration
 
 ```bash
@@ -158,7 +240,7 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 
 ### PDF
 - PDF 1.4 / 1.5 / 1.7 / 2.0
-- Clickable hyperlinks and internal links
+- Clickable hyperlinks, and internal links: `<a href="#id">` jumps to the page and position of the element with that `id` (forward or backward, any page; a link to a missing id is dropped rather than written dead; `#` and `#top` jump to the top of the document)
 - Auto-generated bookmarks from headings
 - Table of contents with page numbers
 - Running headers/footers
@@ -251,6 +333,11 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   distinct profiles -- populating line items always targets EN 16931, a superset of BASIC's
   requirements but without EXTENDED-only fields (allowances/charges, multiple deliveries, etc.)
 
+### Fluent C# API
+- Define documents in C# (`EggPdf.Fluent`) with the same engine and output as HTML: pages/named page groups (mixed sizes), running header/footer, watermark, page numbers ("Page X of Y"), text, column/row (flex)/grid layout, tables (repeating header, no-split rows), lists, images, hyperlinks and internal links, headings (auto bookmarks), pin-to-bottom
+- Strongly typed values (`Color`, `Length`, keyword enums, `CssTransform`, `GridTrack`) validated at construction; unchecked `Raw*`/`Css` escape hatches for everything else
+- Document-level: title/author/language, global CSS, `@font-face`, base path, PDF/A conformance, encryption, PDF/UA tagging, Factur-X invoice
+
 ### Performance
 - Streaming output (constant memory for large documents)
 - Font caching across renders
@@ -284,7 +371,7 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 
 | Package | Description | Dependencies |
 |---------|-------------|--------------|
-| [EggPdf](https://www.nuget.org/packages/EggPdf) | Core library | None |
+| [EggPdf](https://www.nuget.org/packages/EggPdf) | Core library: HTML/CSS to PDF, plus the fluent C# builder (`EggPdf.Fluent`) | None |
 | [EggPdf.Razor](https://www.nuget.org/packages/EggPdf.Razor) | Razor template integration | ASP.NET Core |
 | [EggPdf.AspNetCore](https://www.nuget.org/packages/EggPdf.AspNetCore) | ASP.NET Core middleware | ASP.NET Core |
 
@@ -332,6 +419,7 @@ See the [Wiki](https://github.com/eggspot/EggPdf/wiki) for full documentation:
 - [Headers, Footers & Page Numbers](https://github.com/eggspot/EggPdf/wiki/Headers-Footers)
 - [Images & SVG](https://github.com/eggspot/EggPdf/wiki/Images-SVG)
 - [Tables](https://github.com/eggspot/EggPdf/wiki/Tables)
+- [Fluent C# API](https://eggspot.github.io/EggPdf/fluent-api.html)
 - [Fonts & Typography](https://github.com/eggspot/EggPdf/wiki/Fonts-Typography)
 - [PDF Features](https://github.com/eggspot/EggPdf/wiki/PDF-Features)
 - [Performance](https://github.com/eggspot/EggPdf/wiki/Performance)

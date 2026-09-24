@@ -10,6 +10,7 @@ Built by Eggspot (https://eggspot.app). Open source on GitHub: https://github.co
 - [CLI Guide](https://eggspot.github.io/EggPdf/cli.html)
 - [REST API](https://eggspot.github.io/EggPdf/rest-api.html)
 - [PDF Compliance](https://eggspot.github.io/EggPdf/compliance.html)
+- [Fluent C# API](https://eggspot.github.io/EggPdf/fluent-api.html)
 - [Full docs (GitHub Wiki)](https://github.com/eggspot/EggPdf/wiki)
 - [AI/LLM usage guide](https://raw.githubusercontent.com/eggspot/EggPdf/main/llms.txt)
 
@@ -38,6 +39,32 @@ string html = @"
     <body><div class=""footer""></div><h1>My Document</h1></body></html>";
 byte[] pdf = await HtmlToPdf.RenderAsync(html);
 ```
+
+## Fluent C# API (no HTML)
+Part of the same `EggPdf` package (`using EggPdf.Fluent;`). Builds the DOM directly and renders through
+the same engine, so output matches equivalent HTML. Values are strongly typed (`Color`/`Colors`,
+`Length`, keyword enums, `CssTransform`, `GridTrack`) — typed methods never take CSS strings; the
+unchecked escape hatches are `RawStyle`, `RawAttribute`, `Raw(html)` and `Css(...)`:
+```csharp
+using EggPdf.Fluent;
+byte[] pdf = Document.Create(doc => doc
+    .Page(page => page
+        .Footer(f => f.AlignCenter().PageNumberOfTotal())
+        .Content(c =>
+        {
+            c.Heading(HeadingLevel.H1, "Hello");
+            c.Item().Table(t => { t.Header(h => h.Cell().Text("Item").Bold()); t.Row(r => r.Cell().Text("Widget")); });
+            c.Item().Hyperlink("#end", "Jump");
+            c.Item().Id("end").Text("Done").FontColor(Colors.Red);
+        })))
+    .Render();
+```
+Also usable step by step: `var doc = Document.New(); var page = doc.AddPage(); page.Header().Text("Acme");
+page.Content().Item().Text("Hi"); byte[] pdf = doc.Render();` (same output; rendering freezes the document).
+Pure method chains work too: child-adding methods have callback overloads returning the parent, e.g.
+`c.Item(i => i.Text("A")).Item(i => i.Text("B"))`, `r.RelativeItem(x => x.Text("L")).ConstantItem(60, x => x.Text("R"))`.
+Guide: https://eggspot.github.io/EggPdf/fluent-api.html
+Complete API reference (every type/member/enum value): https://eggspot.github.io/EggPdf/fluent-api.html#api-reference
 
 ## REST API (any language)
 ```bash

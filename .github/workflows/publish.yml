@@ -131,6 +131,7 @@ jobs:
         run: |
           dotnet test tests/EggPdf.Tests.Unit --configuration Release --no-build
           dotnet test tests/EggPdf.Tests.Layout --configuration Release --no-build
+          dotnet test tests/EggPdf.Tests.Fluent --configuration Release --no-build
 
       - name: Pack
         if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'

@@ -21,7 +21,11 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/EggPdf.Tests.E2E/EggPdf.Tests.E2E.csproj" />
+    <Project Path="tests/EggPdf.Tests.Fluent/EggPdf.Tests.Fluent.csproj" />
     <Project Path="tests/EggPdf.Tests.Layout/EggPdf.Tests.Layout.csproj" />
     <Project Path="tests/EggPdf.Tests.Unit/EggPdf.Tests.Unit.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/EggPdf.DocGen/EggPdf.DocGen.csproj" />
   </Folder>
 </Solution>
