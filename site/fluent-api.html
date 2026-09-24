@@ -312,7 +312,9 @@ c.Item().Id("terms").Text("Terms and conditions");</code></pre></div>
           <code>display: none</code>) the link is dropped rather than written as a dead annotation. When
           an id appears twice, the first one wins, as in a browser. As in a browser, <code>href="#"</code> and
           <code>href="#top"</code> jump to the top of the document when no element has that id, and a
-          <code>visibility: hidden</code> element is still a valid target.
+          <code>visibility: hidden</code> element is still a valid target. An element that repeats on every
+          page (a <code>position: fixed</code> header or footer, e.g. <code>PageDescriptor.Header</code>) has a
+          single destination: its first occurrence, on page 1.
         </div>
       </div>
 
