@@ -19,7 +19,7 @@ public readonly struct Length : IEquatable<Length>
     {
         if (float.IsNaN(value) || float.IsInfinity(value))
             throw new ArgumentOutOfRangeException(nameof(value), value, "Length must be a finite number.");
-        return new Length(value.ToString(CultureInfo.InvariantCulture) + unit);
+        return new Length(CssText.Number(value) + unit);
     }
 
     /// <summary>A zero length (0 px).</summary>

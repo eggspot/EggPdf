@@ -210,7 +210,7 @@ public partial class PdfDocument
         // A document is painted once and written once, so removing here is safe; a tagged render's
         // Link structure element for a dropped link simply keeps its content and gets no OBJR.
         foreach (var page in _pages)
-            page.Links.RemoveAll(l => l.TargetId != null && !_anchors.ContainsKey(l.TargetId));
+            page.Links.RemoveAll(l => l.TargetId != null && !_anchors.ContainsKey(l.TargetId) && !IsDocumentTop(l.TargetId));
 
         // Encryption: compute the file key up front — every stream and string
         // below is RC4-encrypted with a per-object key derived from it.
@@ -1006,6 +1006,10 @@ public partial class PdfDocument
 
     private readonly Dictionary<string, (int PageIndex, float TopPt)> _anchors = new(StringComparer.Ordinal);
 
+    /// <summary>HTML's fragment navigation: an empty fragment ("#") or "top" (any case) with no element of that id means the top of the document.</summary>
+    private static bool IsDocumentTop(string id)
+        => id.Length == 0 || string.Equals(id, "top", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// The action/destination entry of a link annotation: <c>/Dest [page /XYZ 0 top 0]</c> for an
     /// internal link (its target anchor is guaranteed present -- unresolved ones were pruned at the
@@ -1015,9 +1019,13 @@ public partial class PdfDocument
     {
         if (link.TargetId != null)
         {
-            var anchor = _anchors[link.TargetId];
-            int pageIdx = Math.Min(anchor.PageIndex, pageObjs.Count - 1);
-            return $" /Dest [{pageObjs[pageIdx].pageDict} 0 R /XYZ 0 {F(anchor.TopPt)} 0]";
+            if (_anchors.TryGetValue(link.TargetId, out var anchor))
+            {
+                int pageIdx = Math.Min(anchor.PageIndex, pageObjs.Count - 1);
+                return $" /Dest [{pageObjs[pageIdx].pageDict} 0 R /XYZ 0 {F(anchor.TopPt)} 0]";
+            }
+            // "#" and "#top" with no element of that id: the top of the document (HTML fragment navigation).
+            return $" /Dest [{pageObjs[0].pageDict} 0 R /Fit]";
         }
         return $" /A << /Type /Action /S /URI /URI {PdfString(enc, link.Url, objNum)} >>";
     }

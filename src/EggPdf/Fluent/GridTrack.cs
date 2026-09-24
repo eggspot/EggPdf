@@ -17,7 +17,7 @@ public readonly struct GridTrack
     {
         if (!(share > 0) || float.IsInfinity(share))
             throw new ArgumentOutOfRangeException(nameof(share), share, "Fr share must be a positive finite number.");
-        return new GridTrack(share.ToString(CultureInfo.InvariantCulture) + "fr");
+        return new GridTrack(CssText.Number(share) + "fr");
     }
 
     /// <summary>A fixed-size column.</summary>

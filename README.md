@@ -240,7 +240,7 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 
 ### PDF
 - PDF 1.4 / 1.5 / 1.7 / 2.0
-- Clickable hyperlinks, and internal links: `<a href="#id">` jumps to the page and position of the element with that `id` (forward or backward, any page; a link to a missing id is dropped rather than written dead)
+- Clickable hyperlinks, and internal links: `<a href="#id">` jumps to the page and position of the element with that `id` (forward or backward, any page; a link to a missing id is dropped rather than written dead; `#` and `#top` jump to the top of the document)
 - Auto-generated bookmarks from headings
 - Table of contents with page numbers
 - Running headers/footers

@@ -30,7 +30,7 @@ public class Container
 
     // ── content ──────────────────────────────────────────────────────────────
 
-    /// <summary>Sets this container's text content (equivalent to a text node child).</summary>
+    /// <summary>Appends text to this container (each call adds another text node, so <c>Text("a").Text("b")</c> renders "ab").</summary>
     public Container Text(string text)
     {
         _ctx.EnsureMutable();
@@ -155,8 +155,8 @@ public class Container
     {
         var img = _ctx.CreateElement("img");
         img.SetAttribute("src", src ?? "");
-        if (widthPx.HasValue) img.SetAttribute("width", widthPx.Value.ToString(CultureInfo.InvariantCulture));
-        if (heightPx.HasValue) img.SetAttribute("height", heightPx.Value.ToString(CultureInfo.InvariantCulture));
+        if (widthPx.HasValue) img.SetAttribute("width", CssText.Number(widthPx.Value));
+        if (heightPx.HasValue) img.SetAttribute("height", CssText.Number(heightPx.Value));
         Element.AppendChild(img);
         return this;
     }
@@ -206,7 +206,7 @@ public class Container
 
     /// <summary>Renders as e.g. "Page 3 of 12".</summary>
     public Container PageNumberOfTotal(string prefix = "Page ", string separator = " of ", string suffix = "")
-        => GeneratedContent(CssString(prefix) + " counter(page) " + CssString(separator) + " counter(pages) " + CssString(suffix));
+        => GeneratedContent(CssText.Quote(prefix) + " counter(page) " + CssText.Quote(separator) + " counter(pages) " + CssText.Quote(suffix));
 
     private Container GeneratedContent(string cssContentValue)
     {
@@ -221,9 +221,6 @@ public class Container
         _ctx.AddGlobalCss("." + cls + "::after{content:" + cssContentValue + ";}");
         return this;
     }
-
-    private static string CssString(string s)
-        => "\"" + (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
 
     // ── typography ───────────────────────────────────────────────────────────
 
@@ -255,7 +252,7 @@ public class Container
     {
         if (!(multiplier > 0) || float.IsInfinity(multiplier))
             throw new System.ArgumentOutOfRangeException(nameof(multiplier), multiplier, "Line height must be a positive finite number.");
-        return SetStyle(CssProp.LineHeight, multiplier.ToString(CultureInfo.InvariantCulture));
+        return SetStyle(CssProp.LineHeight, CssText.Number(multiplier));
     }
 
     /// <summary>Absolute line-height.</summary>
@@ -368,7 +365,7 @@ public class Container
     {
         if (!(value >= 0f && value <= 1f))
             throw new System.ArgumentOutOfRangeException(nameof(value), value, "Opacity must be between 0 and 1.");
-        return SetStyle(CssProp.Opacity, value.ToString(CultureInfo.InvariantCulture));
+        return SetStyle(CssProp.Opacity, CssText.Number(value));
     }
 
     /// <summary>What happens to content that doesn't fit the box (<see cref="OverflowMode.Hidden"/> clips it).</summary>
@@ -395,10 +392,29 @@ public class Container
     /// </summary>
     public Container RawStyle(string property, string value) => SetStyle(property, value);
 
-    /// <summary>Unchecked escape hatch: sets any HTML attribute by name. The first value set for a name wins; use <see cref="RawStyle"/>, not a <c>style</c> attribute.</summary>
+    /// <summary>
+    /// Unchecked escape hatch: sets any HTML attribute by name. <c>class</c> is added to the classes
+    /// the builder manages (so it combines with <see cref="Class"/> and page-number classes instead of
+    /// being overwritten); a <c>style</c> attribute is rejected -- use <see cref="RawStyle"/>, which
+    /// merges with the typed styles. For any other name the first value set wins.
+    /// </summary>
     public Container RawAttribute(string name, string value)
     {
         _ctx.EnsureMutable();
+        if (name == null) throw new System.ArgumentNullException(nameof(name));
+
+        if (string.Equals(name, "style", System.StringComparison.OrdinalIgnoreCase))
+            throw new System.ArgumentException(
+                "Set CSS with RawStyle(property, value) (or the typed methods): a raw style attribute would be " +
+                "silently overwritten by, or overwrite, the styles the builder accumulates.", nameof(name));
+
+        if (string.Equals(name, "class", System.StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var cls in (value ?? "").Split(new[] { ' ', '\t', '\r', '\n' }, System.StringSplitOptions.RemoveEmptyEntries))
+                _ctx.AddClass(Element, cls);
+            return this;
+        }
+
         Element.SetAttribute(name, value ?? "");
         return this;
     }
@@ -412,16 +428,26 @@ public class Container
     {
         _ctx.EnsureMutable();
         var fragment = HtmlParser.Parse(html ?? "");
+
+        // The parser treats the fragment as a whole document and hoists <style>, <link>, <title>,
+        // <meta> ... into its <head>: keep those by moving them to the real document's <head>.
+        var head = fragment.Head;
+        if (head != null && _ctx.Head != null)
+            MoveChildren(head, _ctx.Head);
+
         var body = fragment.Body;
         if (body != null)
+            MoveChildren(body, Element);
+        return this;
+
+        static void MoveChildren(HtmlNode from, HtmlNode to)
         {
-            var children = new System.Collections.Generic.List<HtmlNode>(body.ChildNodes);
+            var children = new System.Collections.Generic.List<HtmlNode>(from.ChildNodes);
             foreach (var child in children)
             {
-                body.RemoveChild(child);
-                Element.AppendChild(child);
+                from.RemoveChild(child);
+                to.AppendChild(child);
             }
         }
-        return this;
     }
 }

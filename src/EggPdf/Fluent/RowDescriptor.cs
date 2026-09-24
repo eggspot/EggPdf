@@ -47,7 +47,7 @@ public sealed class RowDescriptor
     public Container RelativeItem(float weight = 1)
     {
         var element = _ctx.CreateElement("div");
-        _ctx.SetStyle(element, CssProp.Flex, weight.ToString(CultureInfo.InvariantCulture) + " 1 0");
+        _ctx.SetStyle(element, CssProp.Flex, CssText.Number(weight) + " 1 0");
         _parent.AppendChild(element);
         return new Container(_ctx, element);
     }

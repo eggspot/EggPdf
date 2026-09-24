@@ -44,7 +44,10 @@ public static partial class HtmlToPdf
             var node = pending.Pop();
             if (node is HtmlElement el)
             {
-                if (MentionsVariation(el.GetAttribute("style"))) return true;
+                // Inline style="" and SVG presentation attributes (<text font-stretch="condensed">).
+                // Name lookups, not attribute enumeration: this runs per element on every render.
+                if (MentionsVariation(el.GetAttribute("style")) ||
+                    el.HasAttribute("font-stretch") || el.HasAttribute("font-variation-settings")) return true;
                 if (el.TagName == "style")
                 {
                     foreach (var child in el.ChildNodes)

@@ -44,6 +44,7 @@ public static class Document
         var htmlDocument = new HtmlDocument();
         var html = ctx.CreateElement("html");
         var head = ctx.CreateElement("head");
+        ctx.Head = head;
         var body = ctx.CreateElement("body");
         html.AppendChild(head);
         html.AppendChild(body);

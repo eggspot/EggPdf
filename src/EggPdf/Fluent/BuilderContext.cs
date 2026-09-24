@@ -22,6 +22,9 @@ internal sealed class BuilderContext
     private int _classCounter;
     private bool _frozen;
 
+    /// <summary>The document's &lt;head&gt;, where head-level markup from <see cref="Container.Raw"/> (e.g. a &lt;style&gt;) is placed.</summary>
+    public HtmlElement? Head { get; set; }
+
     /// <summary>Called once the document is built: from then on every builder call throws, since styles have been serialized and later changes would be silently lost.</summary>
     public void Freeze() => _frozen = true;
 
@@ -96,23 +99,30 @@ internal sealed class BuilderContext
         if (!list.Contains(className)) list.Add(className);
     }
 
-    public void FinalizeStyles(HtmlNode node)
+    /// <summary>Serializes every accumulated class list and style into attributes, walking the tree with an explicit stack so a very deep (e.g. generated) tree can't overflow the call stack.</summary>
+    public void FinalizeStyles(HtmlNode root)
     {
-        if (node is HtmlElement el)
+        var pending = new Stack<HtmlNode>();
+        pending.Push(root);
+        while (pending.Count > 0)
         {
-            if (_classes.TryGetValue(el, out var classes) && classes.Count > 0)
-                el.SetAttribute("class", string.Join(" ", classes));
-
-            if (_styles.TryGetValue(el, out var decls) && decls.Count > 0)
+            var node = pending.Pop();
+            if (node is HtmlElement el)
             {
-                var sb = new StringBuilder();
-                foreach (var decl in decls)
-                    sb.Append(decl.Key).Append(':').Append(decl.Value).Append(';');
-                el.SetAttribute("style", sb.ToString());
-            }
-        }
+                if (_classes.TryGetValue(el, out var classes) && classes.Count > 0)
+                    el.SetAttribute("class", string.Join(" ", classes));
 
-        foreach (var child in node.ChildNodes)
-            FinalizeStyles(child);
+                if (_styles.TryGetValue(el, out var decls) && decls.Count > 0)
+                {
+                    var sb = new StringBuilder();
+                    foreach (var decl in decls)
+                        sb.Append(decl.Key).Append(':').Append(decl.Value).Append(';');
+                    el.SetAttribute("style", sb.ToString());
+                }
+            }
+
+            for (int i = 0; i < node.ChildNodes.Count; i++)
+                pending.Push(node.ChildNodes[i]);
+        }
     }
 }

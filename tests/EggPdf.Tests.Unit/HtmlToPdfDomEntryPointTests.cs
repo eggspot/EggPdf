@@ -93,6 +93,18 @@ public class HtmlToPdfDomEntryPointTests
     }
 
     [Fact]
+    public void UsesFontVariations_DetectsSvgPresentationAttribute()
+    {
+        var text = new HtmlElement("text");
+        text.SetAttribute("font-stretch", "condensed");
+        text.AppendChild(new HtmlTextNode("x"));
+        var svg = new HtmlElement("svg");
+        svg.AppendChild(text);
+
+        HtmlToPdf.UsesFontVariations(BuildDocument(svg), null).Should().BeTrue();
+    }
+
+    [Fact]
     public void UsesFontVariations_VeryDeepNesting_DoesNotOverflowTheStack()
     {
         var root = new HtmlElement("div");

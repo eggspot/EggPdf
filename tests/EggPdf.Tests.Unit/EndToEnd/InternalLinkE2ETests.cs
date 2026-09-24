@@ -99,6 +99,42 @@ public class InternalLinkE2ETests
     }
 
     [Fact]
+    public async Task InternalLink_ToVisibilityHiddenElement_StillResolves()
+    {
+        var html = "<html><body><a href='#ghost'>Go</a><div id='ghost' style='visibility:hidden'>Hidden but present</div></body></html>";
+
+        var pdf = Encoding.Latin1.GetString(await HtmlToPdf.RenderAsync(html));
+
+        Regex.IsMatch(pdf, LinkAnnot).Should().BeTrue("a browser still scrolls to a visibility:hidden element");
+    }
+
+    [Theory]
+    [InlineData("#")]
+    [InlineData("#top")]
+    [InlineData("#TOP")]
+    public async Task InternalLink_ToTopWithoutMatchingId_JumpsToTheFirstPage(string href)
+    {
+        var html = "<html><head><style>" + Css + "</style></head><body><div class='filler'></div><a href='" + href + "'>Back to top</a></body></html>";
+
+        var pdf = Encoding.Latin1.GetString(await HtmlToPdf.RenderAsync(html));
+
+        var m = Regex.Match(pdf, @"/Subtype /Link /Rect \[[^\]]+\] /Border \[0 0 0\] /Dest \[(\d+) 0 R /Fit\]");
+        m.Success.Should().BeTrue("'#' / '#top' scroll to the top of the document when no element has that id");
+        int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture).Should().Be(PageObjectNumbers(pdf)[0]);
+    }
+
+    [Fact]
+    public async Task InternalLink_TopWithARealTopId_PrefersTheElement()
+    {
+        var html = "<html><head><style>" + Css + "</style></head><body><a href='#top'>Go</a><div class='filler'></div><div id='top'>Real</div></body></html>";
+
+        var pdf = Encoding.Latin1.GetString(await HtmlToPdf.RenderAsync(html));
+
+        int destPage = int.Parse(Regex.Match(pdf, LinkAnnot).Groups[1].Value, CultureInfo.InvariantCulture);
+        destPage.Should().Be(PageObjectNumbers(pdf)[2], "an element with id=top wins over the implicit document top");
+    }
+
+    [Fact]
     public async Task ExternalLink_StillUsesUriAction()
     {
         var pdf = Encoding.Latin1.GetString(await HtmlToPdf.RenderAsync(

@@ -310,7 +310,9 @@ c.Item().Id("terms").Text("Terms and conditions");</code></pre></div>
           The same works in HTML (<code>&lt;a href="#terms"&gt;</code> +
           <code>&lt;div id="terms"&gt;</code>). If the id doesn't exist (or its element is
           <code>display: none</code>) the link is dropped rather than written as a dead annotation. When
-          an id appears twice, the first one wins, as in a browser.
+          an id appears twice, the first one wins, as in a browser. As in a browser, <code>href="#"</code> and
+          <code>href="#top"</code> jump to the top of the document when no element has that id, and a
+          <code>visibility: hidden</code> element is still a valid target.
         </div>
       </div>
 
@@ -472,7 +474,7 @@ doc.Css("@page :first { @top-center { content: 'Cover' } }"); // any stylesheet<
       <h3 id="ref-Container">Container</h3>
       <p>A single box in the document tree (a &lt;div&gt; under the hood). Every content-producing fluent call (<code>Column</code>, <code>Row</code>, page content, row/column items) hands back a <code>Container</code>, so text and styling always apply to &quot;whatever was placed last&quot;. Styling takes typed values (<code>Color</code>, <code>Length</code>, keyword enums); the <code>Raw*</code> methods are the explicit, unchecked escape hatches.</p>
       <table><thead><tr><th>Member</th><th>Purpose</th></tr></thead><tbody>
-        <tr><td><code>Container Text(string text)</code></td><td>Sets this container&#39;s text content (equivalent to a text node child).</td></tr>
+        <tr><td><code>Container Text(string text)</code></td><td>Appends text to this container (each call adds another text node, so <code>Text(&quot;a&quot;).Text(&quot;b&quot;)</code> renders &quot;ab&quot;).</td></tr>
         <tr><td><code>Container Column(Action&lt;ColumnDescriptor&gt; build)</code></td><td>Stacks children top to bottom (normal block flow -- CSS&#39;s default).</td></tr>
         <tr><td><code>ColumnDescriptor Column()</code></td><td>The children column of this container, to add items to with separate statements.</td></tr>
         <tr><td><code>Container Row(Action&lt;RowDescriptor&gt; build)</code></td><td>Lays out children left to right (<code>display: flex</code>).</td></tr>
@@ -541,7 +543,7 @@ doc.Css("@page :first { @top-center { content: 'Cover' } }"); // any stylesheet<
         <tr><td><code>Container Float(FloatSide side)</code></td><td>Floats the box left or right so following inline content wraps around it.</td></tr>
         <tr><td><code>Container Transform(CssTransform transform)</code></td><td>Applies a 2D transform (rotate, scale, translate, skew), e.g. <code>CssTransform.Rotate(10)</code>.</td></tr>
         <tr><td><code>Container RawStyle(string property, string value)</code></td><td>Unchecked escape hatch: sets any CSS declaration by name and value. Nothing validates either string, so a typo is silently ignored by the CSS engine -- prefer the typed methods above, and use this only for a property that has none yet.</td></tr>
-        <tr><td><code>Container RawAttribute(string name, string value)</code></td><td>Unchecked escape hatch: sets any HTML attribute by name. The first value set for a name wins; use <code>RawStyle</code>, not a <code>style</code> attribute.</td></tr>
+        <tr><td><code>Container RawAttribute(string name, string value)</code></td><td>Unchecked escape hatch: sets any HTML attribute by name. <code>class</code> is added to the classes the builder manages (so it combines with <code>Class</code> and page-number classes instead of being overwritten); a <code>style</code> attribute is rejected -- use <code>RawStyle</code>, which merges with the typed styles. For any other name the first value set wins.</td></tr>
         <tr><td><code>Container Raw(string html)</code></td><td>Unchecked escape hatch: parses <code>html</code> as an HTML fragment and appends its nodes as children -- anything expressible in HTML is expressible here, even before a typed wrapper exists for it.</td></tr>
       </tbody></table>
 

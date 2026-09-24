@@ -111,7 +111,7 @@ public sealed class PageDescriptor
             .Translate(Length.Percent(-50), Length.Percent(-50))
             .Then(CssTransform.Rotate(rotationDegrees)).ToCss());
         _ctx.SetStyle(wm, CssProp.FontSize, (fontSize ?? Length.Px(96)).ToCss());
-        _ctx.SetStyle(wm, CssProp.Opacity, opacity.ToString(CultureInfo.InvariantCulture));
+        _ctx.SetStyle(wm, CssProp.Opacity, CssText.Number(opacity));
         _ctx.SetStyle(wm, CssProp.Color, (color ?? Colors.Gray).ToCss());
         _ctx.SetStyle(wm, CssProp.WhiteSpace, WhiteSpaceMode.NoWrap.ToCss());
         RootElement.AppendChild(wm);
@@ -139,8 +139,7 @@ public sealed class PageDescriptor
     /// </summary>
     internal string BuildPageRuleCss(string? name)
     {
-        var inv = CultureInfo.InvariantCulture;
-        string sizeAndMargin = "size:" + SizeValue.WidthMm.ToString(inv) + "mm " + SizeValue.HeightMm.ToString(inv) + "mm;" +
+        string sizeAndMargin = "size:" + CssText.Number(SizeValue.WidthMm) + "mm " + CssText.Number(SizeValue.HeightMm) + "mm;" +
             "margin:" + MarginTop.ToCss() + " " + MarginRight.ToCss() + " " + MarginBottom.ToCss() + " " + MarginLeft.ToCss() + ";";
         return name == null ? "@page{" + sizeAndMargin + "}" : "@page " + name + "{" + sizeAndMargin + "}";
     }

@@ -152,6 +152,13 @@ public static partial class BoxPainter
     public static void PaintBox(PdfPage page, LayoutBox box,
         float pageHeightPt, float pageHeightPx, float adjustedY)
     {
+        // Internal-link destination: an element's id marks where "#id" links jump to. Registered
+        // before the visibility check below: a visibility:hidden element still occupies its box and a
+        // browser still scrolls to it, so its links must keep working.
+        var anchorId = box.Element?.GetAttribute("id");
+        if (!string.IsNullOrEmpty(anchorId) && CurrentPdfDoc != null)
+            CurrentPdfDoc.RegisterAnchor(anchorId!, page.PageIndex, (pageHeightPx - adjustedY) * PdfCoordinates.PxToPt);
+
         // Visibility:hidden - box takes space but is not painted
         var visibility = box.Style.Get("visibility");
         if (visibility == "hidden" || visibility == "collapse")
@@ -187,10 +194,6 @@ public static partial class BoxPainter
         // Apply margin left offset: shift all X coordinates by the page margin
         float effectiveX = box.X + MarginLeftPx;
 
-        // Internal-link destination: an element's id marks where "#id" links jump to.
-        var anchorId = box.Element?.GetAttribute("id");
-        if (!string.IsNullOrEmpty(anchorId) && CurrentPdfDoc != null)
-            CurrentPdfDoc.RegisterAnchor(anchorId!, page.PageIndex, (pageHeightPx - adjustedY) * PdfCoordinates.PxToPt);
 
         // CSS transform: wrap entire box painting in SaveState/cm/RestoreState
         bool hasTransform = ApplyTransform(page, box, pageHeightPx, adjustedY, effectiveX);
@@ -897,7 +900,7 @@ public static partial class BoxPainter
         if (linkElement?.TagName == "a")
         {
             var href = linkElement.GetAttribute("href");
-            bool isInternalLink = href != null && href.Length > 1 && href[0] == '#';
+            bool isInternalLink = !string.IsNullOrEmpty(href) && href![0] == '#';
             if (!string.IsNullOrEmpty(href) && (href.StartsWith("http") || isInternalLink))
             {
                 var span = box.InlineSpan;

@@ -152,7 +152,9 @@ public sealed class DocumentDescriptor
         if (weight < 1 || weight > 1000)
             throw new ArgumentOutOfRangeException(nameof(weight), weight, "Font weight must be 1-1000.");
         var inv = System.Globalization.CultureInfo.InvariantCulture;
-        return Css("@font-face{font-family:\"" + family + "\";src:url(\"" + src + "\");font-weight:" +
+        // family and src are free text (Windows paths contain backslashes, families may contain quotes):
+        // quote-escape both so neither can break the rule or inject further CSS.
+        return Css("@font-face{font-family:" + CssText.Quote(family) + ";src:url(" + CssText.Quote(src) + ");font-weight:" +
                    weight.ToString(inv) + ";font-style:" + (italic ? "italic" : "normal") + ";}");
     }
 

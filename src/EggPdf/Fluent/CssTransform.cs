@@ -12,7 +12,7 @@ public readonly struct CssTransform
 
     internal string ToCss() => _css ?? "none";
 
-    private static string N(float v) => v.ToString(CultureInfo.InvariantCulture);
+    private static string N(float v) => CssText.Number(v);
 
     /// <summary>Rotates clockwise by <paramref name="degrees"/> around the box's center.</summary>
     public static CssTransform Rotate(float degrees) => new CssTransform("rotate(" + N(degrees) + "deg)");
