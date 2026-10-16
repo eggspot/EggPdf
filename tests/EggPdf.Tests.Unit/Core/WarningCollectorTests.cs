@@ -39,4 +39,17 @@ public class WarningCollectorTests
         collector.Warnings[0].Message.Should().Contain("CustomFont");
         collector.Warnings[0].Message.Should().Contain("Helvetica");
     }
+
+    [Fact]
+    public void AddGlyphMissing_CreatesWarningWithGlyphMissingCode()
+    {
+        var collector = new WarningCollector();
+
+        collector.AddGlyphMissing("No installed font covers U+AC1C");
+
+        collector.Warnings.Should().ContainSingle();
+        collector.Warnings[0].Code.Should().Be(WarningCodes.GlyphMissing).And.Be("FONT_GLYPH_MISSING");
+        collector.Warnings[0].Level.Should().Be(RenderWarningLevel.Warning);
+        collector.Warnings[0].Message.Should().Contain("U+AC1C");
+    }
 }

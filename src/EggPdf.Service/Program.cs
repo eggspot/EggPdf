@@ -40,6 +40,22 @@ app.MapGet("/api/fonts", () =>
     return Results.Ok(new { fonts });
 });
 
+// Response headers are single-line ASCII: flatten the render warnings and cap the length
+static string FormatWarningsHeader(EggPdf.Core.WarningCollector warnings)
+{
+    const int MaxLength = 1024;
+    var sb = new System.Text.StringBuilder();
+    foreach (var warning in warnings.Warnings)
+    {
+        if (sb.Length > 0) sb.Append(" | ");
+        sb.Append(warning.Code).Append(": ").Append(warning.Message);
+    }
+    for (int i = 0; i < sb.Length; i++)
+        if (sb[i] < ' ' || sb[i] > '~') sb[i] = '?';
+    if (sb.Length > MaxLength) { sb.Length = MaxLength - 3; sb.Append("..."); }
+    return sb.ToString();
+}
+
 // === Render HTML to PDF ===
 app.MapPost("/api/render", async (HttpContext ctx) =>
 {
@@ -55,13 +71,15 @@ app.MapPost("/api/render", async (HttpContext ctx) =>
             return Results.BadRequest(new { error = "html field is required" });
 
         var sw = Stopwatch.StartNew();
-        var pdf = request.Options != null
-            ? EggPdf.HtmlToPdf.Render(request.Html, request.Options.ToCoreOptions())
-            : EggPdf.HtmlToPdf.Render(request.Html);
+        var coreOptions = request.Options?.ToCoreOptions() ?? new EggPdf.PdfRenderOptions();
+        coreOptions.Warnings = new EggPdf.Core.WarningCollector();
+        var pdf = EggPdf.HtmlToPdf.Render(request.Html, coreOptions);
         sw.Stop();
 
         ctx.Response.Headers["X-EggPdf-Duration-Ms"] = sw.ElapsedMilliseconds.ToString();
         ctx.Response.Headers["X-EggPdf-Size"] = pdf.Length.ToString();
+        if (coreOptions.Warnings.HasWarnings)
+            ctx.Response.Headers["X-EggPdf-Warnings"] = FormatWarningsHeader(coreOptions.Warnings);
 
         return Results.File(pdf, "application/pdf", "output.pdf");
     }

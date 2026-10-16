@@ -276,7 +276,16 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 ### Typography
 - TrueType/OpenType font embedding with subsetting
 - Weight-accurate faces: `font-weight: 300–900` each select their own variant
-- Font fallback chain + per-codepoint symbol-font fallback (⚠ ✔ …)
+- Per-character font fallback for every script: when the chosen font lacks a glyph (Hangul/Kana/Han in
+  Arial, Hebrew, Arabic, Thai, Indic scripts, Armenian, Georgian, symbols ⚠ ✔, math, ...), the glyph is
+  drawn from an installed font picked by its real cmap coverage -- not by language. Per-platform candidate
+  lists (macOS, Windows, Linux incl. Noto/Droid/WenQuanYi/Nanum/Takao families; extend with
+  `FontFallbackCatalog.Default.Register(script, "My Font")`) are tried first, then every installed
+  font, including TrueType Collections (`.ttc`) and CFF/OpenType faces; Han ideographs prefer the regional
+  variant named by `<html lang>` (or implied by kana/Hangul in the text). Only the used glyphs are
+  embedded, and layout measures the fallback glyphs' real advances. A character no installed font
+  covers is reported as a `FONT_GLYPH_MISSING` warning (`PdfRenderOptions.Warnings`, CLI stderr, REST
+  `X-EggPdf-Warnings` header, Fluent `CollectWarnings`) instead of silently painting a box
 - Full Unicode: Vietnamese and extended Latin out of the box
 - Arabic contextual shaping: letters take their isolated/initial/medial/final joining forms
   (standard Arabic plus Persian peh/tcheh/jeh/keheh/gaf/yeh) with lam-alef ligatures, harakat

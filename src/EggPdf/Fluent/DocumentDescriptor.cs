@@ -1,4 +1,5 @@
 using System;
+using EggPdf.Core;
 using EggPdf.Html.Dom;
 using EggPdf.Pdf;
 
@@ -25,6 +26,7 @@ public sealed class DocumentDescriptor
     internal FacturXInvoice? InvoiceValue { get; private set; }
     internal bool TaggedValue { get; private set; }
     internal PdfUaVersion UaVersionValue { get; private set; } = PdfUaVersion.Ua1;
+    internal WarningCollector? WarningsValue { get; private set; }
 
     internal DocumentDescriptor(BuilderContext ctx, HtmlDocument document, HtmlElement head, HtmlElement body)
     {
@@ -93,7 +95,7 @@ public sealed class DocumentDescriptor
         _ctx.FinalizeStyles(_document);
         _ctx.Freeze();
         _built = new DocumentBuilder(_document, BasePathValue, EncryptionValue, ConformanceValue,
-            InvoiceValue, TaggedValue, UaVersionValue);
+            InvoiceValue, TaggedValue, UaVersionValue, WarningsValue);
         return _built;
     }
 
@@ -190,6 +192,18 @@ public sealed class DocumentDescriptor
     {
         _ctx.EnsureMutable();
         InvoiceValue = invoice ?? throw new ArgumentNullException(nameof(invoice));
+        return this;
+    }
+
+    /// <summary>
+    /// Collects non-fatal render warnings into <paramref name="collector"/> -- e.g. a
+    /// <c>FONT_GLYPH_MISSING</c> warning when no installed font has glyphs for some characters, which
+    /// would otherwise silently paint as missing-glyph boxes. Read the collector after rendering.
+    /// </summary>
+    public DocumentDescriptor CollectWarnings(WarningCollector collector)
+    {
+        _ctx.EnsureMutable();
+        WarningsValue = collector ?? throw new ArgumentNullException(nameof(collector));
         return this;
     }
 

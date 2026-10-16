@@ -176,10 +176,16 @@ public class Program
             // Render
             var startTime = DateTime.UtcNow;
 
-            PdfRenderOptions? options = (conformance != null || tagged)
-                ? new PdfRenderOptions { Conformance = conformance, Invoice = invoice, Tagged = tagged, UaVersion = uaVersion }
-                : null;
-            var pdf = options != null ? HtmlToPdf.Render(html, options) : HtmlToPdf.Render(html);
+            var warnings = new EggPdf.Core.WarningCollector();
+            var options = new PdfRenderOptions
+            {
+                Conformance = conformance, Invoice = invoice, Tagged = tagged, UaVersion = uaVersion, Warnings = warnings,
+            };
+            var pdf = HtmlToPdf.Render(html, options);
+
+            // Non-fatal problems (e.g. characters no installed font can draw) go to stderr, never into the PDF stream
+            foreach (var warning in warnings.Warnings)
+                Console.Error.WriteLine($"Warning [{warning.Code}]: {warning.Message}");
 
             if (outputPath == "-")
             {

@@ -54,7 +54,8 @@ public static class SystemFontLocator
     private static string[]? _cachedFontFiles;
     private static readonly object _fontFilesLock = new object();
 
-    private static string[] GetAllFontFiles()
+    /// <summary>Every .ttf/.otf/.ttc under the system font directories (discovered once per process).</summary>
+    internal static string[] GetAllFontFiles()
     {
         var cached = _cachedFontFiles;
         if (cached != null) return cached;
@@ -90,6 +91,18 @@ public static class SystemFontLocator
         if (resolved != familyName)
             familyName = resolved;
 
+        return FindFontIn(GetAllFontFiles(), familyName);
+    }
+
+    /// <summary>
+    /// Pick the best-matching file for a family name among <paramref name="files"/>: exact (or space-less)
+    /// file-name matches beat substring matches, unrequested Bold/Italic variants are demoted, and
+    /// shorter names win ties. Returns null when nothing matches.
+    /// </summary>
+    internal static string? FindFontIn(IReadOnlyList<string> files, string familyName)
+    {
+        if (string.IsNullOrEmpty(familyName)) return null;
+
         var spaceless = familyName.Replace(" ", "");
 
         // Rank matches so exact names win over substrings ("Arial.ttf" over
@@ -98,41 +111,41 @@ public static class SystemFontLocator
         int bestRank = int.MaxValue;
         int bestLength = int.MaxValue;
 
-        foreach (var file in GetAllFontFiles())
+        foreach (var file in files)
         {
             var name = Path.GetFileNameWithoutExtension(file);
-                    var nameSpaceless = name.Replace(" ", "").Replace("-", "");
+            var nameSpaceless = name.Replace(" ", "").Replace("-", "");
 
-                    int rank;
-                    if (string.Equals(name, familyName, StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(nameSpaceless, spaceless, StringComparison.OrdinalIgnoreCase))
-                        rank = 0;
-                    else if (name.IndexOf(familyName, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                             nameSpaceless.IndexOf(spaceless, StringComparison.OrdinalIgnoreCase) >= 0)
-                        rank = 1;
-                    else
-                        continue;
+            int rank;
+            if (string.Equals(name, familyName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(nameSpaceless, spaceless, StringComparison.OrdinalIgnoreCase))
+                rank = 0;
+            else if (name.IndexOf(familyName, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     nameSpaceless.IndexOf(spaceless, StringComparison.OrdinalIgnoreCase) >= 0)
+                rank = 1;
+            else
+                continue;
 
-                    // Demote variant files (Bold/Italic) the query didn't ask for,
-                    // so "LiberationSans" finds Regular, not Bold.
-                    if (name.IndexOf("bold", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                        familyName.IndexOf("bold", StringComparison.OrdinalIgnoreCase) < 0 &&
-                        familyName.IndexOf("bd", StringComparison.OrdinalIgnoreCase) < 0)
-                        rank += 10;
-                    if ((name.IndexOf("italic", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                         name.IndexOf("oblique", StringComparison.OrdinalIgnoreCase) >= 0) &&
-                        familyName.IndexOf("italic", StringComparison.OrdinalIgnoreCase) < 0 &&
-                        familyName.IndexOf("oblique", StringComparison.OrdinalIgnoreCase) < 0 &&
-                        familyName.IndexOf("it", StringComparison.OrdinalIgnoreCase) < 0)
-                        rank += 10;
+            // Demote variant files (Bold/Italic) the query didn't ask for,
+            // so "LiberationSans" finds Regular, not Bold.
+            if (name.IndexOf("bold", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                familyName.IndexOf("bold", StringComparison.OrdinalIgnoreCase) < 0 &&
+                familyName.IndexOf("bd", StringComparison.OrdinalIgnoreCase) < 0)
+                rank += 10;
+            if ((name.IndexOf("italic", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 name.IndexOf("oblique", StringComparison.OrdinalIgnoreCase) >= 0) &&
+                familyName.IndexOf("italic", StringComparison.OrdinalIgnoreCase) < 0 &&
+                familyName.IndexOf("oblique", StringComparison.OrdinalIgnoreCase) < 0 &&
+                familyName.IndexOf("it", StringComparison.OrdinalIgnoreCase) < 0)
+                rank += 10;
 
-                    if (rank < bestRank || (rank == bestRank && name.Length < bestLength))
-                    {
-                        best = file;
-                        bestRank = rank;
-                        bestLength = name.Length;
-                        if (rank == 0 && name.Length == familyName.Length) return best;
-                    }
+            if (rank < bestRank || (rank == bestRank && name.Length < bestLength))
+            {
+                best = file;
+                bestRank = rank;
+                bestLength = name.Length;
+                if (rank == 0 && name.Length == familyName.Length) return best;
+            }
         }
 
         return best;

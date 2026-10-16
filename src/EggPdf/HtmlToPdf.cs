@@ -13,6 +13,7 @@ using EggPdf.Html;
 using EggPdf.Html.Dom;
 using EggPdf.Layout;
 using EggPdf.Pdf;
+using EggPdf.Text.Fallback;
 
 namespace EggPdf;
 
@@ -279,7 +280,7 @@ public static partial class HtmlToPdf
     {
         return RenderInternal(ApplyRenderOptions(html ?? "", options), null,
             options?.Encryption, options?.Conformance, options?.Invoice, options?.Tagged ?? false,
-            options?.UaVersion ?? Pdf.PdfUaVersion.Ua1);
+            options?.UaVersion ?? Pdf.PdfUaVersion.Ua1, options?.Warnings);
     }
 
     /// <summary>Render HTML to PDF asynchronously, applying <see cref="PdfRenderOptions"/>.</summary>
@@ -348,18 +349,18 @@ public static partial class HtmlToPdf
         return $"<head>{inject}</head>{html}";
     }
 
-    private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1)
+    private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1, WarningCollector? warnings = null)
     {
         // 1. Parse HTML -> DOM
         var document = HtmlParser.Parse(html);
-        return RenderInternal(document, basePath, encryption, conformance, invoice, tagged, uaVersion);
+        return RenderInternal(document, basePath, encryption, conformance, invoice, tagged, uaVersion, warnings);
     }
 
     /// <summary>
     /// Same pipeline as the HTML-string overload, starting from an already-built DOM (e.g. from
     /// EggPdf.Fluent's document builder) instead of parsing HTML text.
     /// </summary>
-    private static byte[] RenderInternal(HtmlDocument document, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1)
+    private static byte[] RenderInternal(HtmlDocument document, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1, WarningCollector? warnings = null)
     {
         // 1b. Decode Cloudflare email obfuscation (browsers do this via script,
         // which a PDF engine does not run).
@@ -415,6 +416,11 @@ public static partial class HtmlToPdf
         // Complex-script text (Thai, Indic, Arabic with marks) measures with real shaped advances.
         TextMeasurer.ComplexFontProvider = CreateComplexFontProvider(fontFaces);
 
+        // Characters outside Latin-1 measure with the advance of the glyph actually painted (the
+        // document's font, else the font fallback chooses), not a flat half-em estimate.
+        var han = DetectHanVariant(document);
+        TextMeasurer.GlyphAdvanceProvider = CreateGlyphAdvanceProvider(fontFaces, han);
+
         try
         {
             // 5. Layout (uses cascade resolver for full CSS support)
@@ -444,7 +450,7 @@ public static partial class HtmlToPdf
             }
 
             // 6b. Subset and embed TrueType fonts for non-standard fonts
-            SubsetAndEmbedFonts(layoutRoots, pdfDoc, fontFaces);
+            SubsetAndEmbedFonts(layoutRoots, pdfDoc, fontFaces, han, warnings);
 
             // 6c. PDF/UA-1: build the structure tree from the (pre-pagination) layout tree and
             // hand the box->element map to the paint layer via BoxPainter.StructureMap, so
@@ -477,6 +483,7 @@ public static partial class HtmlToPdf
         {
             TextMeasurer.FontDataProvider = null;
             TextMeasurer.ComplexFontProvider = null;
+            TextMeasurer.GlyphAdvanceProvider = null;
             BlockLayout.ShapeImageLoader = null;
         }
     }
@@ -985,8 +992,10 @@ public static partial class HtmlToPdf
     /// (e.g. Vietnamese) so the non-embedded Type1 built-ins cannot encode them.
     /// </summary>
     private static void SubsetAndEmbedFonts(IReadOnlyList<LayoutBox> roots, PdfDocument pdfDoc,
-        Dictionary<string, List<FontFaceCandidate>> fontFaces)
+        Dictionary<string, List<FontFaceCandidate>> fontFaces, HanVariant han, WarningCollector? warnings)
     {
+        var reportedMissing = new HashSet<int>();
+
         // Collect (fontName, codepoints) plus the raw font-family list per font name
         var fontCodepoints = new Dictionary<string, HashSet<int>>();
         var fontFamilyLists = new Dictionary<string, string>();
@@ -996,7 +1005,7 @@ public static partial class HtmlToPdf
             CollectTextCodepoints(root, fontCodepoints, fontFamilyLists, fontFeatureTags, complexTexts);
 
         if (complexTexts.Count > 0)
-            EmbedComplexScriptFonts(complexTexts, fontFamilyLists, pdfDoc, fontFaces);
+            EmbedComplexScriptFonts(complexTexts, fontFamilyLists, pdfDoc, fontFaces, reportedMissing, warnings);
 
         if (fontCodepoints.Count == 0) return;
 
@@ -1029,38 +1038,13 @@ public static partial class HtmlToPdf
             if (fontData == null && isStandard && AllWinAnsiEncodable(codepoints) && !mustEmbedAllFonts)
                 continue;
 
-            // 3. System fonts: real families from the list, then metric-compatible
-            //    substitutes for the standard font class.
+            // 3. System fonts: real families from the list, then metric-compatible substitutes
+            //    for the standard font class, then any generic sans-serif. Reaching the last
+            //    resort means step 2 established these codepoints exceed WinAnsiEncoding (or
+            //    the family wasn't standard to begin with), so giving up would silently fall
+            //    back to the non-embedded path, which can only paint '?' for them.
             if (fontData == null)
-                fontData = TryResolveSystemFont(systemFamilyList, fontResolver, bold, italic);
-
-            if (fontData == null)
-            {
-                foreach (var candidate in GetSystemFontCandidates(pdfFontName))
-                {
-                    fontData = fontResolver.Resolve(candidate, bold, italic);
-                    if (fontData != null) break;
-                }
-            }
-
-            // 4. Last resort: none of the family-specific candidates (including the
-            //    metric-compatible substitutes) were installed on this machine — a
-            //    minimal container often lacks every one of Courier/Liberation*/
-            //    DejaVu*/Noto* for a given class. Reaching here means step 2 already
-            //    established these codepoints exceed WinAnsiEncoding (or the family
-            //    wasn't standard to begin with), so giving up now would silently
-            //    fall back to the non-embedded path, which can only paint '?' for
-            //    them. A generic sans-serif substitute — even if metrically
-            //    mismatched with the requested family — still renders the real
-            //    character, which is what a browser's font-fallback chain would do.
-            if (fontData == null)
-            {
-                foreach (var candidate in GetSystemFontCandidates(string.Empty))
-                {
-                    fontData = fontResolver.Resolve(candidate, bold, italic);
-                    if (fontData != null) break;
-                }
-            }
+                fontData = ResolveSystemPrimaryFont(systemFamilyList, pdfFontName, fontResolver, bold, italic);
 
             if (fontData == null || fontData.RawData == null || fontData.RawData.Length == 0)
             {
@@ -1070,6 +1054,13 @@ public static partial class HtmlToPdf
                 if (mustEmbedAllFonts)
                     throw new InvalidOperationException(
                         $"PDF/A conformance requires every font to be embedded, but no embeddable substitute was found for '{pdfFontName}' on this host.");
+
+                // No installed font at all for this text: anything beyond WinAnsi can only paint '?'
+                var unencodable = new List<int>();
+                foreach (var cp in codepoints)
+                    if (!UnicodeScripts.IsInvisible(cp) && !IsWinAnsiEncodable(cp)) unencodable.Add(cp);
+                if (unencodable.Count > 0)
+                    ReportMissingGlyphs(unencodable, systemFamilyList ?? pdfFontName, reportedMissing, warnings);
                 continue;
             }
 
@@ -1095,56 +1086,21 @@ public static partial class HtmlToPdf
                 fontData.Descent,
                 subset.ColorLayersByCodepoint);
 
-            // Codepoints the chosen font cannot shape (e.g. ⚠ in text fonts):
-            // embed a symbol-capable fallback the renderer can switch to mid-run.
+            // Codepoints the chosen font cannot draw (e.g. ⚠ in text fonts, Hangul in Arial):
+            // embed fallback fonts, chosen by installed-font coverage, the renderer can switch
+            // to mid-run. Anything no installed font covers is reported, not silently boxed.
             HashSet<int>? missing = null;
             foreach (var cp in codepoints)
             {
-                if (cp > 0x20 && fontData.GetGlyphId(cp) == 0)
+                if (!UnicodeScripts.IsInvisible(cp) && fontData.GetGlyphId(cp) == 0)
                     (missing ?? (missing = new HashSet<int>())).Add(cp);
             }
             if (missing != null)
-                EmbedFallbackFont(pdfDoc, pdfFontName, missing, fontResolver);
-        }
-    }
-
-    /// <summary>
-    /// Embed a symbol-capable system font covering codepoints the main font
-    /// lacks, registered as "&lt;fontName&gt;-FB" for mid-run font switching.
-    /// </summary>
-    private static void EmbedFallbackFont(PdfDocument pdfDoc, string pdfFontName,
-        HashSet<int> missing, Text.FontResolver fontResolver)
-    {
-        string[] symbolFonts =
-        {
-            "Segoe UI Symbol", "seguisym", "Apple Symbols", "DejaVuSans",
-            "NotoSansSymbols2", "NotoSansSymbols", "Segoe UI Emoji", "seguiemj"
-        };
-
-        foreach (var candidate in symbolFonts)
-        {
-            var fb = fontResolver.Resolve(candidate);
-            if (fb == null || fb.RawData == null || fb.RawData.Length == 0) continue;
-
-            bool covers = false;
-            foreach (var cp in missing)
             {
-                if (fb.GetGlyphId(cp) > 0) { covers = true; break; }
+                var uncovered = EmbedFallbackFonts(pdfDoc, pdfFontName, missing, bold, italic, han);
+                if (uncovered.Count > 0)
+                    ReportMissingGlyphs(uncovered, systemFamilyList ?? pdfFontName, reportedMissing, warnings);
             }
-            if (!covers) continue;
-
-            var fbSubset = SubsetCached(fb, missing);
-            if (fbSubset == null || fbSubset.FontData.Length == 0) continue;
-
-            pdfDoc.AddEmbeddedFont(
-                pdfFontName + "-FB",
-                fbSubset.FontData,
-                fbSubset.CodepointToNewGlyphId,
-                fbSubset.AdvanceWidths,
-                fb.UnitsPerEm,
-                fb.Ascent,
-                fb.Descent);
-            return;
         }
     }
 

@@ -22,20 +22,22 @@ public class FontResolver
         return _cache.GetOrAdd(key, _ => ResolveInternal(familyName, bold, italic));
     }
 
+    /// <summary>File/family names a bold and/or italic face of a family is commonly installed under ("Arial Bold", "arialbd", ...).</summary>
+    internal static string[] VariantNames(string familyName, bool bold, bool italic)
+    {
+        if (bold && italic)
+            return new[] { familyName + " Bold Italic", familyName + "BoldItalic", familyName + "-BoldItalic", familyName + "bi", familyName + "BI" };
+        if (bold)
+            return new[] { familyName + " Bold", familyName + "Bold", familyName + "-Bold", familyName + "bd" };
+        if (italic)
+            return new[] { familyName + " Italic", familyName + "Italic", familyName + "-Italic", familyName + "it" };
+        return new[] { familyName };
+    }
+
     private FontData? ResolveInternal(string familyName, bool bold, bool italic)
     {
         // Try variant names first (e.g., Arial Bold, Arial Italic)
-        string[] candidates;
-        if (bold && italic)
-            candidates = new[] { familyName + " Bold Italic", familyName + "BoldItalic", familyName + "-BoldItalic", familyName + "bi", familyName + "BI" };
-        else if (bold)
-            candidates = new[] { familyName + " Bold", familyName + "Bold", familyName + "-Bold", familyName + "bd" };
-        else if (italic)
-            candidates = new[] { familyName + " Italic", familyName + "Italic", familyName + "-Italic", familyName + "it" };
-        else
-            candidates = new[] { familyName };
-
-        foreach (var candidate in candidates)
+        foreach (var candidate in VariantNames(familyName, bold, italic))
         {
             var path = SystemFontLocator.FindFont(candidate);
             if (path != null)

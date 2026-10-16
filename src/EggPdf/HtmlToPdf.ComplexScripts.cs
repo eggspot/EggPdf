@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using EggPdf.Core;
 using EggPdf.Layout;
 using EggPdf.Pdf;
 using EggPdf.Text;
+using EggPdf.Text.Fallback;
 using EggPdf.Text.OpenType;
 using EggPdf.Text.TrueType;
 
@@ -59,8 +61,21 @@ public static partial class HtmlToPdf
         Dictionary<string, List<FontFaceCandidate>> fontFaces, FontResolver resolver,
         int targetWeight, bool bold, bool italic, string suffix)
     {
+        // A run is shaped whole with one font, so a font that has the script but no Latin letters would
+        // turn "Invoice นมัสการ" into boxes for "Invoice". Prefer one covering both; accept a script-only
+        // font only when nothing installed does (the criterion is independent of the text, so layout
+        // measurement and embedding always agree on the font).
+        return FindComplexFont(familyList, fontFaces, resolver, targetWeight, bold, italic, suffix, requireBasicLatin: true)
+            ?? FindComplexFont(familyList, fontFaces, resolver, targetWeight, bold, italic, suffix, requireBasicLatin: false);
+    }
+
+    private static FontData? FindComplexFont(string? familyList,
+        Dictionary<string, List<FontFaceCandidate>> fontFaces, FontResolver resolver,
+        int targetWeight, bool bold, bool italic, string suffix, bool requireBasicLatin)
+    {
         int sample = ComplexTextShaper.SampleCodepoint(suffix);
-        bool Covers(FontData? f) => f != null && f.RawData != null && f.RawData.Length > 0 && f.GetGlyphId(sample) != 0;
+        bool Covers(FontData? f) => f != null && f.RawData != null && f.RawData.Length > 0 && f.GetGlyphId(sample) != 0 &&
+            (!requireBasicLatin || (f.GetGlyphId('A') != 0 && f.GetGlyphId('z') != 0 && f.GetGlyphId('0') != 0));
 
         var webfont = TryResolveFontFace(familyList, fontFaces, targetWeight, italic, resolver);
         if (Covers(webfont)) return webfont;
@@ -81,7 +96,12 @@ public static partial class HtmlToPdf
             var f = resolver.Resolve(candidate, bold, italic);
             if (Covers(f)) return f;
         }
-        return null;
+
+        // None of the well-known names is installed: any installed font whose cmap covers the script will do
+        var covering = requireBasicLatin
+            ? FontFallbackResolver.Default.FindFontWithBasicLatin(sample, bold, italic)
+            : FontFallbackResolver.Default.FindFont(sample, bold, italic);
+        return Covers(covering) ? covering : null;
     }
 
     /// <summary>Layout-time font lookup for complex-script text (memoized per render).</summary>
@@ -112,7 +132,7 @@ public static partial class HtmlToPdf
     /// </summary>
     private static void EmbedComplexScriptFonts(Dictionary<string, HashSet<string>> complexTexts,
         Dictionary<string, string> fontFamilyLists, PdfDocument pdfDoc,
-        Dictionary<string, List<FontFaceCandidate>> fontFaces)
+        Dictionary<string, List<FontFaceCandidate>> fontFaces, HashSet<int> reportedMissing, WarningCollector? warnings)
     {
         foreach (var kv in complexTexts)
         {
@@ -130,7 +150,16 @@ public static partial class HtmlToPdf
             fontFamilyLists.TryGetValue(key, out var familyList);
 
             var font = ResolveComplexFont(familyList, fontFaces, SharedFontResolver, targetWeight, bold, italic, suffix);
-            if (font == null) continue;
+            if (font == null)
+            {
+                // No installed font can shape this script: say so rather than dropping the text silently
+                var unshapable = new HashSet<int>();
+                foreach (var entry in kv.Value) AddCodepoints(unshapable, entry.Substring(1));
+                unshapable.RemoveWhere(cp => UnicodeScripts.IsInvisible(cp) ||
+                    UnicodeScripts.Of(cp) == UnicodeScript.Latin || UnicodeScripts.Of(cp) == UnicodeScript.Common);
+                ReportMissingGlyphs(unshapable, familyList ?? baseName, reportedMissing, warnings);
+                continue;
+            }
 
             var codepoints = new HashSet<int>();
             var glyphs = new HashSet<ushort>();

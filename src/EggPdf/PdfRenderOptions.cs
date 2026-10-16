@@ -1,3 +1,4 @@
+using EggPdf.Core;
 using EggPdf.Pdf;
 
 namespace EggPdf;
@@ -74,4 +75,12 @@ public class PdfRenderOptions
     /// there is no defined joint PDF/A + PDF/UA-2 standard.
     /// </summary>
     public PdfUaVersion UaVersion { get; set; } = PdfUaVersion.Ua1;
+
+    /// <summary>
+    /// Optional sink for non-fatal render warnings, e.g. <see cref="WarningCodes.GlyphMissing"/> when no
+    /// installed font covers some characters (they would otherwise silently paint as missing-glyph
+    /// boxes). The renderer only adds to it; every warning is also written to
+    /// <see cref="System.Diagnostics.Trace"/> whether or not a collector is supplied.
+    /// </summary>
+    public WarningCollector? Warnings { get; set; }
 }

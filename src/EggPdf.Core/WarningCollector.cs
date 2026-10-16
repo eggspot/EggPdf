@@ -16,6 +16,10 @@ public class WarningCollector
     public void AddFontNotFound(string familyName, string fallback)
         => Add(WarningCodes.FontNotFound, $"Font '{familyName}' not found, using '{fallback}'");
 
+    /// <summary>No installed font has glyphs for some characters, so they paint as missing-glyph boxes.</summary>
+    public void AddGlyphMissing(string message)
+        => Add(WarningCodes.GlyphMissing, message);
+
     public void AddImageLoadFailed(string url, string reason)
         => Add(WarningCodes.ImageLoadFailed, $"Image load failed for '{url}': {reason}");
 
@@ -56,5 +60,6 @@ public static class WarningCodes
     public const string LimitExceeded = "LIMIT_EXCEEDED";
     public const string RenderTimeout = "RENDER_TIMEOUT";
     public const string FontLoadFailed = "FONT_LOAD_FAILED";
+    public const string GlyphMissing = "FONT_GLYPH_MISSING";
     public const string ResourceTimeout = "RESOURCE_TIMEOUT";
 }
