@@ -32,6 +32,17 @@ public static class TextMeasurer
     [ThreadStatic]
     public static Func<string?, string?, string?, string, EggPdf.Text.TrueType.FontData?>? ComplexFontProvider;
 
+    /// <summary>
+    /// Optional per-render provider returning the advance, in em, of the glyph the PDF actually paints for
+    /// a code point above U+00FF: the document's own font when it covers it, otherwise the fallback font
+    /// chosen for it. Arguments are (font-family list, weight, style, code point); a negative result means
+    /// "unknown" and measurement keeps its default estimate. Without it, built-in-font measurement
+    /// assumes half an em for every non-ASCII character, which is badly wrong for CJK and other scripts
+    /// drawn from fallback fonts.
+    /// </summary>
+    [ThreadStatic]
+    public static Func<string?, string?, string?, int, float>? GlyphAdvanceProvider;
+
     /// <summary>Measure the width of text in pixels using standard font metrics.</summary>
     public static float MeasureWidth(string text, float fontSize, string? fontFamily)
     {
@@ -97,7 +108,15 @@ public static class TextMeasurer
 
                 var gid = fontData.GetGlyphId(cp);
                 if (gid > 0)
+                {
                     w += fontData.GetAdvanceWidth(gid) * fontSize / fontData.UnitsPerEm;
+                    continue;
+                }
+
+                float fallbackEm = cp > 0xFF && GlyphAdvanceProvider != null
+                    ? GlyphAdvanceProvider(fontFamily, fontWeight, fontStyle, cp) : -1f;
+                if (fallbackEm >= 0)
+                    w += fallbackEm * fontSize;
                 else if (cp <= char.MaxValue)
                     w += StandardFontMetrics.MeasureCharWidth((char)cp, fontSize, pdfFont);
                 else
@@ -109,6 +128,8 @@ public static class TextMeasurer
         {
             var pdfFont = StandardFontMetrics.ResolvePdfFontName(fontFamily, fontWeight, fontStyle);
             width = StandardFontMetrics.MeasureWidth(text, fontSize, pdfFont);
+            if (GlyphAdvanceProvider != null)
+                width += NonLatinAdjustment(text, fontSize, fontFamily, fontWeight, fontStyle, pdfFont);
             if (letterSpacing != 0)
                 glyphCount = CountGlyphs(text);
         }
@@ -117,6 +138,38 @@ public static class TextMeasurer
             width += letterSpacing * glyphCount;
 
         return width;
+    }
+
+    /// <summary>
+    /// Correction to the built-in-font width estimate for characters above U+00FF: the table-based
+    /// estimate charges every such UTF-16 unit the same flat width, while the PDF paints each with the
+    /// real glyph advance <see cref="GlyphAdvanceProvider"/> reports.
+    /// </summary>
+    private static float NonLatinAdjustment(string text, float fontSize, string? fontFamily,
+        string? fontWeight, string? fontStyle, string pdfFont)
+    {
+        float delta = 0;
+        float flatWidth = -1;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c <= 0xFF) continue;
+
+            int cp = c;
+            int units = 1;
+            if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                cp = char.ConvertToUtf32(c, text[i + 1]);
+                units = 2;
+                i++;
+            }
+
+            float advanceEm = GlyphAdvanceProvider!(fontFamily, fontWeight, fontStyle, cp);
+            if (advanceEm < 0) continue;
+            if (flatWidth < 0) flatWidth = StandardFontMetrics.MeasureCharWidth('Ā', fontSize, pdfFont);
+            delta += advanceEm * fontSize - flatWidth * units;
+        }
+        return delta;
     }
 
     /// <summary>

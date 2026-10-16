@@ -7,6 +7,7 @@ using EggPdf.Layout;
 using EggPdf.Pdf;
 using EggPdf.Svg;
 using EggPdf.Text;
+using EggPdf.Text.Fallback;
 using EggPdf.Text.OpenType;
 using EggPdf.Text.TrueType;
 
@@ -710,16 +711,16 @@ public static partial class BoxPainter
                 var glyphIds = CurrentPdfDoc.GetGlyphIds(fontName, paintText);
                 if (glyphIds != null && glyphIds.Length > 0)
                 {
-                    // Glyphs missing from the main font route to the embedded
-                    // "-FB" fallback font mid-run instead of painting .notdef.
-                    string fallbackName = fontName + "-FB";
+                    // Glyphs missing from the main font route to the embedded fallback
+                    // fonts mid-run instead of painting .notdef.
+                    var fallbackFonts = CurrentPdfDoc.GetFallbackFonts(fontName);
                     bool hasNotdef = false;
                     for (int gi = 0; gi < glyphIds.Length; gi++)
                         if (glyphIds[gi] == 0) { hasNotdef = true; break; }
 
-                    if (hasNotdef && CurrentPdfDoc.IsEmbeddedFont(fallbackName))
+                    if (hasNotdef && fallbackFonts.Count > 0)
                     {
-                        var runs = BuildFontFallbackRuns(paintText, fontName, fallbackName);
+                        var runs = BuildFontFallbackRuns(paintText, fontName, fallbackFonts);
                         page.AddTextRunsCID(runs, pdfX, pdfY, pdfFontSize,
                             color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
                             letterSpacing, wordSpacing);
@@ -977,11 +978,12 @@ public static partial class BoxPainter
 
     /// <summary>
     /// Split text into consecutive runs of (fontName, glyphIds): codepoints the
-    /// main font covers stay in it; missing ones use the fallback font (or stay
-    /// as .notdef in the main font when the fallback lacks them too).
+    /// main font covers stay in it; missing ones use the first fallback font that
+    /// has a glyph for them (or stay as .notdef in the main font when none does,
+    /// except invisible format characters, which are dropped).
     /// </summary>
     private static List<(string fontName, ushort[] glyphIds)> BuildFontFallbackRuns(
-        string text, string mainFont, string fallbackFont)
+        string text, string mainFont, IReadOnlyList<string> fallbackFonts)
     {
         var runs = new List<(string fontName, ushort[] glyphIds)>();
         var current = new List<ushort>();
@@ -999,17 +1001,21 @@ public static partial class BoxPainter
             string font = mainFont;
             if (!CurrentPdfDoc!.TryGetGlyphId(mainFont, cp, out var gid) || gid == 0)
             {
-                if (CurrentPdfDoc.TryGetGlyphId(fallbackFont, cp, out var fbGid) && fbGid > 0)
+                if (TryFindFallbackGlyph(cp, fallbackFonts, out var fbFont, out var fbGid))
                 {
-                    font = fallbackFont;
+                    font = fbFont;
                     gid = fbGid;
                 }
                 else if (ArabicShaper.TryGetBaseForm(cp, out var baseText) &&
-                         TryAppendBaseFormGlyphs(baseText, mainFont, fallbackFont, runs, current, ref currentFont))
+                         TryAppendBaseFormGlyphs(baseText, mainFont, fallbackFonts, runs, current, ref currentFont))
                 {
-                    // Neither font has this Arabic presentation-form glyph: the base letter(s)
+                    // No font has this Arabic presentation-form glyph: the base letter(s)
                     // were appended instead (disconnected but legible, not a .notdef box).
                     continue;
+                }
+                else if (UnicodeScripts.IsDefaultIgnorable(cp))
+                {
+                    continue; // zero-width format character no font draws: nothing to paint
                 }
                 else
                 {

@@ -362,6 +362,7 @@ c.Item().Id("terms").Text("Terms and conditions");</code></pre></div>
           <tr><td><code>Encrypt</code></td><td>RC4 permission/password protection (<code>PdfEncryption</code>).</td></tr>
           <tr><td><code>Conformance</code>, <code>Invoice</code></td><td>PDF/A levels; Factur-X e-invoice (needs PDF/A-3b/3u). See <a href="compliance.html">Compliance</a>.</td></tr>
           <tr><td><code>Tagged</code></td><td>PDF/UA-1 (or UA-2) tagged output.</td></tr>
+          <tr><td><code>CollectWarnings</code></td><td>Fills a <code>WarningCollector</code> with non-fatal render warnings (e.g. <code>FONT_GLYPH_MISSING</code> when no installed font covers some characters); see <a href="fonts.html#fallback">Fonts</a>.</td></tr>
         </tbody>
       </table>
 
@@ -446,6 +447,7 @@ doc.Css("@page :first { @top-center { content: 'Cover' } }"); // any stylesheet<
         <tr><td><code>DocumentDescriptor Encrypt(PdfEncryption encryption)</code></td><td>Encrypts the PDF (RC4 view-only protection / permission flags).</td></tr>
         <tr><td><code>DocumentDescriptor Conformance(PdfAConformance conformance)</code></td><td>Renders a PDF/A-conformant PDF (ICC output intent, XMP conformance metadata, forced font embedding).</td></tr>
         <tr><td><code>DocumentDescriptor Invoice(FacturXInvoice invoice)</code></td><td>Attaches a Factur-X/ZUGFeRD e-invoice XML. <code>Conformance</code> must be set to <code>PdfA3b</code> or <code>PdfA3u</code> first.</td></tr>
+        <tr><td><code>DocumentDescriptor CollectWarnings(WarningCollector collector)</code></td><td>Collects non-fatal render warnings into <code>collector</code> -- e.g. a <code>FONT_GLYPH_MISSING</code> warning when no installed font has glyphs for some characters, which would otherwise silently paint as missing-glyph boxes. Read the collector after rendering.</td></tr>
         <tr><td><code>DocumentDescriptor Tagged(PdfUaVersion uaVersion = PdfUaVersion.Ua1)</code></td><td>Renders a PDF/UA tagged (accessible) PDF: structure tree, headings, landmarks, alt text, tagged links.</td></tr>
       </tbody></table>
 

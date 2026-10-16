@@ -76,7 +76,8 @@ curl -X POST http://localhost:8080/api/render \
 
 ## Webfonts & Unicode
 - Google Fonts / remote `<link>` stylesheets fetched automatically; @font-face over http(s), data:, or files
-- Weight-accurate faces (300–900), real font metrics, full Vietnamese/extended Latin, symbol fallback (⚠ ✔)
+- Weight-accurate faces (300–900), real font metrics, full Vietnamese/extended Latin
+- Per-character font fallback for every script (Hangul/Kana/Han, Arabic, Hebrew, Thai, Indic, symbols ⚠ ✔, ...) from installed fonts chosen by cmap coverage; uncovered characters raise a FONT_GLYPH_MISSING warning instead of silent boxes
 
 ## Security
 ```csharp

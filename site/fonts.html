@@ -81,12 +81,52 @@
       <p>
         Remote <code>&lt;link rel="stylesheet"&gt;</code> tags are fetched too, so a plain Google Fonts
         <code>&lt;link&gt;</code> works out of the box — every declared weight (300–900) selects its own
-        face, and codepoints missing from the chosen font (symbols like ⚠) fall back to a system
-        symbol font automatically.
+        face, and characters missing from the chosen font (Hangul in Arial, symbols like ⚠, ...) fall
+        back to another installed font automatically — see <a href="#fallback">Per-character font fallback</a>.
       </p>
       <p>
         Any matched TrueType font is automatically <strong>subset</strong> — only the glyphs actually used
         in the document are embedded, keeping PDF size small.
+      </p>
+
+      <h2 id="fallback">Per-character font fallback</h2>
+      <p>
+        No single font covers every script, so a browser draws each character it cannot find in your
+        <code>font-family</code> from some other installed font. EggPdf does the same, for every
+        script: when the chosen font has no glyph for a character, the glyph comes from an installed
+        font that actually maps it, so <code>font-family: Arial</code> with Korean, Japanese, Chinese,
+        Hebrew, Arabic, Thai, Indic, Armenian, Georgian, symbol or math text no longer shows empty
+        boxes. The fallback is chosen by each installed font's real character coverage, never by
+        language, so any script works with whatever fonts the host has.
+      </p>
+      <ol>
+        <li>A per-platform, per-script candidate list is tried in order (macOS system fonts, Windows
+            fonts, and on Linux the Noto, Droid, WenQuanYi, Nanum, Takao, Lohit and TLWG families).</li>
+        <li>Then every installed font is considered, broadest coverage first. This covers
+            <code>.ttc</code> collections (every face is checked) and CFF/OpenType fonts, and finds fonts
+            installed under names no list mentions.</li>
+        <li>Bitmap-only colour fonts (such as Apple Color Emoji or Noto Color Emoji) are skipped because they
+            have no vector outlines to embed; colour emoji need a COLR font (Segoe UI Emoji, Twemoji).</li>
+      </ol>
+      <p>
+        Only the glyphs actually used are embedded (several fonts per document are fine), and layout
+        measures the fallback glyphs' real widths, so wrapping and box sizes match the painted text.
+        Ideographs follow the regional variant of the root <code>lang</code> attribute
+        (<code>ja</code>, <code>ko</code>, <code>zh-Hans</code>, <code>zh-Hant</code>, ...) and otherwise
+        the text (kana implies Japanese, Hangul implies Korean).
+      </p>
+      <p>
+        <strong>When no installed font covers a character</strong> it is still drawn as the missing-glyph box,
+        but it is no longer silent: a <code>FONT_GLYPH_MISSING</code> warning names the script, the
+        characters and a font to install (for example <em>Noto Sans CJK</em>). Collect warnings with
+        <code>PdfRenderOptions.Warnings</code>, the Fluent <code>CollectWarnings(...)</code>, the CLI (printed
+        to stderr) or the REST <code>X-EggPdf-Warnings</code> response header. In a container, install a
+        font family for the scripts you render (the Docker images include Noto and Noto CJK) or load one
+        with <code>@font-face</code>.
+      </p>
+      <p>
+        To prefer your own fonts for a script, register them ahead of the built-in candidates:
+        <code>FontFallbackCatalog.Default.Register(UnicodeScript.Hangul, "Corporate Sans KR");</code>
       </p>
 
       <h2 id="css-font-family">CSS font-family</h2>
@@ -195,7 +235,9 @@
       <p>
         This needs a font that contains the script. EggPdf tries your <code>font-family</code> list
         and <code>@font-face</code> fonts first, then well-known script fonts (Nirmala UI, Leelawadee
-        UI, Myanmar Text, Noto Sans &hellip;). That text is embedded in its own font, so Latin text
+        UI, Myanmar Text, Noto Sans &hellip;), preferring a font that also has Latin letters so a mixed
+        run such as "Invoice नमस्ते" is not half boxes; if none of those is installed, any installed font
+        covering the script is used. That text is embedded in its own font, so Latin text elsewhere
         keeps the typeface you asked for. Output was checked against Chrome's rendering for each
         script listed above.
       </p>

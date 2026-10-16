@@ -328,7 +328,7 @@ These CSS properties are recognized by our parser (no "unknown property" warning
 | **Unicode normalization** | NFC normalization for composed characters (Vietnamese, accented Latin) |
 | **CJK line break rules** | No break before closing punctuation (。、）」), no break after opening punctuation (（「). Kinsoku Shori rules |
 | **CJK width handling** | Full-width characters take 2x the width of half-width characters in the same line |
-| **CJK font auto-detection** | When a CJK codepoint is encountered and the current font lacks the glyph, auto-select a CJK system font (Noto Sans CJK, MS Gothic, PingFang, etc.) |
+| **Per-character font fallback (implemented, issue #240)** | When a codepoint is encountered and the current font lacks the glyph, the glyph comes from an installed font chosen by real cmap coverage -- for every script, not just CJK (`EggPdf.Text/Fallback/`): `UnicodeScripts` classifies the codepoint, `FontFallbackCatalog` lists per-platform, per-script candidates (macOS, Windows, Linux/Noto; extensible with `Register`), then `FontFallbackResolver` falls back to a coverage-sorted scan of every installed face (TTC faces and CFF/OpenType included; bitmap-only color fonts skipped). Several fallback fonts per primary font (`<font>-FB`, `-FB2`, ...), per-run switching in `BoxPainter`, real fallback advances in `TextMeasurer.GlyphAdvanceProvider`, Han variant from `lang`/kana/Hangul, and a `FONT_GLYPH_MISSING` warning when nothing covers a character. Known gaps: per-element `lang` (the Han variant is document-wide), synthetic bold/italic for fallback faces that have no bold/italic file, and mixed-script runs shaped as a whole (Thai/Indic/Arabic-with-marks) still use one font per run (chosen to cover basic Latin too) |
 | **CIDFont embedding** | CJK fonts embedded as CIDFont Type 2 in PDF with Identity-H encoding. CMap for glyph mapping |
 | **Large font subsetting** | CJK fonts can be 10-20MB. Subsetting to only used glyphs is essential. Must handle 20K+ glyph fonts efficiently |
 | **Thai word segmentation** | Build or embed a Thai word break dictionary (~40K words). Fall back to character-level breaks if dictionary unavailable |
@@ -342,7 +342,7 @@ tests/EggPdf.Tests.Unit/Text/
 |-- ThaiWordBreakTests.cs           # Dictionary-based segmentation
 |-- VietnameseRenderTests.cs        # Combining diacritical marks
 |-- BidiAlgorithmTests.cs           # UAX #9 test cases
-|-- CjkFontFallbackTests.cs        # Auto-select CJK font
+|-- FontFallbackResolverTests.cs   # Coverage-driven fallback for every script (synthetic fonts)
 
 tests/EggPdf.Tests.Integration/E2E/
 |-- MultilangTests.cs               # Full render tests for each language

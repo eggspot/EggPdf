@@ -172,6 +172,12 @@ eggpdf input.html -o output.pdf -v</code></pre></div>
         </table>
       </div>
 
+      <p>
+        Non-fatal render warnings are printed to stderr as <code>Warning [CODE]: message</code> (never into the
+        PDF on stdout) — for example <code>FONT_GLYPH_MISSING</code> when no installed font covers some
+        characters. See <a href="fonts.html#fallback">Per-character font fallback</a>.
+      </p>
+
       <h2 id="piping">Piping / stdin</h2>
       <p>Use <code>-</code> as the input argument to read HTML from standard input. This is ideal for shell pipelines and template engines:</p>
       <div class="code-block"><pre><code><span class="cmt"># Pipe HTML directly</span>

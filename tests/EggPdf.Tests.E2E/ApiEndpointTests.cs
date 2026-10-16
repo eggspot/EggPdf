@@ -69,6 +69,22 @@ public class ApiEndpointTests
         // Check response headers
         resp.Headers.Should().ContainKey("X-EggPdf-Duration-Ms");
         resp.Headers.Should().ContainKey("X-EggPdf-Size");
+        resp.Headers.Should().NotContainKey("X-EggPdf-Warnings", "an ordinary document raises no warnings");
+    }
+
+    [Fact]
+    public async Task Render_CharacterNoFontCovers_ReportsGlyphMissingWarningHeader()
+    {
+        // U+10FFFD (Private Use, plane 16) is mapped by no installed font: still a PDF, but not a silent one
+        var content = new StringContent(
+            JsonSerializer.Serialize(new { html = "<p style=\"font-family:Arial\">Ref \U0010FFFD</p>" }),
+            Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/render", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        resp.Headers.GetValues("X-EggPdf-Warnings").Should().ContainSingle()
+            .Which.Should().Contain("FONT_GLYPH_MISSING").And.Contain("U+10FFFD");
     }
 
     [Fact]
