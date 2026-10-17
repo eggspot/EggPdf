@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace EggPdf.Layout;
@@ -44,10 +45,10 @@ public class PageCounters
         var result = content;
 
         // Replace counter(page)
-        result = result.Replace("counter(page)", currentPage.ToString());
+        result = result.Replace("counter(page)", currentPage.ToString(CultureInfo.InvariantCulture));
 
         // Replace counter(pages)
-        result = result.Replace("counter(pages)", _totalPages.ToString());
+        result = result.Replace("counter(pages)", _totalPages.ToString(CultureInfo.InvariantCulture));
 
         // Replace target-counter(attr(href), page) — simplified
         // Full syntax: target-counter(attr(href, url), page)
@@ -85,7 +86,7 @@ public class PageCounters
         string id = href.StartsWith("#") ? href.Substring(1) : href;
 
         int page = GetPageForElement(id);
-        return page > 0 ? page.ToString() : "";
+        return page > 0 ? page.ToString(CultureInfo.InvariantCulture) : "";
     }
 
     /// <summary>Generate page label text (Roman numerals, alphabetic, etc.).</summary>
@@ -98,17 +99,17 @@ public class PageCounters
             case "upper-roman":
                 return ToRoman(pageNumber);
             case "lower-alpha":
-                return pageNumber <= 26 ? ((char)('a' + pageNumber - 1)).ToString() : pageNumber.ToString();
+                return pageNumber <= 26 ? ((char)('a' + pageNumber - 1)).ToString() : pageNumber.ToString(CultureInfo.InvariantCulture);
             case "upper-alpha":
-                return pageNumber <= 26 ? ((char)('A' + pageNumber - 1)).ToString() : pageNumber.ToString();
+                return pageNumber <= 26 ? ((char)('A' + pageNumber - 1)).ToString() : pageNumber.ToString(CultureInfo.InvariantCulture);
             default:
-                return pageNumber.ToString();
+                return pageNumber.ToString(CultureInfo.InvariantCulture);
         }
     }
 
     private static string ToRoman(int number)
     {
-        if (number <= 0 || number > 3999) return number.ToString();
+        if (number <= 0 || number > 3999) return number.ToString(CultureInfo.InvariantCulture);
 
         var values = new[] { 1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1 };
         var symbols = new[] { "M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I" };

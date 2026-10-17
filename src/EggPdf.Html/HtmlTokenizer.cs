@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 
 namespace EggPdf.Html;
@@ -509,7 +510,7 @@ public class HtmlTokenizer
 
         int codepoint = hex
             ? Convert.ToInt32(numBuf.ToString(), 16)
-            : int.Parse(numBuf.ToString());
+            : int.Parse(numBuf.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture);
 
         if (codepoint == 0 || codepoint > 0x10FFFF)
             return "\uFFFD";

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 
@@ -137,7 +138,7 @@ public class PdfMerger
         int numStart = p;
         while (p < end && text[p] >= '0' && text[p] <= '9') p++;
         if (p == numStart) return 0; // inline array or direct object, not a ref
-        return int.TryParse(text.Substring(numStart, p - numStart), out int objNum) ? objNum : 0;
+        return int.TryParse(text.Substring(numStart, p - numStart), NumberStyles.Integer, CultureInfo.InvariantCulture, out int objNum) ? objNum : 0;
     }
 
     /// <summary>Parse "/MediaBox [x0 y0 x1 y1]" within a range; null when absent or malformed.</summary>
@@ -224,7 +225,7 @@ public class PdfMerger
                 int numStart = q;
                 while (q < arrEnd && text[q] >= '0' && text[q] <= '9') q++;
                 if (q == numStart) break;
-                if (int.TryParse(text.Substring(numStart, q - numStart), out int objNum))
+                if (int.TryParse(text.Substring(numStart, q - numStart), NumberStyles.Integer, CultureInfo.InvariantCulture, out int objNum))
                     result.Add(objNum);
                 // Skip the generation number and "R" to reach the next entry.
                 while (q < arrEnd && text[q] == ' ') q++;

@@ -26,7 +26,7 @@ public static class PdfACompliance
         string? facturXFileName = null, bool includePdfUA = false, string facturXConformanceLevel = "MINIMUM",
         bool isUa2 = false)
     {
-        var now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
+        var now = PdfDates.XmpDate(DateTime.UtcNow);
 
         var xmp = new StringBuilder();
         xmp.AppendLine("<?xpacket begin='" + (char)0xFEFF + "' id='W5M0MpCehiHzreSzNTczkc9d'?>");

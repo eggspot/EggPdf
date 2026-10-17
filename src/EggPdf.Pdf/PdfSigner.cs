@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -55,7 +56,7 @@ public static class PdfSigner
             sb.Append($" /Reason ({EscapePdf(options.Reason!)})");
         if (!string.IsNullOrEmpty(options.Location))
             sb.Append($" /Location ({EscapePdf(options.Location!)})");
-        sb.Append($" /M (D:{DateTime.UtcNow:yyyyMMddHHmmss}Z)");
+        sb.Append($" /M ({PdfDates.PdfDate(DateTime.UtcNow)})");
         sb.Append($" /ByteRange {byteRangePlaceholder}");
         sb.Append($" /Contents <{new string('0', ContentsHexLength)}>");
         sb.AppendLine(" >>");
@@ -131,7 +132,7 @@ public static class PdfSigner
             sb.Append($" /Reason ({EscapePdf(reason)})");
         if (!string.IsNullOrEmpty(location))
             sb.Append($" /Location ({EscapePdf(location)})");
-        sb.Append($" /M (D:{DateTime.UtcNow:yyyyMMddHHmmss}Z)");
+        sb.Append($" /M ({PdfDates.PdfDate(DateTime.UtcNow)})");
         sb.Append($" /Contents <{new string('0', 16384)}>"); // 8KB placeholder
         sb.Append($" /ByteRange [0 {pdfBytes.Length} {pdfBytes.Length} 0]");
         sb.AppendLine(" >>");
@@ -206,7 +207,7 @@ public static class PdfSigner
                 numStart--;
             numStart++;
 
-            if (numStart < numEnd && int.TryParse(text.Substring(numStart, numEnd - numStart), out int objNum))
+            if (numStart < numEnd && int.TryParse(text.Substring(numStart, numEnd - numStart), NumberStyles.Integer, CultureInfo.InvariantCulture, out int objNum))
             {
                 if (objNum > maxObj) maxObj = objNum;
             }

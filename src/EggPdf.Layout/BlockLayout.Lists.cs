@@ -22,18 +22,18 @@ public static partial class BlockLayout
                 return "";
             case "decimal":
                 int index = GetListItemIndex(element, parentElement);
-                return index + ".";
+                return index.ToString(CultureInfo.InvariantCulture) + ".";
             case "decimal-leading-zero":
                 int idx = GetListItemIndex(element, parentElement);
-                return idx.ToString("D2") + ".";
+                return idx.ToString("D2", CultureInfo.InvariantCulture) + ".";
             case "lower-alpha":
             case "lower-latin":
                 int ai = GetListItemIndex(element, parentElement);
-                return ai > 0 && ai <= 26 ? ((char)('a' + ai - 1)).ToString() + "." : ai + ".";
+                return ai > 0 && ai <= 26 ? ((char)('a' + ai - 1)).ToString() + "." : ai.ToString(CultureInfo.InvariantCulture) + ".";
             case "upper-alpha":
             case "upper-latin":
                 int bi = GetListItemIndex(element, parentElement);
-                return bi > 0 && bi <= 26 ? ((char)('A' + bi - 1)).ToString() + "." : bi + ".";
+                return bi > 0 && bi <= 26 ? ((char)('A' + bi - 1)).ToString() + "." : bi.ToString(CultureInfo.InvariantCulture) + ".";
             case "lower-roman":
                 int ri = GetListItemIndex(element, parentElement);
                 return ToRoman(ri).ToLowerInvariant() + ".";
@@ -69,7 +69,7 @@ public static partial class BlockLayout
 
     private static string ToRoman(int number)
     {
-        if (number <= 0 || number > 3999) return number.ToString();
+        if (number <= 0 || number > 3999) return number.ToString(CultureInfo.InvariantCulture);
         string[] thousands = { "", "M", "MM", "MMM" };
         string[] hundreds = { "", "C", "CC", "CCC", "CD", "D", "DC", "DCC", "DCCC", "CM" };
         string[] tens = { "", "X", "XX", "XXX", "XL", "L", "LX", "LXX", "LXXX", "XC" };

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace EggPdf.Css;
 
@@ -365,7 +366,7 @@ public static class CssShorthandExpander
                 i++;
             }
             else if (part == "bold" || part == "bolder" || part == "lighter" || part == "normal" ||
-                     (part.Length <= 3 && int.TryParse(part, out int w) && w >= 100 && w <= 900))
+                     (part.Length <= 3 && int.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out int w) && w >= 100 && w <= 900))
             {
                 style.Set("font-weight", part);
                 i++;

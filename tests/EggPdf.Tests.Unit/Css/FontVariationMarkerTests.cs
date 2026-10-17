@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Linq;
 using EggPdf.Css;
 using FluentAssertions;
@@ -18,7 +19,27 @@ public class FontVariationMarkerTests
     private static string Axes(ComputedStyle s)
     {
         FontVariationMarker.Split(s.Get("font-family"), out var axes);
-        return axes == null ? "" : string.Join(";", axes.Select(kv => kv.Key + "=" + kv.Value));
+        // Invariant on purpose: formatting the float with the current culture would make the assertions
+        // themselves depend on the machine's regional settings ("87,5" under a decimal-comma culture).
+        return axes == null ? "" : string.Join(";", axes.Select(kv => kv.Key + "=" + kv.Value.ToString(CultureInfo.InvariantCulture)));
+    }
+
+    [Fact]
+    public void FontStretch_UnderDecimalCommaCulture_StillProducesInvariantAxes()
+    {
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("de-DE");
+            var s = Style("Bahnschrift", ("font-stretch", "87.5%"), ("font-variation-settings", "'wght' 612.5"));
+            FontVariationMarker.Apply(s);
+            Axes(s).Should().Be("wdth=87.5;wght=612.5");
+            FontVariationMarker.NameSuffix(s.Get("font-family")).Should().Be("-VFwdth_87.5_wght_612.5");
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
     }
 
     [Fact]

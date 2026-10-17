@@ -240,7 +240,7 @@ public static partial class SvgRenderer
     private static FontData? ResolveTextFont(SvgElement el)
     {
         var weight = SvgFilter.Prop(el, "font-weight").Trim().ToLowerInvariant();
-        bool bold = weight == "bold" || weight == "bolder" || (int.TryParse(weight, out int w) && w >= 600);
+        bool bold = weight == "bold" || weight == "bolder" || (int.TryParse(weight, NumberStyles.Integer, CultureInfo.InvariantCulture, out int w) && w >= 600);
         var style = SvgFilter.Prop(el, "font-style").Trim().ToLowerInvariant();
         bool italic = style == "italic" || style == "oblique";
 

@@ -391,7 +391,7 @@ public partial class PdfDocument
             {
                 // Opacity: "GS50" -> 0.50
                 float opacity = 1.0f;
-                if (kv.Key.StartsWith("GS") && int.TryParse(kv.Key.Substring(2), out int pct))
+                if (kv.Key.StartsWith("GS") && int.TryParse(kv.Key.Substring(2), NumberStyles.Integer, CultureInfo.InvariantCulture, out int pct))
                     opacity = pct / 100f;
                 writer.WriteLine($"<< /Type /ExtGState /ca {F(opacity)} /CA {F(opacity)} >>");
             }
@@ -608,7 +608,7 @@ public partial class PdfDocument
             info.Append($" /Title {PdfString(enc, Title!, infoObj)}");
         if (!string.IsNullOrEmpty(Author))
             info.Append($" /Author {PdfString(enc, Author!, infoObj)}");
-        info.Append($" /CreationDate {PdfString(enc, $"D:{DateTime.UtcNow:yyyyMMddHHmmss}Z", infoObj)}");
+        info.Append($" /CreationDate {PdfString(enc, PdfDates.PdfDate(DateTime.UtcNow), infoObj)}");
         info.Append(" >>");
         writer.WriteLine(info.ToString());
         writer.WriteLine("endobj");
@@ -661,7 +661,8 @@ public partial class PdfDocument
             string uHex = BitConverter.ToString(encParams.UValue).Replace("-", "");
 
             trailerDict.Append($" /Encrypt << /Filter /Standard /V 2 /R 3 /Length {encParams.KeyLength}");
-            trailerDict.Append($" /P {encParams.Permissions}");
+            // Negative (permission bits are a signed 32-bit mask): the sign must be an ASCII '-'
+            trailerDict.Append($" /P {encParams.Permissions.ToString(CultureInfo.InvariantCulture)}");
             trailerDict.Append($" /O <{oHex}>");
             trailerDict.Append($" /U <{uHex}>");
             trailerDict.Append(" >>");
@@ -670,7 +671,7 @@ public partial class PdfDocument
         trailerDict.Append(" >>");
         writer.WriteLine(trailerDict.ToString());
         writer.WriteLine("startxref");
-        writer.WriteLine(xrefOffset.ToString());
+        writer.WriteLine(xrefOffset.ToString(CultureInfo.InvariantCulture));
         writer.WriteLine("%%EOF");
     }
 
@@ -895,8 +896,9 @@ public partial class PdfDocument
         writer.WriteLine("endobj");
 
         // 5. Write font descriptor
-        int ascent = fontData.UnitsPerEm > 0 ? fontData.Ascent * 1000 / fontData.UnitsPerEm : fontData.Ascent;
-        int descent = fontData.UnitsPerEm > 0 ? fontData.Descent * 1000 / fontData.UnitsPerEm : fontData.Descent;
+        // Strings, not ints: the descent is negative, and a culture's own minus sign must not reach the file
+        string ascent = (fontData.UnitsPerEm > 0 ? fontData.Ascent * 1000 / fontData.UnitsPerEm : fontData.Ascent).ToString(CultureInfo.InvariantCulture);
+        string descent = (fontData.UnitsPerEm > 0 ? fontData.Descent * 1000 / fontData.UnitsPerEm : fontData.Descent).ToString(CultureInfo.InvariantCulture);
         int flags = 32; // Nonsymbolic
 
         alloc.RecordOffset(objs.descriptor, writer.Position);

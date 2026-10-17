@@ -570,9 +570,9 @@ public static partial class SvgRenderer
             var parts = inner.Split(',');
             if (parts.Length >= 3)
             {
-                float.TryParse(parts[0].Trim(), out float r);
-                float.TryParse(parts[1].Trim(), out float g);
-                float.TryParse(parts[2].Trim(), out float b);
+                float.TryParse(parts[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float r);
+                float.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float g);
+                float.TryParse(parts[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float b);
                 return (r / 255f, g / 255f, b / 255f);
             }
         }
