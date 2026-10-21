@@ -168,6 +168,13 @@ dotnet run --project src/EggPdf.Service -c Release -- --urls http://localhost:55
 - No `Span<T>.Contains` on netstandard2.0
 - Use `ArrayPool<T>` for temporary buffers
 - No LINQ in hot paths -- use `for` loops
+- Never format or parse a number or date with the machine's culture: pass `CultureInfo.InvariantCulture`
+  (and `NumberStyles`) to every `ToString`, `Parse`/`TryParse` and string `Format`, and format PDF/XMP/ASN.1
+  timestamps through `PdfDates`. A decimal comma, a U+2212 minus sign (sv-SE) or a Buddhist-calendar year
+  (th-TH) otherwise lands in the PDF. Interpolating or concatenating a *signed* integer, `float`, `double` or
+  date has the same problem (non-negative integers are safe). All test projects run under a deliberately hostile
+  culture (`tests/HostileCulture.cs`, linked into each test csproj) so a violation fails on every machine and in
+  CI; `CultureInvarianceTests` renders a broad document under several cultures and diffs it against the invariant render.
 - Remove unused code -- no dead methods, unused usings, or orphaned helpers. Keep the codebase clean.
 - Test naming: `Feature_Condition_ExpectedBehavior`
 - Keep files focused. Don't grow an existing file back into a monolith by tacking a new

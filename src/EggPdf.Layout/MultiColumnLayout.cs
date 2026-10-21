@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using EggPdf.Css;
 
 namespace EggPdf.Layout;
@@ -39,7 +40,7 @@ public static class MultiColumnLayout
         float columnWidth = containerWidth;
 
         if (!string.IsNullOrEmpty(countStr) && countStr != "auto" &&
-            int.TryParse(countStr, out int cc) && cc > 0)
+            int.TryParse(countStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int cc) && cc > 0)
         {
             columnCount = cc;
         }

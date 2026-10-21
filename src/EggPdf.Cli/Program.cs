@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -201,11 +202,11 @@ public class Program
 
             if (verbose)
             {
-                Console.Error.WriteLine($"Rendered in {elapsed.TotalMilliseconds:F0}ms -> {outputPath}");
+                Console.Error.WriteLine($"Rendered in {elapsed.TotalMilliseconds.ToString("F0", CultureInfo.InvariantCulture)}ms -> {outputPath}");
                 if (outputPath != "-" && File.Exists(outputPath))
                 {
                     var size = new FileInfo(outputPath).Length;
-                    Console.Error.WriteLine($"Output size: {size:N0} bytes");
+                    Console.Error.WriteLine($"Output size: {size.ToString("N0", CultureInfo.InvariantCulture)} bytes");
                 }
             }
             else if (outputPath != "-")

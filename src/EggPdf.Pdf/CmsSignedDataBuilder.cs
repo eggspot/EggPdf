@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -136,10 +137,10 @@ internal static class CmsSignedDataBuilder
     {
         var parts = dotted.Split('.');
         var body = new List<byte>();
-        body.Add((byte)(int.Parse(parts[0]) * 40 + int.Parse(parts[1])));
+        body.Add((byte)(int.Parse(parts[0], CultureInfo.InvariantCulture) * 40 + int.Parse(parts[1], CultureInfo.InvariantCulture)));
         for (int i = 2; i < parts.Length; i++)
         {
-            long v = long.Parse(parts[i]);
+            long v = long.Parse(parts[i], CultureInfo.InvariantCulture);
             var chunk = new List<byte>();
             do
             {
@@ -189,7 +190,7 @@ internal static class CmsSignedDataBuilder
     private static byte[] Null() => new byte[] { 0x05, 0x00 };
 
     private static byte[] UtcTime(DateTime utc) =>
-        Tlv(0x17, Encoding.ASCII.GetBytes(utc.ToString("yyMMddHHmmss") + "Z"));
+        Tlv(0x17, Encoding.ASCII.GetBytes(PdfDates.Asn1UtcTime(utc)));
 
     private static byte[] Raw(byte[] der) => der;
 

@@ -26,4 +26,9 @@
     <ProjectReference Include="..\..\src\EggPdf.Svg\EggPdf.Svg.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Runs every test under a hostile regional culture (decimal comma, U+2212 minus, ...) -->
+    <Compile Include="..\HostileCulture.cs" Link="HostileCulture.cs" />
+  </ItemGroup>
+
 </Project>

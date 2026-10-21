@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Text;
 
 namespace EggPdf.Pdf;
@@ -58,7 +59,7 @@ public partial class PdfDocument
                             $"PDF/A-1 forbids transparency: blend mode '{cssName}' is not allowed. Remove it, or use PdfA2b/PdfA2u/PdfA3b/PdfA3u instead.");
                 }
                 else if (gs.StartsWith("GS", StringComparison.Ordinal) &&
-                         int.TryParse(gs.Substring(2), out int pct) && pct != 100)
+                         int.TryParse(gs.Substring(2), NumberStyles.Integer, CultureInfo.InvariantCulture, out int pct) && pct != 100)
                 {
                     throw new InvalidOperationException(
                         $"PDF/A-1 forbids transparency: partial opacity ({pct}%) is not allowed. Remove it, or use PdfA2b/PdfA2u/PdfA3b/PdfA3u instead.");

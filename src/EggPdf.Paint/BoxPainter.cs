@@ -427,7 +427,7 @@ public static partial class BoxPainter
         // Paint column-rule between columns (multi-column layout)
         var colCountStr = box.Style.Get("column-count");
         if (!string.IsNullOrEmpty(colCountStr) && colCountStr != "auto" &&
-            int.TryParse(colCountStr, out int colCount) && colCount > 1)
+            int.TryParse(colCountStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int colCount) && colCount > 1)
         {
             var ruleShorthand = box.Style.Get("column-rule");
             var ruleWidth = box.Style.Get("column-rule-width");
@@ -1928,7 +1928,7 @@ public static partial class BoxPainter
     {
         var zStr = box.Style.Get("z-index");
         if (!string.IsNullOrEmpty(zStr) && zStr != "auto" &&
-            int.TryParse(zStr, out int z))
+            int.TryParse(zStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int z))
             return z;
         return 0; // auto = 0
     }

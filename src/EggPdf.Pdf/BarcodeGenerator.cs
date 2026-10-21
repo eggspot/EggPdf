@@ -109,7 +109,7 @@ public static class BarcodeGenerator
         // Pad or trim to 12 digits + calculate check digit
         string digits = data.PadRight(12, '0').Substring(0, 12);
         int checkDigit = CalculateEAN13CheckDigit(digits);
-        digits += checkDigit.ToString();
+        digits += checkDigit.ToString(CultureInfo.InvariantCulture);
 
         // EAN-13 encoding patterns
         string[][] lPatterns = {

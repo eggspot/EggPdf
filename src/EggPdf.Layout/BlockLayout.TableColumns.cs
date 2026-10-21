@@ -430,7 +430,7 @@ public static partial class BlockLayout
     private static int GetColspan(HtmlElement cell)
     {
         var attr = cell.GetAttribute("colspan");
-        if (!string.IsNullOrEmpty(attr) && int.TryParse(attr, out int colspan) && colspan > 0)
+        if (!string.IsNullOrEmpty(attr) && int.TryParse(attr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int colspan) && colspan > 0)
             return colspan;
         return 1;
     }

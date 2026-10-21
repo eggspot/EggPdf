@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,7 +21,7 @@ app.MapGet("/health", () => Results.Ok(new
 {
     status = "healthy",
     version = typeof(EggPdf.HtmlToPdf).Assembly.GetName().Version?.ToString(3) ?? "unknown",
-    uptime = (DateTime.UtcNow - Process.GetCurrentProcess().StartTime.ToUniversalTime()).ToString(@"d\.hh\:mm\:ss")
+    uptime = (DateTime.UtcNow - Process.GetCurrentProcess().StartTime.ToUniversalTime()).ToString(@"d\.hh\:mm\:ss", CultureInfo.InvariantCulture)
 }));
 
 // === Info ===
@@ -76,8 +77,8 @@ app.MapPost("/api/render", async (HttpContext ctx) =>
         var pdf = EggPdf.HtmlToPdf.Render(request.Html, coreOptions);
         sw.Stop();
 
-        ctx.Response.Headers["X-EggPdf-Duration-Ms"] = sw.ElapsedMilliseconds.ToString();
-        ctx.Response.Headers["X-EggPdf-Size"] = pdf.Length.ToString();
+        ctx.Response.Headers["X-EggPdf-Duration-Ms"] = sw.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture);
+        ctx.Response.Headers["X-EggPdf-Size"] = pdf.Length.ToString(CultureInfo.InvariantCulture);
         if (coreOptions.Warnings.HasWarnings)
             ctx.Response.Headers["X-EggPdf-Warnings"] = FormatWarningsHeader(coreOptions.Warnings);
 
