@@ -84,7 +84,8 @@ public sealed class PdfReader
             int rotation = store.Resolve(node.Get("Rotate")) is PdfNumber rotate ? NormalizeRotation(rotate.Value) : inheritedRotation;
 
             var kids = store.Resolve(node.Get("Kids")) as PdfArray;
-            bool isPage = node.Get("Type") is PdfName { Value: "Page" } || kids == null;
+            var type = (node.Get("Type") as PdfName)?.Value;
+            bool isPage = type == "Page" || (kids == null && type != "Pages");
             if (isPage)
             {
                 if (pages.Count >= MaxPages) throw new PdfFormatException("The document has too many pages.");
@@ -92,7 +93,8 @@ public sealed class PdfReader
                 continue;
             }
 
-            for (int i = kids!.Items.Count - 1; i >= 0; i--)
+            if (kids == null) continue;
+            for (int i = kids.Items.Count - 1; i >= 0; i--)
                 if (store.Resolve(kids.Items[i]) is PdfDictionary kid)
                     pending.Push((kid, mediaBox, cropBox, rotation, depth + 1));
         }

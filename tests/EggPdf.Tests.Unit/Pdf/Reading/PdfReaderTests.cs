@@ -137,6 +137,19 @@ public class PdfReaderTests
     }
 
     [Fact]
+    public void Open_PagesNodeWithoutKids_IsNotCountedAsAPage()
+    {
+        var pdf = new TestPdfBuilder()
+            .Add(1, "<< /Type /Catalog /Pages 2 0 R >>")
+            .Add(2, "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 1 >>")
+            .Add(3, "<< /Type /Pages /Count 0 >>")
+            .Add(4, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>")
+            .BuildClassic(root: 1);
+
+        PdfReader.Open(pdf).PageCount.Should().Be(1);
+    }
+
+    [Fact]
     public void Open_DeeplyNestedArrays_ThrowsPdfFormatException()
     {
         var pdf = new TestPdfBuilder()
