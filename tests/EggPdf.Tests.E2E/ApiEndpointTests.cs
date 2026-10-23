@@ -7,9 +7,6 @@ using Xunit;
 
 namespace EggPdf.Tests.E2E;
 
-/// <summary>
-/// Tests for the REST API endpoints via actual HTTP requests.
-/// </summary>
 [Collection("E2E")]
 public class ApiEndpointTests
 {
@@ -66,7 +63,6 @@ public class ApiEndpointTests
         bytes.Length.Should().BeGreaterThan(100);
         Encoding.ASCII.GetString(bytes, 0, 5).Should().Be("%PDF-");
 
-        // Check response headers
         resp.Headers.Should().ContainKey("X-EggPdf-Duration-Ms");
         resp.Headers.Should().ContainKey("X-EggPdf-Size");
         resp.Headers.Should().NotContainKey("X-EggPdf-Warnings", "an ordinary document raises no warnings");
@@ -88,7 +84,6 @@ public class ApiEndpointTests
     [Fact]
     public async Task Render_CharacterNoFontCovers_ReportsGlyphMissingWarningHeader()
     {
-        // U+10FFFD (Private Use, plane 16) is mapped by no installed font: still a PDF, but not a silent one
         var content = new StringContent(
             JsonSerializer.Serialize(new { html = "<p style=\"font-family:Arial\">Ref \U0010FFFD</p>" }),
             Encoding.UTF8, "application/json");
@@ -120,7 +115,6 @@ public class ApiEndpointTests
     [InlineData("/api/render/pages")]
     public async Task Render_LocalFileReferences_NotReadByDefault(string endpoint)
     {
-        // Callers are untrusted: a stylesheet path on the server's disk must not be read (secure default)
         var cssPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "eggpdf_e2e_" + System.Guid.NewGuid().ToString("N") + ".css");
         await System.IO.File.WriteAllTextAsync(cssPath, ".b { font-weight: bold; }");
         try
@@ -144,7 +138,6 @@ public class ApiEndpointTests
     [Fact]
     public async Task RenderUrl_LoopbackAddress_Refused()
     {
-        // /api/render/url must not be usable to reach the server's own network (SSRF)
         var content = new StringContent(
             JsonSerializer.Serialize(new { url = $"{_fixture.BaseUrl}/health" }), Encoding.UTF8, "application/json");
 
@@ -156,7 +149,6 @@ public class ApiEndpointTests
     [Fact]
     public async Task Render_PdfA1ConformanceOption_ReturnsBadRequestWhenTransparencyIsUsed()
     {
-        // PDF/A-1 forbids transparency outright -- opacity below 1 must be rejected, not silently dropped.
         var content = new StringContent(
             JsonSerializer.Serialize(new
             {
@@ -288,8 +280,6 @@ public class ApiEndpointTests
     [Fact]
     public async Task Render_TaggedWithNamedPageGroups_ReturnsTaggedPdfAcrossAllGroups()
     {
-        // Named page groups + tagging together used to be rejected with 400; fixed to produce
-        // a single Document structure tree root spanning every group's content instead.
         var html = "<html><head><style>@page wide{size:landscape}.c{page:wide}</style></head>" +
                     "<body><h1>x</h1><div class=\"c\"><p>y</p></div></body></html>";
         var content = new StringContent(

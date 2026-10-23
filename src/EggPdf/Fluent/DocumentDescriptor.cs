@@ -52,8 +52,6 @@ public sealed class DocumentDescriptor
     {
         var page = new PageDescriptor(_ctx);
 
-        // The <style> element is created (and ordered among any Css() calls) now; its @page text is
-        // filled in by Build(), because size/margins may still be set after AddPage() returns.
         var styleElement = _ctx.CreateElement("style");
         _head.AppendChild(styleElement);
         _pages.Add((page, styleElement));
@@ -168,8 +166,6 @@ public sealed class DocumentDescriptor
         if (weight < 1 || weight > 1000)
             throw new ArgumentOutOfRangeException(nameof(weight), weight, "Font weight must be 1-1000.");
         var inv = System.Globalization.CultureInfo.InvariantCulture;
-        // family and src are free text (Windows paths contain backslashes, families may contain quotes):
-        // quote-escape both so neither can break the rule or inject further CSS.
         return Css("@font-face{font-family:" + CssText.Quote(family) + ";src:url(" + CssText.Quote(src) + ");font-weight:" +
                    weight.ToString(inv) + ";font-style:" + (italic ? "italic" : "normal") + ";}");
     }

@@ -6,9 +6,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Fluent;
 
-/// <summary>
-/// <see cref="DocumentDescriptor.CollectStatistics"/>: the fluent surface of <see cref="PdfRenderOptions.Statistics"/>.
-/// </summary>
 public class StatisticsTests
 {
     [Fact]

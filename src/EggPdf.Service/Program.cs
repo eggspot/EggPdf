@@ -10,10 +10,6 @@ builder.Services.AddCors(options =>
         policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
 });
 
-// Resource policy for every render (callers are untrusted, so it is server configuration, never a request
-// field): no local file reads and no private/loopback/cloud-metadata addresses unless the operator opts in via
-// EggPdf:Resources:* (env: EggPdf__Resources__AllowLocalFileAccess, ...AllowPrivateNetworks, ...AllowedDomains,
-// ...BaseDirectory)
 var resourceConfig = builder.Configuration.GetSection("EggPdf:Resources");
 bool allowLocalFileAccess = resourceConfig.GetValue("AllowLocalFileAccess", false);
 var allowedDomains = resourceConfig["AllowedDomains"]?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -26,8 +22,6 @@ var resourceResolver = new EggPdf.Core.Resources.CompositeResolver(
         MaxResponseSizeBytes = 10 * 1024 * 1024,
     });
 
-// Every render: the resource policy above, a per-request fetch budget, and cancellation when the client
-// disconnects (which also stops in-flight fetches)
 Task<byte[]> RenderUntrustedAsync(string html, EggPdf.PdfRenderOptions options, HttpContext ctx)
 {
     options.ResourceResolver = new EggPdf.Service.FetchBudgetResolver(resourceResolver, options.Warnings);
@@ -38,7 +32,6 @@ Task<byte[]> RenderUntrustedAsync(string html, EggPdf.PdfRenderOptions options, 
 var app = builder.Build();
 app.UseCors();
 
-// A client that disconnects mid-render cancels it (RenderUntrustedAsync); that's not a server error
 app.Use(async (ctx, next) =>
 {
     try { await next(); }
@@ -48,7 +41,6 @@ app.Use(async (ctx, next) =>
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-// === Health ===
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "healthy",
@@ -56,7 +48,6 @@ app.MapGet("/health", () => Results.Ok(new
     uptime = (DateTime.UtcNow - Process.GetCurrentProcess().StartTime.ToUniversalTime()).ToString(@"d\.hh\:mm\:ss", CultureInfo.InvariantCulture)
 }));
 
-// === Info ===
 app.MapGet("/api/info", () => Results.Ok(new
 {
     version = typeof(EggPdf.HtmlToPdf).Assembly.GetName().Version?.ToString(3) ?? "unknown",
@@ -65,7 +56,6 @@ app.MapGet("/api/info", () => Results.Ok(new
     limits = new { maxBodySizeMb = 10, timeoutSeconds = 30 }
 }));
 
-// === Fonts ===
 app.MapGet("/api/fonts", () =>
 {
     var fonts = new[] { "Helvetica", "Times-Roman", "Courier",
@@ -73,7 +63,6 @@ app.MapGet("/api/fonts", () =>
     return Results.Ok(new { fonts });
 });
 
-// Response headers are single-line ASCII: flatten the render warnings and cap the length
 static string FormatWarningsHeader(EggPdf.Core.WarningCollector warnings)
 {
     const int MaxLength = 1024;
@@ -89,7 +78,6 @@ static string FormatWarningsHeader(EggPdf.Core.WarningCollector warnings)
     return sb.ToString();
 }
 
-// === Render HTML to PDF ===
 app.MapPost("/api/render", async (HttpContext ctx) =>
 {
     try
@@ -125,7 +113,6 @@ app.MapPost("/api/render", async (HttpContext ctx) =>
     }
     catch (InvalidOperationException ex)
     {
-        // Client-input conflicts (e.g. conformance + encryption together, invoice without PDF/A-3)
         return Results.BadRequest(new { error = ex.Message });
     }
     catch (Exception ex)
@@ -134,10 +121,8 @@ app.MapPost("/api/render", async (HttpContext ctx) =>
     }
 });
 
-// === Render HTML to Image ===
 app.MapPost("/api/render/image", async (HttpContext ctx) =>
 {
-    // For now, render to PDF (image rendering will be added later)
     using var reader = new StreamReader(ctx.Request.Body);
     var body = await reader.ReadToEndAsync();
 
@@ -151,7 +136,6 @@ app.MapPost("/api/render/image", async (HttpContext ctx) =>
     return Results.File(pdf, "application/pdf", "output.pdf");
 });
 
-// === Render HTML as print-preview page (for E2E visual comparison) ===
 app.MapPost("/api/render/print-preview", async (HttpContext ctx) =>
 {
     using var reader = new StreamReader(ctx.Request.Body);
@@ -163,7 +147,6 @@ app.MapPost("/api/render/print-preview", async (HttpContext ctx) =>
     if (string.IsNullOrEmpty(request?.Html))
         return Results.BadRequest(new { error = "html field is required" });
 
-    // Wrap the HTML in a print-media simulation page
     var previewHtml = $@"<!DOCTYPE html>
 <html>
 <head>
@@ -186,7 +169,6 @@ app.MapPost("/api/render/print-preview", async (HttpContext ctx) =>
     return Results.Content(previewHtml, "text/html");
 });
 
-// === E2E test page: side-by-side comparison ===
 app.MapGet("/e2e", () => Results.Content(@"<!DOCTYPE html>
 <html>
 <head>
@@ -283,7 +265,6 @@ runTest();
 </body>
 </html>", "text/html"));
 
-// === Render URL to PDF ===
 app.MapPost("/api/render/url", async (HttpContext ctx) =>
 {
     using var reader = new StreamReader(ctx.Request.Body);
@@ -296,7 +277,6 @@ app.MapPost("/api/render/url", async (HttpContext ctx) =>
 
     try
     {
-        // Only http(s), fetched under the same policy as the page's resources (no private-network SSRF)
         if (!request.Url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
             !request.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             return Results.BadRequest(new { error = "url must be an http:// or https:// URL" });
@@ -313,7 +293,6 @@ app.MapPost("/api/render/url", async (HttpContext ctx) =>
     }
 });
 
-// === Merge PDFs ===
 app.MapPost("/api/merge", async (HttpContext ctx) =>
 {
     using var reader = new StreamReader(ctx.Request.Body);
@@ -330,7 +309,7 @@ app.MapPost("/api/merge", async (HttpContext ctx) =>
         if (!string.IsNullOrEmpty(doc.Pdf))
         {
             try { merger.Add(Convert.FromBase64String(doc.Pdf)); }
-            catch { /* skip invalid base64 */ }
+            catch { }
         }
     }
 
@@ -341,7 +320,6 @@ app.MapPost("/api/merge", async (HttpContext ctx) =>
     return Results.File(merged, "application/pdf", "merged.pdf");
 });
 
-// === Encrypt PDF ===
 app.MapPost("/api/encrypt", async (HttpContext ctx) =>
 {
     using var reader = new StreamReader(ctx.Request.Body);
@@ -365,7 +343,6 @@ app.MapPost("/api/encrypt", async (HttpContext ctx) =>
     return Results.File(pdf, "application/pdf", "encrypted.pdf");
 });
 
-// === Render page range ===
 app.MapPost("/api/render/pages", async (HttpContext ctx) =>
 {
     using var reader = new StreamReader(ctx.Request.Body);
@@ -380,7 +357,6 @@ app.MapPost("/api/render/pages", async (HttpContext ctx) =>
     return Results.File(pdf, "application/pdf", "output.pdf");
 });
 
-// === Sign PDF ===
 app.MapPost("/api/sign", async (HttpContext ctx) =>
 {
     using var reader = new StreamReader(ctx.Request.Body);
@@ -409,7 +385,6 @@ app.MapPost("/api/sign", async (HttpContext ctx) =>
     }
 });
 
-// === Add attachments ===
 app.MapPost("/api/attachments", async (HttpContext ctx) =>
 {
     using var reader = new StreamReader(ctx.Request.Body);
@@ -420,15 +395,12 @@ app.MapPost("/api/attachments", async (HttpContext ctx) =>
     if (string.IsNullOrEmpty(request?.Html))
         return Results.BadRequest(new { error = "html field is required" });
 
-    // Render PDF with embedded metadata about attachments
     var pdf = await RenderUntrustedAsync(request.Html, new EggPdf.PdfRenderOptions(), ctx);
     return Results.File(pdf, "application/pdf", "output.pdf");
 });
 
-// === Health ready ===
 app.MapGet("/health/ready", () => Results.Ok(new { ready = true }));
 
-// === Prometheus metrics ===
 app.MapGet("/metrics", () =>
 {
     var uptime = (DateTime.UtcNow - System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime()).TotalSeconds;
@@ -449,7 +421,6 @@ app.MapGet("/metrics", () =>
 
 app.Run();
 
-// === Request Models ===
 record RenderRequest
 {
     public string? Html { get; init; }
@@ -468,16 +439,12 @@ record RenderOptions
     public string? Title { get; init; }
     public string? Author { get; init; }
 
-    /// <summary>PDF/A conformance level: "PdfA1b", "PdfA1a", "PdfA2b", "PdfA2u", "PdfA2a", "PdfA3b", "PdfA3u", or "PdfA3a". Level A (1a/2a/3a) requires Tagged = true.</summary>
     public string? Conformance { get; init; }
 
-    /// <summary>ZUGFeRD/Factur-X invoice data (MINIMUM profile, or EN 16931/Comfort when lineItems is non-empty). Requires Conformance = PdfA3b or PdfA3u.</summary>
     public InvoiceRequest? Invoice { get; init; }
 
-    /// <summary>Produce a tagged PDF (structure tree, alt text, /Lang, landmark regions, Link OBJR cross-reference). Combinable with Conformance and with named page groups.</summary>
     public bool? Tagged { get; init; }
 
-    /// <summary>PDF/UA spec version Tagged targets: "Ua1" (default, ISO 14289-1, PDF 1.7) or "Ua2" (ISO 14289-2:2024, PDF 2.0 -- cannot combine with Conformance).</summary>
     public string? UaVersion { get; init; }
 
     public EggPdf.PdfRenderOptions ToCoreOptions() => new()
@@ -541,7 +508,6 @@ record InvoiceRequest
     public decimal? GrandTotal { get; init; }
     public decimal? DuePayableAmount { get; init; }
 
-    /// <summary>Line items (EN 16931 profile). Non-empty produces an EN 16931-conformant document instead of MINIMUM; header totals above are then computed from these lines.</summary>
     public List<InvoiceLineItemRequest>? LineItems { get; init; }
 
     public EggPdf.Pdf.FacturXInvoice ToFacturXInvoice() => new()

@@ -6,10 +6,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit;
 
-/// <summary>
-/// <see cref="PdfRenderOptions.Statistics"/>: the render reports how many pages it wrote, so callers (e.g.
-/// billing per page) never have to parse the PDF bytes for it.
-/// </summary>
 public class RenderStatisticsTests
 {
     private const string ThreePages =
@@ -88,7 +84,6 @@ public class RenderStatisticsTests
         var statistics = new RenderStatistics();
         HtmlToPdf.Render(ThreePages, new PdfRenderOptions { Statistics = statistics });
 
-        // PDF/A-1 forbids transparency: this render throws before writing anything
         Action act = () => HtmlToPdf.Render("<p style=\"opacity:0.5\">x</p>", new PdfRenderOptions
         {
             Statistics = statistics,
