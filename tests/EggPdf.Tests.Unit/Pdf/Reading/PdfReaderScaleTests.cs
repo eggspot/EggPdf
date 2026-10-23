@@ -73,29 +73,23 @@ public class PdfReaderScaleTests
 
     private static byte[] FlatTreeInOneObjectStream(out int decodedObjectStreamLength)
     {
-        var header = new StringBuilder();
-        var body = new StringBuilder();
+        var builder = new TestPdfBuilder()
+            .Add(1, "<< /Type /Catalog /Pages 2 0 R >>")
+            .Add(4, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
         var kids = new StringBuilder();
+        long headerLength = 0, bodyLength = 0;
         for (int i = 0; i < PageTotal; i++)
         {
             int number = 10 + i;
-            header.Append(N(number)).Append(' ').Append(N(body.Length)).Append(' ');
-            body.Append(PageBody(i + 1, 2)).Append('\n');
+            var body = PageBody(i + 1, 2);
+            builder.Add(number, body, inObjectStream: true);
+            headerLength += N(number).Length + N(bodyLength).Length + 2;
+            bodyLength += body.Length + 1;
             kids.Append(N(number)).Append(" 0 R ");
         }
-        decodedObjectStreamLength = header.Length + body.Length;
-        var compressed = TestPdfBuilder.Zlib(Latin1.GetBytes(header.ToString() + body));
-        var head = Latin1.GetBytes("%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n" +
-                                   "2 0 obj << /Type /Pages /Kids [" + kids + "] /Count " + N(PageTotal) + " >> endobj\n" +
-                                   "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n" +
-                                   "3 0 obj << /Type /ObjStm /N " + N(PageTotal) + " /First " + N(header.Length) +
-                                   " /Filter /FlateDecode /Length " + N(compressed.Length) + " >>\nstream\n");
-        var tail = Latin1.GetBytes("\nendstream\nendobj\n");
-        var pdf = new byte[head.Length + compressed.Length + tail.Length];
-        head.CopyTo(pdf, 0);
-        compressed.CopyTo(pdf, head.Length);
-        tail.CopyTo(pdf, head.Length + compressed.Length);
-        return pdf;
+        decodedObjectStreamLength = (int)(headerLength + bodyLength);
+        return builder.Add(2, $"<< /Type /Pages /Kids [{kids}] /Count {N(PageTotal)} >>")
+            .BuildWithXrefStream(root: 1, pngUpPredictor: false);
     }
 
     private static long AllocatedWhile(Action action)
@@ -327,6 +321,33 @@ public class PdfReaderScaleTests
         reader.PageCount.Should().Be(3);
         reader.GetPage(3).Width.Should().Be(103);
         first.Should().Throw<PdfFormatException>().WithMessage("*inconsistent*");
+    }
+
+    [Fact]
+    public void GetPage_CalledFromManyThreads_ReturnsEveryPage()
+    {
+        var reader = PdfReader.Open(BalancedTree().BuildClassic(root: 1));
+        int wrong = 0;
+
+        System.Threading.Tasks.Parallel.For(1, 20_001, page =>
+        {
+            int pageNumber = page * 7 % PageTotal + 1;
+            if (reader.GetPage(pageNumber).Width != PageWidth(pageNumber)) System.Threading.Interlocked.Increment(ref wrong);
+        });
+
+        wrong.Should().Be(0);
+    }
+
+    [Fact]
+    public void Open_RootCountBeyondThePageLimitButFewObjects_CountsThePagesInstead()
+    {
+        var pdf = new TestPdfBuilder()
+            .Add(1, "<< /Type /Catalog /Pages 2 0 R >>")
+            .Add(2, "<< /Type /Pages /Kids [3 0 R] /Count 2000000 >>")
+            .Add(3, "<< /Type /Page /Parent 2 0 R >>")
+            .BuildClassic(root: 1);
+
+        PdfReader.Open(pdf).PageCount.Should().Be(1);
     }
 
     [Fact]

@@ -32,8 +32,10 @@ internal sealed partial class PdfPageTree
     }
 
     private readonly PdfObjectStore _store;
-    private readonly PdfDictionary _root;
     private readonly PdfReference? _rootReference;
+    private readonly PdfDictionary? _directRoot;
+    private readonly InheritedAttributes _rootAttributes;
+    private readonly bool _rootIsPage;
     private readonly Dictionary<int, NodeIndex> _indexes = new();
     private readonly HashSet<int> _indexing = new();
     private long _indexedKids;
@@ -44,15 +46,18 @@ internal sealed partial class PdfPageTree
         _store = store;
         var catalog = store.FindCatalog()!;
         _rootReference = catalog.Get("Pages") as PdfReference;
-        _root = store.Resolve(catalog.Get("Pages")) as PdfDictionary
+        var root = store.Resolve(catalog.Get("Pages")) as PdfDictionary
             ?? throw new PdfFormatException("The document catalog has no page tree.");
+        _directRoot = _rootReference == null ? root : null;
+        _rootAttributes = InheritedAttributes.Root.Inherit(store, root);
+        _rootIsPage = IsLeaf(root);
 
-        if (IsLeaf(_root))
+        if (_rootIsPage)
         {
             Count = 1;
             return;
         }
-        Count = DeclaredCount(_root.Get("Count")) ?? Index(_root, _rootReference, 0).Total;
+        Count = DeclaredCount(root.Get("Count")) ?? Index(_rootReference, root, 0).Total;
         if (Count == 0) return;
         try
         {
@@ -70,11 +75,10 @@ internal sealed partial class PdfPageTree
     public PdfPageNode Find(int pageNumber)
     {
         if (_walked != null) return _walked.Find(this, pageNumber);
+        if (_rootIsPage) return PageNode(pageNumber, Root(), _rootReference, _rootAttributes);
 
-        var attributes = InheritedAttributes.Root.Inherit(_store, _root);
-        if (IsLeaf(_root)) return PageNode(pageNumber, _root, _rootReference, attributes);
-
-        var node = _root;
+        var attributes = _rootAttributes;
+        var node = _directRoot;
         var reference = _rootReference;
         int expected = Count;
         int remaining = pageNumber;
@@ -88,14 +92,14 @@ internal sealed partial class PdfPageTree
                 path.Add(reference.ObjectNumber);
             }
 
-            var index = Index(node, reference, depth);
+            var index = Index(reference, node, depth);
             if (index.Total != expected)
                 throw new PdfFormatException("The page tree is inconsistent: a /Pages node's /Count doesn't match the pages under it.");
 
             int kid = index.KidHolding(remaining);
             int before = kid > 0 ? index.PagesThroughKid[kid - 1] : 0;
             remaining -= before;
-            var (kidDictionary, kidReference) = Kid(node, index, kid);
+            var (kidDictionary, kidReference) = Kid(reference, node, index, kid);
             attributes = attributes.Inherit(_store, kidDictionary);
             if (IsLeaf(kidDictionary)) return PageNode(pageNumber, kidDictionary, kidReference, attributes);
 
@@ -105,14 +109,19 @@ internal sealed partial class PdfPageTree
         }
     }
 
-    private NodeIndex Index(PdfDictionary node, PdfReference? reference, int depth)
+    private PdfDictionary Root() => _directRoot ?? Node(_rootReference);
+
+    private PdfDictionary Node(PdfReference? reference) =>
+        _store.Resolve(reference) as PdfDictionary ?? throw new PdfFormatException("A page tree node changed while it was being read.");
+
+    private NodeIndex Index(PdfReference? reference, PdfDictionary? node, int depth)
     {
         if (reference != null && _indexes.TryGetValue(reference.ObjectNumber, out var cached)) return cached;
         if (depth > MaxDepth) throw new PdfFormatException("The page tree is nested too deeply.");
         if (reference != null && !_indexing.Add(reference.ObjectNumber)) throw new PdfFormatException("The page tree contains a cycle.");
         try
         {
-            var kids = _store.Resolve(node.Get("Kids")) as PdfArray;
+            var kids = _store.Resolve((node ?? Node(reference)).Get("Kids")) as PdfArray;
             int count = kids?.Items.Count ?? 0;
             var pagesThroughKid = new int[count];
             var kidReferences = new long[count];
@@ -156,10 +165,10 @@ internal sealed partial class PdfPageTree
         if (_store.Resolve(kid.Kids) is not PdfArray) return 0;
         if (DeclaredCount(kid.Count) is int declared) return declared;
         if (_store.Resolve(item) is not PdfDictionary node) return 0;
-        return Index(node, item as PdfReference, depth).Total;
+        return Index(item as PdfReference, node, depth).Total;
     }
 
-    private (PdfDictionary Dictionary, PdfReference? Reference) Kid(PdfDictionary node, NodeIndex index, int kid)
+    private (PdfDictionary Dictionary, PdfReference? Reference) Kid(PdfReference? nodeReference, PdfDictionary? node, NodeIndex index, int kid)
     {
         long packed = index.KidReferences[kid];
         if (packed != DirectKid)
@@ -167,7 +176,7 @@ internal sealed partial class PdfPageTree
             var reference = Unpack(packed);
             if (_store.Resolve(reference) is PdfDictionary byReference) return (byReference, reference);
         }
-        else if (_store.Resolve(node.Get("Kids")) is PdfArray kids && kid < kids.Items.Count &&
+        else if (_store.Resolve((node ?? Node(nodeReference)).Get("Kids")) is PdfArray kids && kid < kids.Items.Count &&
                  _store.Resolve(kids.Items[kid]) is PdfDictionary direct)
         {
             return (direct, null);
@@ -178,8 +187,9 @@ internal sealed partial class PdfPageTree
     private int? DeclaredCount(PdfObject? count)
     {
         if (_store.Resolve(count) is not PdfNumber number || !number.IsInteger || number.Value < 1) return null;
+        if (number.Value > Math.Max(1, _store.HighestObjectNumber)) return null;
         if (number.Value > MaxPages) throw new PdfFormatException("The document has too many pages.");
-        return number.Value <= Math.Max(1, _store.HighestObjectNumber) ? (int)number.Value : null;
+        return (int)number.Value;
     }
 
     private bool IsLeaf(PdfDictionary node) => IsLeaf(PdfPageTreeSummary.Of(node));

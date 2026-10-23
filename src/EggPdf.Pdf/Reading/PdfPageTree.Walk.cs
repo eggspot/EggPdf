@@ -98,7 +98,7 @@ internal sealed partial class PdfPageTree
             if (tree._rootReference != null) visitedNodes.Add(tree._rootReference.ObjectNumber);
 
             var frames = new Stack<Frame>();
-            if (store.Resolve(tree._root.Get("Kids")) is PdfArray rootKids) frames.Push(new Frame(RootNode, rootKids, 0));
+            if (store.Resolve(tree.Root().Get("Kids")) is PdfArray rootKids) frames.Push(new Frame(RootNode, rootKids, 0));
             while (frames.Count > 0)
             {
                 var frame = frames.Peek();
@@ -136,9 +136,9 @@ internal sealed partial class PdfPageTree
             kidPath.Reverse();
 
             var store = tree._store;
-            var dictionary = tree._root;
+            var dictionary = tree.Root();
             PdfReference? reference = tree._rootReference;
-            var attributes = InheritedAttributes.Root.Inherit(store, dictionary);
+            var attributes = tree._rootAttributes;
             foreach (int kidIndex in kidPath)
             {
                 if (store.Resolve(dictionary.Get("Kids")) is not PdfArray kids || kidIndex >= kids.Items.Count ||

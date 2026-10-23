@@ -34,38 +34,17 @@ internal sealed class PdfParseBudget
 
     public void Materialized(PdfObject value)
     {
-        _materialized += Cost(value);
+        _materialized += value switch
+        {
+            PdfDictionary => DictionaryCost,
+            PdfArray => ArrayCost,
+            PdfString text => TextCost + text.Bytes.Length,
+            PdfName name => TextCost + 2L * name.Value.Length,
+            _ => ScalarCost,
+        };
         if (_materialized > _materializedLimit)
             throw new PdfParseBudgetExceededException("The document holds far more objects than its size allows.");
     }
-
-    public static long RetainedBytes(PdfObject value)
-    {
-        switch (value)
-        {
-            case PdfDictionary dictionary:
-                long dictionaryBytes = DictionaryCost;
-                foreach (var pair in dictionary.Entries) dictionaryBytes += 2L * pair.Key.Length + RetainedBytes(pair.Value);
-                return dictionaryBytes;
-            case PdfArray array:
-                long arrayBytes = ArrayCost + 8L * array.Items.Count;
-                foreach (var item in array.Items) arrayBytes += RetainedBytes(item);
-                return arrayBytes;
-            case PdfStream stream:
-                return ScalarCost + RetainedBytes(stream.Dictionary);
-            default:
-                return Cost(value);
-        }
-    }
-
-    private static long Cost(PdfObject value) => value switch
-    {
-        PdfDictionary => DictionaryCost,
-        PdfArray => ArrayCost,
-        PdfString text => TextCost + text.Bytes.Length,
-        PdfName name => TextCost + 2L * name.Value.Length,
-        _ => ScalarCost,
-    };
 
     public void Scanned(long bytes)
     {

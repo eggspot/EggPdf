@@ -6,14 +6,17 @@ namespace EggPdf.Pdf;
 /// Reads an existing PDF from any producer: classic and stream cross-references, incremental updates, compressed
 /// object streams, and files whose cross-reference is damaged (repaired by scanning). Safe for untrusted uploads:
 /// nesting depth, page-tree depth, cross-reference size and decompressed stream size are capped, and a file that
-/// can't be read throws <see cref="PdfFormatException"/>. Pages are read on demand, so opening a document and
-/// looking up a page cost about the same for a 150,000-page file as for a one-page file.
+/// can't be read throws <see cref="PdfFormatException"/>. Pages are read on demand: opening a document reads the
+/// page tree's root and checks its last page, and each lookup reads only the page tree nodes on the way to that page,
+/// so memory stays small however many pages the file has. Lookups may be called from several threads; they run one
+/// at a time.
 /// </summary>
 public sealed class PdfReader
 {
     private const int HeaderSearchWindow = 1024;
 
     private readonly PdfPageTree _pages;
+    private readonly object _lookupGate = new();
 
     private PdfReader(PdfObjectStore store, PdfPageTree pages)
     {
@@ -62,11 +65,14 @@ public sealed class PdfReader
     {
         if (pageNumber < 1 || pageNumber > _pages.Count)
             throw new ArgumentOutOfRangeException(nameof(pageNumber), pageNumber, "Page numbers run from 1 to PageCount.");
-        return Guarded(() =>
+        lock (_lookupGate)
         {
-            Store.BeginOperation();
-            return _pages.Find(pageNumber);
-        });
+            return Guarded(() =>
+            {
+                Store.ResetCallBudgets();
+                return _pages.Find(pageNumber);
+            });
+        }
     }
 
     private static T Guarded<T>(Func<T> read)

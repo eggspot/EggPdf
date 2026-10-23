@@ -105,7 +105,7 @@ internal sealed partial class PdfObjectStore
         return store;
     }
 
-    public void BeginOperation()
+    public void ResetCallBudgets()
     {
         _parseBudget = new PdfParseBudget(_data.Length);
         _decodedBytes = 0;
@@ -135,7 +135,7 @@ internal sealed partial class PdfObjectStore
             var value = entry.Kind == PdfCrossReferenceEntryKind.InFile
                 ? ReadObjectAt(entry.Offset, number)
                 : ReadFromObjectStream(entry.ObjectStream, number);
-            _cache.Add(number, value, PdfParseBudget.RetainedBytes(value));
+            _cache.Add(number, value, PdfObjectSize.Of(value));
             return value;
         }
         finally
