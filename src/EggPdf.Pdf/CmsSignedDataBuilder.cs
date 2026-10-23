@@ -11,7 +11,7 @@ namespace EggPdf.Pdf;
 /// Builds a detached CMS/PKCS#7 SignedData structure (RFC 5652) for PDF
 /// signatures (adbe.pkcs7.detached) using only in-box crypto primitives —
 /// no System.Security.Cryptography.Pkcs package. SHA-256 digest, RSA
-/// PKCS#1 v1.5 signature, signed attributes (content-type, message-digest,
+/// PKCS#1 v1.5 or ECDSA signature, signed attributes (content-type, message-digest,
 /// signing-time).
 /// </summary>
 internal static class CmsSignedDataBuilder
@@ -20,6 +20,7 @@ internal static class CmsSignedDataBuilder
     private const string OidSignedData = "1.2.840.113549.1.7.2";
     private const string OidSha256 = "2.16.840.1.101.3.4.2.1";
     private const string OidRsa = "1.2.840.113549.1.1.1";
+    private const string OidEcdsaWithSha256 = "1.2.840.10045.4.3.2";
     private const string OidContentType = "1.2.840.113549.1.9.3";
     private const string OidMessageDigest = "1.2.840.113549.1.9.4";
     private const string OidSigningTime = "1.2.840.113549.1.9.5";
@@ -29,49 +30,49 @@ internal static class CmsSignedDataBuilder
     /// </summary>
     public static byte[] BuildDetached(byte[] contentDigestSha256, X509Certificate2 certificate, DateTime signingTimeUtc)
     {
-        var rsa = certificate.GetRSAPrivateKey();
-        if (rsa == null)
-            throw new InvalidOperationException("The certificate has no RSA private key.");
+        using var rsa = certificate.GetRSAPrivateKey();
+        using var ecdsa = rsa == null ? certificate.GetECDsaPrivateKey() : null;
+        if (rsa == null && ecdsa == null)
+            throw new NotSupportedException("Signing needs a certificate with an RSA or ECDSA private key.");
 
-        using (rsa)
-        {
-            // Signed attributes (DER SET OF, sorted by encoding)
-            var attrContentType = Sequence(Oid(OidContentType), SetOf(Oid(OidData)));
-            var attrSigningTime = Sequence(Oid(OidSigningTime), SetOf(UtcTime(signingTimeUtc)));
-            var attrMessageDigest = Sequence(Oid(OidMessageDigest), SetOf(OctetString(contentDigestSha256)));
-            var signedAttrsSet = SetOfSorted(attrContentType, attrSigningTime, attrMessageDigest);
+        // Signed attributes (DER SET OF, sorted by encoding)
+        var attrContentType = Sequence(Oid(OidContentType), SetOf(Oid(OidData)));
+        var attrSigningTime = Sequence(Oid(OidSigningTime), SetOf(UtcTime(signingTimeUtc)));
+        var attrMessageDigest = Sequence(Oid(OidMessageDigest), SetOf(OctetString(contentDigestSha256)));
+        var signedAttrsSet = SetOfSorted(attrContentType, attrSigningTime, attrMessageDigest);
 
-            // The signature covers the DER SET OF (tag 0x31) encoding of the attributes
-            byte[] attrsDigest;
-            using (var sha = SHA256.Create())
-                attrsDigest = sha.ComputeHash(signedAttrsSet);
-            var signature = rsa.SignHash(attrsDigest, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        // The signature covers the DER SET OF (tag 0x31) encoding of the attributes
+        byte[] attrsDigest;
+        using (var sha = SHA256.Create())
+            attrsDigest = sha.ComputeHash(signedAttrsSet);
+        var signature = rsa != null
+            ? rsa.SignHash(attrsDigest, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)
+            : EcdsaSignatureToDer(ecdsa!.SignHash(attrsDigest));
 
-            var digestAlg = Sequence(Oid(OidSha256), Null());
-            var sigAlg = Sequence(Oid(OidRsa), Null());
+        var digestAlg = Sequence(Oid(OidSha256), Null());
+        var sigAlg = rsa != null ? Sequence(Oid(OidRsa), Null()) : Sequence(Oid(OidEcdsaWithSha256));
 
-            var issuerAndSerial = Sequence(
-                Raw(certificate.IssuerName.RawData),
-                IntegerFromSerial(certificate.GetSerialNumber()));
+        var issuerAndSerial = Sequence(
+            Raw(certificate.IssuerName.RawData),
+            IntegerFromSerial(certificate.GetSerialNumber()));
 
-            var signerInfo = Sequence(
-                Integer(1),
-                issuerAndSerial,
-                digestAlg,
-                Retag(signedAttrsSet, 0xA0), // [0] IMPLICIT SignedAttributes
-                sigAlg,
-                OctetString(signature));
+        var signerInfo = Sequence(
+            Integer(1),
+            issuerAndSerial,
+            digestAlg,
+            Retag(signedAttrsSet, 0xA0), // [0] IMPLICIT SignedAttributes
+            sigAlg,
+            OctetString(signature));
 
-            var signedData = Sequence(
-                Integer(1),
-                SetOf(digestAlg),
-                Sequence(Oid(OidData)),                      // detached: no eContent
-                Retag(SetOf(Raw(certificate.RawData)), 0xA0), // [0] IMPLICIT CertificateSet
-                SetOf(signerInfo));
+        var signedData = Sequence(
+            Integer(1),
+            SetOf(digestAlg),
+            Sequence(Oid(OidData)),                      // detached: no eContent
+            Retag(SetOf(Raw(certificate.RawData)), 0xA0), // [0] IMPLICIT CertificateSet
+            SetOf(signerInfo));
 
-            // ContentInfo { signedData OID, [0] EXPLICIT SignedData }
-            return Sequence(Oid(OidSignedData), Tlv(0xA0, signedData));
-        }
+        // ContentInfo { signedData OID, [0] EXPLICIT SignedData }
+        return Sequence(Oid(OidSignedData), Tlv(0xA0, signedData));
     }
 
     // ===== Minimal DER encoding helpers =====
@@ -183,6 +184,27 @@ internal static class CmsSignedDataBuilder
             trimmed = padded;
         }
         return Tlv(0x02, trimmed);
+    }
+
+    private static byte[] EcdsaSignatureToDer(byte[] rConcatS)
+    {
+        int half = rConcatS.Length / 2;
+        var r = new byte[half];
+        var s = new byte[half];
+        Array.Copy(rConcatS, 0, r, 0, half);
+        Array.Copy(rConcatS, half, s, 0, half);
+        return Sequence(UnsignedInteger(r), UnsignedInteger(s));
+    }
+
+    private static byte[] UnsignedInteger(byte[] bigEndian)
+    {
+        int skip = 0;
+        while (skip < bigEndian.Length - 1 && bigEndian[skip] == 0)
+            skip++;
+        bool needsPad = (bigEndian[skip] & 0x80) != 0;
+        var content = new byte[bigEndian.Length - skip + (needsPad ? 1 : 0)];
+        Array.Copy(bigEndian, skip, content, needsPad ? 1 : 0, bigEndian.Length - skip);
+        return Tlv(0x02, content);
     }
 
     private static byte[] OctetString(byte[] data) => Tlv(0x04, data);

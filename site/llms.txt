@@ -84,6 +84,9 @@ curl -X POST http://localhost:8080/api/render \
 // One-call PKI signing (detached CMS/PKCS#7, zero extra packages)
 byte[] signed = EggPdf.Pdf.PdfSigner.Sign(pdf, x509CertWithPrivateKey,
     new EggPdf.Pdf.PdfSigner.SignOptions { Name = "Jane", Reason = "Approval" });
+// Or straight from PFX bytes / PEM files (RSA or ECDSA)
+byte[] fromPfx = EggPdf.Pdf.PdfSigner.Sign(pdf, pfxBytes, pfxPassword);
+byte[] fromPem = EggPdf.Pdf.PdfSigner.SignWithPem(pdf, certificatePem, privateKeyPem);
 ```
 - View-only PDFs: `HtmlToPdf.Render(html, new PdfEncryption {...})` or REST `POST /api/encrypt` (RC4 128-bit, owner/user passwords, print/copy/modify flags)
 - Permission flags are advisory; signatures give cryptographic tamper evidence

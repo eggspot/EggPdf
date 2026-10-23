@@ -28,7 +28,7 @@ public static class PdfSigner
     private const int ContentsHexLength = 16384;
 
     /// <summary>
-    /// Sign a PDF in one call with an X.509 certificate (RSA private key).
+    /// Sign a PDF in one call with an X.509 certificate (RSA or ECDSA private key).
     /// Embeds a detached CMS/PKCS#7 signature (adbe.pkcs7.detached) with a
     /// correct /ByteRange, verifiable by standard PDF/CMS validators.
     /// </summary>
@@ -105,6 +105,32 @@ public static class PdfSigner
     }
 
     /// <summary>
+    /// Sign a PDF in one call with a certificate and private key (RSA or ECDSA) from PFX/PKCS#12 bytes; same
+    /// signature as <see cref="Sign(byte[], X509Certificate2, SignOptions?)"/>. <paramref name="password"/> is null
+    /// or empty when the PFX has none. To sign many documents, load once with <see cref="PdfSigningCertificate.FromPfx"/>.
+    /// </summary>
+    /// <exception cref="CryptographicException">The bytes aren't a PKCS#12 file or the password is wrong.</exception>
+    public static byte[] Sign(byte[] pdfBytes, byte[] pfx, string? password, SignOptions? options = null)
+    {
+        using var certificate = PdfSigningCertificate.FromPfx(pfx, password);
+        return Sign(pdfBytes, certificate, options);
+    }
+
+    /// <summary>
+    /// Sign a PDF in one call with a PEM certificate and PEM private key (RSA or ECDSA; PKCS#8, PKCS#1, SEC1, or
+    /// encrypted PKCS#8 with <paramref name="privateKeyPassword"/>). The pair is loaded through
+    /// <see cref="PdfSigningCertificate.FromPem"/>, so it behaves exactly like a PFX. Not available on .NET Standard 2.0.
+    /// </summary>
+    /// <exception cref="CryptographicException">The PEM can't be read, the password is wrong, or the key doesn't match the certificate.</exception>
+    /// <exception cref="PlatformNotSupportedException">Running on the .NET Standard 2.0 build.</exception>
+    public static byte[] SignWithPem(byte[] pdfBytes, string certificatePem, string privateKeyPem,
+        string? privateKeyPassword = null, SignOptions? options = null)
+    {
+        using var certificate = PdfSigningCertificate.FromPem(certificatePem, privateKeyPem, privateKeyPassword);
+        return Sign(pdfBytes, certificate, options);
+    }
+
+    /// <summary>
     /// Add a signature placeholder to a PDF.
     /// The caller can then compute the CMS signature externally and fill it in.
     /// Returns the PDF with an empty signature field.
@@ -151,6 +177,7 @@ public static class PdfSigner
     /// First call AddSignaturePlaceholder(), compute the CMS hash externally,
     /// then call this to insert the signature data.
     /// </summary>
+    /// <exception cref="InvalidOperationException">The CMS is larger than the reserved placeholder (8 KB).</exception>
     public static byte[] SignWithCmsData(byte[] pdfWithPlaceholder, byte[] cmsSignature)
     {
         if (pdfWithPlaceholder == null || cmsSignature == null)
@@ -165,7 +192,7 @@ public static class PdfSigner
         // Convert CMS signature to hex
         string cmsHex = BitConverter.ToString(cmsSignature).Replace("-", "");
         if (cmsHex.Length > placeholder.Length)
-            cmsHex = cmsHex.Substring(0, placeholder.Length); // truncate if too large
+            throw new InvalidOperationException("CMS signature exceeds the reserved /Contents space.");
 
         // Pad with zeros
         cmsHex = cmsHex.PadRight(placeholder.Length, '0');
