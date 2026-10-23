@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 
 namespace EggPdf.Pdf;
@@ -20,7 +21,7 @@ public enum PdfImageFit
 /// earlier signature still verifies over the bytes it signed. Positions are in PDF points with the origin at the
 /// top-left of the page as a viewer shows it (crop box and rotation applied), the same space as
 /// <see cref="PdfReader.GetPage"/>. Encrypted files, files whose cross-reference had to be repaired and certified
-/// (DocMDP) files can't be stamped. Stamps are marked as artifacts so tagged PDFs stay valid.
+/// (DocMDP) files can't be stamped. Stamps are marked as artifacts, so a tagged PDF's structure doesn't include them.
 /// </summary>
 public sealed class PdfStamper
 {
@@ -104,10 +105,33 @@ public sealed class PdfStamper
         return result;
     }
 
-    /// <summary>Returns the original PDF with the images added as an incremental update (the input itself when nothing was added).</summary>
+    /// <summary>Returns the original PDF with the images added as an incremental update (a copy of the input when nothing was added).</summary>
+    /// <exception cref="PdfFormatException">The update would take the file past the 8,388,607 objects a PDF can hold.</exception>
     public byte[] Build()
     {
-        if (_stamps.Count == 0) return (byte[])_original.Clone();
+        var appended = AppendedBytes();
+        var result = new byte[_original.Length + appended.Length];
+        Buffer.BlockCopy(_original, 0, result, 0, _original.Length);
+        Buffer.BlockCopy(appended, 0, result, _original.Length, appended.Length);
+        return result;
+    }
+
+    /// <summary>
+    /// Writes the original PDF followed by the images as an incremental update to <paramref name="output"/>. Only the
+    /// update is held in memory, so this is the way to stamp large files.
+    /// </summary>
+    /// <exception cref="PdfFormatException">The update would take the file past the 8,388,607 objects a PDF can hold.</exception>
+    public void Build(Stream output)
+    {
+        if (output == null) throw new ArgumentNullException(nameof(output));
+        var appended = AppendedBytes();
+        output.Write(_original, 0, _original.Length);
+        output.Write(appended, 0, appended.Length);
+    }
+
+    private byte[] AppendedBytes()
+    {
+        if (_stamps.Count == 0) return Array.Empty<byte>();
 
         var update = new PdfIncrementalUpdate(_original, _reader.Store);
         int saveState = update.Allocate();
@@ -123,7 +147,7 @@ public sealed class PdfStamper
         var imageNumbers = new Dictionary<PdfImage, int>();
         foreach (var pair in byPage)
             StampPage(update, _reader.GetPageNode(pair.Key), pair.Value, saveState, imageNumbers);
-        return update.Finish();
+        return update.FinishAppendedBytes();
     }
 
     private void StampPage(PdfIncrementalUpdate update, PdfPageNode page, List<Stamp> stamps, int saveState,
@@ -256,15 +280,6 @@ public sealed class PdfStamper
         return true;
     }
 
-    private static bool IsCertified(PdfObjectStore store)
-    {
-        var permissions = store.Resolve(store.FindCatalog()?.Get("Perms")) as PdfDictionary;
-        var signature = store.Resolve(permissions?.Get("DocMDP")) as PdfDictionary;
-        if (store.Resolve(signature?.Get("Reference")) is not PdfArray references) return false;
-        foreach (var item in references.Items)
-            if (store.Resolve(item) is PdfDictionary reference
-                && store.Resolve(reference.Get("TransformMethod")) is PdfName { Value: "DocMDP" })
-                return true;
-        return false;
-    }
+    private static bool IsCertified(PdfObjectStore store) =>
+        store.Resolve(store.FindCatalog()?.Get("Perms")) is PdfDictionary permissions && permissions.Get("DocMDP") != null;
 }

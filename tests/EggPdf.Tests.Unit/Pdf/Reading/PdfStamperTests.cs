@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.IO;
 using System.Security.Cryptography;
 using System.Security.Cryptography.Pkcs;
 using System.Security.Cryptography.X509Certificates;
@@ -177,6 +178,42 @@ public class PdfStamperTests
     }
 
     [Fact]
+    public void BuildToStream_WritesTheSameBytesAsBuild()
+    {
+        var stamper = new PdfStamper(RotatedDocument(90)).AddImage(1, Png, 10, 20, 30, 40);
+        var output = new MemoryStream();
+
+        stamper.Build(output);
+
+        output.ToArray().Should().Equal(stamper.Build());
+    }
+
+    [Fact]
+    public void Build_LargeInput_AllocatesOnlyTheUpdate()
+    {
+        const int contentLength = 32 * 1024 * 1024;
+        var original = new TestPdfBuilder()
+            .Add(1, "<< /Type /Catalog /Pages 2 0 R >>")
+            .Add(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 300 300] >>")
+            .Add(3, "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>")
+            .Add(4, "<< /Length " + contentLength.ToString(CultureInfo.InvariantCulture) + " >>\nstream\n"
+                    + new string(' ', contentLength) + "\nendstream")
+            .BuildClassic(root: 1);
+        var stamper = new PdfStamper(original).AddImage(1, Png, 0, 0, 10, 10);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        stamper.Build(Stream.Null);
+        long toStream = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        before = GC.GetAllocatedBytesForCurrentThread();
+        var stamped = stamper.Build();
+        long toArray = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        toStream.Should().BeLessThan(1024 * 1024);
+        toArray.Should().BeLessThan(stamped.Length + 1024 * 1024);
+    }
+
+    [Fact]
     public void Build_NonUtf8ResourceNames_SurviveByteForByte()
     {
         var original = new TestPdfBuilder()
@@ -236,17 +273,18 @@ public class PdfStamperTests
     }
 
     [Theory]
-    [InlineData("/P 1")]
-    [InlineData("/P 2")]
-    [InlineData("/P 3")]
+    [InlineData("/Reference [<< /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams /P 1 /V /1.2 >> >>]")]
+    [InlineData("/Reference [<< /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams /P 2 /V /1.2 >> >>]")]
+    [InlineData("/Reference [<< /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams /P 3 /V /1.2 >> >>]")]
+    [InlineData("/Reference [<< /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams /V /1.2 >> >>]")]
     [InlineData("")]
-    public void Constructor_CertifiedDocument_ThrowsNotSupported(string permission)
+    public void Constructor_CertifiedDocument_ThrowsNotSupported(string reference)
     {
         var original = new TestPdfBuilder()
             .Add(1, "<< /Type /Catalog /Pages 2 0 R /Perms << /DocMDP 4 0 R >> >>")
             .Add(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 300 300] >>")
             .Add(3, "<< /Type /Page /Parent 2 0 R >>")
-            .Add(4, $"<< /Type /Sig /Reference [<< /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams {permission} /V /1.2 >> >>] >>")
+            .Add(4, $"<< /Type /Sig {reference} >>")
             .BuildClassic(root: 1);
 
         Action act = () => new PdfStamper(original);

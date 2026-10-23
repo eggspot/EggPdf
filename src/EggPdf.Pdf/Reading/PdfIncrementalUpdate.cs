@@ -14,12 +14,13 @@ internal sealed class PdfIncrementalUpdate
     private readonly MemoryStream _output = new();
     private readonly PdfObjectStore _store;
     private readonly List<(int Number, int Generation, long Offset)> _written = new();
+    private readonly long _originalLength;
     private int _nextNumber;
 
     public PdfIncrementalUpdate(byte[] original, PdfObjectStore store)
     {
         _store = store;
-        _output.Write(original, 0, original.Length);
+        _originalLength = original.Length;
         if (original.Length > 0 && original[original.Length - 1] != '\n' && original[original.Length - 1] != '\r')
             _output.WriteByte((byte)'\n');
         int declaredSize = PdfStreamDecoder.IntegerOr(store.Trailer.Get("Size"), 0);
@@ -41,16 +42,18 @@ internal sealed class PdfIncrementalUpdate
     public void WriteStream(int number, string dictionaryEntries, byte[] data) =>
         Write(number, 0, "<< " + dictionaryEntries + " /Length " + data.Length.ToString(CultureInfo.InvariantCulture) + " >>", data);
 
-    public byte[] Finish()
+    public byte[] FinishAppendedBytes()
     {
         if (_store.LastCrossReferenceIsStream) WriteCrossReferenceStream();
         else WriteCrossReferenceTable();
         return _output.ToArray();
     }
 
+    private long FileOffset => _originalLength + _output.Position;
+
     private void Write(int number, int generation, string body, byte[]? streamData)
     {
-        _written.Add((number, generation, _output.Position));
+        _written.Add((number, generation, FileOffset));
         WriteText(number.ToString(CultureInfo.InvariantCulture) + " " + generation.ToString(CultureInfo.InvariantCulture) + " obj\n" + body + "\n");
         if (streamData != null)
         {
@@ -63,7 +66,7 @@ internal sealed class PdfIncrementalUpdate
 
     private void WriteCrossReferenceTable()
     {
-        long offset = _output.Position;
+        long offset = FileOffset;
         var table = new StringBuilder("xref\n");
         foreach (var (first, entries) in Subsections())
         {
@@ -81,7 +84,7 @@ internal sealed class PdfIncrementalUpdate
     private void WriteCrossReferenceStream()
     {
         int number = Allocate();
-        long offset = _output.Position;
+        long offset = FileOffset;
         _written.Add((number, 0, offset));
         var rows = new MemoryStream();
         var index = new PdfArray();
