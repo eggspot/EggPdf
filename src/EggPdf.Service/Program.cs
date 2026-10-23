@@ -385,6 +385,41 @@ app.MapPost("/api/sign", async (HttpContext ctx) =>
     }
 });
 
+app.MapPost("/api/stamp", async (HttpContext ctx) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var request = JsonSerializer.Deserialize<StampRequest>(body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+    if (string.IsNullOrEmpty(request?.Pdf))
+        return Results.BadRequest(new { error = "pdf field is required" });
+    if (request.Stamps == null || request.Stamps.Length == 0)
+        return Results.BadRequest(new { error = "stamps must list at least one image" });
+
+    try
+    {
+        var stamper = new EggPdf.Pdf.PdfStamper(Convert.FromBase64String(request.Pdf));
+        foreach (var stamp in request.Stamps)
+        {
+            if (string.IsNullOrEmpty(stamp.Image))
+                return Results.BadRequest(new { error = "every stamp needs an image" });
+            var fit = (stamp.Fit ?? "stretch").ToLowerInvariant() switch
+            {
+                "stretch" => EggPdf.Pdf.PdfImageFit.Stretch,
+                "contain" => EggPdf.Pdf.PdfImageFit.Contain,
+                _ => throw new ArgumentException($"Invalid fit '{stamp.Fit}'. Expected 'stretch' or 'contain'."),
+            };
+            stamper.AddImage(stamp.Page, Convert.FromBase64String(stamp.Image), stamp.X, stamp.Y, stamp.Width, stamp.Height, fit);
+        }
+        return Results.File(stamper.Build(), "application/pdf", "stamped.pdf");
+    }
+    catch (Exception ex) when (ex is FormatException or ArgumentException or NotSupportedException)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
 app.MapPost("/api/attachments", async (HttpContext ctx) =>
 {
     using var reader = new StreamReader(ctx.Request.Body);
@@ -575,6 +610,23 @@ record EncryptRequest
     public bool? AllowPrinting { get; init; }
     public bool? AllowCopying { get; init; }
     public bool? AllowModifying { get; init; }
+}
+
+record StampRequest
+{
+    public string? Pdf { get; init; }
+    public StampPlacement[]? Stamps { get; init; }
+}
+
+record StampPlacement
+{
+    public int Page { get; init; }
+    public double X { get; init; }
+    public double Y { get; init; }
+    public double Width { get; init; }
+    public double Height { get; init; }
+    public string? Image { get; init; }
+    public string? Fit { get; init; }
 }
 
 record SignRequest

@@ -270,6 +270,20 @@
       <h3>Response</h3>
       <p><code>200 OK</code> with <code>application/pdf</code> body (the encrypted document).</p>
 
+      <h2 id="post-stamp">POST /api/stamp</h2>
+      <p>Place images (PNG, JPEG, GIF, BMP or WebP) onto pages of an existing PDF from any producer. Positions are in PDF points from the top-left corner of the page as a viewer shows it, so rotated pages and crop boxes are handled. The images are appended as an incremental update: the original bytes stay unchanged, and an earlier signature still verifies (a verifier will report that content was added after signing). Encrypted PDFs and PDFs whose cross-reference is damaged are refused with <code>400</code>, as are page numbers out of range and unsupported images.</p>
+      <h3>Request</h3>
+      <div class="code-block"><pre><code><span class="pun">{</span>
+  <span class="str">"pdf"</span><span class="pun">:</span> <span class="str">"&lt;base64-encoded PDF&gt;"</span><span class="pun">,</span>
+  <span class="str">"stamps"</span><span class="pun">:</span> <span class="pun">[</span>
+    <span class="pun">{</span> <span class="str">"page"</span><span class="pun">:</span> <span class="num">1</span><span class="pun">,</span> <span class="str">"x"</span><span class="pun">:</span> <span class="num">72</span><span class="pun">,</span> <span class="str">"y"</span><span class="pun">:</span> <span class="num">600</span><span class="pun">,</span> <span class="str">"width"</span><span class="pun">:</span> <span class="num">150</span><span class="pun">,</span> <span class="str">"height"</span><span class="pun">:</span> <span class="num">50</span><span class="pun">,</span>
+      <span class="str">"image"</span><span class="pun">:</span> <span class="str">"&lt;base64-encoded PNG&gt;"</span><span class="pun">,</span> <span class="str">"fit"</span><span class="pun">:</span> <span class="str">"contain"</span> <span class="pun">}</span>
+  <span class="pun">]</span>
+<span class="pun">}</span></code></pre></div>
+      <p><code>fit</code> is <code>"stretch"</code> (default: fill the box) or <code>"contain"</code> (keep proportions, centred). In .NET use <code>new PdfStamper(pdf).AddImage(page, image, x, y, width, height, PdfImageFit.Contain).Build()</code>; page sizes as displayed come from <code>PdfReader.Open(pdf).GetPage(n)</code>.</p>
+      <h3>Response</h3>
+      <p><code>200 OK</code> with <code>application/pdf</code> body (the stamped document).</p>
+
       <h2 id="post-sign">POST /api/sign</h2>
       <p>Add a digital-signature placeholder (<code>adbe.pkcs7.detached</code>) to an existing PDF. The endpoint does not hold private keys: compute the CMS signature with your certificate and embed it via the library (<code>PdfSigner.SignWithCmsData</code>), or sign fully in-process with <code>PdfSigner.Sign(pdfBytes, x509Certificate)</code>, <code>PdfSigner.Sign(pdfBytes, pfxBytes, password)</code> or <code>PdfSigner.SignWithPem(pdfBytes, certificatePem, privateKeyPem)</code> when you control the key material. The service never accepts private keys or certificate passwords in a request.</p>
       <h3>Request</h3>

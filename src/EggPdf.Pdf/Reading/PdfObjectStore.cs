@@ -98,8 +98,6 @@ internal sealed class PdfObjectStore
         }
     }
 
-    public int SourceLength => _data.Length;
-
     public bool IsEncrypted => Trailer.Get("Encrypt") is { } encrypt && encrypt is not PdfNull;
 
     public static PdfObjectStore Load(byte[] data)

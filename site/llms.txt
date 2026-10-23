@@ -83,6 +83,8 @@ curl -X POST http://localhost:8080/api/render \
 - `PdfReader.Open(bytes)`: `PageCount`, `GetPage(n)` (displayed width/height in points, rotation), `IsEncrypted`;
   `PdfReader.GetPageCount(bytes)`. Any producer (xref/object streams, incremental updates, damaged files repaired),
   safety limits for untrusted uploads, `PdfFormatException` when unreadable
+- `new PdfStamper(pdf).AddImage(page, png, x, y, width, height).Build()`: images on existing pages (top-left, points,
+  rotation-aware), appended as an incremental update so earlier signatures stay valid; REST `POST /api/stamp`
 
 ## Security
 ```csharp
