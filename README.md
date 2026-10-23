@@ -241,7 +241,8 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   `@import`, `@font-face` source, `<img>` and CSS background image through one `IResourceResolver`
   (never a process-wide cache), and `AllowLocalFileAccess = false` refuses file paths and `file:` URLs.
   The built-in `HttpResourceResolver` refuses loopback, private and cloud-metadata (169.254.169.254)
-  addresses at connect time, re-checks every redirect, and caps size and time. Same settings on the
+  addresses (checked at connect time on .NET 6+, before each request on .NET Standard builds), re-checks
+  every redirect, and caps size and time. Same settings on the
   fluent builder, the CLI (`--no-local-files`, `--no-private-network`), and the REST service, which
   is locked down by default (`EggPdf__Resources__*` to loosen). Without a resolver, loading is
   unchanged: local files plus http(s) stylesheets and fonts from any address

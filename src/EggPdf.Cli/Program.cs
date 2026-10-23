@@ -188,11 +188,13 @@ public class Program
             };
             if (noPrivateNetwork)
             {
-                // Safe http(s) fetching (also loads remote images); local files stay readable, confined to
-                // the input file's directory, unless --no-local-files
-                var baseDirectory = inputPath == "-" ||
-                                    inputPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                                    inputPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                // Safe http(s) fetching (also loads remote images). Local files stay readable unless
+                // --no-local-files, confined to the input file's directory (stdin: the current directory);
+                // a page fetched from a URL has no local directory, so it reads no local files at all
+                bool remoteInput = inputPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                                   inputPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+                if (remoteInput) options.AllowLocalFileAccess = false;
+                var baseDirectory = inputPath == "-" || remoteInput
                     ? null
                     : Path.GetDirectoryName(Path.GetFullPath(inputPath));
                 options.ResourceResolver = new CompositeResolver(baseDirectory);
@@ -279,7 +281,8 @@ OPTIONS:
                               safely: refuse loopback, private and cloud-metadata
                               addresses, re-check redirects, cap size and time.
                               Local files are then read only from the input
-                              file's directory. Use both flags for untrusted HTML
+                              file's directory (stdin: the current directory;
+                              URL input: none). Use both flags for untrusted HTML
     -v, --verbose            Show render timing and file size
     --version                Show version
     -h, --help               Show this help

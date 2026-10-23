@@ -210,8 +210,10 @@
         <li><code>PdfRenderOptions.ResourceResolver</code> &mdash; every external resource (stylesheets,
           <code>@import</code>, <code>@font-face</code>, <code>&lt;img&gt;</code>, CSS background images) is loaded
           only through this <code>IResourceResolver</code>. The built-in <code>HttpResourceResolver</code> refuses
-          loopback, private, link-local (169.254.169.254) and other non-public addresses, checks the address when it
-          connects (so DNS can't swap it), re-checks every redirect (at most 5), stops at 50&nbsp;MB and 10&nbsp;seconds
+          loopback, private, link-local (169.254.169.254) and other non-public addresses &mdash; on .NET 6+ it checks
+          the address when it connects, so DNS can't swap it; on .NET Standard builds (e.g. .NET Framework) it resolves
+          the hostname just before each request, which a DNS-rebinding attacker can race &mdash; re-checks every redirect
+          (at most 5), stops at 50&nbsp;MB and 10&nbsp;seconds
           by default, and also loads http(s) images. <code>CompositeResolver</code> combines it with data: URIs and
           files confined to one directory. Write your own to serve resources from a database or blob store.</li>
         <li><code>PdfRenderOptions.AllowLocalFileAccess = false</code> &mdash; file paths and <code>file:</code> URLs

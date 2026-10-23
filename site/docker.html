@@ -161,9 +161,9 @@
             <tr><td><code>AUTH_API_KEY</code></td><td>—</td><td>The API key value when <code>AUTH_ENABLED=true</code>.</td></tr>
             <tr><td><code>WEBUI_ENABLED</code></td><td><code>true</code></td><td>Set to <code>false</code> to disable the WebUI and serve API only.</td></tr>
             <tr><td><code>EggPdf__Resources__AllowLocalFileAccess</code></td><td><code>false</code></td><td>Let rendered HTML read files from the container (paths, <code>file:</code> URLs), confined to <code>BaseDirectory</code>. Off by default because callers are untrusted.</td></tr>
-            <tr><td><code>EggPdf__Resources__BaseDirectory</code></td><td>app directory</td><td>The only directory readable when <code>AllowLocalFileAccess=true</code>.</td></tr>
+            <tr><td><code>EggPdf__Resources__BaseDirectory</code></td><td>app directory</td><td>The only directory readable when <code>AllowLocalFileAccess=true</code>. Set it to a dedicated assets folder: the default app directory also holds the service's own files (e.g. <code>appsettings*.json</code>).</td></tr>
             <tr><td><code>EggPdf__Resources__AllowPrivateNetworks</code></td><td><code>false</code></td><td>Let rendered HTML (and <code>/api/render/url</code>) fetch loopback, private and link-local addresses. Off by default to block SSRF to internal services and the cloud metadata endpoint.</td></tr>
-            <tr><td><code>EggPdf__Resources__AllowedDomains</code></td><td>any</td><td>Comma-separated host names that stylesheets, fonts and images may be fetched from, e.g. <code>fonts.googleapis.com,fonts.gstatic.com</code>.</td></tr>
+            <tr><td><code>EggPdf__Resources__AllowedDomains</code></td><td>any</td><td>Comma-separated host names that stylesheets, fonts and images &mdash; and <code>/api/render/url</code> pages &mdash; may be fetched from, e.g. <code>fonts.googleapis.com,fonts.gstatic.com</code>. Fetches go direct, never through an HTTP proxy, so a deployment that only reaches the internet through a proxy can't load remote resources.</td></tr>
           </tbody>
         </table>
       </div>

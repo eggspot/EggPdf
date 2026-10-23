@@ -65,7 +65,7 @@ public class HttpResourceResolver : IResourceResolver
         if (!TryParseHttpUrl(url, out var uri)) return null;
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromSeconds(_options.TimeoutSeconds));
+        timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.TimeoutSeconds)));
         try
         {
             for (int redirects = 0; ; redirects++)
@@ -205,7 +205,7 @@ public class HttpResourceOptions
     /// <summary>Host names that may be fetched (exact, case-insensitive); null or empty allows any host.</summary>
     public string[]? AllowedDomains { get; set; }
 
-    /// <summary>Whole-fetch time limit in seconds, redirects included.</summary>
+    /// <summary>Whole-fetch time limit in seconds, redirects included (at least 1).</summary>
     public int TimeoutSeconds { get; set; } = 10;
 
     /// <summary>Largest response body accepted, in bytes; larger responses are discarded.</summary>
