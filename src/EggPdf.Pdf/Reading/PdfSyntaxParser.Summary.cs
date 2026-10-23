@@ -8,6 +8,7 @@ internal sealed partial class PdfSyntaxParser
     {
         Position = start;
         _end = end;
+        _logicalEnd = -1;
         _budget = budget;
         return this;
     }

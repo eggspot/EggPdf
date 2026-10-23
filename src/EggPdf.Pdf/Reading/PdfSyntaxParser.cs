@@ -15,7 +15,7 @@ internal sealed partial class PdfSyntaxParser
     private readonly IPdfStreamLocator? _streams;
     private PdfParseBudget? _budget;
     private readonly long _baseOffset;
-    private readonly long _logicalEnd;
+    private long _logicalEnd;
     private bool _streamDataOutside;
 
     public PdfSyntaxParser(byte[] data, int start, int end, Func<PdfReference, PdfObject?>? resolveLength = null,

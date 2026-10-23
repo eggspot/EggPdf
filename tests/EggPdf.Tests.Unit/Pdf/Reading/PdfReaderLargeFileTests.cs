@@ -410,6 +410,24 @@ public class PdfReaderLargeFileTests
     }
 
     [Fact]
+    public void Open_DamagedFileWithPageNodesBeforeTheirRoot_ReadsFromBytesAndStream()
+    {
+        var pdf = Latin1.GetBytes("%PDF-1.7\n" +
+                                  "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" +
+                                  "3 0 obj\n<< /Type /Page /Parent 5 0 R /MediaBox [0 0 100 800] >>\nendobj\n" +
+                                  "4 0 obj\n<< /Type /Page /Parent 5 0 R /MediaBox [0 0 300 800] >>\nendobj\n" +
+                                  "5 0 obj\n<< /Type /Pages /Parent 2 0 R /Kids [3 0 R 4 0 R] /Count 2 >>\nendobj\n" +
+                                  "2 0 obj\n<< /Type /Pages /Kids [5 0 R] /Count 2 >>\nendobj\n");
+
+        foreach (var reader in new[] { PdfReader.Open(pdf), PdfReader.Open(new MemoryStream(pdf)) })
+        {
+            reader.PageCount.Should().Be(2);
+            reader.GetPage(1).Width.Should().Be(100);
+            reader.GetPage(2).Width.Should().Be(300);
+        }
+    }
+
+    [Fact]
     public void Open_UnseekableStream_ThrowsArgumentException()
     {
         var unseekable = new System.IO.Compression.DeflateStream(new MemoryStream(), System.IO.Compression.CompressionMode.Decompress);
