@@ -39,13 +39,13 @@ internal sealed class PdfClassicRows : PdfCrossReferenceSubsection
 {
     public const int RowTextLength = 18;
 
-    private readonly byte[] _data;
+    private readonly PdfByteSource _source;
     private readonly long _rowsStart;
     private readonly int _stride;
 
-    public PdfClassicRows(byte[] data, int first, int count, long rowsStart, int stride) : base(first, count)
+    public PdfClassicRows(PdfByteSource source, int first, int count, long rowsStart, int stride) : base(first, count)
     {
-        _data = data;
+        _source = source;
         _rowsStart = rowsStart;
         _stride = stride;
     }
@@ -53,17 +53,20 @@ internal sealed class PdfClassicRows : PdfCrossReferenceSubsection
     public override PdfCrossReferenceEntry Read(int index)
     {
         long at = _rowsStart + (long)_stride * index;
-        if (!TryReadRow(_data, at, out long offset, out bool inUse))
+        if (!TryReadRow(_source, at, out long offset, out bool inUse))
             return new PdfCrossReferenceEntry(PdfCrossReferenceEntryKind.InFile, -1, 0);
         return inUse ? new PdfCrossReferenceEntry(PdfCrossReferenceEntryKind.InFile, offset, 0) : PdfCrossReferenceEntry.Free;
     }
 
-    public static bool TryReadRow(byte[] data, long at, out long offset, out bool inUse)
+    public static bool TryReadRow(PdfByteSource source, long at, out long offset, out bool inUse)
     {
         offset = 0;
         inUse = false;
-        if (at < 0 || at + RowTextLength > data.Length) return false;
-        int start = (int)at;
+        if (at < 0 || at + RowTextLength > source.Length) return false;
+        var window = source.Window(at, RowTextLength);
+        if (window.End - window.Offset < RowTextLength) return false;
+        var data = window.Data;
+        int start = window.Offset;
         for (int i = 0; i < 10; i++)
         {
             byte b = data[start + i];

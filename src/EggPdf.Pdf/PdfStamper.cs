@@ -28,6 +28,7 @@ public sealed class PdfStamper
     private const string ResourceNamePrefix = "EggPdfStamp";
     private const double MaxExtent = 14400;
     private const double MinSize = 0.01;
+    private const long MaxArrayBytes = 0x7FFFFFC7;
 
     private sealed class Stamp
     {
@@ -51,7 +52,6 @@ public sealed class PdfStamper
         public PdfImageFit Fit { get; }
     }
 
-    private readonly byte[] _original;
     private readonly PdfReader _reader;
     private readonly List<Stamp> _stamps = new();
     private readonly List<(byte[] Source, PdfImage Decoded)> _images = new();
@@ -59,10 +59,25 @@ public sealed class PdfStamper
     /// <summary>Opens <paramref name="pdf"/> for stamping; the bytes aren't modified.</summary>
     /// <exception cref="PdfFormatException">The bytes aren't a readable PDF, or its cross-reference is damaged.</exception>
     /// <exception cref="NotSupportedException">The PDF is encrypted, or certified with a DocMDP signature.</exception>
-    public PdfStamper(byte[] pdf)
+    public PdfStamper(byte[] pdf) : this(PdfReader.Open(pdf ?? throw new ArgumentNullException(nameof(pdf))))
     {
-        _original = pdf ?? throw new ArgumentNullException(nameof(pdf));
-        _reader = PdfReader.Open(pdf);
+    }
+
+    /// <summary>
+    /// Opens the PDF in <paramref name="pdf"/> (readable and seekable) for stamping without loading it into memory, so
+    /// files of any size can be stamped; pair it with <see cref="Build(Stream)"/>. The stream isn't modified or closed and
+    /// must stay open and unchanged until the stamper has been built.
+    /// </summary>
+    /// <exception cref="ArgumentException">The stream isn't readable and seekable.</exception>
+    /// <exception cref="PdfFormatException">The stream isn't a readable PDF, or its cross-reference is damaged.</exception>
+    /// <exception cref="NotSupportedException">The PDF is encrypted, or certified with a DocMDP signature.</exception>
+    public PdfStamper(Stream pdf) : this(PdfReader.Open(pdf))
+    {
+    }
+
+    private PdfStamper(PdfReader reader)
+    {
+        _reader = reader;
         if (_reader.IsEncrypted) throw new NotSupportedException("Stamping an encrypted PDF isn't supported.");
         if (_reader.Store.WasRepaired)
             throw new PdfFormatException("The PDF's cross-reference is damaged: it can be read but not updated in place.");
@@ -110,12 +125,14 @@ public sealed class PdfStamper
     /// A stamped page's part of the page tree is damaged, or the update would take the file past the 8,388,607 objects a
     /// PDF can hold.
     /// </exception>
+    /// <exception cref="InvalidOperationException">The result is too large for a byte array; use <see cref="Build(Stream)"/>.</exception>
     public byte[] Build()
     {
         var appended = AppendedBytes();
-        var result = new byte[_original.Length + appended.Length];
-        Buffer.BlockCopy(_original, 0, result, 0, _original.Length);
-        Buffer.BlockCopy(appended, 0, result, _original.Length, appended.Length);
+        long total = _reader.Store.Source.Length + appended.Length;
+        if (total > MaxArrayBytes) throw new InvalidOperationException("The stamped PDF is too large for a byte array: use Build(Stream).");
+        var result = new byte[total];
+        using (var output = new MemoryStream(result)) WriteTo(output, appended);
         return result;
     }
 
@@ -130,8 +147,12 @@ public sealed class PdfStamper
     public void Build(Stream output)
     {
         if (output == null) throw new ArgumentNullException(nameof(output));
-        var appended = AppendedBytes();
-        output.Write(_original, 0, _original.Length);
+        WriteTo(output, AppendedBytes());
+    }
+
+    private void WriteTo(Stream output, byte[] appended)
+    {
+        _reader.Store.Source.CopyTo(output);
         output.Write(appended, 0, appended.Length);
     }
 
@@ -139,7 +160,7 @@ public sealed class PdfStamper
     {
         if (_stamps.Count == 0) return Array.Empty<byte>();
 
-        var update = new PdfIncrementalUpdate(_original, _reader.Store);
+        var update = new PdfIncrementalUpdate(_reader.Store);
         int saveState = update.Allocate();
         update.WriteStream(saveState, "", Encoding.ASCII.GetBytes("q\n"));
 

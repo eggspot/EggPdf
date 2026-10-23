@@ -459,9 +459,13 @@ public class PdfReaderTests
     [Fact]
     public void Open_Null_ThrowsArgumentNull()
     {
-        Action act = () => PdfReader.Open(null!);
+        Action bytes = () => PdfReader.Open((byte[])null!);
+        Action stream = () => PdfReader.Open((System.IO.Stream)null!);
+        Action path = () => PdfReader.Open((string)null!);
 
-        act.Should().Throw<ArgumentNullException>();
+        bytes.Should().Throw<ArgumentNullException>();
+        stream.Should().Throw<ArgumentNullException>();
+        path.Should().Throw<ArgumentNullException>();
     }
 
     [Fact]

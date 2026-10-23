@@ -11,21 +11,29 @@ internal sealed partial class PdfSyntaxParser
     private readonly byte[] _data;
     private int _end;
     private readonly Func<PdfReference, PdfObject?>? _resolveLength;
-    private readonly Func<int, int>? _findEndstream;
+    private readonly IPdfStreamLocator? _streams;
     private PdfParseBudget? _budget;
+    private readonly long _baseOffset;
+    private readonly long _logicalEnd;
 
     public PdfSyntaxParser(byte[] data, int start, int end, Func<PdfReference, PdfObject?>? resolveLength = null,
-        Func<int, int>? findEndstream = null, PdfParseBudget? budget = null)
+        IPdfStreamLocator? streams = null, PdfParseBudget? budget = null, long baseOffset = 0, long logicalEnd = -1)
     {
         _data = data;
         Position = start;
         _end = end;
         _resolveLength = resolveLength;
-        _findEndstream = findEndstream;
+        _streams = streams;
         _budget = budget;
+        _baseOffset = baseOffset;
+        _logicalEnd = logicalEnd;
     }
 
     public int Position { get; set; }
+
+    public int End => _end;
+
+    public long FilePosition => _baseOffset + Position;
 
     public bool AtEnd
     {
@@ -386,38 +394,24 @@ internal sealed partial class PdfSyntaxParser
 
     private PdfStream ReadStreamData(PdfDictionary dictionary)
     {
+        if (_streams == null) throw Error("Unexpected stream");
         if (Position < _end && _data[Position] == '\r') Position++;
         if (Position < _end && _data[Position] == '\n') Position++;
-        int dataStart = Position;
+        long dataStart = FilePosition;
+        long logicalEnd = _logicalEnd >= 0 ? _logicalEnd : _baseOffset + _end;
 
         long declared = -1;
         var lengthObject = dictionary.Get("Length");
         if (lengthObject is PdfReference reference && _resolveLength != null) lengthObject = _resolveLength(reference);
         if (lengthObject is PdfNumber number && number.IsInteger) declared = (long)number.Value;
 
-        if (declared >= 0 && dataStart + declared <= _end && EndstreamFollows((int)(dataStart + declared)))
-        {
-            Position = (int)(dataStart + declared);
-            TryReadKeyword("endstream");
-            return new PdfStream(dictionary, _data, dataStart, (int)declared);
-        }
-
-        int endstream = _findEndstream?.Invoke(dataStart) ?? IndexOf(_data, "endstream", dataStart, _end);
-        if (endstream < 0 || endstream + "endstream".Length > _end) throw Error("Stream has no endstream");
-        int dataEnd = endstream;
-        if (dataEnd > dataStart && _data[dataEnd - 1] == '\n') dataEnd--;
-        if (dataEnd > dataStart && _data[dataEnd - 1] == '\r') dataEnd--;
-        Position = endstream + "endstream".Length;
-        return new PdfStream(dictionary, _data, dataStart, dataEnd - dataStart);
-    }
-
-    private bool EndstreamFollows(int at)
-    {
-        int saved = Position;
-        Position = at;
-        bool found = TryReadKeyword("endstream");
-        Position = saved;
-        return found;
+        long length;
+        if (declared >= 0 && dataStart + declared <= logicalEnd && _streams.EndstreamAt(dataStart + declared))
+            length = declared;
+        else if (!_streams.TryFindDataEnd(dataStart, logicalEnd, out length))
+            throw Error("Stream has no endstream");
+        Position = (int)Math.Min(_end, dataStart + length - _baseOffset);
+        return new PdfStream(dictionary, _streams.Source, dataStart, length);
     }
 
     public static int IndexOf(byte[] data, string token, int start, int end)
@@ -431,9 +425,11 @@ internal sealed partial class PdfSyntaxParser
         return -1;
     }
 
-    public static int LastIndexOf(byte[] data, string token, int end)
+    public static int LastIndexOf(byte[] data, string token, int end) => LastIndexOf(data, token, 0, end);
+
+    public static int LastIndexOf(byte[] data, string token, int start, int end)
     {
-        for (int i = Math.Min(end, data.Length) - token.Length; i >= 0; i--)
+        for (int i = Math.Min(end, data.Length) - token.Length; i >= start; i--)
         {
             int j = 0;
             while (j < token.Length && data[i + j] == token[j]) j++;
@@ -456,5 +452,5 @@ internal sealed partial class PdfSyntaxParser
     }
 
     private PdfFormatException Error(string message) =>
-        new(message + " at byte " + Position.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".");
+        new(message + " at byte " + FilePosition.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".");
 }
