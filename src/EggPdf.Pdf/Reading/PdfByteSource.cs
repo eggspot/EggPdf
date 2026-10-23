@@ -24,7 +24,7 @@ internal abstract class PdfByteSource : IDisposable
 
     public static PdfByteSource Over(Stream stream, bool ownsStream) => new StreamSource(stream, ownsStream);
 
-    protected abstract void Read(long position, byte[] buffer, int length);
+    public abstract void Read(long position, byte[] buffer, int length);
 
     public long[] FindAll(string token, int maxHits)
     {
@@ -102,7 +102,7 @@ internal abstract class PdfByteSource : IDisposable
 
         public override void CopyTo(Stream output) => output.Write(_data, 0, _data.Length);
 
-        protected override void Read(long position, byte[] buffer, int length) => Array.Copy(_data, position, buffer, 0, length);
+        public override void Read(long position, byte[] buffer, int length) => Array.Copy(_data, position, buffer, 0, length);
     }
 
     private sealed class StreamSource : PdfByteSource
@@ -159,7 +159,7 @@ internal abstract class PdfByteSource : IDisposable
             }
         }
 
-        protected override void Read(long position, byte[] buffer, int length) => ReadExactly(position, buffer, length);
+        public override void Read(long position, byte[] buffer, int length) => ReadExactly(position, buffer, length);
 
         public override void Dispose()
         {

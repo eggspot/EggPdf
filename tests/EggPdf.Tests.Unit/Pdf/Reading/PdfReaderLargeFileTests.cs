@@ -374,6 +374,41 @@ public class PdfReaderLargeFileTests
         }
     }
 
+    public static IEnumerable<object[]> TokensCutByTheWindow()
+    {
+        foreach (int target in new[] { 1, 2, 3 })
+            foreach (string ending in new[] { " >>", " /F true >>", " /F null >>", " /F false >>" })
+                for (int shift = -12; shift <= 2; shift++)
+                    yield return new object[] { target, ending, shift };
+    }
+
+    [Theory]
+    [MemberData(nameof(TokensCutByTheWindow))]
+    public void Open_TokenCutByTheEdgeOfTheFirstWindow_ReadsLikeBytes(int target, string ending, int shift)
+    {
+        var bodies = new Dictionary<int, string>
+        {
+            [1] = "<< /Type /Catalog /Pages 2 0 R /Pad (",
+            [2] = "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /Pad (",
+            [3] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 301 800] /Pad (",
+        };
+        string header = N(target) + " 0 obj\n";
+        int pad = 4096 + shift - header.Length - bodies[target].Length - 1 - ending.Length;
+        bodies[target] += new string('x', pad) + ")" + ending;
+        var pdf = new TestPdfBuilder()
+            .Add(1, bodies.TryGetValue(1, out var catalog) && target == 1 ? catalog : "<< /Type /Catalog /Pages 2 0 R >>")
+            .Add(2, target == 2 ? bodies[2] : "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>")
+            .Add(3, target == 3 ? bodies[3] : "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 301 800] >>")
+            .Add(4, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 302 800] >>")
+            .BuildClassic(root: 1);
+
+        using var reader = PdfReader.Open(new MemoryStream(pdf));
+
+        reader.PageCount.Should().Be(2);
+        reader.GetPage(1).Width.Should().Be(301);
+        reader.GetPage(2).Width.Should().Be(302);
+    }
+
     [Fact]
     public void Open_UnseekableStream_ThrowsArgumentException()
     {

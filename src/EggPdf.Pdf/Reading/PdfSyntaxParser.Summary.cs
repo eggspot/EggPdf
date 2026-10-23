@@ -30,6 +30,8 @@ internal sealed partial class PdfSyntaxParser
                 if (_data[Position] == '>' && Position + 1 < _end && _data[Position + 1] == '>')
                 {
                     Position += 2;
+                    SkipWhitespaceAndComments();
+                    if (EndsBeforeObject && _end - Position < StreamKeywordWithLineBreak) throw new PdfWindowTooSmallException();
                     return TryReadKeyword("stream") ? null : new PdfPageTreeSummary(type, kids, count);
                 }
                 if (_data[Position] != '/') throw Error("Expected a name as dictionary key");

@@ -60,6 +60,7 @@ internal sealed partial class PdfObjectStore : IPdfStreamLocator
     private const int ScanOverlapBytes = 64;
     private const int TrailerWindowBytes = 1024 * 1024;
     private const int MaxIndexedKeywords = 8_000_000;
+    private const int CutTokenBytes = 64;
 
     private readonly PdfByteSource _source;
     private readonly long _length;
@@ -284,10 +285,13 @@ internal sealed partial class PdfObjectStore : IPdfStreamLocator
     {
         if (_scannedOffsets != null) return _scannedOffsets;
         var offsets = new Dictionary<int, long>();
+        const int span = ScanChunkBytes + ScanOverlapBytes + 1;
+        byte[]? buffer = _source.IsInMemory ? null : new byte[(int)Math.Min(span, _length)];
         for (long chunkStart = 0; chunkStart < _length; chunkStart += ScanChunkBytes)
         {
             long readStart = Math.Max(0, chunkStart - 1);
-            var window = _source.Window(readStart, (int)Math.Min(ScanChunkBytes + ScanOverlapBytes + 1, _length - readStart));
+            int length = (int)Math.Min(span, _length - readStart);
+            var window = buffer == null ? _source.Window(readStart, length) : ReadInto(buffer, readStart, length);
             var data = window.Data;
             int first = window.Offset + (int)(chunkStart - readStart);
             int last = Math.Min(window.End, first + ScanChunkBytes);
@@ -304,6 +308,12 @@ internal sealed partial class PdfObjectStore : IPdfStreamLocator
         offsets.Values.CopyTo(_scannedOffsetsAscending, 0);
         Array.Sort(_scannedOffsetsAscending);
         return _scannedOffsets = offsets;
+    }
+
+    private PdfByteWindow ReadInto(byte[] buffer, long start, int length)
+    {
+        _source.Read(start, buffer, length);
+        return new PdfByteWindow(buffer, 0, start, length);
     }
 
     private long ParseEnd(long objectOffset)
@@ -370,7 +380,8 @@ internal sealed partial class PdfObjectStore : IPdfStreamLocator
             {
                 continue;
             }
-            catch (PdfFormatException ex) when (ex is not PdfParseBudgetExceededException && canGrow && parser.Position >= parser.End)
+            catch (PdfFormatException ex) when (ex is not PdfParseBudgetExceededException && canGrow &&
+                                                parser.Position >= parser.End - CutTokenBytes)
             {
                 continue;
             }
