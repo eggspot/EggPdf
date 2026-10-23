@@ -311,6 +311,69 @@ public class PdfReaderLargeFileTests
         fromStream.ToArray().Should().Equal(new PdfStamper(bytes).AddImage(1, Png, 5, 5, 20, 20).Build());
     }
 
+    private static TestPdfBuilder TwoPages() => new TestPdfBuilder()
+        .Add(1, "<< /Type /Catalog /Pages 2 0 R >>")
+        .Add(2, "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>")
+        .Add(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 301 800] >>")
+        .Add(4, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 302 800] >>");
+
+    [Fact]
+    public void Open_StreamWithManyEndstreamKeywords_IndexesThemInOnePass()
+    {
+        var text = Latin1.GetString(TwoPages().BuildWithXrefStream(root: 1, pngUpPredictor: false));
+        int xrefStream = text.LastIndexOf("/Type /XRef", StringComparison.Ordinal);
+        int length = text.IndexOf("/Length ", xrefStream, StringComparison.Ordinal);
+        int lengthEnd = text.IndexOf(" >>", length, StringComparison.Ordinal);
+        var padding = new StringBuilder();
+        for (int i = 0; i < 50_000; i++) padding.Append("%endstream\n");
+        var pdf = Latin1.GetBytes(text.Substring(0, length) + text.Substring(lengthEnd) + padding);
+        PdfPageGeometry? page = null;
+
+        long allocated = AllocatedWhile(() => page = PdfReader.Open(new MemoryStream(pdf)).GetPage(2));
+
+        page!.Width.Should().Be(302);
+        allocated.Should().BeLessThan(32 * Megabyte);
+    }
+
+    [Fact]
+    public void Open_DamagedStreamWithManyTrailers_RepairsInOnePass()
+    {
+        var text = Latin1.GetString(TwoPages().BuildClassic(root: 1));
+        int startxref = text.LastIndexOf("startxref", StringComparison.Ordinal);
+        var padding = new StringBuilder();
+        for (int i = 0; i < 20_000; i++) padding.Append("trailer\n");
+        var pdf = Latin1.GetBytes(text.Substring(0, startxref) + "startxref\n999999999\n%%EOF\n" + padding);
+        PdfPageGeometry? page = null;
+
+        long allocated = AllocatedWhile(() => page = PdfReader.Open(new MemoryStream(pdf)).GetPage(2));
+
+        page!.Width.Should().Be(302);
+        allocated.Should().BeLessThan(64 * Megabyte);
+    }
+
+    [Theory]
+    [InlineData(-3)]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(5)]
+    public void Get_StreamKeywordAtTheEdgeOfTheFirstWindow_ReadsTheStreamData(int shift)
+    {
+        const string prefix = "5 0 obj\n<< /Length 5 /Pad (";
+        const string suffix = ") >>\nstream";
+        int pad = 4096 + shift - prefix.Length - suffix.Length;
+        var pdf = TwoPages().Add(5, "<< /Length 5 /Pad (" + new string('x', pad) + ") >>\nstream\nhello\nendstream").BuildClassic(root: 1);
+
+        foreach (var source in new[] { PdfByteSource.Over(new MemoryStream(pdf), ownsStream: false), PdfByteSource.Over(pdf) })
+        {
+            var stream = PdfObjectStore.Load(source).Get(5) as PdfStream;
+
+            stream.Should().NotBeNull();
+            Latin1.GetString(PdfStreamDecoder.Decode(stream!)).Should().Be("hello");
+        }
+    }
+
     [Fact]
     public void Open_UnseekableStream_ThrowsArgumentException()
     {

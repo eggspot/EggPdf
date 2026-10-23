@@ -13,7 +13,7 @@ internal sealed partial class PdfObjectStore
     {
         try
         {
-            long startxref = _source.LastIndexOf("startxref", _length);
+            long startxref = _source.LastIndexOf("startxref");
             if (startxref < 0) return false;
             long offset = ParseAt(startxref + "startxref".Length, parser => parser.ReadInteger());
 

@@ -7,6 +7,7 @@ namespace EggPdf.Pdf;
 internal sealed partial class PdfSyntaxParser
 {
     private const int MaxNestingDepth = 256;
+    private const int StreamKeywordWithLineBreak = 8;
 
     private readonly byte[] _data;
     private int _end;
@@ -15,6 +16,7 @@ internal sealed partial class PdfSyntaxParser
     private PdfParseBudget? _budget;
     private readonly long _baseOffset;
     private readonly long _logicalEnd;
+    private bool _streamDataOutside;
 
     public PdfSyntaxParser(byte[] data, int start, int end, Func<PdfReference, PdfObject?>? resolveLength = null,
         IPdfStreamLocator? streams = null, PdfParseBudget? budget = null, long baseOffset = 0, long logicalEnd = -1)
@@ -34,6 +36,10 @@ internal sealed partial class PdfSyntaxParser
     public int End => _end;
 
     public long FilePosition => _baseOffset + Position;
+
+    public bool EndsBeforeObject => _logicalEnd >= 0 && _baseOffset + _end < _logicalEnd;
+
+    public bool ReachedWindowEnd => EndsBeforeObject && !_streamDataOutside && Position >= _end;
 
     public bool AtEnd
     {
@@ -108,9 +114,10 @@ internal sealed partial class PdfSyntaxParser
     public PdfObject ReadIndirectObjectBody()
     {
         var value = ReadObject();
-        if (value is PdfDictionary dictionary && TryReadKeyword("stream"))
-            return ReadStreamData(dictionary);
-        return value;
+        if (value is not PdfDictionary dictionary) return value;
+        SkipWhitespaceAndComments();
+        if (EndsBeforeObject && _end - Position < StreamKeywordWithLineBreak) throw new PdfWindowTooSmallException();
+        return TryReadKeyword("stream") ? ReadStreamData(dictionary) : value;
     }
 
     public PdfObject ReadObject()
@@ -411,6 +418,7 @@ internal sealed partial class PdfSyntaxParser
         else if (!_streams.TryFindDataEnd(dataStart, logicalEnd, out length))
             throw Error("Stream has no endstream");
         Position = (int)Math.Min(_end, dataStart + length - _baseOffset);
+        _streamDataOutside = true;
         return new PdfStream(dictionary, _streams.Source, dataStart, length);
     }
 
@@ -453,4 +461,11 @@ internal sealed partial class PdfSyntaxParser
 
     private PdfFormatException Error(string message) =>
         new(message + " at byte " + FilePosition.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".");
+}
+
+internal sealed class PdfWindowTooSmallException : PdfFormatException
+{
+    public PdfWindowTooSmallException() : base("The object runs past the part of the file read so far.")
+    {
+    }
 }

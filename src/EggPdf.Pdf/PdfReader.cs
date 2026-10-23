@@ -45,12 +45,13 @@ public sealed class PdfReader : IDisposable
 
     /// <summary>
     /// Opens a PDF from a readable, seekable stream without loading it into memory, so files of any size can be read
-    /// (offsets beyond 2 GB included). The stream isn't closed by the reader and must stay open and unchanged while
-    /// the reader is used.
+    /// (offsets beyond 2 GB included). The PDF must start at position 0 of the stream; reading moves the stream's
+    /// position. The stream isn't closed by the reader and must stay open and unchanged while the reader is used.
     /// </summary>
     /// <exception cref="ArgumentException">The stream isn't readable and seekable.</exception>
     /// <exception cref="PdfFormatException">The stream isn't a readable PDF, or exceeds a safety limit.</exception>
     /// <exception cref="NotSupportedException">The pages sit inside an encrypted object stream.</exception>
+    /// <exception cref="IOException">Reading the stream failed.</exception>
     public static PdfReader Open(Stream pdf) =>
         Open(PdfByteSource.Over(pdf ?? throw new ArgumentNullException(nameof(pdf)), ownsStream: false));
 
@@ -59,6 +60,8 @@ public sealed class PdfReader : IDisposable
     /// </summary>
     /// <exception cref="PdfFormatException">The file isn't a readable PDF, or exceeds a safety limit.</exception>
     /// <exception cref="NotSupportedException">The pages sit inside an encrypted object stream.</exception>
+    /// <exception cref="IOException">The file can't be opened or read (for example <see cref="FileNotFoundException"/>).</exception>
+    /// <exception cref="UnauthorizedAccessException">The file can't be opened for reading.</exception>
     public static PdfReader Open(string path)
     {
         if (path == null) throw new ArgumentNullException(nameof(path));
@@ -135,7 +138,8 @@ public sealed class PdfReader : IDisposable
         {
             return read();
         }
-        catch (Exception ex) when (ex is not PdfFormatException && ex is not NotSupportedException && ex is not OutOfMemoryException)
+        catch (Exception ex) when (ex is not PdfFormatException && ex is not NotSupportedException && ex is not OutOfMemoryException &&
+                                   ex is not IOException && ex is not ObjectDisposedException)
         {
             throw new PdfFormatException("The PDF is damaged and can't be read.", ex);
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace EggPdf.Pdf;
@@ -23,28 +24,65 @@ internal abstract class PdfByteSource : IDisposable
 
     public static PdfByteSource Over(Stream stream, bool ownsStream) => new StreamSource(stream, ownsStream);
 
-    public long IndexOf(string token, long start, long end)
+    protected abstract void Read(long position, byte[] buffer, int length);
+
+    public long[] FindAll(string token, int maxHits)
     {
-        end = Math.Min(end, Length);
-        for (long chunkStart = Math.Max(start, 0); chunkStart <= end - token.Length; chunkStart += SearchChunkBytes)
+        var hits = new List<long>();
+        int span = SearchChunkBytes + token.Length - 1;
+        byte[]? buffer = IsInMemory ? null : new byte[(int)Math.Min(span, Math.Max(Length, 0))];
+        for (long chunkStart = 0; chunkStart <= Length - token.Length; chunkStart += SearchChunkBytes)
         {
-            int length = (int)Math.Min((long)SearchChunkBytes + token.Length - 1, end - chunkStart);
-            var window = Window(chunkStart, length);
-            int found = PdfSyntaxParser.IndexOf(window.Data, token, window.Offset, window.Offset + length);
-            if (found >= 0) return window.BaseOffset + found;
+            int length = (int)Math.Min(span, Length - chunkStart);
+            byte[] data;
+            int offset;
+            if (buffer == null)
+            {
+                var window = Window(chunkStart, length);
+                data = window.Data;
+                offset = window.Offset;
+            }
+            else
+            {
+                Read(chunkStart, buffer, length);
+                data = buffer;
+                offset = 0;
+            }
+            for (int at = PdfSyntaxParser.IndexOf(data, token, offset, offset + length);
+                 at >= 0 && at - offset < SearchChunkBytes;
+                 at = PdfSyntaxParser.IndexOf(data, token, at + 1, offset + length))
+            {
+                if (hits.Count >= maxHits) throw new PdfParseBudgetExceededException("The document repeats a keyword far too often to index.");
+                hits.Add(chunkStart + (at - offset));
+            }
         }
-        return -1;
+        return hits.ToArray();
     }
 
-    public long LastIndexOf(string token, long end)
+    public long LastIndexOf(string token)
     {
-        end = Math.Min(end, Length);
-        for (long chunkEnd = end; chunkEnd >= token.Length; chunkEnd -= SearchChunkBytes)
+        int span = SearchChunkBytes + token.Length - 1;
+        byte[]? buffer = IsInMemory ? null : new byte[(int)Math.Min(span, Math.Max(Length, 0))];
+        for (long chunkEnd = Length; chunkEnd >= token.Length; chunkEnd -= SearchChunkBytes)
         {
-            long chunkStart = Math.Max(0, chunkEnd - SearchChunkBytes - token.Length + 1);
-            var window = Window(chunkStart, (int)(chunkEnd - chunkStart));
-            int found = PdfSyntaxParser.LastIndexOf(window.Data, token, window.Offset, window.Offset + (int)(chunkEnd - chunkStart));
-            if (found >= 0) return window.BaseOffset + found;
+            long chunkStart = Math.Max(0, chunkEnd - span);
+            int length = (int)(chunkEnd - chunkStart);
+            byte[] data;
+            int offset;
+            if (buffer == null)
+            {
+                var window = Window(chunkStart, length);
+                data = window.Data;
+                offset = window.Offset;
+            }
+            else
+            {
+                Read(chunkStart, buffer, length);
+                data = buffer;
+                offset = 0;
+            }
+            int found = PdfSyntaxParser.LastIndexOf(data, token, offset, offset + length);
+            if (found >= 0) return chunkStart + (found - offset);
         }
         return -1;
     }
@@ -63,12 +101,15 @@ internal abstract class PdfByteSource : IDisposable
             new(_data, (int)start, 0, (int)Math.Max(start, Math.Min(_data.Length, start + (long)length)));
 
         public override void CopyTo(Stream output) => output.Write(_data, 0, _data.Length);
+
+        protected override void Read(long position, byte[] buffer, int length) => Array.Copy(_data, position, buffer, 0, length);
     }
 
     private sealed class StreamSource : PdfByteSource
     {
         private const int BlockBytes = 64 * 1024;
         private const int CachedBlocks = 16;
+        private const int CopyBufferBytes = 80 * 1024;
 
         private readonly Stream _stream;
         private readonly bool _ownsStream;
@@ -93,6 +134,7 @@ internal abstract class PdfByteSource : IDisposable
 
         public override PdfByteWindow Window(long start, int length)
         {
+            if (start < 0 || start >= _length) return new PdfByteWindow(Array.Empty<byte>(), 0, start, 0);
             length = (int)Math.Max(0, Math.Min(length, _length - start));
             long blockStart = start - start % BlockBytes;
             if (start + length <= blockStart + BlockBytes)
@@ -107,11 +149,17 @@ internal abstract class PdfByteSource : IDisposable
 
         public override void CopyTo(Stream output)
         {
-            var buffer = new byte[81920];
-            _stream.Position = 0;
-            int read;
-            while ((read = _stream.Read(buffer, 0, buffer.Length)) > 0) output.Write(buffer, 0, read);
+            var buffer = new byte[CopyBufferBytes];
+            for (long copied = 0; copied < _length;)
+            {
+                int length = (int)Math.Min(buffer.Length, _length - copied);
+                ReadExactly(copied, buffer, length);
+                output.Write(buffer, 0, length);
+                copied += length;
+            }
         }
+
+        protected override void Read(long position, byte[] buffer, int length) => ReadExactly(position, buffer, length);
 
         public override void Dispose()
         {

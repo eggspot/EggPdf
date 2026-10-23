@@ -59,6 +59,7 @@ internal sealed partial class PdfObjectStore : IPdfStreamLocator
     private const int ScanChunkBytes = 1024 * 1024;
     private const int ScanOverlapBytes = 64;
     private const int TrailerWindowBytes = 1024 * 1024;
+    private const int MaxIndexedKeywords = 8_000_000;
 
     private readonly PdfByteSource _source;
     private readonly long _length;
@@ -208,12 +209,13 @@ internal sealed partial class PdfObjectStore : IPdfStreamLocator
         foreach (var pair in scanned)
             _repairedEntries[pair.Key] = new PdfCrossReferenceEntry(PdfCrossReferenceEntryKind.InFile, pair.Value, 0);
 
-        long trailerEnd = _length;
-        for (long at = _source.LastIndexOf("trailer", _length); at >= 0; trailerEnd = at, at = _source.LastIndexOf("trailer", at))
+        var trailers = _source.FindAll("trailer", MaxIndexedKeywords);
+        for (int t = trailers.Length - 1; t >= 0; t--)
         {
+            long trailerEnd = t + 1 < trailers.Length ? trailers[t + 1] : _length;
             try
             {
-                long start = at + "trailer".Length;
+                long start = trailers[t] + "trailer".Length;
                 var window = _source.Window(start, (int)Math.Min(TrailerWindowBytes, trailerEnd - start));
                 var parser = new PdfSyntaxParser(window.Data, window.Offset, window.End, budget: _parseBudget, baseOffset: window.BaseOffset);
                 if (parser.ReadObject() is PdfDictionary trailer) MergeTrailer(trailer);
@@ -314,13 +316,7 @@ internal sealed partial class PdfObjectStore : IPdfStreamLocator
 
     private long NextEndstream(long from)
     {
-        if (_endstreamOffsets == null)
-        {
-            var found = new List<long>();
-            for (long at = _source.IndexOf("endstream", 0, _length); at >= 0; at = _source.IndexOf("endstream", at + 1, _length))
-                found.Add(at);
-            _endstreamOffsets = found.ToArray();
-        }
+        _endstreamOffsets ??= _source.FindAll("endstream", MaxIndexedKeywords);
         int index = Array.BinarySearch(_endstreamOffsets, from);
         if (index < 0) index = ~index;
         return index < _endstreamOffsets.Length ? _endstreamOffsets[index] : -1;
@@ -354,24 +350,32 @@ internal sealed partial class PdfObjectStore : IPdfStreamLocator
     private PdfSyntaxParser NewParser(long start, int windowBytes = InitialWindowBytes)
     {
         long end = ParseEnd(start);
-        int length = (int)Math.Min(_source.IsInMemory ? int.MaxValue : windowBytes, end - start);
+        int length = (int)Math.Max(0, Math.Min(_source.IsInMemory ? int.MaxValue : windowBytes, end - start));
         var window = _source.Window(start, length);
         return new PdfSyntaxParser(window.Data, window.Offset, window.End, _resolveLength, this, _parseBudget, window.BaseOffset, end);
     }
 
     private T ParseAt<T>(long start, Func<PdfSyntaxParser, T> read)
     {
-        for (int windowBytes = InitialWindowBytes; ; windowBytes *= 8)
+        for (int windowBytes = InitialWindowBytes; ; windowBytes = (int)Math.Min(8L * windowBytes, MaxWindowBytes))
         {
             var parser = NewParser(start, windowBytes);
+            bool canGrow = parser.EndsBeforeObject && windowBytes < MaxWindowBytes;
+            T result;
             try
             {
-                return read(parser);
+                result = read(parser);
             }
-            catch (PdfFormatException ex) when (ex is not PdfParseBudgetExceededException && parser.Position >= parser.End &&
-                                                parser.FilePosition < ParseEnd(start) && windowBytes < MaxWindowBytes)
+            catch (PdfWindowTooSmallException) when (canGrow)
             {
+                continue;
             }
+            catch (PdfFormatException ex) when (ex is not PdfParseBudgetExceededException && canGrow && parser.Position >= parser.End)
+            {
+                continue;
+            }
+            if (canGrow && parser.ReachedWindowEnd) continue;
+            return result;
         }
     }
 

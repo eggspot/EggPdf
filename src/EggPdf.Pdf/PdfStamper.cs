@@ -144,6 +144,10 @@ public sealed class PdfStamper
     /// A stamped page's part of the page tree is damaged, or the update would take the file past the 8,388,607 objects a
     /// PDF can hold.
     /// </exception>
+    /// <exception cref="NotSupportedException">
+    /// The file ends with a classic cross-reference table and the update would start beyond 9,999,999,999 bytes, which
+    /// such a table can't address.
+    /// </exception>
     public void Build(Stream output)
     {
         if (output == null) throw new ArgumentNullException(nameof(output));
