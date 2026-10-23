@@ -350,25 +350,24 @@ public class ResourceResolverRenderTests
     }
 
     [Fact]
-    public void RenderDocument_WithOptions_UsesResolver()
+    public void RenderDocumentWithOptions_Resolver_LoadsThroughIt()
     {
         var resolver = new RecordingResolver(new() { ["https://cdn.example/logo.png"] = Png });
         var document = HtmlParser.Parse("<html><body><img src=\"https://cdn.example/logo.png\"></body></html>");
 
-        var pdf = HtmlToPdf.RenderDocument(document, null, With(resolver));
+        var pdf = HtmlToPdf.RenderDocumentWithOptions(document, null, With(resolver));
 
         Latin1(pdf).Should().Contain("/Subtype /Image");
     }
 
     [Fact]
-    public async Task RenderDocument_NullThirdArgument_StillRendersWithDefaults()
+    public async Task RenderDocument_NullThirdArgument_StillCompilesAndRenders()
     {
-        // Before the PdfRenderOptions overload existed this bound to (doc, basePath, encryption: null);
-        // C# now picks the new overload, which must keep rendering instead of throwing
+        // Pre-existing public calls must keep binding to the original overloads (no ambiguity, no rebinding)
         var document = HtmlParser.Parse("<html><body><p>Plain</p></body></html>");
 
         PdfAssert.ValidPdf(HtmlToPdf.RenderDocument(document, null, null), "Plain");
-        PdfAssert.ValidPdf(await HtmlToPdf.RenderDocumentAsync(document, null, (PdfRenderOptions)null!), "Plain");
+        PdfAssert.ValidPdf(await HtmlToPdf.RenderDocumentAsync(document, null, null), "Plain");
     }
 
     [Fact]
@@ -382,16 +381,6 @@ public class ResourceResolverRenderTests
 
         PdfAssert.ValidPdf(pdf, "Survives");
         Latin1(pdf).Should().NotContain("/Subtype /Image");
-    }
-
-    [Fact]
-    public void RenderDocument_WithHtmlOnlyOption_Throws()
-    {
-        var document = HtmlParser.Parse("<html><body><p>x</p></body></html>");
-
-        Action act = () => HtmlToPdf.RenderDocument(document, null, new PdfRenderOptions { PageSize = "A5" });
-
-        act.Should().Throw<ArgumentException>().WithMessage("*PageSize*");
     }
 
     private sealed class HangingResolver : IResourceResolver

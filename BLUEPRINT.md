@@ -1141,7 +1141,7 @@ var options = new PdfOptions
 | Slow responses | `TimeoutSeconds` bounds the whole fetch incl. redirects; the renderer also gives up on any resolver call after 30 s |
 | Redirects | Followed manually, max `MaxRedirects` (5); each hop re-checks scheme, `AllowedDomains` and address |
 | Fetch budget | EggPdf.Service caps each request at 50 resolver fetches within 20 s (LIMIT_EXCEEDED warning) and cancels fetches when the client disconnects |
-| Known gaps | No per-render budget in the library itself (only the service has one); `EggPdf.Razor` has its own options type without `ResourceResolver`/`AllowLocalFileAccess`, and `EggPdf.AspNetCore` doesn't register a resolver |
+| Known gaps | No per-render budget in the library itself (only the service has one); `EggPdf.Razor` has its own options type without `ResourceResolver`/`AllowLocalFileAccess`, and `EggPdf.AspNetCore` doesn't register a resolver; no public DOM entry point takes `PdfRenderOptions` (a same-name overload breaks `RenderDocument*(doc, path, null)` calls, so it needs its own name -- Fluent uses the internal one); `FileResourceResolver`'s symlink check follows the requested path's components, not every component of a link's target (a link chain through a second in-base link can escape -- only someone who can create links inside the base directory can do that), and a FIFO or blocking device inside the base hangs the read until the renderer's 30 s backstop |
 
 ### What `System.Net.Http.HttpClient` means for zero-dependency policy
 

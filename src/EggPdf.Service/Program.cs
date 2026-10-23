@@ -38,6 +38,13 @@ Task<byte[]> RenderUntrustedAsync(string html, EggPdf.PdfRenderOptions options, 
 var app = builder.Build();
 app.UseCors();
 
+// A client that disconnects mid-render cancels it (RenderUntrustedAsync); that's not a server error
+app.Use(async (ctx, next) =>
+{
+    try { await next(); }
+    catch (OperationCanceledException) when (ctx.RequestAborted.IsCancellationRequested) { }
+});
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
 

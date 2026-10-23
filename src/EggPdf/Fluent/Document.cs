@@ -68,13 +68,16 @@ public sealed class DocumentBuilder
     }
 
     /// <summary>Renders the document to PDF bytes. May be called repeatedly; the output is identical each time.</summary>
-    public byte[] Render() => HtmlToPdf.RenderDocument(_document, _basePath, _options);
+    public byte[] Render() => HtmlToPdf.RenderDocumentWithOptions(_document, _basePath, _options);
 
     /// <summary>Renders the document to PDF bytes asynchronously.</summary>
     public Task<byte[]> RenderAsync(CancellationToken ct = default) =>
-        HtmlToPdf.RenderDocumentAsync(_document, _basePath, _options, ct);
+        HtmlToPdf.RenderDocumentWithOptionsAsync(_document, _basePath, _options, ct);
 
     /// <summary>Renders the document and writes the PDF to <paramref name="filePath"/>.</summary>
-    public Task RenderToFileAsync(string filePath, CancellationToken ct = default) =>
-        HtmlToPdf.RenderDocumentToFileAsync(_document, filePath, _basePath, _options, ct);
+    public async Task RenderToFileAsync(string filePath, CancellationToken ct = default)
+    {
+        var bytes = await HtmlToPdf.RenderDocumentWithOptionsAsync(_document, _basePath, _options, ct);
+        await HtmlToPdf.WriteFileAsync(filePath, bytes, ct);
+    }
 }

@@ -57,21 +57,26 @@ public static partial class HtmlToPdf
         await WriteFileAsync(filePath, bytes, ct);
     }
 
-    /// <summary>
-    /// Render an already-built DOM to PDF with <see cref="PdfRenderOptions"/>: the PDF-writer settings
-    /// (Encryption, Conformance, Invoice, Tagged, UaVersion), Warnings, and resource loading
-    /// (<see cref="PdfRenderOptions.ResourceResolver"/>, <see cref="PdfRenderOptions.AllowLocalFileAccess"/>).
-    /// The page/metadata properties (PageSize, Orientation, Margin*, Title, Author, UserStyleSheet) work by
-    /// injecting HTML into the source text, which a DOM doesn't have: setting any of them throws
-    /// <see cref="ArgumentException"/> -- put the equivalent <c>@page</c> rule, &lt;title&gt; or &lt;style&gt;
-    /// into the document instead. A null <paramref name="options"/> renders with defaults: C# binds the
-    /// pre-existing call <c>RenderDocument(doc, basePath, null)</c> to this overload, which must keep working.
-    /// </summary>
-    public static byte[] RenderDocument(HtmlDocument document, string? basePath, PdfRenderOptions? options) =>
-        RenderDocumentWithOptions(document, basePath, options, default);
+    // Internal on purpose: a public same-name overload taking PdfRenderOptions makes existing
+    // RenderDocument*(doc, basePath, null) calls ambiguous or rebinds them (see the note at the top), and a
+    // differently named public method is a naming decision for its own change. EggPdf.Fluent uses these;
+    // other DOM callers get resource options through HTML: Render(string, PdfRenderOptions).
 
-    /// <summary>Render an already-built DOM to PDF with <see cref="PdfRenderOptions"/>, asynchronously; <paramref name="ct"/> also cancels resource fetches.</summary>
-    public static Task<byte[]> RenderDocumentAsync(HtmlDocument document, string? basePath, PdfRenderOptions? options, CancellationToken ct = default)
+    /// <summary>
+    /// Render an already-built DOM with <paramref name="options"/>' PDF-writer settings (Encryption, Conformance,
+    /// Invoice, Tagged, UaVersion), Warnings and resource loading (ResourceResolver, AllowLocalFileAccess). Its
+    /// HTML-injected page/metadata properties are not applied: a DOM has no source text to inject into.
+    /// </summary>
+    internal static byte[] RenderDocumentWithOptions(HtmlDocument document, string? basePath, PdfRenderOptions options,
+        CancellationToken ct = default)
+    {
+        return RenderInternal(document, basePath, options.Encryption, options.Conformance, options.Invoice, options.Tagged,
+            options.UaVersion, options.Warnings, CreateResourceLoader(options, basePath, ct));
+    }
+
+    /// <summary><see cref="RenderDocumentWithOptions"/> as a task; <paramref name="ct"/> also cancels resource fetches.</summary>
+    internal static Task<byte[]> RenderDocumentWithOptionsAsync(HtmlDocument document, string? basePath, PdfRenderOptions options,
+        CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         try
@@ -84,43 +89,7 @@ public static partial class HtmlToPdf
         }
     }
 
-    /// <summary>Render an already-built DOM to a PDF file with <see cref="PdfRenderOptions"/>.</summary>
-    public static async Task RenderDocumentToFileAsync(HtmlDocument document, string filePath, string? basePath,
-        PdfRenderOptions? options, CancellationToken ct = default)
-    {
-        var bytes = await RenderDocumentAsync(document, basePath, options, ct);
-        await WriteFileAsync(filePath, bytes, ct);
-    }
-
-    private static byte[] RenderDocumentWithOptions(HtmlDocument document, string? basePath, PdfRenderOptions? options, CancellationToken ct)
-    {
-        if (document == null) throw new ArgumentNullException(nameof(document));
-        options ??= new PdfRenderOptions();
-        ThrowIfHtmlOnlyOption(options);
-        return RenderInternal(document, basePath, options.Encryption, options.Conformance, options.Invoice, options.Tagged,
-            options.UaVersion, options.Warnings, CreateResourceLoader(options, basePath, ct));
-    }
-
-    private static void ThrowIfHtmlOnlyOption(PdfRenderOptions options)
-    {
-        string? name =
-            !string.IsNullOrEmpty(options.PageSize) ? nameof(options.PageSize) :
-            !string.IsNullOrEmpty(options.Orientation) ? nameof(options.Orientation) :
-            options.Margin.HasValue ? nameof(options.Margin) :
-            options.MarginTop.HasValue ? nameof(options.MarginTop) :
-            options.MarginRight.HasValue ? nameof(options.MarginRight) :
-            options.MarginBottom.HasValue ? nameof(options.MarginBottom) :
-            options.MarginLeft.HasValue ? nameof(options.MarginLeft) :
-            !string.IsNullOrEmpty(options.Title) ? nameof(options.Title) :
-            !string.IsNullOrEmpty(options.Author) ? nameof(options.Author) :
-            !string.IsNullOrEmpty(options.UserStyleSheet) ? nameof(options.UserStyleSheet) : null;
-        if (name != null)
-            throw new ArgumentException(
-                $"PdfRenderOptions.{name} is applied by injecting HTML and can't be used when rendering a DOM; " +
-                "put the equivalent @page rule, <title> or <style> into the document instead.", nameof(options));
-    }
-
-    private static async Task WriteFileAsync(string filePath, byte[] bytes, CancellationToken ct)
+    internal static async Task WriteFileAsync(string filePath, byte[] bytes, CancellationToken ct)
     {
 #if NET6_0_OR_GREATER
         await File.WriteAllBytesAsync(filePath, bytes, ct);
