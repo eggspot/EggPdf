@@ -245,6 +245,37 @@ public class PdfReaderLargeFileTests
     }
 
     [Fact]
+    public void Open_150kPageFileFromAStream_ReadsTheLastPageWithLittleMemory()
+    {
+        var kids = new StringBuilder();
+        var builder = new TestPdfBuilder().Add(1, "<< /Type /Catalog /Pages 2 0 R >>");
+        for (int node = 0; node < 1500; node++)
+        {
+            var pages = new StringBuilder();
+            for (int page = 0; page < 100; page++)
+            {
+                int number = 2000 + node * 100 + page;
+                pages.Append(N(number)).Append(" 0 R ");
+                builder.Add(number, $"<< /Type /Page /Parent {N(3 + node)} 0 R /MediaBox [0 0 {N(200 + page)} 800] >>");
+            }
+            builder.Add(3 + node, $"<< /Type /Pages /Parent 2 0 R /Kids [{pages}] /Count 100 >>");
+            kids.Append(N(3 + node)).Append(" 0 R ");
+        }
+        var pdf = builder.Add(2, $"<< /Type /Pages /Kids [{kids}] /Count 150000 >>").BuildClassic(root: 1);
+        var stream = new MemoryStream(pdf, writable: false);
+        double width = 0;
+
+        long allocated = AllocatedWhile(() =>
+        {
+            using var reader = PdfReader.Open(stream);
+            width = reader.GetPage(150_000).Width;
+        });
+
+        width.Should().Be(299);
+        allocated.Should().BeLessThan(4 * Megabyte);
+    }
+
+    [Fact]
     public void Open_FromStreamAndPath_ReadsTheSameAsBytes()
     {
         var bytes = HtmlToPdf.Render("<p>a</p><p style=\"page-break-before:always\">b</p>");

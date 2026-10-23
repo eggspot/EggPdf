@@ -9,6 +9,7 @@ namespace EggPdf.Pdf;
 internal sealed class PdfIncrementalUpdate
 {
     private const int MaxObjectNumber = 8_388_607;
+    private const long MaxClassicOffset = 9_999_999_999;
     private static readonly Encoding Latin1 = Encoding.GetEncoding(28591);
 
     private readonly MemoryStream _output = new();
@@ -71,6 +72,8 @@ internal sealed class PdfIncrementalUpdate
     private void WriteCrossReferenceTable()
     {
         long offset = FileOffset;
+        if (offset > MaxClassicOffset)
+            throw new NotSupportedException("A classic cross-reference table can't address offsets beyond 9,999,999,999 bytes.");
         var table = new StringBuilder("xref\n");
         foreach (var (first, entries) in Subsections())
         {

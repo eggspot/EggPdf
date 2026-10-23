@@ -345,7 +345,8 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Password protection with permission flags — view-only PDFs that block editing/copying (RC4 40/128-bit)
 - AcroForm fields (fillable forms from HTML form elements)
 - PDF merging
-- Read existing PDFs from any producer (`PdfReader.Open(bytes)`: page count, displayed page size and rotation,
+- Read existing PDFs from any producer (`PdfReader.Open(bytes)`, or `Open(stream)` / `Open(path)` for files larger
+  than memory, 64-bit offsets included: page count, displayed page size and rotation,
   encryption flag): classic and stream cross-references, incremental updates, object streams, damaged files repaired
   by scanning, with safety limits for untrusted uploads (`PdfFormatException` when unreadable). Pages are read on
   demand: on a 150,000-page file, opening and looking up a page allocates kilobytes to a few MB (a flat page tree
@@ -354,7 +355,8 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   PNG/JPEG/GIF/BMP/WebP at top-left coordinates in points on the page as displayed (crop box and rotation handled),
   stretch or contain; written as an incremental update, so the bytes an earlier signature covers are unchanged and it
   still verifies (validators report the content added after signing). Certified (DocMDP) PDFs are refused, since no
-  certification level permits new page content. `Build(stream)` writes the result without copying the input.
+  certification level permits new page content. `new PdfStamper(stream)` + `Build(outputStream)` stamp files of any
+  size (5 GB+) holding only the small update in memory.
   REST `POST /api/stamp`
 - JPEG images keep their colour space (grayscale, RGB, CMYK incl. Adobe-inverted) instead of always being tagged RGB
 - QR codes and barcodes

@@ -53,7 +53,7 @@ internal sealed partial class PdfObjectStore : IPdfStreamLocator
         }
     }
 
-    private const int InitialWindowBytes = 64 * 1024;
+    private const int InitialWindowBytes = 4 * 1024;
     private const int MaxWindowBytes = 64 * 1024 * 1024;
     private const int EndstreamWindowBytes = 64;
     private const int ScanChunkBytes = 1024 * 1024;
@@ -392,12 +392,14 @@ internal sealed partial class PdfObjectStore : IPdfStreamLocator
 
     private PdfPageTreeSummary? SummaryAt(long offset, int number, out bool found)
     {
-        if (_source.IsInMemory)
-        {
-            var parser = (_fileSummaryParser ??= NewParser(offset)).MoveTo((int)offset, (int)ParseEnd(offset), _parseBudget);
-            found = parser.TryReadIndirectHeader(out int header, out _) && header == number;
-            return found ? parser.ReadPageTreeSummary() : null;
-        }
+        if (!_source.IsInMemory) return SummaryFromStream(offset, number, out found);
+        var parser = (_fileSummaryParser ??= NewParser(offset)).MoveTo((int)offset, (int)ParseEnd(offset), _parseBudget);
+        found = parser.TryReadIndirectHeader(out int header, out _) && header == number;
+        return found ? parser.ReadPageTreeSummary() : null;
+    }
+
+    private PdfPageTreeSummary? SummaryFromStream(long offset, int number, out bool found)
+    {
         var result = ParseAt<(PdfPageTreeSummary? Summary, bool Found)>(offset, parser =>
             parser.TryReadIndirectHeader(out int header, out _) && header == number ? (parser.ReadPageTreeSummary(), true) : (null, false));
         found = result.Found;
