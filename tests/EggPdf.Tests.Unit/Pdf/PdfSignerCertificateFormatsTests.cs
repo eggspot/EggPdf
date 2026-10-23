@@ -166,7 +166,7 @@ public class PdfSignerCertificateFormatsTests
         var (cert, key) = CreateRsaCertificate();
         using (cert) using (key)
         {
-            using var publicOnly = new X509Certificate2(cert.RawData);
+            using var publicOnly = X509CertificateLoader.LoadCertificate(cert.RawData);
 
             Action act = () => PdfSigner.Sign(Pdf, publicOnly);
 
