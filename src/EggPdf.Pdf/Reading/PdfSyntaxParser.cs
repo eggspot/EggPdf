@@ -11,13 +11,16 @@ internal sealed class PdfSyntaxParser
     private readonly byte[] _data;
     private readonly int _end;
     private readonly Func<PdfReference, PdfObject?>? _resolveLength;
+    private readonly Func<int, int>? _findEndstream;
 
-    public PdfSyntaxParser(byte[] data, int start, int end, Func<PdfReference, PdfObject?>? resolveLength = null)
+    public PdfSyntaxParser(byte[] data, int start, int end, Func<PdfReference, PdfObject?>? resolveLength = null,
+        Func<int, int>? findEndstream = null)
     {
         _data = data;
         Position = start;
         _end = end;
         _resolveLength = resolveLength;
+        _findEndstream = findEndstream;
     }
 
     public int Position { get; set; }
@@ -379,7 +382,7 @@ internal sealed class PdfSyntaxParser
             return new PdfStream(dictionary, _data, dataStart, (int)declared);
         }
 
-        int endstream = IndexOf(_data, "endstream", dataStart, _end);
+        int endstream = _findEndstream?.Invoke(dataStart) ?? IndexOf(_data, "endstream", dataStart, _end);
         if (endstream < 0) throw Error("Stream has no endstream");
         int dataEnd = endstream;
         if (dataEnd > dataStart && _data[dataEnd - 1] == '\n') dataEnd--;

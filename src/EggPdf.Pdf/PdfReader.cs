@@ -52,6 +52,7 @@ public sealed class PdfReader
 
     /// <summary>Counts the pages of a PDF held in memory; same as <c>Open(pdf).PageCount</c>.</summary>
     /// <exception cref="PdfFormatException">The bytes aren't a readable PDF, or exceed a safety limit.</exception>
+    /// <exception cref="NotSupportedException">The pages sit inside an encrypted object stream.</exception>
     public static int GetPageCount(byte[] pdf) => Open(pdf).PageCount;
 
     /// <summary>The displayed size and rotation of page <paramref name="pageNumber"/> (1-based).</summary>

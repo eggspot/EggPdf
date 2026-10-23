@@ -136,6 +136,87 @@ public class PdfReaderTests
         act.Should().Throw<PdfFormatException>().WithMessage("*cycle*");
     }
 
+    private static byte[] Latin1Bytes(string text) => Encoding.GetEncoding("ISO-8859-1").GetBytes(text);
+
+    private static void ShouldFinishQuickly(Action open)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        try { open(); }
+        catch (PdfFormatException) { }
+        catch (NotSupportedException) { }
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public void Open_LongChainOfIndirectStreamLengths_DoesNotOverflowTheStack()
+    {
+        var builder = new TestPdfBuilder()
+            .Add(1, "<< /Type /Catalog /Pages 2 0 R >>")
+            .Add(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+        for (int k = 3; k < 3 + 20_000; k++)
+            builder.Add(k, "<< /Length " + (k + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + " 0 R >>\nstream\nx\nendstream");
+
+        ShouldFinishQuickly(() => PdfReader.Open(builder.BuildClassic(root: 1)));
+    }
+
+    [Fact]
+    public void Open_RepairOfManyUnterminatedStreams_TakesLinearTime()
+    {
+        var text = new StringBuilder("%PDF-1.7\n");
+        for (int k = 1; k <= 80_000; k++)
+            text.Append(k.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(" 0 obj<<>>stream\n");
+
+        ShouldFinishQuickly(() => PdfReader.Open(Latin1Bytes(text.ToString())));
+    }
+
+    [Fact]
+    public void Open_ObjectStreamWithRepeatedOffsets_TakesLinearTime()
+    {
+        const int count = 32_000;
+        var header = new StringBuilder();
+        for (int i = 0; i < count; i++)
+            header.Append((100 + i).ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(" 0 ");
+        var body = "[" + string.Join(" ", new string('0', count).ToCharArray()) + "]";
+        var data = header + body;
+        var text = "%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n" +
+                   "2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\n" +
+                   "3 0 obj << /Type /ObjStm /N " + count.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                   " /First " + header.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                   " /Length " + data.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + " >>\nstream\n" + data + "\nendstream\nendobj\n";
+
+        ShouldFinishQuickly(() => PdfReader.Open(Latin1Bytes(text)));
+    }
+
+    [Fact]
+    public void Open_ObjectDeletedInLaterRevision_IsNotResurrected()
+    {
+        var original = TwoPageDocument().BuildClassic(root: 1);
+        var text = Encoding.GetEncoding("ISO-8859-1").GetString(original);
+        int startxref = text.LastIndexOf("startxref", StringComparison.Ordinal);
+        var previous = text.Substring(startxref + 9).Trim().Split('\n')[0].Trim();
+        var update = new StringBuilder(text);
+        int pagesOffset = update.Length;
+        update.Append("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>\nendobj\n");
+        int xref = update.Length;
+        update.Append("xref\n2 1\n").Append(pagesOffset.ToString("D10", System.Globalization.CultureInfo.InvariantCulture)).Append(" 00000 n \n")
+              .Append("4 1\n0000000000 00001 f \n")
+              .Append("trailer\n<< /Size 5 /Root 1 0 R /Prev ").Append(previous).Append(" >>\nstartxref\n")
+              .Append(xref.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("\n%%EOF\n");
+
+        var reader = PdfReader.Open(Latin1Bytes(update.ToString()));
+
+        reader.Store.Get(4).Should().BeOfType<PdfNull>("object 4 was freed in the newest revision");
+        reader.PageCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void IsEncrypted_EncryptNull_IsFalse()
+    {
+        var pdf = TwoPageDocument().BuildClassic(root: 1, extraTrailer: "/Encrypt null");
+
+        PdfReader.Open(pdf).IsEncrypted.Should().BeFalse();
+    }
+
     [Fact]
     public void Open_PagesNodeWithoutKids_IsNotCountedAsAPage()
     {

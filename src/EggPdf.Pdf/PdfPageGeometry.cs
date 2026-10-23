@@ -2,7 +2,8 @@ namespace EggPdf.Pdf;
 
 /// <summary>
 /// The size and orientation of one page of an existing PDF as a viewer shows it: the crop box (clipped to the
-/// media box) with the page's rotation applied. Units are PDF points (1/72 inch).
+/// media box) with the page's rotation applied. Units are PDF points (1/72 inch); a page's <c>/UserUnit</c> scale
+/// factor (rare, PDF 1.6+) is not applied.
 /// </summary>
 public sealed class PdfPageGeometry
 {
