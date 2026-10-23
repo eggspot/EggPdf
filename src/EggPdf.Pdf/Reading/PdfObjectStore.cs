@@ -13,6 +13,8 @@ internal sealed class PdfObjectStore
     private const int MaxNestedReads = 16;
     private const int MaxNestedLengthReads = 4;
     private const long MaxDecodedBytesPerDocument = 256L * 1024 * 1024;
+    private const long DecodedBytesAllowance = 64L * 1024 * 1024;
+    private const int DecodedBytesPerInputByte = 32;
     private const int RepairDictionaryWindow = 4096;
     private const int MinCrossReferenceEntryBudget = 100_000;
 
@@ -65,6 +67,7 @@ internal sealed class PdfObjectStore
     private long[]? _scannedOffsetsAscending;
     private int[]? _endstreamOffsets;
     private readonly PdfParseBudget _parseBudget;
+    private readonly long _decodedBytesLimit;
     private long _decodedBytes;
     private long _entryBudget;
     private bool _repairing;
@@ -74,6 +77,7 @@ internal sealed class PdfObjectStore
         _data = data;
         _entryBudget = Math.Max(MinCrossReferenceEntryBudget, data.Length);
         _parseBudget = new PdfParseBudget(data.Length);
+        _decodedBytesLimit = Math.Min(MaxDecodedBytesPerDocument, DecodedBytesAllowance + DecodedBytesPerInputByte * (long)data.Length);
     }
 
     public PdfDictionary Trailer { get; } = new();
@@ -425,8 +429,8 @@ internal sealed class PdfObjectStore
     private void SpendDecodeBudget(long bytes)
     {
         _decodedBytes += bytes;
-        if (_decodedBytes > MaxDecodedBytesPerDocument)
-            throw new PdfFormatException("The document's compressed structure expands beyond the 256 MB limit.");
+        if (_decodedBytes > _decodedBytesLimit)
+            throw new PdfParseBudgetExceededException("The document's compressed structure expands far beyond its size.");
     }
 
     private PdfObject ReadFromObjectStream(int streamNumber, int number)
