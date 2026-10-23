@@ -361,6 +361,30 @@ public class ResourceResolverRenderTests
     }
 
     [Fact]
+    public async Task RenderDocument_NullThirdArgument_StillRendersWithDefaults()
+    {
+        // Before the PdfRenderOptions overload existed this bound to (doc, basePath, encryption: null);
+        // C# now picks the new overload, which must keep rendering instead of throwing
+        var document = HtmlParser.Parse("<html><body><p>Plain</p></body></html>");
+
+        PdfAssert.ValidPdf(HtmlToPdf.RenderDocument(document, null, null), "Plain");
+        PdfAssert.ValidPdf(await HtmlToPdf.RenderDocumentAsync(document, null, (PdfRenderOptions)null!), "Plain");
+    }
+
+    [Fact]
+    public void NoResolver_DeviceFile_ReadIsCappedInsteadOfExhaustingMemory()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var warnings = new WarningCollector();
+
+        var pdf = HtmlToPdf.Render("<html><body><p>Survives</p><img src=\"/dev/zero\"></body></html>",
+            new PdfRenderOptions { Warnings = warnings });
+
+        PdfAssert.ValidPdf(pdf, "Survives");
+        Latin1(pdf).Should().NotContain("/Subtype /Image");
+    }
+
+    [Fact]
     public void RenderDocument_WithHtmlOnlyOption_Throws()
     {
         var document = HtmlParser.Parse("<html><body><p>x</p></body></html>");

@@ -23,8 +23,9 @@ namespace EggPdf.Core.Resources;
 /// On .NET 6+ the address is checked when the connection is made, so a hostname cannot be re-pointed
 /// (DNS rebinding) between check and connect; on .NET Standard it is checked by resolving the hostname
 /// just before each request. A caller-supplied <see cref="HttpClient"/> keeps its own handler: addresses
-/// are then checked by resolving before each request, and redirects are only re-checked if that client
-/// does not follow them itself (AllowAutoRedirect = false).
+/// are then checked by resolving before each request, and if that client follows redirects itself only the
+/// final URL is re-checked (its body is discarded when refused) -- intermediate hops still reach the network,
+/// so prefer a client with AllowAutoRedirect = false.
 /// </remarks>
 public class HttpResourceResolver : IResourceResolver
 {
@@ -65,7 +66,8 @@ public class HttpResourceResolver : IResourceResolver
         if (!TryParseHttpUrl(url, out var uri)) return null;
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.TimeoutSeconds)));
+        // CancelAfter accepts at most int.MaxValue ms (~24.8 days)
+        timeout.CancelAfter(TimeSpan.FromSeconds(Math.Min(Math.Max(1, _options.TimeoutSeconds), int.MaxValue / 1000)));
         try
         {
             for (int redirects = 0; ; redirects++)
@@ -87,6 +89,17 @@ public class HttpResourceResolver : IResourceResolver
                     if (!IsHttp(location)) return null;
                     uri = location;
                     continue;
+                }
+
+                // A caller-supplied client may have followed redirects itself: check where it actually ended up
+                var finalUri = response.RequestMessage?.RequestUri;
+                if (finalUri != null && finalUri != uri)
+                {
+                    if (!IsHttp(finalUri) || !IsDomainAllowed(finalUri)) return null;
+                    if (!_checksAddressOnConnect && !await ResolvesToAllowedAddressesAsync(finalUri.DnsSafeHost).ConfigureAwait(false))
+                        return null;
+                    uri = finalUri;
+                    redirects++;
                 }
 
                 if (!response.IsSuccessStatusCode) return null;

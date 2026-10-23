@@ -168,6 +168,42 @@ public class HttpResourceResolverTests
     }
 
     [Fact]
+    public async Task Resolve_CallerClientFollowsRedirectOutsideAllowList_Refused()
+    {
+        // A caller-supplied HttpClient follows redirects itself; the final URL must still be checked
+        LocalHttpServer? server = null;
+        server = new LocalHttpServer(path => path == "/a.css"
+            ? new LocalHttpServer.Response
+            {
+                Status = 302,
+                Location = "http://localhost:" + server!.Port.ToString(System.Globalization.CultureInfo.InvariantCulture) + "/b.css",
+            }
+            : new LocalHttpServer.Response { Body = Payload });
+        using var _ = server;
+        using var client = new System.Net.Http.HttpClient(new System.Net.Http.HttpClientHandler { AllowAutoRedirect = true });
+        var resolver = new HttpResourceResolver(
+            new HttpResourceOptions { AllowPrivateNetworks = true, AllowedDomains = new[] { "127.0.0.1" } }, client);
+
+        var result = await resolver.ResolveAsync(server.Url("/a.css"), ResourceType.StyleSheet);
+
+        result.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(-5)]
+    [InlineData(0)]
+    [InlineData(int.MaxValue)]
+    public async Task Resolve_OutOfRangeTimeout_DoesNotThrow(int timeoutSeconds)
+    {
+        using var server = Serve();
+
+        var result = await AllowLoopback(new HttpResourceOptions { TimeoutSeconds = timeoutSeconds })
+            .ResolveAsync(server.Url("/a.css"), ResourceType.StyleSheet);
+
+        result!.Data.Should().Equal(Payload);
+    }
+
+    [Fact]
     public async Task Resolve_ContentLengthOverLimit_Refused()
     {
         using var server = Serve(new byte[1000]);

@@ -26,11 +26,13 @@ var resourceResolver = new EggPdf.Core.Resources.CompositeResolver(
         MaxResponseSizeBytes = 10 * 1024 * 1024,
     });
 
-EggPdf.PdfRenderOptions WithResourcePolicy(EggPdf.PdfRenderOptions options)
+// Every render: the resource policy above, a per-request fetch budget, and cancellation when the client
+// disconnects (which also stops in-flight fetches)
+Task<byte[]> RenderUntrustedAsync(string html, EggPdf.PdfRenderOptions options, HttpContext ctx)
 {
-    options.ResourceResolver = resourceResolver;
+    options.ResourceResolver = new EggPdf.Service.FetchBudgetResolver(resourceResolver, options.Warnings);
     options.AllowLocalFileAccess = allowLocalFileAccess;
-    return options;
+    return EggPdf.HtmlToPdf.RenderAsync(html, options, ctx.RequestAborted);
 }
 
 var app = builder.Build();
@@ -95,9 +97,9 @@ app.MapPost("/api/render", async (HttpContext ctx) =>
             return Results.BadRequest(new { error = "html field is required" });
 
         var sw = Stopwatch.StartNew();
-        var coreOptions = WithResourcePolicy(request.Options?.ToCoreOptions() ?? new EggPdf.PdfRenderOptions());
+        var coreOptions = request.Options?.ToCoreOptions() ?? new EggPdf.PdfRenderOptions();
         coreOptions.Warnings = new EggPdf.Core.WarningCollector();
-        var pdf = EggPdf.HtmlToPdf.Render(request.Html, coreOptions);
+        var pdf = await RenderUntrustedAsync(request.Html, coreOptions, ctx);
         sw.Stop();
 
         ctx.Response.Headers["X-EggPdf-Duration-Ms"] = sw.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture);
@@ -135,7 +137,7 @@ app.MapPost("/api/render/image", async (HttpContext ctx) =>
     if (string.IsNullOrEmpty(request?.Html))
         return Results.BadRequest(new { error = "html field is required" });
 
-    var pdf = EggPdf.HtmlToPdf.Render(request.Html, WithResourcePolicy(new EggPdf.PdfRenderOptions()));
+    var pdf = await RenderUntrustedAsync(request.Html, new EggPdf.PdfRenderOptions(), ctx);
     return Results.File(pdf, "application/pdf", "output.pdf");
 });
 
@@ -292,7 +294,7 @@ app.MapPost("/api/render/url", async (HttpContext ctx) =>
         if (page == null)
             return Results.BadRequest(new { error = "Could not fetch url: unreachable, refused by the server's resource policy, or too large" });
         var html = System.Text.Encoding.UTF8.GetString(page.Data);
-        var pdf = EggPdf.HtmlToPdf.Render(html, WithResourcePolicy(new EggPdf.PdfRenderOptions()));
+        var pdf = await RenderUntrustedAsync(html, new EggPdf.PdfRenderOptions(), ctx);
         return Results.File(pdf, "application/pdf", "output.pdf");
     }
     catch (Exception ex)
@@ -349,7 +351,7 @@ app.MapPost("/api/encrypt", async (HttpContext ctx) =>
         AllowModifying = request.AllowModifying ?? false,
     };
 
-    var pdf = EggPdf.HtmlToPdf.Render(request.Html, WithResourcePolicy(new EggPdf.PdfRenderOptions { Encryption = encryption }));
+    var pdf = await RenderUntrustedAsync(request.Html, new EggPdf.PdfRenderOptions { Encryption = encryption }, ctx);
     return Results.File(pdf, "application/pdf", "encrypted.pdf");
 });
 
@@ -364,7 +366,7 @@ app.MapPost("/api/render/pages", async (HttpContext ctx) =>
     if (string.IsNullOrEmpty(request?.Html))
         return Results.BadRequest(new { error = "html field is required" });
 
-    var pdf = EggPdf.HtmlToPdf.Render(request.Html, WithResourcePolicy(new EggPdf.PdfRenderOptions()));
+    var pdf = await RenderUntrustedAsync(request.Html, new EggPdf.PdfRenderOptions(), ctx);
     return Results.File(pdf, "application/pdf", "output.pdf");
 });
 
@@ -409,7 +411,7 @@ app.MapPost("/api/attachments", async (HttpContext ctx) =>
         return Results.BadRequest(new { error = "html field is required" });
 
     // Render PDF with embedded metadata about attachments
-    var pdf = EggPdf.HtmlToPdf.Render(request.Html, WithResourcePolicy(new EggPdf.PdfRenderOptions()));
+    var pdf = await RenderUntrustedAsync(request.Html, new EggPdf.PdfRenderOptions(), ctx);
     return Results.File(pdf, "application/pdf", "output.pdf");
 });
 

@@ -64,13 +64,14 @@ public static partial class HtmlToPdf
     /// The page/metadata properties (PageSize, Orientation, Margin*, Title, Author, UserStyleSheet) work by
     /// injecting HTML into the source text, which a DOM doesn't have: setting any of them throws
     /// <see cref="ArgumentException"/> -- put the equivalent <c>@page</c> rule, &lt;title&gt; or &lt;style&gt;
-    /// into the document instead.
+    /// into the document instead. A null <paramref name="options"/> renders with defaults: C# binds the
+    /// pre-existing call <c>RenderDocument(doc, basePath, null)</c> to this overload, which must keep working.
     /// </summary>
-    public static byte[] RenderDocument(HtmlDocument document, string? basePath, PdfRenderOptions options) =>
+    public static byte[] RenderDocument(HtmlDocument document, string? basePath, PdfRenderOptions? options) =>
         RenderDocumentWithOptions(document, basePath, options, default);
 
     /// <summary>Render an already-built DOM to PDF with <see cref="PdfRenderOptions"/>, asynchronously; <paramref name="ct"/> also cancels resource fetches.</summary>
-    public static Task<byte[]> RenderDocumentAsync(HtmlDocument document, string? basePath, PdfRenderOptions options, CancellationToken ct = default)
+    public static Task<byte[]> RenderDocumentAsync(HtmlDocument document, string? basePath, PdfRenderOptions? options, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
         try
@@ -85,16 +86,16 @@ public static partial class HtmlToPdf
 
     /// <summary>Render an already-built DOM to a PDF file with <see cref="PdfRenderOptions"/>.</summary>
     public static async Task RenderDocumentToFileAsync(HtmlDocument document, string filePath, string? basePath,
-        PdfRenderOptions options, CancellationToken ct = default)
+        PdfRenderOptions? options, CancellationToken ct = default)
     {
         var bytes = await RenderDocumentAsync(document, basePath, options, ct);
         await WriteFileAsync(filePath, bytes, ct);
     }
 
-    private static byte[] RenderDocumentWithOptions(HtmlDocument document, string? basePath, PdfRenderOptions options, CancellationToken ct)
+    private static byte[] RenderDocumentWithOptions(HtmlDocument document, string? basePath, PdfRenderOptions? options, CancellationToken ct)
     {
         if (document == null) throw new ArgumentNullException(nameof(document));
-        if (options == null) throw new ArgumentNullException(nameof(options));
+        options ??= new PdfRenderOptions();
         ThrowIfHtmlOnlyOption(options);
         return RenderInternal(document, basePath, options.Encryption, options.Conformance, options.Invoice, options.Tagged,
             options.UaVersion, options.Warnings, CreateResourceLoader(options, basePath, ct));

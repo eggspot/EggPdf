@@ -91,15 +91,16 @@ internal sealed class ResourceLoader
         if (remote)
             return type == ResourceType.Image ? null : Text.FontUrlFetcher.Fetch(url);
 
+        string path;
         try
         {
-            var path = url.StartsWith("file:", StringComparison.OrdinalIgnoreCase) ? new Uri(url).LocalPath : url;
-            return File.Exists(path) ? File.ReadAllBytes(path) : null;
+            path = url.StartsWith("file:", StringComparison.OrdinalIgnoreCase) ? new Uri(url).LocalPath : url;
         }
-        catch
+        catch (UriFormatException)
         {
-            return null; // permission denied, malformed path, etc.
+            return null;
         }
+        return LocalFileReader.TryReadAllBytes(path, LocalFileReader.DefaultMaxBytes);
     }
 
     private byte[]? ResolveThroughResolver(string url, ResourceType type)

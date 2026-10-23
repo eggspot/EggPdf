@@ -100,7 +100,9 @@
         Every render endpoint loads the stylesheets, <code>@import</code>s, <code>@font-face</code> fonts and images the
         HTML references under one server-wide policy, since callers are untrusted: http(s) resources are fetched safely
         (loopback, private, link-local and cloud-metadata addresses are refused, every redirect is re-checked, responses
-        are capped at 10&nbsp;MB and 10&nbsp;seconds), and files on the server are never read. A refused file shows up as
+        are capped at 10&nbsp;MB and 10&nbsp;seconds), and files on the server are never read. One request may fetch at
+        most 50 resources within 20&nbsp;seconds (then <code>LIMIT_EXCEEDED</code>), and fetches stop when the client
+        disconnects. A refused file shows up as
         <code>RESOURCE_BLOCKED</code> in the <code>X-EggPdf-Warnings</code> header. <code>POST /api/render/url</code>
         fetches its page under the same policy and returns <code>400</code> when the URL is refused or unreachable.
         The policy is server configuration only, never a request field, so a caller can't loosen it; operators can
