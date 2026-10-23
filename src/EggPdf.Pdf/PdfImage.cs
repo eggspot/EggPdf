@@ -166,6 +166,16 @@ public class PdfImage
         return FromRgb(name, width, height, rgb);
     }
 
+    internal static PdfImage? Decode(string name, byte[] data)
+    {
+        if (data.Length >= 8 && data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G') return FromPng(name, data);
+        if (data.Length >= 2 && data[0] == 0xFF && data[1] == 0xD8) return FromJpeg(name, data);
+        if (data.Length >= 4 && data[0] == 'G' && data[1] == 'I' && data[2] == 'F' && data[3] == '8') return FromGif(name, data);
+        if (data.Length >= 2 && data[0] == 'B' && data[1] == 'M') return FromBmp(name, data);
+        if (WebPDecoder.IsWebP(data)) return FromWebP(name, data);
+        return null;
+    }
+
     /// <summary>Create image from raw RGB pixel data.</summary>
     public static PdfImage FromRgb(string name, int width, int height, byte[] rgbData)
     {

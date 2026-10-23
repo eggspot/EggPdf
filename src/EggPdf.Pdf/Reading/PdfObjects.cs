@@ -60,6 +60,13 @@ internal sealed class PdfDictionary : PdfObject
     public void Set(string key, PdfObject value) => _entries[key] = value;
 
     public IEnumerable<KeyValuePair<string, PdfObject>> Entries => _entries;
+
+    public PdfDictionary Clone()
+    {
+        var copy = new PdfDictionary();
+        foreach (var pair in _entries) copy.Set(pair.Key, pair.Value);
+        return copy;
+    }
 }
 
 internal sealed class PdfStream : PdfObject

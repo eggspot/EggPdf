@@ -22,7 +22,7 @@ public class PdfReaderLargeFileTests
 
     private static string N(long value) => value.ToString(CultureInfo.InvariantCulture);
 
-    private sealed class VirtualFile : Stream
+    internal sealed class VirtualFile : Stream
     {
         private readonly byte[] _head;
         private readonly long _fillerLength;
@@ -94,7 +94,7 @@ public class PdfReaderLargeFileTests
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
-    private sealed class TailCapture : Stream
+    internal sealed class TailCapture : Stream
     {
         private readonly long _keepFrom;
         private readonly MemoryStream _kept = new();

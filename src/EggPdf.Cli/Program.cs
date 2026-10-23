@@ -233,6 +233,7 @@ public class Program
         "-o", "--output", "--pdfa", "--invoice", "--ua-version",
         CliSigning.PfxOption, CliSigning.PfxPasswordEnvOption, CliSigning.CertificateOption, CliSigning.KeyOption,
         CliSigning.KeyPasswordEnvOption, CliSigning.ReasonOption, CliSigning.LocationOption, CliSigning.NameOption,
+        CliSigning.FieldOption, CliSigning.ImageOption, CliSigning.PageOption, CliSigning.BoxOption,
     };
 
     private static bool HasFlag(string[] args, string flag)
@@ -288,6 +289,10 @@ OPTIONS:
     --sign-reason <text>     Signature reason, e.g. ""Approved""
     --sign-location <text>   Signature location
     --sign-name <text>       Signer name (default: the certificate's subject name)
+    --sign-field <name>      Signature field name; signs into an existing empty field with that name
+    --sign-image <file>      Show the signature as this image (PNG/JPEG/GIF/BMP/WebP); needs --sign-box
+    --sign-box <x,y,w,h>     Image box in points from the top-left of the displayed page
+    --sign-page <n>          Page for --sign-image (default 1)
     -v, --verbose            Show page count, render timing and file size
     --version                Show version
     -h, --help               Show this help

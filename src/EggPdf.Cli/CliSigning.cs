@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Security.Cryptography.X509Certificates;
 using EggPdf.Pdf;
@@ -16,6 +17,10 @@ internal sealed class CliSigning : IDisposable
     public const string ReasonOption = "--sign-reason";
     public const string LocationOption = "--sign-location";
     public const string NameOption = "--sign-name";
+    public const string FieldOption = "--sign-field";
+    public const string ImageOption = "--sign-image";
+    public const string PageOption = "--sign-page";
+    public const string BoxOption = "--sign-box";
 
     private readonly X509Certificate2 _certificate;
     private readonly PdfSigner.SignOptions _options;
@@ -56,7 +61,34 @@ internal sealed class CliSigning : IDisposable
         values.TryGetValue(ReasonOption, out var reason);
         values.TryGetValue(LocationOption, out var location);
         values.TryGetValue(NameOption, out var name);
-        return new CliSigning(certificate, new PdfSigner.SignOptions { Reason = reason, Location = location, Name = name });
+        values.TryGetValue(FieldOption, out var field);
+        return new CliSigning(certificate, new PdfSigner.SignOptions
+        {
+            Reason = reason, Location = location, Name = name, FieldName = field, Appearance = Appearance(values),
+        });
+    }
+
+    private static PdfSigner.SignatureAppearance? Appearance(IReadOnlyDictionary<string, string> values)
+    {
+        if (!values.TryGetValue(ImageOption, out var imagePath))
+        {
+            if (values.ContainsKey(PageOption) || values.ContainsKey(BoxOption))
+                throw new ArgumentException($"{PageOption} and {BoxOption} place the {ImageOption} image; give {ImageOption} too.");
+            return null;
+        }
+        if (!values.TryGetValue(BoxOption, out var box))
+            throw new ArgumentException($"{ImageOption} needs {BoxOption} x,y,width,height (points from the page's top-left).");
+        var parts = box.Split(',');
+        var numbers = new double[4];
+        if (parts.Length != 4) throw new ArgumentException($"{BoxOption} takes four numbers: x,y,width,height.");
+        for (int i = 0; i < 4; i++)
+            if (!double.TryParse(parts[i].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out numbers[i]))
+                throw new ArgumentException($"{BoxOption} takes four numbers: x,y,width,height.");
+        int page = 1;
+        if (values.TryGetValue(PageOption, out var pageText) &&
+            !int.TryParse(pageText, NumberStyles.Integer, CultureInfo.InvariantCulture, out page))
+            throw new ArgumentException($"{PageOption} takes a page number.");
+        return new PdfSigner.SignatureAppearance(page, numbers[0], numbers[1], numbers[2], numbers[3], ReadFile(imagePath));
     }
 
     public byte[] Sign(byte[] pdf) => PdfSigner.Sign(pdf, _certificate, _options);
@@ -65,7 +97,7 @@ internal sealed class CliSigning : IDisposable
 
     private static void RejectSigningDetailsWithoutCertificate(IReadOnlyDictionary<string, string> values)
     {
-        foreach (var option in new[] { PfxPasswordEnvOption, KeyPasswordEnvOption, ReasonOption, LocationOption, NameOption })
+        foreach (var option in new[] { PfxPasswordEnvOption, KeyPasswordEnvOption, ReasonOption, LocationOption, NameOption, FieldOption, ImageOption, PageOption, BoxOption })
             if (values.ContainsKey(option))
                 throw new ArgumentException($"{option} needs {PfxOption}, or {CertificateOption} with {KeyOption}.");
     }
