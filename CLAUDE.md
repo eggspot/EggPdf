@@ -18,10 +18,28 @@ See `design/architecture/` for detailed component specs (8 docs, ~3,000 lines).
 
 1. **Zero external dependencies** -- pure managed C#, BCL only. No NuGet packages in the core library.
 2. **Multi-target** -- must compile on netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0.
-3. **Performance matters** -- benchmark every hot-path change. No regressions allowed.
+3. **Performance is the top priority** -- see "Performance First" below. Benchmark every hot-path change. No regressions allowed.
 4. **Test first, always** -- write failing test -> implement -> verify -> fix -> repeat.
 5. **Infallible parsers** -- HTML/CSS parsers never throw. Produce error nodes / silently ignore.
 6. **Graceful degradation** -- unknown CSS ignored, missing resources produce warnings not crashes.
+
+## Performance First (owner's top priority)
+
+Design every feature for the largest realistic input, not the test fixture: a 5 GB PDF, 150,000 pages, a
+100,000-row table. Memory must grow with what the caller actually uses, never with the size of the input.
+An earlier `PdfReader` walked the whole page tree and held the whole file at `Open`, costing 500 MB for a
+150k-page PDF; don't write code like that again.
+
+- **No whole-input copies.** Read from a `Stream`/file through bounded buffers; offer `Stream` (and path)
+  overloads beside `byte[]`, and write output to a `Stream`. Use `long` for file offsets.
+- **Lazy, not eager.** Don't walk or materialize a whole structure (page tree, xref, object graph, table rows)
+  up front when an indexed or on-demand lookup works. Prefer O(1)/O(log n) access to an O(n) pre-pass.
+- **Bounded caches.** Every cache has a size cap (LRU or similar); nothing grows per page/object without limit.
+- **Compact representations.** Store large indexes as packed arrays of primitives, not objects or dictionaries
+  per entry.
+- **Prove it at scale.** A reader/writer/layout path gets a test that measures allocated bytes on a large
+  input (e.g. `GC.GetAllocatedBytesForCurrentThread()` around open + one lookup on 150k pages) with a hard
+  ceiling, plus a benchmark. Reviewers block a PR whose memory or time scales with input size where it needn't.
 
 ## Development Workflow (STRICT — batched TDD)
 

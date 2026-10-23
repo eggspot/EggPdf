@@ -15,9 +15,9 @@ public sealed class PdfReader
     private const int MaxPages = 1_000_000;
     private const int HeaderSearchWindow = 1024;
 
-    private readonly List<PdfPageGeometry> _pages;
+    private readonly List<PdfPageNode> _pages;
 
-    private PdfReader(PdfObjectStore store, List<PdfPageGeometry> pages)
+    private PdfReader(PdfObjectStore store, List<PdfPageNode> pages)
     {
         Store = store;
         _pages = pages;
@@ -61,28 +61,33 @@ public sealed class PdfReader
     {
         if (pageNumber < 1 || pageNumber > _pages.Count)
             throw new ArgumentOutOfRangeException(nameof(pageNumber), pageNumber, "Page numbers run from 1 to PageCount.");
-        return _pages[pageNumber - 1];
+        return _pages[pageNumber - 1].Geometry;
     }
 
-    private static List<PdfPageGeometry> ReadPages(PdfObjectStore store)
+    internal PdfPageNode GetPageNode(int pageNumber) => _pages[pageNumber - 1];
+
+    private static List<PdfPageNode> ReadPages(PdfObjectStore store)
     {
         var catalog = store.FindCatalog()!;
+        var rootReference = catalog.Get("Pages") as PdfReference;
         var root = store.Resolve(catalog.Get("Pages")) as PdfDictionary
             ?? throw new PdfFormatException("The document catalog has no page tree.");
 
-        var pages = new List<PdfPageGeometry>();
+        var pages = new List<PdfPageNode>();
         var visited = new HashSet<PdfDictionary>();
-        var pending = new Stack<(PdfDictionary Node, double[]? MediaBox, double[]? CropBox, int Rotation, int Depth)>();
-        pending.Push((root, null, null, 0, 0));
+        var pending = new Stack<(PdfDictionary Node, PdfReference? Reference, InheritedAttributes Inherited, int Depth)>();
+        pending.Push((root, rootReference, new InheritedAttributes(null, null, 0, null), 0));
         while (pending.Count > 0)
         {
-            var (node, inheritedMedia, inheritedCrop, inheritedRotation, depth) = pending.Pop();
+            var (node, reference, inherited, depth) = pending.Pop();
             if (!visited.Add(node)) throw new PdfFormatException("The page tree contains a cycle.");
             if (depth > MaxPageTreeDepth) throw new PdfFormatException("The page tree is nested too deeply.");
 
-            var mediaBox = ReadRectangle(store, node.Get("MediaBox")) ?? inheritedMedia;
-            var cropBox = ReadRectangle(store, node.Get("CropBox")) ?? inheritedCrop;
-            int rotation = store.Resolve(node.Get("Rotate")) is PdfNumber rotate ? NormalizeRotation(rotate.Value) : inheritedRotation;
+            var attributes = new InheritedAttributes(
+                ReadRectangle(store, node.Get("MediaBox")) ?? inherited.MediaBox,
+                ReadRectangle(store, node.Get("CropBox")) ?? inherited.CropBox,
+                store.Resolve(node.Get("Rotate")) is PdfNumber rotate ? NormalizeRotation(rotate.Value) : inherited.Rotation,
+                node.Get("Resources") ?? inherited.Resources);
 
             var kids = store.Resolve(node.Get("Kids")) as PdfArray;
             var type = (node.Get("Type") as PdfName)?.Value;
@@ -90,27 +95,45 @@ public sealed class PdfReader
             if (isPage)
             {
                 if (pages.Count >= MaxPages) throw new PdfFormatException("The document has too many pages.");
-                pages.Add(Geometry(pages.Count + 1, mediaBox, cropBox, rotation));
+                pages.Add(PageNode(pages.Count + 1, node, reference, attributes));
                 continue;
             }
 
             if (kids == null) continue;
             for (int i = kids.Items.Count - 1; i >= 0; i--)
                 if (store.Resolve(kids.Items[i]) is PdfDictionary kid)
-                    pending.Push((kid, mediaBox, cropBox, rotation, depth + 1));
+                    pending.Push((kid, kids.Items[i] as PdfReference, attributes, depth + 1));
         }
         return pages;
     }
 
-    private static PdfPageGeometry Geometry(int pageNumber, double[]? mediaBox, double[]? cropBox, int rotation)
+    private sealed class InheritedAttributes
     {
-        var media = mediaBox ?? new[] { 0.0, 0.0, 612.0, 792.0 };
-        var visible = cropBox == null ? media : Intersect(cropBox, media) ?? media;
+        public InheritedAttributes(double[]? mediaBox, double[]? cropBox, int rotation, PdfObject? resources)
+        {
+            MediaBox = mediaBox;
+            CropBox = cropBox;
+            Rotation = rotation;
+            Resources = resources;
+        }
+
+        public double[]? MediaBox { get; }
+        public double[]? CropBox { get; }
+        public int Rotation { get; }
+        public PdfObject? Resources { get; }
+    }
+
+    private static PdfPageNode PageNode(int pageNumber, PdfDictionary dictionary, PdfReference? reference, InheritedAttributes attributes)
+    {
+        var media = attributes.MediaBox ?? new[] { 0.0, 0.0, 612.0, 792.0 };
+        var visible = attributes.CropBox == null ? media : Intersect(attributes.CropBox, media) ?? media;
         double width = visible[2] - visible[0];
         double height = visible[3] - visible[1];
-        return rotation % 180 == 0
+        int rotation = attributes.Rotation;
+        var geometry = rotation % 180 == 0
             ? new PdfPageGeometry(pageNumber, width, height, rotation)
             : new PdfPageGeometry(pageNumber, height, width, rotation);
+        return new PdfPageNode(reference, dictionary, visible, rotation, attributes.Resources, geometry);
     }
 
     private static double[]? ReadRectangle(PdfObjectStore store, PdfObject? value)

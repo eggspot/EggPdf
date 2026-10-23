@@ -35,12 +35,11 @@ public class PdfImage
         if (jpegData == null || jpegData.Length < 2)
             return null;
 
-        // Verify JPEG SOI marker
         if (jpegData[0] != 0xFF || jpegData[1] != 0xD8)
             return null;
 
-        // Parse JPEG headers to get dimensions
-        int width = 0, height = 0;
+        int width = 0, height = 0, components = 3;
+        bool adobe = false;
         int pos = 2;
         while (pos < jpegData.Length - 1)
         {
@@ -48,19 +47,21 @@ public class PdfImage
             byte marker = jpegData[pos + 1];
             pos += 2;
 
-            // SOF markers (Start of Frame) contain dimensions
             if (marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC)
             {
-                if (pos + 7 <= jpegData.Length)
+                if (pos + 8 <= jpegData.Length)
                 {
-                    // Skip length(2) + precision(1)
                     height = (jpegData[pos + 3] << 8) | jpegData[pos + 4];
                     width = (jpegData[pos + 5] << 8) | jpegData[pos + 6];
+                    components = jpegData[pos + 7];
                 }
                 break;
             }
 
-            // Skip segment
+            if (marker == 0xEE && pos + 7 <= jpegData.Length &&
+                jpegData[pos + 2] == 'A' && jpegData[pos + 3] == 'd' && jpegData[pos + 4] == 'o' && jpegData[pos + 5] == 'b' && jpegData[pos + 6] == 'e')
+                adobe = true;
+
             if (pos + 2 <= jpegData.Length)
             {
                 int segLen = (jpegData[pos] << 8) | jpegData[pos + 1];
@@ -69,11 +70,26 @@ public class PdfImage
             else break;
         }
 
-        if (width <= 0 || height <= 0)
+        if (width <= 0 || height <= 0 || (components != 1 && components != 3 && components != 4))
             return null;
 
-        return new PdfImage(name, width, height, jpegData, PdfImageFormat.Jpeg, 8, null);
+        return new PdfImage(name, width, height, jpegData, PdfImageFormat.Jpeg, 8, null)
+        {
+            JpegComponents = components,
+            JpegAdobeInverted = adobe && components == 4,
+        };
     }
+
+    internal int JpegComponents { get; private set; } = 3;
+
+    internal bool JpegAdobeInverted { get; private set; }
+
+    internal string ColorSpace => Format != PdfImageFormat.Jpeg ? "/DeviceRGB"
+        : JpegComponents == 1 ? "/DeviceGray"
+        : JpegComponents == 4 ? "/DeviceCMYK"
+        : "/DeviceRGB";
+
+    internal string DecodeEntry => JpegAdobeInverted ? " /Decode [1 0 1 0 1 0 1 0]" : "";
 
     /// <summary>Create image from PNG data (decoded to RGB or RGBA).</summary>
     public static PdfImage? FromPng(string name, byte[] pngData)
@@ -159,7 +175,6 @@ public class PdfImage
     /// <summary>Create image from raw RGBA pixel data (alpha channel becomes SMask).</summary>
     public static PdfImage FromRgba(string name, int width, int height, byte[] rgbaData)
     {
-        // Separate RGB and alpha channels
         int pixelCount = width * height;
         var rgb = new byte[pixelCount * 3];
         var alpha = new byte[pixelCount];

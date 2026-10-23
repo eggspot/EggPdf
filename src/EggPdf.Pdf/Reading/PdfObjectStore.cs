@@ -82,6 +82,22 @@ internal sealed class PdfObjectStore
 
     public PdfDictionary Trailer { get; } = new();
 
+    public long LastCrossReferenceOffset { get; private set; } = -1;
+
+    public bool LastCrossReferenceIsStream { get; private set; }
+
+    public bool WasRepaired => _repairing;
+
+    public int HighestObjectNumber
+    {
+        get
+        {
+            int highest = 0;
+            foreach (var number in _entries.Keys) highest = Math.Max(highest, number);
+            return highest;
+        }
+    }
+
     public bool IsEncrypted => Trailer.Get("Encrypt") is { } encrypt && encrypt is not PdfNull;
 
     public static PdfObjectStore Load(byte[] data)
@@ -156,6 +172,11 @@ internal sealed class PdfObjectStore
                 if (offset >= _data.Length) return false;
                 var freedInRevision = new List<int>();
                 var trailer = ReadSection(offset, freedInRevision);
+                if (visited.Count == 1)
+                {
+                    LastCrossReferenceOffset = offset;
+                    LastCrossReferenceIsStream = trailer.Get("Type") is PdfName { Value: "XRef" };
+                }
                 MergeTrailer(trailer);
                 if (trailer.Get("XRefStm") is PdfNumber hybrid && hybrid.IsInteger && visited.Add((long)hybrid.Value))
                     ReadCrossReferenceStream((long)hybrid.Value, freedInRevision);

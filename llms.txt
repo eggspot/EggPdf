@@ -319,6 +319,7 @@ netstandard2.0, netstandard2.1, net6.0, net8.0, net9.0, net10.0
 - Cloudflare email obfuscation (data-cfemail) decoded automatically
 - PDF merging
 - Read existing PDFs from any producer: PdfReader.Open(bytes) -> PageCount, GetPage(n) (displayed Width/Height in points, Rotation), IsEncrypted; PdfReader.GetPageCount(bytes). Handles xref streams, object streams, incremental updates, damaged cross-references; safety limits for untrusted input; PdfFormatException when unreadable
+- Stamp images onto an existing PDF: new PdfStamper(pdf).AddImage(pageNumber, imageBytes, x, y, width, height, PdfImageFit.Stretch|Contain).Build() -- PNG/JPEG/GIF/BMP/WebP, top-left coordinates in points on the displayed page (crop box + rotation handled), appended as an incremental update so earlier signatures still verify (validators report the content added after signing); Build(stream) writes the result without copying the input; REST POST /api/stamp {pdf, stamps:[{page,x,y,width,height,image,fit}]}; encrypted, damaged-xref and certified (DocMDP) files are refused
 
 ## Security: signing and encryption
 

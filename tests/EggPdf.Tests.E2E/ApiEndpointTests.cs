@@ -135,6 +135,51 @@ public class ApiEndpointTests
         }
     }
 
+    private const string OnePixelPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+
+    [Fact]
+    public async Task Stamp_ImageOnPage_ReturnsTheUpdatedPdf()
+    {
+        var original = EggPdf.HtmlToPdf.Render("<p>contract</p>");
+        var content = new StringContent(JsonSerializer.Serialize(new
+        {
+            pdf = System.Convert.ToBase64String(original),
+            stamps = new[] { new { page = 1, x = 10.0, y = 20.0, width = 100.0, height = 50.0, image = OnePixelPng, fit = "contain" } },
+        }), Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/stamp", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        var stamped = await resp.Content.ReadAsByteArrayAsync();
+        stamped.Length.Should().BeGreaterThan(original.Length);
+        EggPdf.Pdf.PdfReader.Open(stamped).PageCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Stamp_PageOutOfRange_ReturnsBadRequest()
+    {
+        var content = new StringContent(JsonSerializer.Serialize(new
+        {
+            pdf = System.Convert.ToBase64String(EggPdf.HtmlToPdf.Render("<p>x</p>")),
+            stamps = new[] { new { page = 5, x = 0.0, y = 0.0, width = 10.0, height = 10.0, image = OnePixelPng, fit = "stretch" } },
+        }), Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/stamp", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Stamp_NullStampEntry_ReturnsBadRequest()
+    {
+        var pdf = System.Convert.ToBase64String(EggPdf.HtmlToPdf.Render("<p>x</p>"));
+        var content = new StringContent("{\"pdf\":\"" + pdf + "\",\"stamps\":[null]}", Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/stamp", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.BadRequest);
+    }
+
     [Fact]
     public async Task RenderUrl_LoopbackAddress_Refused()
     {
