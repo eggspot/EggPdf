@@ -181,10 +181,11 @@ public class Program
             var startTime = DateTime.UtcNow;
 
             var warnings = new EggPdf.Core.WarningCollector();
+            var statistics = new RenderStatistics();
             var options = new PdfRenderOptions
             {
                 Conformance = conformance, Invoice = invoice, Tagged = tagged, UaVersion = uaVersion, Warnings = warnings,
-                AllowLocalFileAccess = !noLocalFiles, Statistics = new RenderStatistics(),
+                AllowLocalFileAccess = !noLocalFiles, Statistics = statistics,
             };
             if (noPrivateNetwork)
             {
@@ -219,7 +220,7 @@ public class Program
 
             if (verbose)
             {
-                int pages = options.Statistics.PageCount;
+                int pages = statistics.PageCount;
                 Console.Error.WriteLine($"Rendered {pages.ToString(CultureInfo.InvariantCulture)} page{(pages == 1 ? "" : "s")} in {elapsed.TotalMilliseconds.ToString("F0", CultureInfo.InvariantCulture)}ms -> {outputPath}");
                 if (outputPath != "-" && File.Exists(outputPath))
                 {

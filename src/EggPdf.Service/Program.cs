@@ -106,13 +106,14 @@ app.MapPost("/api/render", async (HttpContext ctx) =>
         var sw = Stopwatch.StartNew();
         var coreOptions = request.Options?.ToCoreOptions() ?? new EggPdf.PdfRenderOptions();
         coreOptions.Warnings = new EggPdf.Core.WarningCollector();
-        coreOptions.Statistics = new EggPdf.RenderStatistics();
+        var statistics = new EggPdf.RenderStatistics();
+        coreOptions.Statistics = statistics;
         var pdf = await RenderUntrustedAsync(request.Html, coreOptions, ctx);
         sw.Stop();
 
         ctx.Response.Headers["X-EggPdf-Duration-Ms"] = sw.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture);
         ctx.Response.Headers["X-EggPdf-Size"] = pdf.Length.ToString(CultureInfo.InvariantCulture);
-        ctx.Response.Headers["X-EggPdf-Page-Count"] = coreOptions.Statistics.PageCount.ToString(CultureInfo.InvariantCulture);
+        ctx.Response.Headers["X-EggPdf-Page-Count"] = statistics.PageCount.ToString(CultureInfo.InvariantCulture);
         if (coreOptions.Warnings.HasWarnings)
             ctx.Response.Headers["X-EggPdf-Warnings"] = FormatWarningsHeader(coreOptions.Warnings);
 
