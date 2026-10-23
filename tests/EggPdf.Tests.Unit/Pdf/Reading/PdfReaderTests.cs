@@ -212,16 +212,49 @@ public class PdfReaderTests
     {
         long before = GC.GetAllocatedBytesForCurrentThread();
         ShouldFinishQuickly(() => PdfReader.Open(pdf));
-        (GC.GetAllocatedBytesForCurrentThread() - before).Should().BeLessThan(200L * 1024 * 1024);
+        (GC.GetAllocatedBytesForCurrentThread() - before).Should().BeLessThan(400L * 1024 * 1024,
+            "the materialized budget (16x input + 256 MB, strings growing by doubling) bounds it; unbounded, these inputs allocate several GB");
     }
 
     [Fact]
     public void Open_RepairOfManyUnterminatedTrailers_TakesLinearTime()
     {
         var text = new StringBuilder("%PDF-1.7\n");
-        for (int k = 0; k < 40_000; k++) text.Append("trailer(");
+        for (int k = 0; k < 80_000; k++) text.Append("trailer(");
 
         ShouldFinishQuickly(() => PdfReader.Open(Latin1Bytes(text.ToString())));
+    }
+
+    [Fact]
+    public void Open_150kPagesInCompressedObjectStream_IsReadInFull()
+    {
+        const int count = 150_000;
+        var header = new StringBuilder();
+        var body = new StringBuilder();
+        var kids = new StringBuilder();
+        for (int i = 0; i < count; i++)
+        {
+            int number = 10 + i;
+            header.Append(number.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(' ')
+                  .Append(body.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(' ');
+            body.Append("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> /ProcSet [/PDF /Text] >> /Contents 5 0 R >>\n");
+            kids.Append(number.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(" 0 R ");
+        }
+        var compressed = TestPdfBuilder.Zlib(Latin1Bytes(header.ToString() + body));
+        var head = Latin1Bytes("%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n" +
+                               "2 0 obj << /Type /Pages /Kids [" + kids + "] /Count " + count.ToString(System.Globalization.CultureInfo.InvariantCulture) + " >> endobj\n" +
+                               "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n" +
+                               "5 0 obj << /Length 0 >>\nstream\n\nendstream\nendobj\n" +
+                               "3 0 obj << /Type /ObjStm /N " + count.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                               " /First " + header.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                               " /Filter /FlateDecode /Length " + compressed.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + " >>\nstream\n");
+        var tail = Latin1Bytes("\nendstream\nendobj\n");
+        var pdf = new byte[head.Length + compressed.Length + tail.Length];
+        head.CopyTo(pdf, 0);
+        compressed.CopyTo(pdf, head.Length);
+        tail.CopyTo(pdf, head.Length + compressed.Length);
+
+        PdfReader.Open(pdf).PageCount.Should().Be(count);
     }
 
     [Fact]

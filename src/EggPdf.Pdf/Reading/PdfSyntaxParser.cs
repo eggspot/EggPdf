@@ -121,12 +121,7 @@ internal sealed class PdfSyntaxParser
     private PdfObject ReadObject(int depth)
     {
         var value = ReadObjectWithoutAccounting(depth);
-        _budget?.Materialized(value switch
-        {
-            PdfString text => text.Bytes.Length,
-            PdfName name => name.Value.Length * 2L,
-            _ => 0,
-        });
+        _budget?.Materialized(value);
         return value;
     }
 

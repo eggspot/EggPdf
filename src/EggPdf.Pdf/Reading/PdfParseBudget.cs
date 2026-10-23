@@ -9,10 +9,13 @@ internal sealed class PdfParseBudgetExceededException : PdfFormatException
 
 internal sealed class PdfParseBudget
 {
-    private const long ObjectOverheadBytes = 48;
-    private const long MaterializedAllowance = 32L * 1024 * 1024;
+    private const long DictionaryCost = 160;
+    private const long ArrayCost = 64;
+    private const long TextCost = 40;
+    private const long ScalarCost = 32;
+    private const long MaterializedAllowance = 256L * 1024 * 1024;
     private const long ScannedAllowance = 64L * 1024 * 1024;
-    private const int MaterializedPerInputByte = 4;
+    private const int MaterializedPerInputByte = 16;
     private const int ScannedPerInputByte = 8;
     private const int ScannedPerDecodedByte = 2;
 
@@ -29,9 +32,16 @@ internal sealed class PdfParseBudget
 
     public void AllowScanningDecoded(long decodedBytes) => _scannedLimit += ScannedPerDecodedByte * decodedBytes;
 
-    public void Materialized(long payloadBytes)
+    public void Materialized(PdfObject value)
     {
-        _materialized += ObjectOverheadBytes + payloadBytes;
+        _materialized += value switch
+        {
+            PdfDictionary => DictionaryCost,
+            PdfArray => ArrayCost,
+            PdfString text => TextCost + text.Bytes.Length,
+            PdfName name => TextCost + 2L * name.Value.Length,
+            _ => ScalarCost,
+        };
         if (_materialized > _materializedLimit)
             throw new PdfParseBudgetExceededException("The document holds far more objects than its size allows.");
     }
