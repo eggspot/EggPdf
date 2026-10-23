@@ -351,6 +351,86 @@ public class PdfReaderScaleTests
     }
 
     [Fact]
+    public void Open_ManyOverlappingXrefSubsections_TakesLinearTime()
+    {
+        const int subsections = 200_000;
+        var kids = new StringBuilder("3 0 R ");
+        for (int i = 0; i < subsections; i++) kids.Append(N(10 + i)).Append(" 0 R ");
+        var original = Latin1.GetString(new TestPdfBuilder()
+            .Add(1, "<< /Type /Catalog /Pages 2 0 R >>")
+            .Add(2, $"<< /Type /Pages /Kids [{kids}] /Count 1 >>")
+            .Add(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 321 800] >>")
+            .BuildClassic(root: 1));
+        int trailer = original.LastIndexOf("trailer", StringComparison.Ordinal);
+        int rootRow = original.IndexOf("\n", original.LastIndexOf("\nxref\n", StringComparison.Ordinal) + 6, StringComparison.Ordinal) + 1 + 2 * 20;
+        var extra = new StringBuilder();
+        for (int i = 0; i < subsections; i++) extra.Append(N(10 + i)).Append(" 1\n0000000000 00000 f \n");
+        extra.Append("2 1\n").Append(original, rootRow, 20);
+        var pdf = Latin1.GetBytes(original.Substring(0, trailer) + extra + original.Substring(trailer));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        var reader = PdfReader.Open(pdf);
+
+        watch.Stop();
+        reader.GetPage(1).Width.Should().Be(321);
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public void Open_TwentyRevisions_UsesTheNewestOfEachObject()
+    {
+        var pdf = new TestPdfBuilder()
+            .Add(1, "<< /Type /Catalog /Pages 2 0 R >>")
+            .Add(2, "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>")
+            .Add(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 800] >>")
+            .Add(4, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 800] >>")
+            .BuildClassic(root: 1);
+        for (int revision = 1; revision <= 20; revision++)
+            pdf = TestPdfBuilder.AppendUpdate(pdf, root: 1, size: 5,
+                (revision % 2 == 0 ? 3 : 4, $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {N(1000 + revision)} 800] >>"));
+
+        var reader = PdfReader.Open(pdf);
+
+        reader.GetPage(1).Width.Should().Be(1020);
+        reader.GetPage(2).Width.Should().Be(1019);
+    }
+
+    [Fact]
+    public void Open_EscapedTypeName_IsReadTheSameWayEverywhere()
+    {
+        var pdf = new TestPdfBuilder()
+            .Add(1, "<< /Type /Catalog /Pages 2 0 R >>")
+            .Add(2, "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 5 >>")
+            .Add(3, "<< /Type /Pag#65 /Parent 2 0 R /Kids [4 0 R 5 0 R 4 0 R] /Count 3 /MediaBox [0 0 101 800] >>")
+            .Add(4, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 102 800] >>")
+            .Add(5, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 103 800] >>")
+            .BuildClassic(root: 1);
+
+        var reader = PdfReader.Open(pdf);
+
+        reader.PageCount.Should().Be(3);
+        reader.GetPage(1).Width.Should().Be(101);
+        reader.GetPage(2).Width.Should().Be(102);
+        reader.GetPage(3).Width.Should().Be(103);
+    }
+
+    [Fact]
+    public void Open_SharedPagesNodeAndWrongRootCount_WalksWithoutCallingItACycle()
+    {
+        var pdf = new TestPdfBuilder()
+            .Add(1, "<< /Type /Catalog /Pages 2 0 R >>")
+            .Add(2, "<< /Type /Pages /Kids [3 0 R 3 0 R] /Count 7 >>")
+            .Add(3, "<< /Type /Pages /Parent 2 0 R /Kids [4 0 R] /Count 1 >>")
+            .Add(4, "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 104 800] >>")
+            .BuildClassic(root: 1);
+
+        var reader = PdfReader.Open(pdf);
+
+        reader.PageCount.Should().Be(2);
+        reader.GetPage(2).Width.Should().Be(104);
+    }
+
+    [Fact]
     public void Open_RootCountAboveTheObjectCount_CountsThePagesInstead()
     {
         var pdf = new TestPdfBuilder()

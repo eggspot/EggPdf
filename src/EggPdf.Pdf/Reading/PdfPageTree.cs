@@ -101,9 +101,13 @@ internal sealed partial class PdfPageTree
             remaining -= before;
             var (kidDictionary, kidReference) = Kid(reference, node, index, kid);
             attributes = attributes.Inherit(_store, kidDictionary);
-            if (IsLeaf(kidDictionary)) return PageNode(pageNumber, kidDictionary, kidReference, attributes);
-
             expected = index.PagesThroughKid[kid] - before;
+            if (IsLeaf(kidDictionary))
+            {
+                if (expected != 1) throw new PdfFormatException("The page tree is inconsistent: a page sits where a /Pages node was counted.");
+                return PageNode(pageNumber, kidDictionary, kidReference, attributes);
+            }
+
             node = kidDictionary;
             reference = kidReference;
         }

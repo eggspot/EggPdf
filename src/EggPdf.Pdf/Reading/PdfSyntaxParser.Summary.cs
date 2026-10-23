@@ -90,10 +90,22 @@ internal sealed partial class PdfSyntaxParser
 
     private bool NameEquals(int start, string name)
     {
-        if (Position - start != name.Length) return false;
-        for (int i = 0; i < name.Length; i++)
-            if (_data[start + i] != name[i]) return false;
-        return true;
+        int matched = 0;
+        for (int i = start; i < Position; matched++)
+        {
+            int b = _data[i];
+            if (b == '#' && i + 2 < Position && TryHex(_data[i + 1], out int high) && TryHex(_data[i + 2], out int low))
+            {
+                b = high * 16 + low;
+                i += 3;
+            }
+            else
+            {
+                i++;
+            }
+            if (matched >= name.Length || name[matched] != b) return false;
+        }
+        return matched == name.Length;
     }
 
     private void SkipValue()

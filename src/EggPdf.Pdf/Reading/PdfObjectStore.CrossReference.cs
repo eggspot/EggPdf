@@ -45,6 +45,7 @@ internal sealed partial class PdfObjectStore
                 MergeTrailer(trailer);
                 offset = trailer.Get("Prev") is PdfNumber previous && previous.IsInteger ? (long)previous.Value : -1;
             }
+            _crossReference.Seal();
             return Trailer.Get("Root") != null;
         }
         catch (PdfFormatException)

@@ -21,9 +21,14 @@ internal sealed class PdfObjectCache<TValue> where TValue : class
     private readonly Dictionary<int, LinkedListNode<Slot>> _byKey = new();
     private readonly LinkedList<Slot> _newestFirst = new();
     private readonly long _capacity;
+    private readonly int _alwaysKept;
     private long _cost;
 
-    public PdfObjectCache(long capacity) => _capacity = capacity;
+    public PdfObjectCache(long capacity, int alwaysKept = 1)
+    {
+        _capacity = capacity;
+        _alwaysKept = alwaysKept;
+    }
 
     public bool TryGet(int key, out TValue value)
     {
@@ -43,7 +48,7 @@ internal sealed class PdfObjectCache<TValue> where TValue : class
         if (_byKey.TryGetValue(key, out var existing)) Evict(existing);
         _byKey[key] = _newestFirst.AddFirst(new Slot(key, value, cost));
         _cost += cost;
-        while (_cost > _capacity && _newestFirst.Last != _newestFirst.First) Evict(_newestFirst.Last!);
+        while (_cost > _capacity && _newestFirst.Count > _alwaysKept) Evict(_newestFirst.Last!);
     }
 
     private void Evict(LinkedListNode<Slot> node)

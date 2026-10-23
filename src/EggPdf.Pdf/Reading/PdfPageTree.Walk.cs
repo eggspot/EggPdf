@@ -56,6 +56,7 @@ internal sealed partial class PdfPageTree
     private sealed class WalkedPages
     {
         private const int RootNode = 0;
+        private const long MaxWalkedKids = 8L * MaxPages;
 
         private readonly int[] _nodeParents;
         private readonly int[] _nodeKids;
@@ -74,14 +75,16 @@ internal sealed partial class PdfPageTree
 
         private sealed class Frame
         {
-            public Frame(int node, PdfArray kids, int depth)
+            public Frame(int node, int objectNumber, PdfArray kids, int depth)
             {
                 Node = node;
+                ObjectNumber = objectNumber;
                 Kids = kids;
                 Depth = depth;
             }
 
             public int Node { get; }
+            public int ObjectNumber { get; }
             public PdfArray Kids { get; }
             public int Depth { get; }
             public int Next { get; set; }
@@ -94,11 +97,11 @@ internal sealed partial class PdfPageTree
             var nodeKids = new List<int> { -1 };
             var pageParents = new List<int>();
             var pageKids = new List<int>();
-            var visitedNodes = new HashSet<int>();
-            if (tree._rootReference != null) visitedNodes.Add(tree._rootReference.ObjectNumber);
+            long kidsVisited = 0;
 
             var frames = new Stack<Frame>();
-            if (store.Resolve(tree.Root().Get("Kids")) is PdfArray rootKids) frames.Push(new Frame(RootNode, rootKids, 0));
+            if (store.Resolve(tree.Root().Get("Kids")) is PdfArray rootKids)
+                frames.Push(new Frame(RootNode, tree._rootReference?.ObjectNumber ?? 0, rootKids, 0));
             while (frames.Count > 0)
             {
                 var frame = frames.Peek();
@@ -107,6 +110,7 @@ internal sealed partial class PdfPageTree
                     frames.Pop();
                     continue;
                 }
+                if (++kidsVisited > MaxWalkedKids) throw new PdfFormatException("The page tree has too many nodes.");
                 int kidIndex = frame.Next++;
                 var item = frame.Kids.Items[kidIndex];
                 if (tree.Summarize(item) is not { } kid) continue;
@@ -118,12 +122,15 @@ internal sealed partial class PdfPageTree
                     continue;
                 }
                 if (store.Resolve(item) is not PdfDictionary node || store.Resolve(node.Get("Kids")) is not PdfArray grandKids) continue;
-                if (item is PdfReference reference && !visitedNodes.Add(reference.ObjectNumber))
-                    throw new PdfFormatException("The page tree contains a cycle.");
+                int objectNumber = (item as PdfReference)?.ObjectNumber ?? 0;
+                if (objectNumber != 0)
+                    foreach (var ancestor in frames)
+                        if (ancestor.ObjectNumber == objectNumber) throw new PdfFormatException("The page tree contains a cycle.");
                 if (frame.Depth + 1 > MaxDepth) throw new PdfFormatException("The page tree is nested too deeply.");
+                if (nodeParents.Count > MaxPages) throw new PdfFormatException("The page tree has too many nodes.");
                 nodeParents.Add(frame.Node);
                 nodeKids.Add(kidIndex);
-                frames.Push(new Frame(nodeParents.Count - 1, grandKids, frame.Depth + 1));
+                frames.Push(new Frame(nodeParents.Count - 1, objectNumber, grandKids, frame.Depth + 1));
             }
             return new WalkedPages(nodeParents.ToArray(), nodeKids.ToArray(), pageParents.ToArray(), pageKids.ToArray());
         }

@@ -55,7 +55,7 @@ internal sealed partial class PdfObjectStore
 
     private readonly byte[] _data;
     private readonly PdfObjectCache<PdfObject> _cache = new(ObjectCacheBytes);
-    private readonly PdfObjectCache<ObjectStreamLayout> _objectStreams = new(ObjectStreamCacheBytes);
+    private readonly PdfObjectCache<ObjectStreamLayout> _objectStreams = new(ObjectStreamCacheBytes, alwaysKept: 2);
     private readonly HashSet<int> _resolving = new();
     private readonly Func<PdfReference, PdfObject?> _resolveLength;
     private readonly Func<int, int> _findEndstream;

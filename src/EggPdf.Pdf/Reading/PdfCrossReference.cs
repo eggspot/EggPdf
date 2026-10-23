@@ -146,6 +146,29 @@ internal sealed class PdfCrossReferenceSection
         }
     }
 
+    public bool IsOverlapping
+    {
+        get
+        {
+            if (_byFirst == null) Sort();
+            return _overlapping;
+        }
+    }
+
+    public void CollectInto(Dictionary<int, PdfCrossReferenceEntry> revisionEntries, List<int> freed)
+    {
+        foreach (var subsection in _inFileOrder)
+        {
+            for (int i = 0; i < subsection.Count; i++)
+            {
+                int number = subsection.First + i;
+                var entry = subsection.Read(i);
+                if (entry.Kind == PdfCrossReferenceEntryKind.Free) freed.Add(number);
+                else if (!revisionEntries.ContainsKey(number)) revisionEntries[number] = entry;
+            }
+        }
+    }
+
     public bool TryFind(int number, out PdfCrossReferenceEntry entry)
     {
         if (_byFirst == null) Sort();
@@ -195,6 +218,7 @@ internal sealed class PdfCrossReferenceSection
 internal sealed class PdfCrossReference
 {
     public const int MaxObjectNumber = 8_388_607;
+    private const int MaxLazyRevisions = 8;
 
     private sealed class Revision
     {
@@ -203,9 +227,34 @@ internal sealed class PdfCrossReference
     }
 
     private readonly List<Revision> _newestFirst = new();
+    private Dictionary<int, PdfCrossReferenceEntry>? _merged;
 
     public void AddRevision(PdfCrossReferenceSection? table, PdfCrossReferenceSection? stream) =>
         _newestFirst.Add(new Revision { Table = table, Stream = stream });
+
+    public void Seal()
+    {
+        bool overlapping = false;
+        foreach (var revision in _newestFirst)
+            overlapping |= revision.Table?.IsOverlapping == true || revision.Stream?.IsOverlapping == true;
+        if (!overlapping && _newestFirst.Count <= MaxLazyRevisions) return;
+
+        var merged = new Dictionary<int, PdfCrossReferenceEntry>();
+        var revisionEntries = new Dictionary<int, PdfCrossReferenceEntry>();
+        var freed = new List<int>();
+        foreach (var revision in _newestFirst)
+        {
+            revisionEntries.Clear();
+            freed.Clear();
+            revision.Table?.CollectInto(revisionEntries, freed);
+            revision.Stream?.CollectInto(revisionEntries, freed);
+            foreach (int number in freed)
+                if (!revisionEntries.ContainsKey(number)) revisionEntries[number] = PdfCrossReferenceEntry.Free;
+            foreach (var pair in revisionEntries)
+                if (!merged.ContainsKey(pair.Key)) merged[pair.Key] = pair.Value;
+        }
+        _merged = merged;
+    }
 
     public int HighestObjectNumber
     {
@@ -223,6 +272,12 @@ internal sealed class PdfCrossReference
 
     public bool TryFind(int number, out PdfCrossReferenceEntry entry)
     {
+        if (number <= 0)
+        {
+            entry = default;
+            return false;
+        }
+        if (_merged != null) return _merged.TryGetValue(number, out entry);
         foreach (var revision in _newestFirst)
         {
             bool freed = false;
