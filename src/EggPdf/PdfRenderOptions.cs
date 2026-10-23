@@ -1,4 +1,5 @@
 using EggPdf.Core;
+using EggPdf.Core.Resources;
 using EggPdf.Pdf;
 
 namespace EggPdf;
@@ -83,4 +84,23 @@ public class PdfRenderOptions
     /// <see cref="System.Diagnostics.Trace"/> whether or not a collector is supplied.
     /// </summary>
     public WarningCollector? Warnings { get; set; }
+
+    /// <summary>
+    /// Loads every external resource the document references -- &lt;link&gt; stylesheets, <c>@import</c>,
+    /// <c>@font-face</c> sources, &lt;img&gt; and CSS background images -- in place of the built-in loading;
+    /// data: URIs are still decoded in-process. Results are reused within one render and never shared with
+    /// another, so the resolver decides on every render. For untrusted HTML use
+    /// <see cref="Core.Resources.HttpResourceResolver"/> (refuses private, loopback and cloud-metadata
+    /// addresses) together with <see cref="AllowLocalFileAccess"/> = false. Must be thread-safe. Null
+    /// (default): built-in loading -- local files, plus http(s) stylesheets and fonts from any address.
+    /// </summary>
+    public IResourceResolver? ResourceResolver { get; set; }
+
+    /// <summary>
+    /// When false, file paths and file: URLs -- anything but data: and http(s) -- are refused before they reach
+    /// <see cref="ResourceResolver"/> or the built-in loader, each with a <see cref="WarningCodes.ResourceBlocked"/>
+    /// warning. Default true. On its own this does not stop the built-in loader fetching http(s) stylesheets
+    /// and fonts from any address: also set <see cref="ResourceResolver"/> for untrusted HTML.
+    /// </summary>
+    public bool AllowLocalFileAccess { get; set; } = true;
 }

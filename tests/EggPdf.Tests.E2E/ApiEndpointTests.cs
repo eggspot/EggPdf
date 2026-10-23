@@ -102,6 +102,44 @@ public class ApiEndpointTests
         pdfText.Should().Contain("/OutputIntents [");
     }
 
+    [Theory]
+    [InlineData("/api/render")]
+    [InlineData("/api/render/pages")]
+    public async Task Render_LocalFileReferences_NotReadByDefault(string endpoint)
+    {
+        // Callers are untrusted: a stylesheet path on the server's disk must not be read (secure default)
+        var cssPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "eggpdf_e2e_" + System.Guid.NewGuid().ToString("N") + ".css");
+        await System.IO.File.WriteAllTextAsync(cssPath, ".b { font-weight: bold; }");
+        try
+        {
+            var html = $"<html><head><link rel=\"stylesheet\" href=\"{cssPath}\"></head><body><p class=\"b\">x</p></body></html>";
+            var content = new StringContent(JsonSerializer.Serialize(new { html }), Encoding.UTF8, "application/json");
+
+            var resp = await _client.PostAsync($"{_fixture.BaseUrl}{endpoint}", content);
+
+            resp.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+            Encoding.Latin1.GetString(await resp.Content.ReadAsByteArrayAsync()).Should().NotContain("Helvetica-Bold");
+            if (endpoint == "/api/render")
+                resp.Headers.GetValues("X-EggPdf-Warnings").Should().ContainSingle().Which.Should().Contain("RESOURCE_BLOCKED");
+        }
+        finally
+        {
+            System.IO.File.Delete(cssPath);
+        }
+    }
+
+    [Fact]
+    public async Task RenderUrl_LoopbackAddress_Refused()
+    {
+        // /api/render/url must not be usable to reach the server's own network (SSRF)
+        var content = new StringContent(
+            JsonSerializer.Serialize(new { url = $"{_fixture.BaseUrl}/health" }), Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/render/url", content);
+
+        resp.IsSuccessStatusCode.Should().BeFalse();
+    }
+
     [Fact]
     public async Task Render_PdfA1ConformanceOption_ReturnsBadRequestWhenTransparencyIsUsed()
     {

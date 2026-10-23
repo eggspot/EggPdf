@@ -62,4 +62,6 @@ public static class WarningCodes
     public const string FontLoadFailed = "FONT_LOAD_FAILED";
     public const string GlyphMissing = "FONT_GLYPH_MISSING";
     public const string ResourceTimeout = "RESOURCE_TIMEOUT";
+    /// <summary>A resource was refused by the render's resource policy (e.g. local file access is disabled).</summary>
+    public const string ResourceBlocked = "RESOURCE_BLOCKED";
 }

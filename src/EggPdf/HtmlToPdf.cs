@@ -35,9 +35,9 @@ public static partial class HtmlToPdf
     /// </summary>
     private static readonly Text.FontResolver SharedFontResolver = new Text.FontResolver();
 
-    /// <summary>Process-wide cache of parsed webfonts keyed by source URL.</summary>
+    /// <summary>Process-wide cache of parsed webfonts keyed by source URL (case-sensitive, like URL paths).</summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Text.TrueType.FontData?>
-        WebFontParseCache = new System.Collections.Concurrent.ConcurrentDictionary<string, Text.TrueType.FontData?>(StringComparer.OrdinalIgnoreCase);
+        WebFontParseCache = new System.Collections.Concurrent.ConcurrentDictionary<string, Text.TrueType.FontData?>(StringComparer.Ordinal);
 
     /// <summary>
     /// Process-wide cache of font subsets keyed by font identity + used-codepoint
@@ -275,19 +275,33 @@ public static partial class HtmlToPdf
     /// <c>@page</c> rule already in the document). <see cref="PdfRenderOptions.Encryption"/>,
     /// <see cref="PdfRenderOptions.Conformance"/> and <see cref="PdfRenderOptions.Invoice"/> are
     /// applied directly to the PDF writer, same as the dedicated overloads.
+    /// <see cref="PdfRenderOptions.ResourceResolver"/> and <see cref="PdfRenderOptions.AllowLocalFileAccess"/>
+    /// govern how external resources are loaded.
     /// </summary>
-    public static byte[] Render(string? html, PdfRenderOptions options)
-    {
-        return RenderInternal(ApplyRenderOptions(html ?? "", options), null,
-            options?.Encryption, options?.Conformance, options?.Invoice, options?.Tagged ?? false,
-            options?.UaVersion ?? Pdf.PdfUaVersion.Ua1, options?.Warnings);
-    }
+    public static byte[] Render(string? html, PdfRenderOptions options) => RenderWithOptions(html, options, default);
 
-    /// <summary>Render HTML to PDF asynchronously, applying <see cref="PdfRenderOptions"/>.</summary>
+    /// <summary>
+    /// Render HTML to PDF asynchronously, applying <see cref="PdfRenderOptions"/>. <paramref name="ct"/> also
+    /// cancels in-flight <see cref="PdfRenderOptions.ResourceResolver"/> fetches.
+    /// </summary>
     public static Task<byte[]> RenderAsync(string? html, PdfRenderOptions options, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        return Task.FromResult(Render(html, options));
+        try
+        {
+            return Task.FromResult(RenderWithOptions(html, options, ct));
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return Task.FromCanceled<byte[]>(ct);
+        }
+    }
+
+    private static byte[] RenderWithOptions(string? html, PdfRenderOptions? options, CancellationToken ct)
+    {
+        return RenderInternal(ApplyRenderOptions(html ?? "", options), null,
+            options?.Encryption, options?.Conformance, options?.Invoice, options?.Tagged ?? false,
+            options?.UaVersion ?? Pdf.PdfUaVersion.Ua1, options?.Warnings, CreateResourceLoader(options, null, ct));
     }
 
     /// <summary>
@@ -349,26 +363,28 @@ public static partial class HtmlToPdf
         return $"<head>{inject}</head>{html}";
     }
 
-    private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1, WarningCollector? warnings = null)
+    private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1, WarningCollector? warnings = null, ResourceLoader? resources = null)
     {
         // 1. Parse HTML -> DOM
         var document = HtmlParser.Parse(html);
-        return RenderInternal(document, basePath, encryption, conformance, invoice, tagged, uaVersion, warnings);
+        return RenderInternal(document, basePath, encryption, conformance, invoice, tagged, uaVersion, warnings, resources);
     }
 
     /// <summary>
     /// Same pipeline as the HTML-string overload, starting from an already-built DOM (e.g. from
     /// EggPdf.Fluent's document builder) instead of parsing HTML text.
     /// </summary>
-    private static byte[] RenderInternal(HtmlDocument document, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1, WarningCollector? warnings = null)
+    private static byte[] RenderInternal(HtmlDocument document, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1, WarningCollector? warnings = null, ResourceLoader? resources = null)
     {
+        resources ??= ResourceLoader.BuiltIn(basePath);
+
         // 1b. Decode Cloudflare email obfuscation (browsers do this via script,
         // which a PDF engine does not run).
         if (document.Body != null)
             DecodeCloudflareEmails(document.Body);
 
         // 2. Extract <style> tags, <link> stylesheets, and resolve @imports
-        var stylesheets = ExtractStyleSheets(document, basePath);
+        var stylesheets = ExtractStyleSheets(document, basePath, resources);
 
         // 3. Resolve @page rules for page size and margins
         var pageSettings = PageRuleResolver.Resolve(stylesheets);
@@ -386,7 +402,7 @@ public static partial class HtmlToPdf
         bool usesVariations = UsesFontVariations(document, stylesheets);
         if (fontFaces.Count > 0 || usesVariations)
         {
-            PrefetchWebFonts(fontFaces);
+            PrefetchWebFonts(fontFaces, resources);
             var measureResolver = SharedFontResolver;
             var measureCache = new Dictionary<string, Text.TrueType.FontData?>(StringComparer.Ordinal);
             TextMeasurer.FontDataProvider = (family, weight, fontStyle) =>
@@ -410,8 +426,13 @@ public static partial class HtmlToPdf
             };
         }
 
+        // Every later resource load (web fonts during layout and embedding, shape-outside images, CSS
+        // backgrounds while painting) goes through this render's loader; cleared in the finally below
+        CurrentResources = resources;
+        Paint.BoxPainter.ImageLoader = url => resources.Load(url, Core.Resources.ResourceType.Image);
+
         // shape-outside: url() needs the image's alpha at layout time, before images are otherwise decoded
-        BlockLayout.ShapeImageLoader = LoadShapeImageAlpha;
+        BlockLayout.ShapeImageLoader = source => LoadShapeImageAlpha(source, resources);
 
         // Complex-script text (Thai, Indic, Arabic with marks) measures with real shaped advances.
         TextMeasurer.ComplexFontProvider = CreateComplexFontProvider(fontFaces);
@@ -445,7 +466,7 @@ public static partial class HtmlToPdf
             var layoutRoots = new List<LayoutBox>(layouts.Count);
             foreach (var layout in layouts)
             {
-                ResolveImages(layout.root, pdfDoc);
+                ResolveImages(layout.root, pdfDoc, resources);
                 layoutRoots.Add(layout.root);
             }
 
@@ -485,15 +506,17 @@ public static partial class HtmlToPdf
             TextMeasurer.ComplexFontProvider = null;
             TextMeasurer.GlyphAdvanceProvider = null;
             BlockLayout.ShapeImageLoader = null;
+            Paint.BoxPainter.ImageLoader = null;
+            CurrentResources = null;
         }
     }
 
     /// <summary>
-    /// Download all @font-face sources in parallel into FontUrlFetcher's cache.
-    /// A dozen sequential HTTPS fetches dominate cold-start latency; in parallel
-    /// the cost is one round-trip. Cached URLs return instantly on later renders.
+    /// Download all remote @font-face sources in parallel (into the render's resource loader, and for
+    /// built-in loading into FontUrlFetcher's process-wide cache). A dozen sequential HTTPS fetches dominate
+    /// cold-start latency; in parallel the cost is one round-trip.
     /// </summary>
-    private static void PrefetchWebFonts(Dictionary<string, List<FontFaceCandidate>> fontFaces)
+    private static void PrefetchWebFonts(Dictionary<string, List<FontFaceCandidate>> fontFaces, ResourceLoader resources)
     {
         var tasks = new List<System.Threading.Tasks.Task>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -505,20 +528,26 @@ public static partial class HtmlToPdf
                 foreach (var srcPart in face.Src.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
                 {
                     var url = Text.FontUrlFetcher.ParseFontSrcUrl(srcPart.Trim());
-                    if (url == null ||
-                        url.StartsWith("local:", StringComparison.OrdinalIgnoreCase) ||
-                        !url.StartsWith("http", StringComparison.OrdinalIgnoreCase) ||
-                        !seen.Add(url))
+                    if (url == null || !ResourceLoader.IsRemote(url) || !seen.Add(url))
                         continue;
 
                     var u = url;
-                    tasks.Add(System.Threading.Tasks.Task.Run(() => Text.FontUrlFetcher.Fetch(u)));
+                    tasks.Add(System.Threading.Tasks.Task.Run(() => resources.Load(u, Core.Resources.ResourceType.Font)));
                 }
             }
         }
 
-        if (tasks.Count > 0)
+        if (tasks.Count == 0) return;
+        try
+        {
             System.Threading.Tasks.Task.WaitAll(tasks.ToArray());
+        }
+        catch (AggregateException)
+        {
+            // Load reports failures as warnings and returns null; only a cancelled render throws
+            resources.CancellationToken.ThrowIfCancellationRequested();
+            throw;
+        }
     }
 
     /// <summary>
@@ -606,6 +635,9 @@ public static partial class HtmlToPdf
     /// Extract CSS from &lt;style&gt; tags, &lt;link&gt; stylesheets, and resolve @import rules.
     /// </summary>
     internal static List<CssStyleSheet> ExtractStyleSheets(HtmlDocument document, string? basePath = null)
+        => ExtractStyleSheets(document, basePath, ResourceLoader.BuiltIn(basePath));
+
+    private static List<CssStyleSheet> ExtractStyleSheets(HtmlDocument document, string? basePath, ResourceLoader resources)
     {
         var sheets = new List<CssStyleSheet>();
         var visitedUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -620,7 +652,7 @@ public static partial class HtmlToPdf
                 {
                     if (elem.TagName == "link")
                     {
-                        var linkSheet = LoadLinkStylesheet(elem, basePath, visitedUrls);
+                        var linkSheet = LoadLinkStylesheet(elem, basePath, visitedUrls, resources);
                         if (linkSheet != null)
                             sheets.Add(linkSheet);
                     }
@@ -630,7 +662,7 @@ public static partial class HtmlToPdf
                         if (!string.IsNullOrWhiteSpace(cssText))
                         {
                             var sheet = CssStyleSheetParser.Parse(cssText);
-                            ResolveImports(sheet, sheets, basePath, visitedUrls, 0);
+                            ResolveImports(sheet, sheets, basePath, visitedUrls, 0, resources);
                             sheets.Add(sheet);
                         }
                     }
@@ -641,13 +673,13 @@ public static partial class HtmlToPdf
         // Also find <style> elements in <body> (common in email HTML, CMS output)
         var body = document.Body;
         if (body != null)
-            FindStyleElements(body, sheets, basePath, visitedUrls);
+            FindStyleElements(body, sheets, basePath, visitedUrls, resources);
 
         return sheets;
     }
 
     /// <summary>Load a stylesheet from a &lt;link rel="stylesheet"&gt; element.</summary>
-    private static CssStyleSheet? LoadLinkStylesheet(HtmlElement linkElement, string? basePath, HashSet<string> visitedUrls)
+    private static CssStyleSheet? LoadLinkStylesheet(HtmlElement linkElement, string? basePath, HashSet<string> visitedUrls, ResourceLoader resources)
     {
         // Must have rel="stylesheet"
         var rel = linkElement.GetAttribute("rel");
@@ -669,7 +701,7 @@ public static partial class HtmlToPdf
                 return null;
         }
 
-        var cssText = LoadCssText(href, basePath);
+        var cssText = LoadCssText(href, basePath, resources);
         if (string.IsNullOrWhiteSpace(cssText))
             return null;
 
@@ -681,12 +713,12 @@ public static partial class HtmlToPdf
         var sheet = CssStyleSheetParser.Parse(cssText);
         // Determine base path for this stylesheet's @import rules
         var sheetBasePath = GetBasePathForUrl(href, basePath);
-        ResolveImports(sheet, new List<CssStyleSheet>(), sheetBasePath, visitedUrls, 0);
+        ResolveImports(sheet, new List<CssStyleSheet>(), sheetBasePath, visitedUrls, 0, resources);
         return sheet;
     }
 
     /// <summary>Resolve @import rules in a stylesheet, inserting imported sheets before the importing sheet.</summary>
-    private static void ResolveImports(CssStyleSheet sheet, List<CssStyleSheet> targetList, string? basePath, HashSet<string> visitedUrls, int depth)
+    private static void ResolveImports(CssStyleSheet sheet, List<CssStyleSheet> targetList, string? basePath, HashSet<string> visitedUrls, int depth, ResourceLoader resources)
     {
         if (depth >= MaxImportDepth) return;
         if (sheet.ImportRules.Count == 0) return;
@@ -712,7 +744,7 @@ public static partial class HtmlToPdf
             if (!visitedUrls.Add(resolvedUrl))
                 continue; // already loaded or circular
 
-            var cssText = LoadCssText(url, basePath);
+            var cssText = LoadCssText(url, basePath, resources);
             if (string.IsNullOrWhiteSpace(cssText))
                 continue;
 
@@ -720,7 +752,7 @@ public static partial class HtmlToPdf
             var importBasePath = GetBasePathForUrl(url, basePath);
 
             // Recursively resolve @imports in the imported sheet
-            ResolveImports(importedSheet, targetList, importBasePath, visitedUrls, depth + 1);
+            ResolveImports(importedSheet, targetList, importBasePath, visitedUrls, depth + 1, resources);
 
             // Insert before current sheet's position
             targetList.Insert(insertIndex, importedSheet);
@@ -731,74 +763,18 @@ public static partial class HtmlToPdf
         sheet.ImportRules.Clear();
     }
 
-    /// <summary>Load CSS text from a URL (data: URI, http(s) URL, or file path).</summary>
-    internal static string? LoadCssText(string url, string? basePath)
+    /// <summary>
+    /// Load CSS text from a URL (data: URI, http(s) URL, or file path relative to <paramref name="basePath"/>)
+    /// through the render's resource loader -- e.g. a Google Fonts &lt;link&gt;, so its @font-face
+    /// declarations are available for embedding.
+    /// </summary>
+    private static string? LoadCssText(string url, string? basePath, ResourceLoader resources)
     {
-        // Data URI: data:text/css;base64,...  or  data:text/css,...
-        if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-        {
-            return DecodeDataUri(url);
-        }
+        var bytes = resources.Load(url, Core.Resources.ResourceType.StyleSheet, basePath);
+        if (bytes == null || bytes.Length == 0) return null;
 
-        // Remote stylesheet (e.g. Google Fonts <link>): fetch over HTTP(S) so
-        // @font-face webfont declarations are available for embedding.
-        if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-            url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-        {
-            var bytes = Text.FontUrlFetcher.Fetch(url);
-            return bytes != null && bytes.Length > 0 ? Encoding.UTF8.GetString(bytes) : null;
-        }
-
-        // Resolve relative path against basePath
-        var filePath = ResolveUrl(url, basePath) ?? url;
-
-        try
-        {
-            if (File.Exists(filePath))
-                return File.ReadAllText(filePath, Encoding.UTF8);
-        }
-        catch
-        {
-            // Permission denied, etc. -- silently ignore
-        }
-
-        return null;
-    }
-
-    /// <summary>Decode a data: URI to its text content.</summary>
-    private static string? DecodeDataUri(string dataUri)
-    {
-        // data:[<mediatype>][;base64],<data>
-        int commaIndex = dataUri.IndexOf(',');
-        if (commaIndex < 0) return null;
-
-        var header = dataUri.Substring(5, commaIndex - 5); // after "data:" before ","
-        var data = dataUri.Substring(commaIndex + 1);
-
-        bool isBase64 = header.IndexOf("base64", StringComparison.OrdinalIgnoreCase) >= 0;
-
-        if (isBase64)
-        {
-            try
-            {
-                var bytes = Convert.FromBase64String(data);
-                return Encoding.UTF8.GetString(bytes);
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        // Plain text (possibly percent-encoded)
-        try
-        {
-            return Uri.UnescapeDataString(data);
-        }
-        catch
-        {
-            return data;
-        }
+        var text = Encoding.UTF8.GetString(bytes);
+        return text.Length > 0 && text[0] == '﻿' ? text.Substring(1) : text;
     }
 
     /// <summary>Resolve a relative URL against a base path.</summary>
@@ -838,7 +814,7 @@ public static partial class HtmlToPdf
         }
     }
 
-    private static void FindStyleElements(HtmlNode node, List<CssStyleSheet> sheets, string? basePath, HashSet<string> visitedUrls)
+    private static void FindStyleElements(HtmlNode node, List<CssStyleSheet> sheets, string? basePath, HashSet<string> visitedUrls, ResourceLoader resources)
     {
         foreach (var child in node.ChildNodes)
         {
@@ -848,13 +824,13 @@ public static partial class HtmlToPdf
                 if (!string.IsNullOrWhiteSpace(cssText))
                 {
                     var sheet = CssStyleSheetParser.Parse(cssText);
-                    ResolveImports(sheet, sheets, basePath, visitedUrls, 0);
+                    ResolveImports(sheet, sheets, basePath, visitedUrls, 0, resources);
                     sheets.Add(sheet);
                 }
             }
             else if (child is HtmlElement container)
             {
-                FindStyleElements(container, sheets, basePath, visitedUrls);
+                FindStyleElements(container, sheets, basePath, visitedUrls, resources);
             }
         }
     }
@@ -881,7 +857,7 @@ public static partial class HtmlToPdf
     /// <summary>Test observability: incremented on every image-cache hit.</summary>
     internal static int ImageCacheHits;
 
-    private static void ResolveImages(LayoutBox box, PdfDocument pdfDoc)
+    private static void ResolveImages(LayoutBox box, PdfDocument pdfDoc, ResourceLoader resources)
     {
         if (!string.IsNullOrEmpty(box.ImageSource))
         {
@@ -896,7 +872,7 @@ public static partial class HtmlToPdf
             }
             else
             {
-                var data = LoadImageData(box.ImageSource);
+                var data = resources.Load(box.ImageSource, Core.Resources.ResourceType.Image);
                 if (data != null)
                 {
                     box.ImageData = data;
@@ -915,7 +891,7 @@ public static partial class HtmlToPdf
         }
 
         foreach (var child in box.Children)
-            ResolveImages(child, pdfDoc);
+            ResolveImages(child, pdfDoc, resources);
     }
 
     /// <summary>Decode raw image bytes into a PdfImage, detecting the format by magic bytes.</summary>
@@ -946,41 +922,6 @@ public static partial class HtmlToPdf
         {
             return PdfImage.FromWebP(imgName, data); // RIFF/WEBP signature (VP8, VP8L, VP8X)
         }
-        return null;
-    }
-
-    /// <summary>Load image data from a source string (data URI or file path).</summary>
-    private static byte[]? LoadImageData(string src)
-    {
-        // Data URI: data:image/jpeg;base64,...
-        if (src.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-        {
-            int commaIndex = src.IndexOf(',');
-            if (commaIndex > 0)
-            {
-                var base64 = src.Substring(commaIndex + 1);
-                try
-                {
-                    return Convert.FromBase64String(base64);
-                }
-                catch
-                {
-                    return null; // invalid base64
-                }
-            }
-        }
-
-        // File path
-        try
-        {
-            if (File.Exists(src))
-                return File.ReadAllBytes(src);
-        }
-        catch
-        {
-            // Permission denied, etc.
-        }
-
         return null;
     }
 
@@ -1140,22 +1081,7 @@ public static partial class HtmlToPdf
                 }
                 else
                 {
-                    // Parse once per process — fetched bytes are cached by URL,
-                    // but reparsing every render costs tens of ms per face.
-                    if (!WebFontParseCache.TryGetValue(url, out fontData))
-                    {
-                        var rawBytes = Text.FontUrlFetcher.Fetch(url);
-                        if (rawBytes != null && rawBytes.Length != 0)
-                        {
-                            try { fontData = Text.TrueType.TtfParser.Parse(rawBytes); }
-                            catch { fontData = null; }
-                            // The bytes behind a URL are immutable once fetched, so
-                            // even a parse failure is safe to cache. A FAILED fetch
-                            // is not cached here — FontUrlFetcher's retry window
-                            // decides when that URL may be tried again.
-                            WebFontParseCache.TryAdd(url, fontData);
-                        }
-                    }
+                    fontData = LoadWebFont(url);
                 }
 
                 // A variable font is instanced at the requested weight and axes (no-op for static fonts)

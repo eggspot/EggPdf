@@ -10,6 +10,29 @@ builder.Services.AddCors(options =>
         policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
 });
 
+// Resource policy for every render (callers are untrusted, so it is server configuration, never a request
+// field): no local file reads and no private/loopback/cloud-metadata addresses unless the operator opts in via
+// EggPdf:Resources:* (env: EggPdf__Resources__AllowLocalFileAccess, ...AllowPrivateNetworks, ...AllowedDomains,
+// ...BaseDirectory)
+var resourceConfig = builder.Configuration.GetSection("EggPdf:Resources");
+bool allowLocalFileAccess = resourceConfig.GetValue("AllowLocalFileAccess", false);
+var allowedDomains = resourceConfig["AllowedDomains"]?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+var resourceResolver = new EggPdf.Core.Resources.CompositeResolver(
+    resourceConfig["BaseDirectory"] ?? builder.Environment.ContentRootPath,
+    new EggPdf.Core.Resources.HttpResourceOptions
+    {
+        AllowPrivateNetworks = resourceConfig.GetValue("AllowPrivateNetworks", false),
+        AllowedDomains = allowedDomains is { Length: > 0 } ? allowedDomains : null,
+        MaxResponseSizeBytes = 10 * 1024 * 1024,
+    });
+
+EggPdf.PdfRenderOptions WithResourcePolicy(EggPdf.PdfRenderOptions options)
+{
+    options.ResourceResolver = resourceResolver;
+    options.AllowLocalFileAccess = allowLocalFileAccess;
+    return options;
+}
+
 var app = builder.Build();
 app.UseCors();
 
@@ -72,7 +95,7 @@ app.MapPost("/api/render", async (HttpContext ctx) =>
             return Results.BadRequest(new { error = "html field is required" });
 
         var sw = Stopwatch.StartNew();
-        var coreOptions = request.Options?.ToCoreOptions() ?? new EggPdf.PdfRenderOptions();
+        var coreOptions = WithResourcePolicy(request.Options?.ToCoreOptions() ?? new EggPdf.PdfRenderOptions());
         coreOptions.Warnings = new EggPdf.Core.WarningCollector();
         var pdf = EggPdf.HtmlToPdf.Render(request.Html, coreOptions);
         sw.Stop();
@@ -112,7 +135,7 @@ app.MapPost("/api/render/image", async (HttpContext ctx) =>
     if (string.IsNullOrEmpty(request?.Html))
         return Results.BadRequest(new { error = "html field is required" });
 
-    var pdf = EggPdf.HtmlToPdf.Render(request.Html);
+    var pdf = EggPdf.HtmlToPdf.Render(request.Html, WithResourcePolicy(new EggPdf.PdfRenderOptions()));
     return Results.File(pdf, "application/pdf", "output.pdf");
 });
 
@@ -261,10 +284,15 @@ app.MapPost("/api/render/url", async (HttpContext ctx) =>
 
     try
     {
-        using var httpClient = new HttpClient();
-        httpClient.Timeout = TimeSpan.FromSeconds(30);
-        var html = await httpClient.GetStringAsync(request.Url);
-        var pdf = EggPdf.HtmlToPdf.Render(html);
+        // Only http(s), fetched under the same policy as the page's resources (no private-network SSRF)
+        if (!request.Url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+            !request.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            return Results.BadRequest(new { error = "url must be an http:// or https:// URL" });
+        var page = await resourceResolver.ResolveAsync(request.Url, EggPdf.Core.Resources.ResourceType.Other, ctx.RequestAborted);
+        if (page == null)
+            return Results.BadRequest(new { error = "Could not fetch url: unreachable, refused by the server's resource policy, or too large" });
+        var html = System.Text.Encoding.UTF8.GetString(page.Data);
+        var pdf = EggPdf.HtmlToPdf.Render(html, WithResourcePolicy(new EggPdf.PdfRenderOptions()));
         return Results.File(pdf, "application/pdf", "output.pdf");
     }
     catch (Exception ex)
@@ -321,7 +349,7 @@ app.MapPost("/api/encrypt", async (HttpContext ctx) =>
         AllowModifying = request.AllowModifying ?? false,
     };
 
-    var pdf = EggPdf.HtmlToPdf.Render(request.Html, encryption);
+    var pdf = EggPdf.HtmlToPdf.Render(request.Html, WithResourcePolicy(new EggPdf.PdfRenderOptions { Encryption = encryption }));
     return Results.File(pdf, "application/pdf", "encrypted.pdf");
 });
 
@@ -336,7 +364,7 @@ app.MapPost("/api/render/pages", async (HttpContext ctx) =>
     if (string.IsNullOrEmpty(request?.Html))
         return Results.BadRequest(new { error = "html field is required" });
 
-    var pdf = EggPdf.HtmlToPdf.Render(request.Html);
+    var pdf = EggPdf.HtmlToPdf.Render(request.Html, WithResourcePolicy(new EggPdf.PdfRenderOptions()));
     return Results.File(pdf, "application/pdf", "output.pdf");
 });
 
@@ -381,7 +409,7 @@ app.MapPost("/api/attachments", async (HttpContext ctx) =>
         return Results.BadRequest(new { error = "html field is required" });
 
     // Render PDF with embedded metadata about attachments
-    var pdf = EggPdf.HtmlToPdf.Render(request.Html);
+    var pdf = EggPdf.HtmlToPdf.Render(request.Html, WithResourcePolicy(new EggPdf.PdfRenderOptions()));
     return Results.File(pdf, "application/pdf", "output.pdf");
 });
 

@@ -1,9 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using EggPdf.Core;
 using EggPdf.Html.Dom;
-using EggPdf.Pdf;
 
 namespace EggPdf.Fluent;
 
@@ -59,34 +57,24 @@ public sealed class DocumentBuilder
 {
     private readonly HtmlDocument _document;
     private readonly string? _basePath;
-    private readonly PdfEncryption? _encryption;
-    private readonly PdfAConformance? _conformance;
-    private readonly FacturXInvoice? _invoice;
-    private readonly bool _tagged;
-    private readonly PdfUaVersion _uaVersion;
-    private readonly WarningCollector? _warnings;
+    private readonly PdfRenderOptions _options;
 
-    internal DocumentBuilder(HtmlDocument document, string? basePath, PdfEncryption? encryption, PdfAConformance? conformance,
-        FacturXInvoice? invoice, bool tagged, PdfUaVersion uaVersion, WarningCollector? warnings)
+    /// <param name="options">Writer, warning and resource settings only (no HTML-injected page/metadata options).</param>
+    internal DocumentBuilder(HtmlDocument document, string? basePath, PdfRenderOptions options)
     {
-        _warnings = warnings;
         _document = document;
         _basePath = basePath;
-        _encryption = encryption;
-        _conformance = conformance;
-        _invoice = invoice;
-        _tagged = tagged;
-        _uaVersion = uaVersion;
+        _options = options;
     }
 
     /// <summary>Renders the document to PDF bytes. May be called repeatedly; the output is identical each time.</summary>
-    public byte[] Render() => HtmlToPdf.RenderDocument(_document, _basePath, _encryption, _conformance, _invoice, _tagged, _uaVersion, _warnings);
+    public byte[] Render() => HtmlToPdf.RenderDocument(_document, _basePath, _options);
 
     /// <summary>Renders the document to PDF bytes asynchronously.</summary>
     public Task<byte[]> RenderAsync(CancellationToken ct = default) =>
-        HtmlToPdf.RenderDocumentAsync(_document, _basePath, _encryption, _conformance, _invoice, _tagged, _uaVersion, ct, _warnings);
+        HtmlToPdf.RenderDocumentAsync(_document, _basePath, _options, ct);
 
     /// <summary>Renders the document and writes the PDF to <paramref name="filePath"/>.</summary>
     public Task RenderToFileAsync(string filePath, CancellationToken ct = default) =>
-        HtmlToPdf.RenderDocumentToFileAsync(_document, filePath, _basePath, _encryption, _conformance, _invoice, _tagged, _uaVersion, ct, _warnings);
+        HtmlToPdf.RenderDocumentToFileAsync(_document, filePath, _basePath, _options, ct);
 }

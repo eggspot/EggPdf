@@ -191,12 +191,56 @@
       <div class="callout callout-info">
         <span class="callout-icon">ℹ️</span>
         <div>
-          Without <code>basePath</code>, only inline <code>&lt;style&gt;</code> blocks and
-          <a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/Data_URLs" target="_blank" rel="noopener">data URIs</a>
-          are available. External <code>href</code> and <code>src</code> paths will be skipped silently.
+          Without <code>basePath</code>, relative paths resolve against the process's current directory.
+          <a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/Data_URLs" target="_blank" rel="noopener">Data URIs</a>
+          always work. By default http(s) <code>&lt;link&gt;</code> stylesheets, <code>@import</code> and
+          <code>@font-face</code> sources are downloaded too (e.g. Google Fonts); http(s) images load only through a
+          resource resolver (below).
         </div>
       </div>
-      <p>Supported image formats when loading from disk: <strong>PNG</strong>, <strong>JPEG</strong>, <strong>GIF</strong>, and <strong>BMP</strong>. Images can also be embedded directly as data URIs without needing a <code>basePath</code>.</p>
+      <p>Supported image formats: <strong>PNG</strong>, <strong>JPEG</strong>, <strong>GIF</strong>, <strong>BMP</strong> and <strong>WebP</strong>. Images can also be embedded directly as data URIs without needing a <code>basePath</code>.</p>
+
+      <h2 id="untrusted-html">Untrusted HTML: resource resolver and local file access</h2>
+      <p>
+        If the HTML comes from users or customers, its <code>src</code>, <code>href</code>, <code>@import</code> and
+        <code>@font-face</code> URLs could point at files on your server or at internal addresses such as the cloud
+        metadata endpoint (SSRF). Two options control this:
+      </p>
+      <ul>
+        <li><code>PdfRenderOptions.ResourceResolver</code> &mdash; every external resource (stylesheets,
+          <code>@import</code>, <code>@font-face</code>, <code>&lt;img&gt;</code>, CSS background images) is loaded
+          only through this <code>IResourceResolver</code>. The built-in <code>HttpResourceResolver</code> refuses
+          loopback, private, link-local (169.254.169.254) and other non-public addresses, checks the address when it
+          connects (so DNS can't swap it), re-checks every redirect (at most 5), stops at 50&nbsp;MB and 10&nbsp;seconds
+          by default, and also loads http(s) images. <code>CompositeResolver</code> combines it with data: URIs and
+          files confined to one directory. Write your own to serve resources from a database or blob store.</li>
+        <li><code>PdfRenderOptions.AllowLocalFileAccess = false</code> &mdash; file paths and <code>file:</code> URLs
+          are refused before they reach any resolver, each with a <code>RESOURCE_BLOCKED</code> warning.</li>
+      </ul>
+      <div class="code-header">Program.cs</div>
+      <div class="code-block"><pre><code><span class="kw">using</span> <span class="typ">EggPdf</span><span class="pun">;</span>
+<span class="kw">using</span> <span class="typ">EggPdf</span><span class="pun">.</span><span class="typ">Core</span><span class="pun">.</span><span class="typ">Resources</span><span class="pun">;</span>
+
+<span class="cmt">// One resolver can serve every render (it is thread-safe)</span>
+<span class="kw">var</span> <span class="var">safeHttp</span> <span class="pun">=</span> <span class="kw">new</span> <span class="typ">HttpResourceResolver</span><span class="pun">(</span><span class="kw">new</span> <span class="typ">HttpResourceOptions</span> <span class="pun">{</span> <span class="var">MaxResponseSizeBytes</span> <span class="pun">=</span> <span class="num">10</span> <span class="pun">*</span> <span class="num">1024</span> <span class="pun">*</span> <span class="num">1024</span> <span class="pun">});</span>
+
+<span class="kw">byte</span><span class="pun">[]</span> <span class="var">pdf</span> <span class="pun">=</span> <span class="typ">HtmlToPdf</span><span class="pun">.</span><span class="fn">Render</span><span class="pun">(</span><span class="var">untrustedHtml</span><span class="pun">,</span> <span class="kw">new</span> <span class="typ">PdfRenderOptions</span>
+<span class="pun">{</span>
+    <span class="var">ResourceResolver</span> <span class="pun">=</span> <span class="var">safeHttp</span><span class="pun">,</span>
+    <span class="var">AllowLocalFileAccess</span> <span class="pun">=</span> <span class="kw">false</span><span class="pun">,</span>
+<span class="pun">});</span></code></pre></div>
+      <div class="callout callout-info">
+        <span class="callout-icon">ℹ️</span>
+        <div>
+          Without a resolver nothing changes from earlier versions: local files are read and http(s) stylesheets and
+          fonts are fetched from any address. <code>AllowLocalFileAccess = false</code> alone does not stop that
+          network access, so set both for untrusted HTML. A resolver's results are reused within one render and never
+          shared with other renders. The same settings exist on the fluent builder
+          (<code>.ResourceResolver(...)</code>, <code>.AllowLocalFileAccess(false)</code>), the CLI
+          (<code>--no-local-files</code>, <code>--no-private-network</code>), and the REST service, which is locked
+          down by default (see <a href="rest-api.html">REST API</a>).
+        </div>
+      </div>
 
     </main>
   </div>

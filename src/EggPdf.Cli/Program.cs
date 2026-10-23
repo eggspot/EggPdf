@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
+using EggPdf.Core.Resources;
 using EggPdf.Pdf;
 
 namespace EggPdf.Cli;
@@ -37,6 +38,8 @@ public class Program
         string? uaVersionFlag = null;
         bool verbose = HasFlag(args, "--verbose") || HasFlag(args, "-v");
         bool tagged = HasFlag(args, "--tagged");
+        bool noLocalFiles = HasFlag(args, "--no-local-files");
+        bool noPrivateNetwork = HasFlag(args, "--no-private-network");
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -181,7 +184,17 @@ public class Program
             var options = new PdfRenderOptions
             {
                 Conformance = conformance, Invoice = invoice, Tagged = tagged, UaVersion = uaVersion, Warnings = warnings,
+                AllowLocalFileAccess = !noLocalFiles,
             };
+            if (noPrivateNetwork)
+            {
+                // Safe http(s) fetching (also loads remote images); local files stay readable, confined to
+                // the input file's directory, unless --no-local-files
+                var baseDirectory = inputPath == "-" || inputPath.StartsWith("http://") || inputPath.StartsWith("https://")
+                    ? null
+                    : Path.GetDirectoryName(Path.GetFullPath(inputPath));
+                options.ResourceResolver = new CompositeResolver(baseDirectory);
+            }
             var pdf = HtmlToPdf.Render(html, options);
 
             // Non-fatal problems (e.g. characters no installed font can draw) go to stderr, never into the PDF stream
@@ -258,6 +271,13 @@ OPTIONS:
     --ua-version <1|2>       PDF/UA spec version --tagged targets: 1 (default,
                               ISO 14289-1, PDF 1.7) or 2 (ISO 14289-2:2024,
                               PDF 2.0 -- cannot combine with --pdfa). Requires --tagged
+    --no-local-files         Never read local files referenced by the HTML (paths,
+                              file: URLs); only data: and http(s) resources load
+    --no-private-network     Fetch http(s) resources (stylesheets, fonts, images)
+                              safely: refuse loopback, private and cloud-metadata
+                              addresses, re-check redirects, cap size and time.
+                              Local files are then read only from the input
+                              file's directory. Use both flags for untrusted HTML
     -v, --verbose            Show render timing and file size
     --version                Show version
     -h, --help               Show this help
@@ -269,6 +289,7 @@ EXAMPLES:
     eggpdf input.html -o - > output.pdf
     eggpdf report.html -o report.pdf --pdfa 2b
     eggpdf invoice.html -o invoice.pdf --pdfa 3b --invoice invoice-data.json
+    eggpdf untrusted.html -o out.pdf --no-local-files --no-private-network
     eggpdf report.html -o report.pdf --tagged --pdfa 2b
 
 INVOICE JSON (--invoice) FIELDS:

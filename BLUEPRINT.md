@@ -1063,10 +1063,10 @@ public enum ResourceType { Image, Font, StyleSheet, Other }
 
 | Resolver | Handles | How |
 |---|---|---|
-| **HttpResourceResolver** | `https://`, `http://` URLs | Uses `System.Net.Http.HttpClient` (part of BCL, not an external dep). Configurable: timeout, max response size, allowed domains, User-Agent header |
+| **HttpResourceResolver** | `https://`, `http://` URLs | Uses `System.Net.Http.HttpClient` (part of BCL, not an external dep). Safe for untrusted HTML by default (see Security below). Configurable: timeout, max response size, max redirects, allowed domains, private networks, User-Agent header |
 | **FileResourceResolver** | Absolute file paths, `file://` | Reads from local filesystem. Configurable base directory. Path traversal prevention |
 | **DataUriResolver** | `data:image/png;base64,...` | Decode inline Base64 data URIs |
-| **CompositeResolver** (default) | All of the above | Tries each resolver in order based on URL scheme. This is the default when no custom resolver is configured |
+| **CompositeResolver** | All of the above | Dispatches by URL scheme (data: / http(s) via the safe HttpResourceResolver / files confined to a base directory). Not the default: with no resolver configured the renderer uses its built-in loading (local files, unrestricted http(s) stylesheets and fonts) for backward compatibility |
 
 ### Configuration
 
@@ -1133,11 +1133,13 @@ var options = new PdfOptions
 
 | Concern | Mitigation |
 |---|---|
-| SSRF (Server-Side Request Forgery) | `AllowedDomains` restricts which hosts can be fetched. Default: all allowed. In EggPdf.Service: configurable via env var |
+| SSRF (Server-Side Request Forgery) | `HttpResourceResolver` refuses loopback, private, link-local (cloud metadata), CGNAT, unique-local, multicast and reserved addresses (incl. IPv4 inside IPv6) unless `AllowPrivateNetworks`; on .NET 6+ the check runs in the connect callback, so DNS rebinding can't swap the address. `AllowedDomains` further restricts hosts. Every fetch -- stylesheets, `@import`, `@font-face`, images, backgrounds -- goes through `PdfRenderOptions.ResourceResolver` when set, memoized per render (never a process-wide cache). EggPdf.Service always uses it, locked down by default (`EggPdf:Resources:*`). Without a resolver the library keeps its legacy behaviour: http(s) stylesheets/fonts from any address |
+| Local file disclosure | `PdfRenderOptions.AllowLocalFileAccess = false` refuses paths and `file:` URLs before any resolver (RESOURCE_BLOCKED warning); off by default in EggPdf.Service |
 | Path traversal | `FileResourceResolver` restricts to base directory. Rejects `../../etc/passwd` |
-| Large responses | `MaxResponseSizeBytes` prevents memory exhaustion from huge resources |
-| Slow responses | `TimeoutSeconds` prevents hanging on unresponsive servers |
-| Redirect loops | Max 5 redirects followed. Configurable |
+| Large responses | `MaxResponseSizeBytes` (default 50 MB; 10 MB in EggPdf.Service), enforced while streaming, not only via Content-Length |
+| Slow responses | `TimeoutSeconds` bounds the whole fetch incl. redirects; the renderer also gives up on any resolver call after 30 s |
+| Redirects | Followed manually, max `MaxRedirects` (5); each hop re-checks scheme, `AllowedDomains` and address |
+| Known gaps | No per-render budget yet (resource count / total bytes); `EggPdf.Razor` has its own options type without `ResourceResolver`/`AllowLocalFileAccess`, and `EggPdf.AspNetCore` doesn't register a resolver |
 
 ### What `System.Net.Http.HttpClient` means for zero-dependency policy
 

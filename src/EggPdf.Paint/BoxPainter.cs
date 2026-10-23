@@ -52,6 +52,14 @@ public static partial class BoxPainter
     public static System.Collections.Generic.Dictionary<EggPdf.Layout.LayoutBox, EggPdf.Pdf.PdfStructureElement>? StructureMap;
 
     /// <summary>
+    /// Loads CSS background-image URLs under the current render's resource policy (resolver, local-file
+    /// access). Set by the renderer for the duration of a render; when null, only data: URIs and local
+    /// files are read. Thread-static for the same reason as the fields above.
+    /// </summary>
+    [ThreadStatic]
+    public static Func<string, byte[]?>? ImageLoader;
+
+    /// <summary>
     /// Repaint every position:fixed box onto the given page, using its already page-local
     /// Y/X directly (no page-offset adjustment — its containing block IS the page origin).
     /// Any counter(page)/counter(pages) sentinel left in a box's text by
@@ -1359,6 +1367,9 @@ public static partial class BoxPainter
 
     private static byte[]? LoadBackgroundImageData(string url)
     {
+        var loader = ImageLoader;
+        if (loader != null) return loader(url);
+
         if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
         {
             int comma = url.IndexOf(',');
