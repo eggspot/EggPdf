@@ -8,10 +8,6 @@ using EggPdf.Pdf;
 
 namespace EggPdf.Cli;
 
-/// <summary>
-/// EggPdf command-line tool: convert HTML to PDF/PNG from the terminal.
-/// Usage: eggpdf input.html -o output.pdf [options]
-/// </summary>
 public class Program
 {
     private const string Version = "0.1.0";
@@ -30,7 +26,6 @@ public class Program
             return 0;
         }
 
-        // Parse arguments
         string? inputPath = null;
         string? outputPath = null;
         string? pdfaFlag = null;
@@ -146,17 +141,14 @@ public class Program
             return 1;
         }
 
-        // Default output
         outputPath ??= Path.ChangeExtension(
             inputPath == "-" ? "output" : inputPath, ".pdf");
 
         try
         {
-            // Read HTML
             string html;
             if (inputPath == "-")
             {
-                // Read from stdin
                 html = await Console.In.ReadToEndAsync();
                 if (verbose) Console.Error.WriteLine("Read HTML from stdin");
             }
@@ -177,20 +169,17 @@ public class Program
                 if (verbose) Console.Error.WriteLine($"Read {html.Length} chars from {inputPath}");
             }
 
-            // Render
             var startTime = DateTime.UtcNow;
 
             var warnings = new EggPdf.Core.WarningCollector();
+            var statistics = new RenderStatistics();
             var options = new PdfRenderOptions
             {
                 Conformance = conformance, Invoice = invoice, Tagged = tagged, UaVersion = uaVersion, Warnings = warnings,
-                AllowLocalFileAccess = !noLocalFiles,
+                AllowLocalFileAccess = !noLocalFiles, Statistics = statistics,
             };
             if (noPrivateNetwork)
             {
-                // Safe http(s) fetching (also loads remote images). Local files stay readable unless
-                // --no-local-files, confined to the input file's directory (stdin: the current directory);
-                // a page fetched from a URL has no local directory, so it reads no local files at all
                 bool remoteInput = inputPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
                                    inputPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
                 if (remoteInput) options.AllowLocalFileAccess = false;
@@ -201,7 +190,6 @@ public class Program
             }
             var pdf = HtmlToPdf.Render(html, options);
 
-            // Non-fatal problems (e.g. characters no installed font can draw) go to stderr, never into the PDF stream
             foreach (var warning in warnings.Warnings)
                 Console.Error.WriteLine($"Warning [{warning.Code}]: {warning.Message}");
 
@@ -219,7 +207,8 @@ public class Program
 
             if (verbose)
             {
-                Console.Error.WriteLine($"Rendered in {elapsed.TotalMilliseconds.ToString("F0", CultureInfo.InvariantCulture)}ms -> {outputPath}");
+                int pages = statistics.PageCount;
+                Console.Error.WriteLine($"Rendered {pages.ToString(CultureInfo.InvariantCulture)} page{(pages == 1 ? "" : "s")} in {elapsed.TotalMilliseconds.ToString("F0", CultureInfo.InvariantCulture)}ms -> {outputPath}");
                 if (outputPath != "-" && File.Exists(outputPath))
                 {
                     var size = new FileInfo(outputPath).Length;
@@ -283,7 +272,7 @@ OPTIONS:
                               Local files are then read only from the input
                               file's directory (stdin: the current directory;
                               URL input: none). Use both flags for untrusted HTML
-    -v, --verbose            Show render timing and file size
+    -v, --verbose            Show page count, render timing and file size
     --version                Show version
     -h, --help               Show this help
 

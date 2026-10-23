@@ -363,6 +363,7 @@ c.Item().Id("terms").Text("Terms and conditions");</code></pre></div>
           <tr><td><code>Conformance</code>, <code>Invoice</code></td><td>PDF/A levels; Factur-X e-invoice (needs PDF/A-3b/3u). See <a href="compliance.html">Compliance</a>.</td></tr>
           <tr><td><code>Tagged</code></td><td>PDF/UA-1 (or UA-2) tagged output.</td></tr>
           <tr><td><code>CollectWarnings</code></td><td>Fills a <code>WarningCollector</code> with non-fatal render warnings (e.g. <code>FONT_GLYPH_MISSING</code> when no installed font covers some characters); see <a href="fonts.html#fallback">Fonts</a>.</td></tr>
+          <tr><td><code>CollectStatistics</code></td><td>Fills a <code>RenderStatistics</code> with facts about the written PDF, e.g. <code>PageCount</code> for per-page billing. One per in-flight render.</td></tr>
         </tbody>
       </table>
 
@@ -448,6 +449,7 @@ doc.Css("@page :first { @top-center { content: 'Cover' } }"); // any stylesheet<
         <tr><td><code>DocumentDescriptor Conformance(PdfAConformance conformance)</code></td><td>Renders a PDF/A-conformant PDF (ICC output intent, XMP conformance metadata, forced font embedding).</td></tr>
         <tr><td><code>DocumentDescriptor Invoice(FacturXInvoice invoice)</code></td><td>Attaches a Factur-X/ZUGFeRD e-invoice XML. <code>Conformance</code> must be set to <code>PdfA3b</code> or <code>PdfA3u</code> first.</td></tr>
         <tr><td><code>DocumentDescriptor CollectWarnings(WarningCollector collector)</code></td><td>Collects non-fatal render warnings into <code>collector</code> -- e.g. a <code>FONT_GLYPH_MISSING</code> warning when no installed font has glyphs for some characters, which would otherwise silently paint as missing-glyph boxes. Read the collector after rendering.</td></tr>
+        <tr><td><code>DocumentDescriptor CollectStatistics(RenderStatistics collector)</code></td><td>Fills <code>collector</code> with facts about the PDF each render writes, e.g. <code>PageCount</code>. Read it after rendering; every render of this document shares it, so don&#39;t render the same document concurrently while reading it. Same as <code>Statistics</code>.</td></tr>
         <tr><td><code>DocumentDescriptor ResourceResolver(IResourceResolver resolver)</code></td><td>Loads every external resource (stylesheets, <code>@import</code>, <code>FontFace</code> sources, images) through <code>resolver</code> instead of the built-in loading -- e.g. an <code>HttpResourceResolver</code> to fetch http(s) resources safely, or your own store. Same as <code>ResourceResolver</code>.</td></tr>
         <tr><td><code>DocumentDescriptor AllowLocalFileAccess(bool allow = true)</code></td><td>Allows (default) or forbids reading local files: when forbidden, file paths and file: URLs are refused with a <code>RESOURCE_BLOCKED</code> warning and only data: and http(s) resources load. Same as <code>AllowLocalFileAccess</code>.</td></tr>
         <tr><td><code>DocumentDescriptor Tagged(PdfUaVersion uaVersion = PdfUaVersion.Ua1)</code></td><td>Renders a PDF/UA tagged (accessible) PDF: structure tree, headings, landmarks, alt text, tagged links.</td></tr>

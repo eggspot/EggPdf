@@ -86,6 +86,12 @@ public class PdfRenderOptions
     public WarningCollector? Warnings { get; set; }
 
     /// <summary>
+    /// Optional sink the render fills with facts about the PDF it wrote, e.g. <see cref="RenderStatistics.PageCount"/>.
+    /// Read it after the render returns; use one per render (it is reset when a render starts).
+    /// </summary>
+    public RenderStatistics? Statistics { get; set; }
+
+    /// <summary>
     /// Loads every external resource the document references -- &lt;link&gt; stylesheets, <c>@import</c>,
     /// <c>@font-face</c> sources, &lt;img&gt; and CSS background images -- in place of the built-in loading;
     /// data: URIs are still decoded in-process. Results are reused within one render and never shared with

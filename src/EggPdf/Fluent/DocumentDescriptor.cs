@@ -28,6 +28,7 @@ public sealed class DocumentDescriptor
     internal bool TaggedValue { get; private set; }
     internal PdfUaVersion UaVersionValue { get; private set; } = PdfUaVersion.Ua1;
     internal WarningCollector? WarningsValue { get; private set; }
+    internal RenderStatistics? StatisticsValue { get; private set; }
     internal IResourceResolver? ResourceResolverValue { get; private set; }
     internal bool AllowLocalFileAccessValue { get; private set; } = true;
 
@@ -51,8 +52,6 @@ public sealed class DocumentDescriptor
     {
         var page = new PageDescriptor(_ctx);
 
-        // The <style> element is created (and ordered among any Css() calls) now; its @page text is
-        // filled in by Build(), because size/margins may still be set after AddPage() returns.
         var styleElement = _ctx.CreateElement("style");
         _head.AppendChild(styleElement);
         _pages.Add((page, styleElement));
@@ -105,6 +104,7 @@ public sealed class DocumentDescriptor
             Tagged = TaggedValue,
             UaVersion = UaVersionValue,
             Warnings = WarningsValue,
+            Statistics = StatisticsValue,
             ResourceResolver = ResourceResolverValue,
             AllowLocalFileAccess = AllowLocalFileAccessValue,
         });
@@ -166,8 +166,6 @@ public sealed class DocumentDescriptor
         if (weight < 1 || weight > 1000)
             throw new ArgumentOutOfRangeException(nameof(weight), weight, "Font weight must be 1-1000.");
         var inv = System.Globalization.CultureInfo.InvariantCulture;
-        // family and src are free text (Windows paths contain backslashes, families may contain quotes):
-        // quote-escape both so neither can break the rule or inject further CSS.
         return Css("@font-face{font-family:" + CssText.Quote(family) + ";src:url(" + CssText.Quote(src) + ");font-weight:" +
                    weight.ToString(inv) + ";font-style:" + (italic ? "italic" : "normal") + ";}");
     }
@@ -216,6 +214,18 @@ public sealed class DocumentDescriptor
     {
         _ctx.EnsureMutable();
         WarningsValue = collector ?? throw new ArgumentNullException(nameof(collector));
+        return this;
+    }
+
+    /// <summary>
+    /// Fills <paramref name="collector"/> with facts about the PDF each render writes, e.g.
+    /// <see cref="RenderStatistics.PageCount"/>. Read it after rendering; every render of this document shares it, so
+    /// don't render the same document concurrently while reading it. Same as <see cref="PdfRenderOptions.Statistics"/>.
+    /// </summary>
+    public DocumentDescriptor CollectStatistics(RenderStatistics collector)
+    {
+        _ctx.EnsureMutable();
+        StatisticsValue = collector ?? throw new ArgumentNullException(nameof(collector));
         return this;
     }
 

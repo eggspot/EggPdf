@@ -87,6 +87,8 @@ byte[] signed = EggPdf.Pdf.PdfSigner.Sign(pdf, x509CertWithPrivateKey,
 ```
 - View-only PDFs: `HtmlToPdf.Render(html, new PdfEncryption {...})` or REST `POST /api/encrypt` (RC4 128-bit, owner/user passwords, print/copy/modify flags)
 - Permission flags are advisory; signatures give cryptographic tamper evidence
+- Page count without parsing the PDF: `new PdfRenderOptions { Statistics = stats }` then `stats.PageCount`
+  (Fluent `CollectStatistics`, REST `X-EggPdf-Page-Count` header)
 - Untrusted HTML: `new PdfRenderOptions { ResourceResolver = new HttpResourceResolver(), AllowLocalFileAccess = false }`
   -- every stylesheet, @import, @font-face and image goes through the resolver, which refuses loopback, private and
   cloud-metadata addresses (checked at connect time on .NET 6+, before each request on .NET Standard builds),

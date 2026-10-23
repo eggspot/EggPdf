@@ -237,6 +237,8 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   (the CSS Houdini Paint API) is not supported and never will be by this engine -- it requires
   running an author-supplied JS paint worklet, and EggPdf has no JavaScript engine by design
 - Cloudflare email obfuscation (`data-cfemail`) decoded automatically
+- Page count from the render, no PDF parsing needed: pass `PdfRenderOptions.Statistics = new RenderStatistics()`
+  and read `.PageCount` afterwards (Fluent `CollectStatistics`, REST `X-EggPdf-Page-Count` header, CLI `--verbose`)
 - Safe resource loading for untrusted HTML: `PdfRenderOptions.ResourceResolver` routes every stylesheet,
   `@import`, `@font-face` source, `<img>` and CSS background image through one `IResourceResolver`
   (never a process-wide cache), and `AllowLocalFileAccess = false` refuses file paths and `file:` URLs.
