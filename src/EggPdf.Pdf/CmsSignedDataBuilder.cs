@@ -7,13 +7,6 @@ using System.Text;
 
 namespace EggPdf.Pdf;
 
-/// <summary>
-/// Builds a detached CMS/PKCS#7 SignedData structure (RFC 5652) for PDF
-/// signatures (adbe.pkcs7.detached) using only in-box crypto primitives —
-/// no System.Security.Cryptography.Pkcs package. SHA-256 digest, RSA
-/// PKCS#1 v1.5 or ECDSA signature, signed attributes (content-type, message-digest,
-/// signing-time).
-/// </summary>
 internal static class CmsSignedDataBuilder
 {
     private const string OidData = "1.2.840.113549.1.7.1";
@@ -25,9 +18,6 @@ internal static class CmsSignedDataBuilder
     private const string OidMessageDigest = "1.2.840.113549.1.9.4";
     private const string OidSigningTime = "1.2.840.113549.1.9.5";
 
-    /// <summary>
-    /// Build a detached SignedData over content whose SHA-256 digest is given.
-    /// </summary>
     public static byte[] BuildDetached(byte[] contentDigestSha256, X509Certificate2 certificate, DateTime signingTimeUtc)
     {
         using var rsa = certificate.GetRSAPrivateKey();
@@ -35,13 +25,11 @@ internal static class CmsSignedDataBuilder
         if (rsa == null && ecdsa == null)
             throw new NotSupportedException("Signing needs a certificate with an RSA or ECDSA private key.");
 
-        // Signed attributes (DER SET OF, sorted by encoding)
         var attrContentType = Sequence(Oid(OidContentType), SetOf(Oid(OidData)));
         var attrSigningTime = Sequence(Oid(OidSigningTime), SetOf(UtcTime(signingTimeUtc)));
         var attrMessageDigest = Sequence(Oid(OidMessageDigest), SetOf(OctetString(contentDigestSha256)));
         var signedAttrsSet = SetOfSorted(attrContentType, attrSigningTime, attrMessageDigest);
 
-        // The signature covers the DER SET OF (tag 0x31) encoding of the attributes
         byte[] attrsDigest;
         using (var sha = SHA256.Create())
             attrsDigest = sha.ComputeHash(signedAttrsSet);
@@ -60,22 +48,19 @@ internal static class CmsSignedDataBuilder
             Integer(1),
             issuerAndSerial,
             digestAlg,
-            Retag(signedAttrsSet, 0xA0), // [0] IMPLICIT SignedAttributes
+            Retag(signedAttrsSet, 0xA0),
             sigAlg,
             OctetString(signature));
 
         var signedData = Sequence(
             Integer(1),
             SetOf(digestAlg),
-            Sequence(Oid(OidData)),                      // detached: no eContent
-            Retag(SetOf(Raw(certificate.RawData)), 0xA0), // [0] IMPLICIT CertificateSet
+            Sequence(Oid(OidData)),
+            Retag(SetOf(Raw(certificate.RawData)), 0xA0),
             SetOf(signerInfo));
 
-        // ContentInfo { signedData OID, [0] EXPLICIT SignedData }
         return Sequence(Oid(OidSignedData), Tlv(0xA0, signedData));
     }
-
-    // ===== Minimal DER encoding helpers =====
 
     private static byte[] Tlv(byte tag, byte[] content)
     {
@@ -115,7 +100,6 @@ internal static class CmsSignedDataBuilder
 
     private static byte[] SetOf(params byte[][] parts) => Tlv(0x31, Concat(parts));
 
-    /// <summary>DER SET OF requires elements sorted by their encoded bytes.</summary>
     private static byte[] SetOfSorted(params byte[][] parts)
     {
         var list = new List<byte[]>(parts);
@@ -167,7 +151,6 @@ internal static class CmsSignedDataBuilder
         return Tlv(0x02, bytes.ToArray());
     }
 
-    /// <summary>X509Certificate2.GetSerialNumber() returns little-endian bytes.</summary>
     private static byte[] IntegerFromSerial(byte[] littleEndianSerial)
     {
         var big = (byte[])littleEndianSerial.Clone();
@@ -216,7 +199,6 @@ internal static class CmsSignedDataBuilder
 
     private static byte[] Raw(byte[] der) => der;
 
-    /// <summary>Replace an encoding's tag byte (IMPLICIT context tagging).</summary>
     private static byte[] Retag(byte[] tlv, byte newTag)
     {
         var result = (byte[])tlv.Clone();

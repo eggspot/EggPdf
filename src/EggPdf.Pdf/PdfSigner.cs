@@ -43,8 +43,6 @@ public static class PdfSigner
             ?? certificate.GetNameInfo(X509NameType.SimpleName, false)
             ?? "Signer";
 
-        // 1. Append the signature dictionary as an incremental update, with a
-        //    fixed-width ByteRange placeholder patched after assembly.
         const string byteRangePlaceholder = "[0 0000000000 0000000000 0000000000]";
         var sb = new StringBuilder();
         sb.AppendLine();
@@ -71,12 +69,11 @@ public static class PdfSigner
             output = ms.ToArray();
         }
 
-        // 2. Locate the Contents hex gap and patch the real ByteRange
         var text = Encoding.ASCII.GetString(output, pdfBytes.Length, output.Length - pdfBytes.Length);
         int hexInAppend = text.IndexOf(new string('0', ContentsHexLength), StringComparison.Ordinal);
         int hexStart = pdfBytes.Length + hexInAppend;
-        int gapStart = hexStart - 1;                     // the '<'
-        int gapEnd = hexStart + ContentsHexLength + 1;   // after the '>'
+        int gapStart = hexStart - 1;
+        int gapEnd = hexStart + ContentsHexLength + 1;
         int tailLength = output.Length - gapEnd;
 
         string byteRange = $"[0 {gapStart:D10} {gapEnd:D10} {tailLength:D10}]";
@@ -84,7 +81,6 @@ public static class PdfSigner
         var brBytes = Encoding.ASCII.GetBytes(byteRange);
         Array.Copy(brBytes, 0, output, pdfBytes.Length + brInAppend, brBytes.Length);
 
-        // 3. Hash the two byte ranges and build the detached CMS signature
         byte[] digest;
         using (var sha = SHA256.Create())
         {
@@ -97,7 +93,6 @@ public static class PdfSigner
         if (cms.Length * 2 > ContentsHexLength)
             throw new InvalidOperationException("CMS signature exceeds the reserved /Contents space.");
 
-        // 4. Write the CMS hex into the reserved gap
         var cmsHex = Encoding.ASCII.GetBytes(BitConverter.ToString(cms).Replace("-", ""));
         Array.Copy(cmsHex, 0, output, hexStart, cmsHex.Length);
 
@@ -145,11 +140,9 @@ public static class PdfSigner
         string reason = options.Reason ?? "";
         string location = options.Location ?? "";
 
-        // Create signature annotation as an incremental update
         var sb = new StringBuilder();
-        sb.AppendLine(); // newline separator
+        sb.AppendLine();
 
-        // Signature value object
         int sigValObj = FindNextObjNumber(pdfBytes) + 1;
         sb.AppendLine($"{sigValObj} 0 obj");
         sb.Append("<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached");
@@ -159,7 +152,7 @@ public static class PdfSigner
         if (!string.IsNullOrEmpty(location))
             sb.Append($" /Location ({EscapePdf(location)})");
         sb.Append($" /M ({PdfDates.PdfDate(DateTime.UtcNow)})");
-        sb.Append($" /Contents <{new string('0', 16384)}>"); // 8KB placeholder
+        sb.Append($" /Contents <{new string('0', 16384)}>");
         sb.Append($" /ByteRange [0 {pdfBytes.Length} {pdfBytes.Length} 0]");
         sb.AppendLine(" >>");
         sb.AppendLine("endobj");
@@ -183,21 +176,17 @@ public static class PdfSigner
         if (pdfWithPlaceholder == null || cmsSignature == null)
             return pdfWithPlaceholder ?? Array.Empty<byte>();
 
-        // Find the Contents placeholder in the PDF
         var pdfText = Encoding.ASCII.GetString(pdfWithPlaceholder);
         var placeholder = new string('0', 16384);
         int placeholderIdx = pdfText.IndexOf(placeholder, StringComparison.Ordinal);
         if (placeholderIdx < 0) return pdfWithPlaceholder;
 
-        // Convert CMS signature to hex
         string cmsHex = BitConverter.ToString(cmsSignature).Replace("-", "");
         if (cmsHex.Length > placeholder.Length)
             throw new InvalidOperationException("CMS signature exceeds the reserved /Contents space.");
 
-        // Pad with zeros
         cmsHex = cmsHex.PadRight(placeholder.Length, '0');
 
-        // Replace placeholder
         var result = (byte[])pdfWithPlaceholder.Clone();
         var cmsBytes = Encoding.ASCII.GetBytes(cmsHex);
         Array.Copy(cmsBytes, 0, result, placeholderIdx, cmsBytes.Length);
@@ -205,10 +194,6 @@ public static class PdfSigner
         return result;
     }
 
-    /// <summary>
-    /// Signing appends dictionary strings in plaintext; a compliant reader of
-    /// an encrypted document decrypts ALL strings, turning them into garbage.
-    /// </summary>
     private static void ThrowIfEncrypted(byte[] pdfBytes)
     {
         if (PdfInspect.IsEncrypted(pdfBytes))
@@ -227,7 +212,6 @@ public static class PdfSigner
             idx = text.IndexOf(" 0 obj", idx, StringComparison.Ordinal);
             if (idx < 0) break;
 
-            // Read back to find the object number
             int numEnd = idx;
             int numStart = numEnd - 1;
             while (numStart >= 0 && text[numStart] >= '0' && text[numStart] <= '9')
