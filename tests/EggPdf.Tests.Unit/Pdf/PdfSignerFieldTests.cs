@@ -319,6 +319,29 @@ public class PdfSignerFieldTests
         alreadySigned.Should().Throw<ArgumentException>();
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("form.sig")]
+    public void Sign_EmptyOrDottedFieldName_Throws(string name)
+    {
+        using var certificate = Certificate();
+
+        Action act = () => PdfSigner.Sign(TwoPages(), certificate, new PdfSigner.SignOptions { FieldName = name });
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void SignWithCmsData_AlreadySignedPdf_Throws()
+    {
+        using var certificate = Certificate();
+        var signed = PdfSigner.Sign(TwoPages(), certificate);
+
+        Action act = () => PdfSigner.SignWithCmsData(signed, new byte[] { 0x30, 0x00 });
+
+        act.Should().Throw<ArgumentException>();
+    }
+
     [Fact]
     public void Sign_InvalidAppearance_Throws()
     {

@@ -56,6 +56,8 @@ public static partial class PdfSigner
 
         var update = new PdfIncrementalUpdate(store);
         int signatureNumber = update.Allocate();
+        if (options.FieldName != null && (options.FieldName.Length == 0 || options.FieldName.IndexOf('.') >= 0))
+            throw new ArgumentException("A signature field name can't be empty or contain '.'; nested form fields aren't supported yet.", nameof(options));
         string fieldName = options.FieldName ?? FirstFreeFieldName(store, fields);
         var existing = FindField(store, fields, fieldName);
         if (existing != null)

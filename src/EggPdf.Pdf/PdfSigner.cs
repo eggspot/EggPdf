@@ -165,6 +165,9 @@ public static partial class PdfSigner
         var result = (byte[])pdfWithPlaceholder.Clone();
         if (!TryFindLastContents(result, out int hexStart, out int hexLength))
             throw new ArgumentException("The PDF has no signature placeholder.", nameof(pdfWithPlaceholder));
+        for (int i = 0; i < hexLength; i++)
+            if (result[hexStart + i] != '0')
+                throw new ArgumentException("The last signature is already filled in; add a placeholder first.", nameof(pdfWithPlaceholder));
         WriteHex(result, hexStart, hexLength, cmsSignature);
         return result;
     }
