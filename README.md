@@ -341,7 +341,11 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Digital signatures — one-call signing (detached CMS/PKCS#7) with an `X509Certificate2`, PFX bytes + password
   (`PdfSigner.Sign(pdf, pfx, password)`) or a PEM certificate + key (`PdfSigner.SignWithPem`; load once with
   `PdfSigningCertificate.FromPfx/FromPem`), RSA or ECDSA keys, CLI `--sign-pfx` / `--sign-cert --sign-key`; or the
-  external-CMS two-step flow for HSMs
+  external-CMS two-step flow for HSMs. Each signature is a real signature field (widget, AcroForm `/SigFlags 3`,
+  incremental update), so viewers list it and earlier signatures stay valid; invisible by default, or visible as an
+  image in a box on a page (`SignOptions.Appearance = new SignatureAppearance(page, x, y, width, height, png)`,
+  top-left points, rotation-aware; CLI `--sign-image --sign-box`); `FieldName` signs into an existing empty field;
+  `PdfSigner.Sign(inputStream, outputStream, cert)` signs files of any size; Unicode names and reasons
 - Password protection with permission flags — view-only PDFs that block editing/copying (RC4 40/128-bit)
 - AcroForm fields (fillable forms from HTML form elements)
 - PDF merging

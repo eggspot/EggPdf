@@ -13,6 +13,13 @@ internal static class PdfObjectSerializer
         return output.ToString();
     }
 
+    public static string Numbers(params double[] values)
+    {
+        var parts = new string[values.Length];
+        for (int i = 0; i < values.Length; i++) parts[i] = Number(values[i]);
+        return string.Join(" ", parts);
+    }
+
     public static string Number(double value)
     {
         if (double.IsNaN(value) || double.IsInfinity(value)) return "0";

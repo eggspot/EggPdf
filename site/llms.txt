@@ -99,7 +99,14 @@ byte[] signed = EggPdf.Pdf.PdfSigner.Sign(pdf, x509CertWithPrivateKey,
 // Or straight from PFX bytes / PEM files (RSA or ECDSA)
 byte[] fromPfx = EggPdf.Pdf.PdfSigner.Sign(pdf, pfxBytes, pfxPassword);
 byte[] fromPem = EggPdf.Pdf.PdfSigner.SignWithPem(pdf, certificatePem, privateKeyPem);
+// Visible signature image (top-left points, rotation-aware); invisible when Appearance is null
+var visible = new EggPdf.Pdf.PdfSigner.SignOptions {
+    Appearance = new EggPdf.Pdf.PdfSigner.SignatureAppearance(page: 1, x: 300, y: 650, width: 200, height: 60, signaturePng) };
+// Files of any size: stream in, stream out
+EggPdf.Pdf.PdfSigner.Sign(inputStream, outputStream, x509CertWithPrivateKey, visible);
 ```
+- Every signature is a real signature field (widget, AcroForm `/SigFlags 3`, incremental update), so viewers list it
+  and earlier signatures stay valid; `FieldName` signs into an existing empty field
 - View-only PDFs: `HtmlToPdf.Render(html, new PdfEncryption {...})` or REST `POST /api/encrypt` (RC4 128-bit, owner/user passwords, print/copy/modify flags)
 - Permission flags are advisory; signatures give cryptographic tamper evidence
 - Page count without parsing the PDF: `new PdfRenderOptions { Statistics = stats }` then `stats.PageCount`

@@ -44,6 +44,33 @@ internal sealed class PdfIncrementalUpdate
     public void WriteObject(int number, int generation, PdfObject value) =>
         Write(number, generation, PdfObjectSerializer.Serialize(value), null);
 
+    public void WriteRawObject(int number, string body) => Write(number, 0, body, null);
+
+    public int WriteImage(PdfImage image)
+    {
+        int number = Allocate();
+        string size = "/Type /XObject /Subtype /Image /Width " + image.Width.ToString(CultureInfo.InvariantCulture)
+                      + " /Height " + image.Height.ToString(CultureInfo.InvariantCulture);
+        if (image.Format == PdfImageFormat.Jpeg)
+        {
+            WriteStream(number, size + " /ColorSpace " + image.ColorSpace + " /BitsPerComponent 8" + image.DecodeEntry + " /Filter /DCTDecode", image.Data);
+            return number;
+        }
+
+        string softMask = "";
+        if (image.SMaskData != null)
+        {
+            int maskNumber = Allocate();
+            WriteStream(maskNumber, size + " /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode",
+                PdfDocument.CompressZlib(image.SMaskData));
+            softMask = " /SMask " + maskNumber.ToString(CultureInfo.InvariantCulture) + " 0 R";
+        }
+        WriteStream(number, size + " /ColorSpace /DeviceRGB /BitsPerComponent "
+            + image.BitsPerComponent.ToString(CultureInfo.InvariantCulture) + " /Filter /FlateDecode" + softMask,
+            PdfDocument.CompressZlib(image.Data));
+        return number;
+    }
+
     public void WriteStream(int number, string dictionaryEntries, byte[] data) =>
         Write(number, 0, "<< " + dictionaryEntries + " /Length " + data.Length.ToString(CultureInfo.InvariantCulture) + " >>", data);
 

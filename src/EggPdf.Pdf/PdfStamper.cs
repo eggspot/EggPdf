@@ -81,7 +81,7 @@ public sealed class PdfStamper
         if (_reader.IsEncrypted) throw new NotSupportedException("Stamping an encrypted PDF isn't supported.");
         if (_reader.Store.WasRepaired)
             throw new PdfFormatException("The PDF's cross-reference is damaged: it can be read but not updated in place.");
-        if (IsCertified(_reader.Store))
+        if (_reader.Store.CertificationPermission != null)
             throw new NotSupportedException(
                 "The PDF is certified (a DocMDP signature): no certification level permits new page content, so stamping would invalidate it.");
     }
@@ -114,7 +114,7 @@ public sealed class PdfStamper
     {
         foreach (var (source, decoded) in _images)
             if (SameBytes(source, image)) return decoded;
-        var result = DecodeImage(image)
+        var result = PdfImage.Decode("Stamp", image)
             ?? throw new ArgumentException("Not a supported image: use PNG, JPEG, GIF, BMP or WebP.", nameof(image));
         _images.Add((image, result));
         return result;
@@ -188,8 +188,8 @@ public sealed class PdfStamper
             ?? throw new NotSupportedException("The page is written inline in its parent's /Kids and can't be revised.");
         var store = _reader.Store;
 
-        var resources = Copy(store.Resolve(page.Resources) as PdfDictionary);
-        var xObjects = Copy(store.Resolve(resources.Get("XObject")) as PdfDictionary);
+        var resources = (store.Resolve(page.Resources) as PdfDictionary)?.Clone() ?? new PdfDictionary();
+        var xObjects = (store.Resolve(resources.Get("XObject")) as PdfDictionary)?.Clone() ?? new PdfDictionary();
         var operators = new StringBuilder("\nQ\n");
         int suffix = 1;
         foreach (var stamp in stamps)
@@ -198,7 +198,7 @@ public sealed class PdfStamper
             do name = ResourceNamePrefix + (suffix++).ToString(System.Globalization.CultureInfo.InvariantCulture);
             while (xObjects.Get(name) != null);
             if (!imageNumbers.TryGetValue(stamp.Image, out int imageNumber))
-                imageNumbers[stamp.Image] = imageNumber = WriteImage(update, stamp.Image);
+                imageNumbers[stamp.Image] = imageNumber = update.WriteImage(stamp.Image);
             xObjects.Set(name, new PdfReference(imageNumber, 0));
             operators.Append("/Artifact BMC ").Append(Placement(page, stamp)).Append(" /").Append(name).Append(" Do Q EMC\n");
         }
@@ -214,7 +214,7 @@ public sealed class PdfStamper
         else if (original != null) contents.Items.Add(original);
         contents.Items.Add(new PdfReference(stampContent, 0));
 
-        var revised = Copy(page.Dictionary);
+        var revised = page.Dictionary.Clone();
         revised.Set("Resources", resources);
         revised.Set("Contents", contents);
         update.WriteObject(reference.ObjectNumber, reference.Generation, revised);
@@ -222,11 +222,8 @@ public sealed class PdfStamper
 
     private static string Placement(PdfPageNode page, Stamp stamp)
     {
-        var box = page.VisibleBox;
-        double boxWidth = box[2] - box[0], boxHeight = box[3] - box[1];
-        double displayedHeight = page.Rotation % 180 == 0 ? boxHeight : boxWidth;
-
-        double width = stamp.Width, height = stamp.Height, left = stamp.X, bottom = displayedHeight - stamp.Y - stamp.Height;
+        var displayed = new PdfDisplayedPage(page);
+        double width = stamp.Width, height = stamp.Height, left = stamp.X, bottom = displayed.Height - stamp.Y - stamp.Height;
         if (stamp.Fit == PdfImageFit.Contain)
         {
             double scale = Math.Min(stamp.Width / stamp.Image.Width, stamp.Height / stamp.Image.Height);
@@ -235,69 +232,7 @@ public sealed class PdfStamper
             left += (stamp.Width - width) / 2;
             bottom += (stamp.Height - height) / 2;
         }
-
-        double[] toPage = page.Rotation switch
-        {
-            90 => new[] { 0.0, 1, -1, 0, boxWidth, 0 },
-            180 => new[] { -1.0, 0, 0, -1, boxWidth, boxHeight },
-            270 => new[] { 0.0, -1, 1, 0, 0, boxHeight },
-            _ => new[] { 1.0, 0, 0, 1, 0, 0 },
-        };
-        toPage[4] += box[0];
-        toPage[5] += box[1];
-
-        return "q " + Join(toPage) + " cm " + Join(new[] { width, 0, 0, height, left, bottom }) + " cm";
-    }
-
-    private static int WriteImage(PdfIncrementalUpdate update, PdfImage image)
-    {
-        int number = update.Allocate();
-        string size = "/Type /XObject /Subtype /Image /Width " + image.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                      + " /Height " + image.Height.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        if (image.Format == PdfImageFormat.Jpeg)
-        {
-            update.WriteStream(number, size + " /ColorSpace " + image.ColorSpace + " /BitsPerComponent 8" + image.DecodeEntry + " /Filter /DCTDecode", image.Data);
-            return number;
-        }
-
-        string softMask = "";
-        if (image.SMaskData != null)
-        {
-            int maskNumber = update.Allocate();
-            update.WriteStream(maskNumber, size + " /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode",
-                PdfDocument.CompressZlib(image.SMaskData));
-            softMask = " /SMask " + maskNumber.ToString(System.Globalization.CultureInfo.InvariantCulture) + " 0 R";
-        }
-        update.WriteStream(number, size + " /ColorSpace /DeviceRGB /BitsPerComponent "
-            + image.BitsPerComponent.ToString(System.Globalization.CultureInfo.InvariantCulture) + " /Filter /FlateDecode" + softMask,
-            PdfDocument.CompressZlib(image.Data));
-        return number;
-    }
-
-    private static PdfImage? DecodeImage(byte[] data)
-    {
-        const string name = "Stamp";
-        if (data.Length >= 8 && data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G') return PdfImage.FromPng(name, data);
-        if (data.Length >= 2 && data[0] == 0xFF && data[1] == 0xD8) return PdfImage.FromJpeg(name, data);
-        if (data.Length >= 4 && data[0] == 'G' && data[1] == 'I' && data[2] == 'F' && data[3] == '8') return PdfImage.FromGif(name, data);
-        if (data.Length >= 2 && data[0] == 'B' && data[1] == 'M') return PdfImage.FromBmp(name, data);
-        if (WebPDecoder.IsWebP(data)) return PdfImage.FromWebP(name, data);
-        return null;
-    }
-
-    private static PdfDictionary Copy(PdfDictionary? source)
-    {
-        var copy = new PdfDictionary();
-        if (source != null)
-            foreach (var pair in source.Entries) copy.Set(pair.Key, pair.Value);
-        return copy;
-    }
-
-    private static string Join(double[] values)
-    {
-        var parts = new string[values.Length];
-        for (int i = 0; i < values.Length; i++) parts[i] = PdfObjectSerializer.Number(values[i]);
-        return string.Join(" ", parts);
+        return "q " + PdfObjectSerializer.Numbers(displayed.ToPage) + " cm " + PdfObjectSerializer.Numbers(width, 0, 0, height, left, bottom) + " cm";
     }
 
     private static bool InRange(double value, double minimum) => value >= minimum && value <= MaxExtent;
@@ -310,7 +245,4 @@ public sealed class PdfStamper
             if (a[i] != b[i]) return false;
         return true;
     }
-
-    private static bool IsCertified(PdfObjectStore store) =>
-        store.Resolve(store.FindCatalog()?.Get("Perms")) is PdfDictionary permissions && permissions.Get("DocMDP") != null;
 }

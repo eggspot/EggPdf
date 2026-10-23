@@ -60,6 +60,7 @@ internal sealed partial class PdfObjectStore : IPdfStreamLocator
     private const int ScanOverlapBytes = 64;
     private const int TrailerWindowBytes = 1024 * 1024;
     private const int MaxIndexedKeywords = 8_000_000;
+    private const int DefaultCertificationPermission = 2;
     private const int CutTokenBytes = 64;
 
     private readonly PdfByteSource _source;
@@ -103,6 +104,23 @@ internal sealed partial class PdfObjectStore : IPdfStreamLocator
     public int HighestObjectNumber => _highestObjectNumber ??= ComputeHighestObjectNumber();
 
     public bool IsEncrypted => Trailer.Get("Encrypt") is { } encrypt && encrypt is not PdfNull;
+
+    public int? CertificationPermission
+    {
+        get
+        {
+            if (Resolve(FindCatalog()?.Get("Perms")) is not PdfDictionary permissions || permissions.Get("DocMDP") == null) return null;
+            var signature = Resolve(permissions.Get("DocMDP")) as PdfDictionary;
+            if (Resolve(signature?.Get("Reference")) is PdfArray references)
+                foreach (var item in references.Items)
+                    if (Resolve(item) is PdfDictionary reference &&
+                        Resolve(reference.Get("TransformMethod")) is PdfName { Value: "DocMDP" } &&
+                        Resolve(reference.Get("TransformParams")) is PdfDictionary parameters &&
+                        Resolve(parameters.Get("P")) is PdfNumber { IsInteger: true } level)
+                        return (int)level.Value;
+            return DefaultCertificationPermission;
+        }
+    }
 
     public static PdfObjectStore Load(PdfByteSource source)
     {

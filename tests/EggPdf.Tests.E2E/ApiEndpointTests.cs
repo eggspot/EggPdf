@@ -170,6 +170,37 @@ public class ApiEndpointTests
     }
 
     [Fact]
+    public async Task Sign_WithAppearance_ReturnsAPdfWithAVisibleSignatureField()
+    {
+        var content = new StringContent(JsonSerializer.Serialize(new
+        {
+            pdf = System.Convert.ToBase64String(EggPdf.HtmlToPdf.Render("<p>contract</p>")),
+            name = "Signer",
+            appearance = new { page = 1, x = 300.0, y = 650.0, width = 200.0, height = 60.0, image = OnePixelPng },
+        }), Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/sign", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        var text = Encoding.Latin1.GetString(await resp.Content.ReadAsByteArrayAsync());
+        text.Should().Contain("/FT /Sig").And.Contain("/SigFlags 3").And.Contain("/Img Do");
+    }
+
+    [Fact]
+    public async Task Sign_AppearanceOnAMissingPage_ReturnsBadRequest()
+    {
+        var content = new StringContent(JsonSerializer.Serialize(new
+        {
+            pdf = System.Convert.ToBase64String(EggPdf.HtmlToPdf.Render("<p>contract</p>")),
+            appearance = new { page = 9, x = 0.0, y = 0.0, width = 10.0, height = 10.0, image = OnePixelPng },
+        }), Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/sign", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Stamp_NullStampEntry_ReturnsBadRequest()
     {
         var pdf = System.Convert.ToBase64String(EggPdf.HtmlToPdf.Render("<p>x</p>"));

@@ -370,18 +370,36 @@ app.MapPost("/api/sign", async (HttpContext ctx) =>
     try
     {
         var pdfBytes = Convert.FromBase64String(request.Pdf);
+        EggPdf.Pdf.PdfSigner.SignatureAppearance? appearance = null;
+        if (request.Appearance is { } placement)
+        {
+            if (string.IsNullOrEmpty(placement.Image))
+                return Results.BadRequest(new { error = "appearance.image is required" });
+            appearance = new EggPdf.Pdf.PdfSigner.SignatureAppearance(placement.Page, placement.X, placement.Y, placement.Width,
+                placement.Height, Convert.FromBase64String(placement.Image))
+            {
+                Fit = (placement.Fit ?? "contain").ToLowerInvariant() switch
+                {
+                    "contain" => EggPdf.Pdf.PdfImageFit.Contain,
+                    "stretch" => EggPdf.Pdf.PdfImageFit.Stretch,
+                    _ => throw new ArgumentException($"Invalid fit '{placement.Fit}'. Expected 'contain' or 'stretch'."),
+                },
+            };
+        }
         var signed = EggPdf.Pdf.PdfSigner.AddSignaturePlaceholder(pdfBytes,
             new EggPdf.Pdf.PdfSigner.SignOptions
             {
                 Name = request.Name,
                 Reason = request.Reason,
                 Location = request.Location,
+                FieldName = request.FieldName,
+                Appearance = appearance,
             });
         return Results.File(signed, "application/pdf", "signed.pdf");
     }
-    catch (Exception ex)
+    catch (Exception ex) when (ex is FormatException or ArgumentException or NotSupportedException)
     {
-        return Results.Problem($"Signing failed: {ex.Message}");
+        return Results.BadRequest(new { error = ex.Message });
     }
 });
 
@@ -635,6 +653,19 @@ record SignRequest
     public string? Name { get; init; }
     public string? Reason { get; init; }
     public string? Location { get; init; }
+    public string? FieldName { get; init; }
+    public SignatureAppearanceRequest? Appearance { get; init; }
+}
+
+record SignatureAppearanceRequest
+{
+    public int Page { get; init; } = 1;
+    public double X { get; init; }
+    public double Y { get; init; }
+    public double Width { get; init; }
+    public double Height { get; init; }
+    public string? Image { get; init; }
+    public string? Fit { get; init; }
 }
 
 record AttachmentRequest
