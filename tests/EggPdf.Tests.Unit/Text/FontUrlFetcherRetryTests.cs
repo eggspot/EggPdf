@@ -10,6 +10,7 @@ namespace EggPdf.Tests.Unit.Text;
 /// lifetime — failures may only suppress retries for a bounded window,
 /// while successful fetches stay cached forever (font URLs are immutable).
 /// </summary>
+[Collection(EggPdf.Tests.Unit.EndToEnd.ResourceLoadingCollection.Name)]
 public class FontUrlFetcherRetryTests
 {
     private static readonly byte[] FakeFont = { 0x00, 0x01, 0x00, 0x00 };

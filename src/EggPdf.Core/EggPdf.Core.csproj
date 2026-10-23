@@ -7,4 +7,9 @@
     <Version>1.9.1</Version>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="EggPdf" />
+    <InternalsVisibleTo Include="EggPdf.Tests.Unit" />
+  </ItemGroup>
+
 </Project>

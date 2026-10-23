@@ -1,5 +1,6 @@
 using System;
 using EggPdf.Core;
+using EggPdf.Core.Resources;
 using EggPdf.Html.Dom;
 using EggPdf.Pdf;
 
@@ -27,6 +28,8 @@ public sealed class DocumentDescriptor
     internal bool TaggedValue { get; private set; }
     internal PdfUaVersion UaVersionValue { get; private set; } = PdfUaVersion.Ua1;
     internal WarningCollector? WarningsValue { get; private set; }
+    internal IResourceResolver? ResourceResolverValue { get; private set; }
+    internal bool AllowLocalFileAccessValue { get; private set; } = true;
 
     internal DocumentDescriptor(BuilderContext ctx, HtmlDocument document, HtmlElement head, HtmlElement body)
     {
@@ -94,8 +97,17 @@ public sealed class DocumentDescriptor
 
         _ctx.FinalizeStyles(_document);
         _ctx.Freeze();
-        _built = new DocumentBuilder(_document, BasePathValue, EncryptionValue, ConformanceValue,
-            InvoiceValue, TaggedValue, UaVersionValue, WarningsValue);
+        _built = new DocumentBuilder(_document, BasePathValue, new PdfRenderOptions
+        {
+            Encryption = EncryptionValue,
+            Conformance = ConformanceValue,
+            Invoice = InvoiceValue,
+            Tagged = TaggedValue,
+            UaVersion = UaVersionValue,
+            Warnings = WarningsValue,
+            ResourceResolver = ResourceResolverValue,
+            AllowLocalFileAccess = AllowLocalFileAccessValue,
+        });
         return _built;
     }
 
@@ -204,6 +216,31 @@ public sealed class DocumentDescriptor
     {
         _ctx.EnsureMutable();
         WarningsValue = collector ?? throw new ArgumentNullException(nameof(collector));
+        return this;
+    }
+
+    /// <summary>
+    /// Loads every external resource (stylesheets, <c>@import</c>, <see cref="FontFace"/> sources, images) through
+    /// <paramref name="resolver"/> instead of the built-in loading -- e.g. an
+    /// <see cref="HttpResourceResolver"/> to fetch http(s) resources safely, or your own store. Same as
+    /// <see cref="PdfRenderOptions.ResourceResolver"/>.
+    /// </summary>
+    public DocumentDescriptor ResourceResolver(IResourceResolver resolver)
+    {
+        _ctx.EnsureMutable();
+        ResourceResolverValue = resolver ?? throw new ArgumentNullException(nameof(resolver));
+        return this;
+    }
+
+    /// <summary>
+    /// Allows (default) or forbids reading local files: when forbidden, file paths and file: URLs are refused
+    /// with a <c>RESOURCE_BLOCKED</c> warning and only data: and http(s) resources load. Same as
+    /// <see cref="PdfRenderOptions.AllowLocalFileAccess"/>.
+    /// </summary>
+    public DocumentDescriptor AllowLocalFileAccess(bool allow = true)
+    {
+        _ctx.EnsureMutable();
+        AllowLocalFileAccessValue = allow;
         return this;
     }
 

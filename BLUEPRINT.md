@@ -1063,10 +1063,10 @@ public enum ResourceType { Image, Font, StyleSheet, Other }
 
 | Resolver | Handles | How |
 |---|---|---|
-| **HttpResourceResolver** | `https://`, `http://` URLs | Uses `System.Net.Http.HttpClient` (part of BCL, not an external dep). Configurable: timeout, max response size, allowed domains, User-Agent header |
+| **HttpResourceResolver** | `https://`, `http://` URLs | Uses `System.Net.Http.HttpClient` (part of BCL, not an external dep). Safe for untrusted HTML by default (see Security below). Configurable: timeout, max response size, max redirects, allowed domains, private networks, User-Agent header |
 | **FileResourceResolver** | Absolute file paths, `file://` | Reads from local filesystem. Configurable base directory. Path traversal prevention |
 | **DataUriResolver** | `data:image/png;base64,...` | Decode inline Base64 data URIs |
-| **CompositeResolver** (default) | All of the above | Tries each resolver in order based on URL scheme. This is the default when no custom resolver is configured |
+| **CompositeResolver** | All of the above | Dispatches by URL scheme (data: / http(s) via the safe HttpResourceResolver / files confined to a base directory). Not the default: with no resolver configured the renderer uses its built-in loading (local files, unrestricted http(s) stylesheets and fonts) for backward compatibility |
 
 ### Configuration
 
@@ -1133,11 +1133,15 @@ var options = new PdfOptions
 
 | Concern | Mitigation |
 |---|---|
-| SSRF (Server-Side Request Forgery) | `AllowedDomains` restricts which hosts can be fetched. Default: all allowed. In EggPdf.Service: configurable via env var |
-| Path traversal | `FileResourceResolver` restricts to base directory. Rejects `../../etc/passwd` |
-| Large responses | `MaxResponseSizeBytes` prevents memory exhaustion from huge resources |
-| Slow responses | `TimeoutSeconds` prevents hanging on unresponsive servers |
-| Redirect loops | Max 5 redirects followed. Configurable |
+| SSRF (Server-Side Request Forgery) | `HttpResourceResolver` refuses loopback, private, link-local (cloud metadata), CGNAT, unique-local, multicast and reserved addresses (incl. IPv4 inside IPv6) unless `AllowPrivateNetworks`; on .NET 6+ the check runs in the connect callback, so DNS rebinding can't swap the address. `AllowedDomains` further restricts hosts. Every fetch -- stylesheets, `@import`, `@font-face`, images, backgrounds -- goes through `PdfRenderOptions.ResourceResolver` when set, memoized per render (never a process-wide cache). EggPdf.Service always uses it, locked down by default (`EggPdf:Resources:*`). Without a resolver the library keeps its legacy behaviour: http(s) stylesheets/fonts from any address |
+| Local file disclosure | `PdfRenderOptions.AllowLocalFileAccess = false` refuses paths and `file:` URLs before any resolver (RESOURCE_BLOCKED warning); off by default in EggPdf.Service |
+| Path traversal | `FileResourceResolver` restricts to base directory (case-sensitive except on Windows). Rejects `../../etc/passwd`, and on .NET 6+ symbolic links (file or directory) whose target lies outside it |
+| Endless local files | Local reads (built-in loader and `FileResourceResolver.MaxFileSizeBytes`) stop at 50 MB, reading to EOF rather than trusting the length, so `/dev/zero` can't exhaust memory |
+| Large responses | `MaxResponseSizeBytes` (default 50 MB; 10 MB in EggPdf.Service), enforced while streaming, not only via Content-Length |
+| Slow responses | `TimeoutSeconds` bounds the whole fetch incl. redirects; the renderer also gives up on any resolver call after 30 s |
+| Redirects | Followed manually, max `MaxRedirects` (5); each hop re-checks scheme, `AllowedDomains` and address |
+| Fetch budget | EggPdf.Service caps each request at 50 resolver fetches within 20 s (LIMIT_EXCEEDED warning) and cancels fetches when the client disconnects |
+| Known gaps | No per-render budget in the library itself (only the service has one); `EggPdf.Razor` has its own options type without `ResourceResolver`/`AllowLocalFileAccess`, and `EggPdf.AspNetCore` doesn't register a resolver; no public DOM entry point takes `PdfRenderOptions` (a same-name overload breaks `RenderDocument*(doc, path, null)` calls, so it needs its own name -- Fluent uses the internal one); `FileResourceResolver`'s symlink check follows the requested path's components, not every component of a link's target (a link chain through a second in-base link can escape -- only someone who can create links inside the base directory can do that), and a FIFO or blocking device inside the base hangs the read until the renderer's 30 s backstop |
 
 ### What `System.Net.Http.HttpClient` means for zero-dependency policy
 

@@ -9,9 +9,9 @@ public static partial class HtmlToPdf
     /// The alpha channel of an image for <c>shape-outside: url()</c>. Opaque images are a solid rectangle; JPEG and
     /// other formats this pipeline can't decode to pixels report null (the float keeps its rectangular exclusion).
     /// </summary>
-    private static (int width, int height, byte[] alpha)? LoadShapeImageAlpha(string source)
+    private static (int width, int height, byte[] alpha)? LoadShapeImageAlpha(string source, ResourceLoader resources)
     {
-        var data = LoadImageData(source);
+        var data = resources.Load(source, Core.Resources.ResourceType.Image);
         if (data == null) return null;
 
         var image = DecodeImage(source, data);

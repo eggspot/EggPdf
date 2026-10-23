@@ -6,16 +6,22 @@ using System.Threading.Tasks;
 namespace EggPdf.Core.Resources;
 
 /// <summary>
-/// Resolves file paths to local filesystem resources. Prevents path traversal attacks.
+/// Resolves file paths to local filesystem resources, confined to one base directory: path traversal
+/// (<c>../</c>), absolute paths outside it, and (on .NET 6+) symbolic links whose target lies outside it
+/// are refused. Files larger than <see cref="MaxFileSizeBytes"/> are refused.
 /// </summary>
 public class FileResourceResolver : IResourceResolver
 {
     private readonly string _baseDirectory;
 
+    /// <summary>Creates a resolver confined to <paramref name="baseDirectory"/> (default: the current directory).</summary>
     public FileResourceResolver(string? baseDirectory = null)
     {
         _baseDirectory = Path.GetFullPath(baseDirectory ?? Directory.GetCurrentDirectory());
     }
+
+    /// <summary>Largest file read, in bytes; larger files (and endless ones such as devices) resolve to null.</summary>
+    public long MaxFileSizeBytes { get; set; } = LocalFileReader.DefaultMaxBytes;
 
     public async Task<ResourceResult?> ResolveAsync(string url, ResourceType type, CancellationToken ct = default)
     {
@@ -36,32 +42,51 @@ public class FileResourceResolver : IResourceResolver
         else
             fullPath = Path.GetFullPath(Path.Combine(_baseDirectory, url));
 
-        // Security: ensure resolved path is within base directory.
-        // Append separator to prevent "C:\docs" matching "C:\docs-evil\file".
+        // Security: ensure resolved path, and any link on the way to it, stays within base directory
+        if (!IsInsideBase(fullPath) || !LinksStayInsideBase(fullPath))
+            return null;
+
+        var bytes = await LocalFileReader.TryReadAllBytesAsync(fullPath, MaxFileSizeBytes, ct);
+        if (bytes == null)
+            return null;
+
+        return new ResourceResult(bytes, DetectMimeType(fullPath), fullPath);
+    }
+
+    private bool IsInsideBase(string fullPath)
+    {
+        // Append separator to prevent "C:\docs" matching "C:\docs-evil\file"
         string baseWithSep = _baseDirectory.EndsWith(Path.DirectorySeparatorChar.ToString())
             ? _baseDirectory
             : _baseDirectory + Path.DirectorySeparatorChar;
-        if (!fullPath.StartsWith(baseWithSep, StringComparison.OrdinalIgnoreCase))
-            return null;
-
-        if (!File.Exists(fullPath))
-            return null;
-
-        var bytes = await ReadAllBytesAsync(fullPath, ct);
-        var mimeType = DetectMimeType(fullPath);
-
-        return new ResourceResult(bytes, mimeType, fullPath);
+        return fullPath.StartsWith(baseWithSep, LocalFileReader.PathComparison);
     }
 
-    private static async Task<byte[]> ReadAllBytesAsync(string path, CancellationToken ct)
+    /// <summary>
+    /// Every symbolic link between the base directory and the file (the file itself included) must point
+    /// inside the base directory. Links in the base directory's own path are the operator's choice and
+    /// are not checked. .NET Standard has no API to read link targets, so there links are not checked.
+    /// </summary>
+    private bool LinksStayInsideBase(string fullPath)
     {
 #if NET6_0_OR_GREATER
-        return await File.ReadAllBytesAsync(path, ct);
+        try
+        {
+            for (string? path = fullPath; path != null && IsInsideBase(path); path = Path.GetDirectoryName(path))
+            {
+                FileSystemInfo info = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
+                if (info.LinkTarget == null) continue;
+                var target = info.ResolveLinkTarget(returnFinalTarget: true);
+                if (target == null || !IsInsideBase(Path.GetFullPath(target.FullName))) return false;
+            }
+            return true;
+        }
+        catch (Exception)
+        {
+            return false; // unreadable link: refuse rather than guess
+        }
 #else
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, true);
-        var bytes = new byte[stream.Length];
-        await stream.ReadAsync(bytes, 0, bytes.Length, ct);
-        return bytes;
+        return true;
 #endif
     }
 
