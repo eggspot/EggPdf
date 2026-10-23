@@ -64,14 +64,14 @@ public static partial class HtmlToPdf
 
     /// <summary>
     /// Render an already-built DOM with <paramref name="options"/>' PDF-writer settings (Encryption, Conformance,
-    /// Invoice, Tagged, UaVersion), Warnings and resource loading (ResourceResolver, AllowLocalFileAccess). Its
+    /// Invoice, Tagged, UaVersion), Warnings, Statistics and resource loading (ResourceResolver, AllowLocalFileAccess). Its
     /// HTML-injected page/metadata properties are not applied: a DOM has no source text to inject into.
     /// </summary>
     internal static byte[] RenderDocumentWithOptions(HtmlDocument document, string? basePath, PdfRenderOptions options,
         CancellationToken ct = default)
     {
         return RenderInternal(document, basePath, options.Encryption, options.Conformance, options.Invoice, options.Tagged,
-            options.UaVersion, options.Warnings, CreateResourceLoader(options, basePath, ct));
+            options.UaVersion, options.Warnings, CreateResourceLoader(options, basePath, ct), options.Statistics);
     }
 
     /// <summary><see cref="RenderDocumentWithOptions"/> as a task; <paramref name="ct"/> also cancels resource fetches.</summary>

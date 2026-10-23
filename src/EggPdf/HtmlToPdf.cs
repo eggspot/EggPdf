@@ -301,7 +301,8 @@ public static partial class HtmlToPdf
     {
         return RenderInternal(ApplyRenderOptions(html ?? "", options), null,
             options?.Encryption, options?.Conformance, options?.Invoice, options?.Tagged ?? false,
-            options?.UaVersion ?? Pdf.PdfUaVersion.Ua1, options?.Warnings, CreateResourceLoader(options, null, ct));
+            options?.UaVersion ?? Pdf.PdfUaVersion.Ua1, options?.Warnings, CreateResourceLoader(options, null, ct),
+            options?.Statistics);
     }
 
     /// <summary>
@@ -363,20 +364,21 @@ public static partial class HtmlToPdf
         return $"<head>{inject}</head>{html}";
     }
 
-    private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1, WarningCollector? warnings = null, ResourceLoader? resources = null)
+    private static byte[] RenderInternal(string html, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1, WarningCollector? warnings = null, ResourceLoader? resources = null, RenderStatistics? statistics = null)
     {
         // 1. Parse HTML -> DOM
         var document = HtmlParser.Parse(html);
-        return RenderInternal(document, basePath, encryption, conformance, invoice, tagged, uaVersion, warnings, resources);
+        return RenderInternal(document, basePath, encryption, conformance, invoice, tagged, uaVersion, warnings, resources, statistics);
     }
 
     /// <summary>
     /// Same pipeline as the HTML-string overload, starting from an already-built DOM (e.g. from
     /// EggPdf.Fluent's document builder) instead of parsing HTML text.
     /// </summary>
-    private static byte[] RenderInternal(HtmlDocument document, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1, WarningCollector? warnings = null, ResourceLoader? resources = null)
+    private static byte[] RenderInternal(HtmlDocument document, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1, WarningCollector? warnings = null, ResourceLoader? resources = null, RenderStatistics? statistics = null)
     {
         resources ??= ResourceLoader.BuiltIn(basePath);
+        if (statistics != null) statistics.PageCount = 0; // a render that throws must not leave a stale count
 
         // 1b. Decode Cloudflare email obfuscation (browsers do this via script,
         // which a PDF engine does not run).
@@ -498,7 +500,9 @@ public static partial class HtmlToPdf
                 Paint.BoxPainter.StructureMap = null;
             }
 
-            return pdfDoc.ToByteArray();
+            var pdfBytes = pdfDoc.ToByteArray();
+            if (statistics != null) statistics.PageCount = pdfDoc.PageCount;
+            return pdfBytes;
         }
         finally
         {

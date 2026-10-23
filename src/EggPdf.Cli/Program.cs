@@ -184,7 +184,7 @@ public class Program
             var options = new PdfRenderOptions
             {
                 Conformance = conformance, Invoice = invoice, Tagged = tagged, UaVersion = uaVersion, Warnings = warnings,
-                AllowLocalFileAccess = !noLocalFiles,
+                AllowLocalFileAccess = !noLocalFiles, Statistics = new RenderStatistics(),
             };
             if (noPrivateNetwork)
             {
@@ -219,7 +219,8 @@ public class Program
 
             if (verbose)
             {
-                Console.Error.WriteLine($"Rendered in {elapsed.TotalMilliseconds.ToString("F0", CultureInfo.InvariantCulture)}ms -> {outputPath}");
+                int pages = options.Statistics.PageCount;
+                Console.Error.WriteLine($"Rendered {pages.ToString(CultureInfo.InvariantCulture)} page{(pages == 1 ? "" : "s")} in {elapsed.TotalMilliseconds.ToString("F0", CultureInfo.InvariantCulture)}ms -> {outputPath}");
                 if (outputPath != "-" && File.Exists(outputPath))
                 {
                     var size = new FileInfo(outputPath).Length;
@@ -283,7 +284,7 @@ OPTIONS:
                               Local files are then read only from the input
                               file's directory (stdin: the current directory;
                               URL input: none). Use both flags for untrusted HTML
-    -v, --verbose            Show render timing and file size
+    -v, --verbose            Show page count, render timing and file size
     --version                Show version
     -h, --help               Show this help
 

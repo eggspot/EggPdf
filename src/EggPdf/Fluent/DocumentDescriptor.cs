@@ -28,6 +28,7 @@ public sealed class DocumentDescriptor
     internal bool TaggedValue { get; private set; }
     internal PdfUaVersion UaVersionValue { get; private set; } = PdfUaVersion.Ua1;
     internal WarningCollector? WarningsValue { get; private set; }
+    internal RenderStatistics? StatisticsValue { get; private set; }
     internal IResourceResolver? ResourceResolverValue { get; private set; }
     internal bool AllowLocalFileAccessValue { get; private set; } = true;
 
@@ -105,6 +106,7 @@ public sealed class DocumentDescriptor
             Tagged = TaggedValue,
             UaVersion = UaVersionValue,
             Warnings = WarningsValue,
+            Statistics = StatisticsValue,
             ResourceResolver = ResourceResolverValue,
             AllowLocalFileAccess = AllowLocalFileAccessValue,
         });
@@ -216,6 +218,17 @@ public sealed class DocumentDescriptor
     {
         _ctx.EnsureMutable();
         WarningsValue = collector ?? throw new ArgumentNullException(nameof(collector));
+        return this;
+    }
+
+    /// <summary>
+    /// Fills <paramref name="collector"/> with facts about the PDF each render writes, e.g.
+    /// <see cref="RenderStatistics.PageCount"/>. Read it after rendering. Same as <see cref="PdfRenderOptions.Statistics"/>.
+    /// </summary>
+    public DocumentDescriptor CollectStatistics(RenderStatistics collector)
+    {
+        _ctx.EnsureMutable();
+        StatisticsValue = collector ?? throw new ArgumentNullException(nameof(collector));
         return this;
     }
 

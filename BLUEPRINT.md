@@ -849,6 +849,7 @@ Low-level PDF generation covering all business use cases:
 | Tab order | `/Tabs /S` on page dictionaries -- tab order follows structure tree for accessibility |
 | **Viewer preferences** | `/ViewerPreferences` dict: page layout (single page, two-up, continuous), hide toolbar/menubar, fit window, center window, display document title in title bar, non-fullscreen page mode. Configurable via `PdfOptions.ViewerPreferences` |
 | **Open action** | What happens when PDF opens: go to page 1, fit width, zoom to specific level. `/OpenAction` in document catalog. Default: fit page width |
+| **Page count** | Rendering reports it: `PdfRenderOptions.Statistics` (`RenderStatistics.PageCount`), Fluent `CollectStatistics`, REST `X-EggPdf-Page-Count`, CLI `--verbose`. Counting pages of an arbitrary existing PDF (`GetPageCount(bytes)`) is deferred to the PDF reader planned for stamping images onto existing PDFs: a correct count must read xref streams, `/Prev` updates and object streams, which a text scan can't |
 | **PDF version selection** | Users choose PDF version: 1.4 (max compatibility), 1.5 (object streams), 1.7 (most features), 2.0 (latest). Default: 1.7. Some features auto-upgrade version (e.g., transparency requires 1.4+, OCGs require 1.5+) |
 | **Linearized PDF** | Reorganize PDF structure for byte-serving: first page loads immediately while rest downloads in background. Critical for web-served large PDFs. Adds hint tables and linearization parameter dictionary. Optional via `PdfOptions.Linearize = true` |
 

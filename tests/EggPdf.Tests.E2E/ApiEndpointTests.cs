@@ -70,6 +70,19 @@ public class ApiEndpointTests
         resp.Headers.Should().ContainKey("X-EggPdf-Duration-Ms");
         resp.Headers.Should().ContainKey("X-EggPdf-Size");
         resp.Headers.Should().NotContainKey("X-EggPdf-Warnings", "an ordinary document raises no warnings");
+        resp.Headers.GetValues("X-EggPdf-Page-Count").Should().ContainSingle().Which.Should().Be("1");
+    }
+
+    [Fact]
+    public async Task Render_MultiPageHtml_ReportsPageCountHeader()
+    {
+        var html = "<div style=\"page-break-after:always\">one</div><div style=\"page-break-after:always\">two</div><div>three</div>";
+        var content = new StringContent(JsonSerializer.Serialize(new { html }), Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/render", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        resp.Headers.GetValues("X-EggPdf-Page-Count").Should().ContainSingle().Which.Should().Be("3");
     }
 
     [Fact]
