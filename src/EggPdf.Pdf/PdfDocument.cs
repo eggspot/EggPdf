@@ -12,7 +12,6 @@ namespace EggPdf.Pdf;
 /// </summary>
 public partial class PdfDocument
 {
-    // Cache Latin1 encoding instance (ISO 8859-1, code page 28591) for content stream bytes
     private static readonly Encoding Latin1Encoding = Encoding.GetEncoding(28591);
 
     private readonly List<PdfPage> _pages = new();
@@ -25,12 +24,6 @@ public partial class PdfDocument
     /// <summary>Optional encryption settings. When set, the PDF will be encrypted.</summary>
     public PdfEncryption? Encryption { get; set; }
 
-    /// <summary>
-    /// Process-wide default for <see cref="CompressContentStreams"/>; new
-    /// documents copy it at construction. Internal so the test assembly can
-    /// opt out once globally — hundreds of tests assert against raw
-    /// content-stream text. Production default is true.
-    /// </summary>
     internal static bool DefaultCompressContentStreams = true;
 
     /// <summary>
@@ -119,26 +112,22 @@ public partial class PdfDocument
         if (!_embeddedFonts.TryGetValue(fontName, out var fontData))
             return null;
 
-        // Allocate worst-case size; writeCount tracks actual codepoint count
         var glyphIds = new ushort[text.Length];
         int writeCount = 0;
         for (int i = 0; i < text.Length; i++)
         {
             int codepoint = text[i];
-            // Handle surrogate pairs (emoji, etc.): combine into a single codepoint
             if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
             {
                 codepoint = char.ConvertToUtf32(text[i], text[i + 1]);
-                i++; // skip low surrogate — it is not a separate glyph
+                i++;
             }
 
             if (fontData.CodepointToGlyphId.TryGetValue(codepoint, out var gid))
                 glyphIds[writeCount] = gid;
-            // else stays 0 (.notdef)
             writeCount++;
         }
 
-        // Trim to actual codepoint count (may be shorter than text.Length for surrogate pairs)
         if (writeCount == text.Length) return glyphIds;
         var result = new ushort[writeCount];
         Array.Copy(glyphIds, result, writeCount);
@@ -205,24 +194,13 @@ public partial class PdfDocument
 
         var writer = new PdfStreamWriter(output);
 
-        // Internal links whose target id was never painted (display:none, typo'd href) would be
-        // dead annotations; drop them before anything (tagging allocation included) counts them.
-        // A document is painted once and written once, so removing here is safe; a tagged render's
-        // Link structure element for a dropped link simply keeps its content and gets no OBJR.
         foreach (var page in _pages)
             page.Links.RemoveAll(l => l.TargetId != null && !_anchors.ContainsKey(l.TargetId) && !IsDocumentTop(l.TargetId));
 
-        // Encryption: compute the file key up front — every stream and string
-        // below is RC4-encrypted with a per-object key derived from it.
-        // Setting Encryption at all opts in: permission-only configurations
-        // (both passwords empty) still encrypt with the padded empty password,
-        // otherwise the flags would be silently dropped.
         EncryptionParams? enc = null;
         byte[] encDocId = Array.Empty<byte>();
         if (Encryption != null)
         {
-            // Random /ID: it seeds the file key and O/U values, so it must be
-            // unique per document (a timestamp collides within one clock tick).
             encDocId = new byte[16];
             using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
                 rng.GetBytes(encDocId);
@@ -230,35 +208,23 @@ public partial class PdfDocument
         }
         else if (Conformance != null)
         {
-            // PDF/A requires a file /ID even when the document is not encrypted.
             encDocId = new byte[16];
             using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
                 rng.GetBytes(encDocId);
         }
 
-        // Header
         writer.WriteLine(PdfVersionHeader);
-        writer.WriteLine("%\xE2\xE3\xCF\xD3"); // binary marker
+        writer.WriteLine("%\xE2\xE3\xCF\xD3");
 
-        // Collect all fonts used across pages
         var allFonts = new HashSet<string>();
         foreach (var page in _pages)
             foreach (var font in page.UsedFonts)
                 allFonts.Add(font);
 
-        // Object numbering plan:
-        // 1: Catalog
-        // 2: Pages
-        // 3..N: Page objects (each page = page dict + content stream = 2 objects;
-        //   link annotations are written inline in the page dict, not as their
-        //   own objects, UNLESS the document is tagged -- a tagged link needs a stable
-        //   object number so its Link structure element's OBJR can reference it)
-        // Then: font resources, info dict
         var alloc = new PdfObjectAllocator();
         int catalogObj = alloc.Allocate();
         int pagesObj = alloc.Allocate();
 
-        // Pre-calculate page objects
         var pageObjs = new List<(int pageDict, int contentStream)>();
         foreach (var page in _pages)
         {
@@ -267,8 +233,7 @@ public partial class PdfDocument
             pageObjs.Add((pd, cs));
         }
 
-        // Font objects — Type1 (built-in) get 1 object, CIDFont (embedded) get 5 objects
-        var fontObjs = new Dictionary<string, int>(); // main font object ref
+        var fontObjs = new Dictionary<string, int>();
         var cidFontObjs = new Dictionary<string, (int type0, int cidFont, int descriptor, int stream, int toUnicode)>();
         foreach (var font in allFonts)
         {
@@ -288,7 +253,6 @@ public partial class PdfDocument
             }
         }
 
-        // ExtGState objects for opacity
         var allExtGStates = new HashSet<string>();
         foreach (var page in _pages)
             foreach (var gs in page.UsedExtGStates)
@@ -297,7 +261,6 @@ public partial class PdfDocument
         foreach (var gs in allExtGStates)
             extGStateObjs[gs] = alloc.Allocate();
 
-        // Image XObject objects (each image = 1 object, + 1 SMask if alpha)
         var imageObjs = new Dictionary<string, int>();
         var imageSMaskObjs = new Dictionary<string, int>();
         foreach (var kv in _images)
@@ -307,10 +270,8 @@ public partial class PdfDocument
                 imageSMaskObjs[kv.Key] = alloc.Allocate();
         }
 
-        // Info dictionary
         int infoObj = alloc.Allocate();
 
-        // Outline objects for bookmarks
         int outlineRootObj = 0;
         var outlineItemObjs = new List<int>();
         if (_bookmarks != null && _bookmarks.Count > 0)
@@ -320,21 +281,14 @@ public partial class PdfDocument
                 outlineItemObjs.Add(alloc.Allocate());
         }
 
-        // PDF/A conformance objects: ICC profile stream + XMP metadata stream
         var (iccProfileObj, metadataObj) = AllocateConformanceObjects(alloc);
 
-        // Factur-X/ZUGFeRD objects: embedded invoice XML stream + its filespec
         var (facturXEmbeddedFileObj, facturXFilespecObj) = AllocateFacturXObjects(alloc);
 
-        // PDF/UA-1 tagged link annotations: allocate each one its own object number + /StructParent
-        // key (must run first -- it registers OBJR entries that AllocateStructureObjects's Kids
-        // walk doesn't need to know about, but WriteStructureObjects's /K-array walk does).
         LinkAnnotationsToStructureTree(alloc);
 
-        // PDF/UA-1 structure tree objects: StructTreeRoot, ParentTree, every structure element
         AllocateStructureObjects(alloc);
 
-        // Write Catalog
         alloc.RecordOffset(catalogObj, writer.Position);
         writer.WriteLine($"{catalogObj} 0 obj");
         var catalogDict = new StringBuilder();
@@ -349,24 +303,20 @@ public partial class PdfDocument
         writer.WriteLine(catalogDict.ToString());
         writer.WriteLine("endobj");
 
-        // Write Pages
         alloc.RecordOffset(pagesObj, writer.Position);
         writer.WriteLine($"{pagesObj} 0 obj");
         var kids = string.Join(" ", pageObjs.ConvertAll(p => $"{p.pageDict} 0 R"));
         writer.WriteLine($"<< /Type /Pages /Kids [{kids}] /Count {_pages.Count} >>");
         writer.WriteLine("endobj");
 
-        // Write font objects
         foreach (var kv in fontObjs)
         {
             if (cidFontObjs.TryGetValue(kv.Key, out var cid))
             {
-                // Write CIDFont Type 2 (embedded TrueType)
                 WriteCIDFont(writer, alloc, kv.Key, cid, _embeddedFonts[kv.Key], enc);
             }
             else
             {
-                // Write built-in Type1 font
                 alloc.RecordOffset(kv.Value, writer.Position);
                 writer.WriteLine($"{kv.Value} 0 obj");
                 writer.WriteLine($"<< /Type /Font /Subtype /Type1 /BaseFont /{kv.Key} /Encoding /WinAnsiEncoding >>");
@@ -374,7 +324,6 @@ public partial class PdfDocument
             }
         }
 
-        // Write ExtGState objects for opacity and blend modes
         foreach (var kv in extGStateObjs)
         {
             alloc.RecordOffset(kv.Value, writer.Position);
@@ -382,14 +331,12 @@ public partial class PdfDocument
 
             if (kv.Key.StartsWith("GSBM_"))
             {
-                // Blend mode: extract CSS name from "GSBM_multiply" → "multiply"
                 var cssName = kv.Key.Substring(5).Replace('_', '-');
                 var pdfBm = PdfPage.CssBlendModeToPdf(cssName) ?? "Normal";
                 writer.WriteLine($"<< /Type /ExtGState /BM /{pdfBm} >>");
             }
             else
             {
-                // Opacity: "GS50" -> 0.50
                 float opacity = 1.0f;
                 if (kv.Key.StartsWith("GS") && int.TryParse(kv.Key.Substring(2), NumberStyles.Integer, CultureInfo.InvariantCulture, out int pct))
                     opacity = pct / 100f;
@@ -399,7 +346,6 @@ public partial class PdfDocument
             writer.WriteLine("endobj");
         }
 
-        // Write image SMask objects first (they're referenced by image objects)
         foreach (var kv in imageSMaskObjs)
         {
             var img = _images[kv.Key];
@@ -418,7 +364,6 @@ public partial class PdfDocument
             writer.WriteLine("endobj");
         }
 
-        // Write image XObjects
         foreach (var kv in imageObjs)
         {
             var img = _images[kv.Key];
@@ -428,7 +373,6 @@ public partial class PdfDocument
 
             if (img.Format == PdfImageFormat.Jpeg)
             {
-                // JPEG: pass-through with DCTDecode
                 byte[] jpegBody = EncryptBytes(enc, img.Data, kv.Value);
                 var imgDict = new StringBuilder();
                 imgDict.Append($"<< /Type /XObject /Subtype /Image /Width {img.Width} /Height {img.Height}");
@@ -443,7 +387,6 @@ public partial class PdfDocument
             }
             else
             {
-                // Raw RGB: compress with zlib (FlateDecode)
                 byte[] compressed = EncryptBytes(enc, CompressZlib(img.Data), kv.Value);
 
                 var imgDict = new StringBuilder();
@@ -462,14 +405,12 @@ public partial class PdfDocument
             writer.WriteLine("endobj");
         }
 
-        // Build font resource dict reference
         var fontResources = new StringBuilder();
         fontResources.Append("<< ");
         foreach (var kv in fontObjs)
             fontResources.Append($"/{kv.Key} {kv.Value} 0 R ");
         fontResources.Append(">>");
 
-        // Build XObject resource dict reference
         var xobjectResources = new StringBuilder();
         if (imageObjs.Count > 0)
         {
@@ -479,13 +420,11 @@ public partial class PdfDocument
             xobjectResources.Append(">>");
         }
 
-        // Write each page
         for (int i = 0; i < _pages.Count; i++)
         {
             var page = _pages[i];
             var (pageDictObj, contentStreamObj) = pageObjs[i];
 
-            // Content stream
             var contentBytes = Latin1Encoding.GetBytes(page.ContentStream.ToString());
 
             alloc.RecordOffset(contentStreamObj, writer.Position);
@@ -508,7 +447,6 @@ public partial class PdfDocument
             writer.WriteLine("endstream");
             writer.WriteLine("endobj");
 
-            // Page dictionary
             alloc.RecordOffset(pageDictObj, writer.Position);
             writer.WriteLine($"{pageDictObj} 0 obj");
             var pageDict = new StringBuilder();
@@ -522,7 +460,6 @@ public partial class PdfDocument
                 if (page.HasMarkedContent)
                     pageDict.Append($" /StructParents {page.PageIndex}");
             }
-            // Resources
             bool hasResources = allFonts.Count > 0 || imageObjs.Count > 0 || extGStateObjs.Count > 0;
             if (hasResources)
             {
@@ -541,9 +478,6 @@ public partial class PdfDocument
                 pageDict.Append(" >>");
             }
 
-            // Link annotations: written inline in most cases (simpler), but a tagged link (one
-            // whose <a> box mapped to a Link structure element) needs its own indirect object so
-            // that element's OBJR entry (see PdfDocument.Tagging.cs) can reference this exact dict.
             if (page.Links.Count > 0)
             {
                 pageDict.Append(" /Annots [");
@@ -572,7 +506,6 @@ public partial class PdfDocument
             writer.WriteLine(pageDict.ToString());
             writer.WriteLine("endobj");
 
-            // Write the tagged links (their own indirect objects) right after their page dict.
             foreach (var link in page.Links)
             {
                 if (link.AnnotObj == 0) continue;
@@ -593,13 +526,11 @@ public partial class PdfDocument
             }
         }
 
-        // Write outline objects (bookmarks)
         if (_bookmarks != null && _bookmarks.Count > 0 && outlineRootObj > 0)
         {
             WriteOutlineObjects(writer, alloc, pageObjs, outlineRootObj, outlineItemObjs, enc);
         }
 
-        // Info dictionary
         alloc.RecordOffset(infoObj, writer.Position);
         writer.WriteLine($"{infoObj} 0 obj");
         var info = new StringBuilder();
@@ -613,17 +544,12 @@ public partial class PdfDocument
         writer.WriteLine(info.ToString());
         writer.WriteLine("endobj");
 
-        // PDF/A conformance: ICC profile stream (referenced by the catalog's
-        // /OutputIntents) and XMP metadata stream (referenced by /Metadata).
         WriteConformanceObjects(writer, alloc, iccProfileObj, metadataObj);
 
-        // Factur-X/ZUGFeRD: embedded invoice XML stream and its filespec.
         WriteFacturXObjects(writer, alloc, facturXEmbeddedFileObj, facturXFilespecObj);
 
-        // PDF/UA-1: every structure element, StructTreeRoot, and the ParentTree.
         WriteStructureObjects(writer, alloc, pageObjs);
 
-        // Cross-reference table
         long xrefOffset = writer.Position;
         int totalObjects = alloc.Count + 1;
         writer.WriteLine("xref");
@@ -638,21 +564,16 @@ public partial class PdfDocument
                 writer.WriteLine("0000000000 00000 f ");
         }
 
-        // Trailer
         writer.WriteLine("trailer");
         var trailerDict = new StringBuilder();
         trailerDict.Append($"<< /Size {totalObjects} /Root {catalogObj} 0 R /Info {infoObj} 0 R");
 
-        // /ID is required whenever a document is encrypted (it seeds the file key) and is
-        // also required by PDF/A even when unencrypted — both cases populate encDocId above.
         if (encDocId.Length > 0)
         {
             string idHex = BitConverter.ToString(encDocId).Replace("-", "");
             trailerDict.Append($" /ID [<{idHex}> <{idHex}>]");
         }
 
-        // Add encryption dictionary if configured — reuses the parameters the
-        // streams and strings above were actually encrypted with.
         if (enc != null)
         {
             var encParams = enc;
@@ -661,7 +582,6 @@ public partial class PdfDocument
             string uHex = BitConverter.ToString(encParams.UValue).Replace("-", "");
 
             trailerDict.Append($" /Encrypt << /Filter /Standard /V 2 /R 3 /Length {encParams.KeyLength}");
-            // Negative (permission bits are a signed 32-bit mask): the sign must be an ASCII '-'
             trailerDict.Append($" /P {encParams.Permissions.ToString(CultureInfo.InvariantCulture)}");
             trailerDict.Append($" /O <{oHex}>");
             trailerDict.Append($" /U <{uHex}>");
@@ -675,10 +595,6 @@ public partial class PdfDocument
         writer.WriteLine("%%EOF");
     }
 
-    /// <summary>
-    /// Writes the PDF outline (bookmark) tree objects.
-    /// Builds a nested hierarchy from the flat list of headings based on their levels.
-    /// </summary>
     private void WriteOutlineObjects(
         PdfStreamWriter writer,
         PdfObjectAllocator alloc,
@@ -687,40 +603,31 @@ public partial class PdfDocument
         List<int> outlineItemObjs,
         EncryptionParams? enc)
     {
-        // Build tree structure from flat list:
-        // Each node tracks: parentObjId, firstChildIdx, lastChildIdx, prevIdx, nextIdx, childCount
         int count = _bookmarks!.Count;
-        var parentObj = new int[count];     // PDF object number of the parent
-        var firstChild = new int[count];    // index of first child (-1 = none)
-        var lastChild = new int[count];     // index of last child (-1 = none)
-        var prevSibling = new int[count];   // index of prev sibling (-1 = none)
-        var nextSibling = new int[count];   // index of next sibling (-1 = none)
-        var childCount = new int[count];    // total visible descendant count
+        var parentObj = new int[count];
+        var firstChild = new int[count];
+        var lastChild = new int[count];
+        var prevSibling = new int[count];
+        var nextSibling = new int[count];
+        var childCount = new int[count];
 
         for (int i = 0; i < count; i++)
         {
-            parentObj[i] = outlineRootObj;  // default: root is parent
+            parentObj[i] = outlineRootObj;
             firstChild[i] = -1;
             lastChild[i] = -1;
             prevSibling[i] = -1;
             nextSibling[i] = -1;
         }
 
-        // Build parent-child relationships based on heading levels.
-        // Use a stack to track the "current path" of ancestor indices.
-        // For each bookmark, find its parent by walking back through ancestors
-        // to find the last bookmark with a smaller level.
-        var ancestorStack = new List<int>(); // indices of ancestor bookmarks
+        var ancestorStack = new List<int>();
 
-        // Track top-level children (direct children of the outline root)
         var topLevelChildren = new List<int>();
 
         for (int i = 0; i < count; i++)
         {
             int level = _bookmarks[i].Level;
 
-            // Pop ancestors that are not parents of this item
-            // A parent must have a strictly smaller level
             while (ancestorStack.Count > 0)
             {
                 int ancestorIdx = ancestorStack[ancestorStack.Count - 1];
@@ -731,7 +638,6 @@ public partial class PdfDocument
 
             if (ancestorStack.Count > 0)
             {
-                // This item is a child of the last ancestor
                 int parentIdx = ancestorStack[ancestorStack.Count - 1];
                 parentObj[i] = outlineItemObjs[parentIdx];
 
@@ -741,7 +647,6 @@ public partial class PdfDocument
                 }
                 else
                 {
-                    // Link as next sibling of the current last child
                     int prevIdx = lastChild[parentIdx];
                     nextSibling[prevIdx] = i;
                     prevSibling[i] = prevIdx;
@@ -750,7 +655,6 @@ public partial class PdfDocument
             }
             else
             {
-                // Top-level child (parent is outline root)
                 parentObj[i] = outlineRootObj;
                 if (topLevelChildren.Count > 0)
                 {
@@ -764,12 +668,9 @@ public partial class PdfDocument
             ancestorStack.Add(i);
         }
 
-        // Calculate child counts (total visible descendants) bottom-up
-        // We do a simple recursive count
         for (int i = 0; i < count; i++)
             childCount[i] = CountDescendants(i, firstChild, nextSibling);
 
-        // Write outline root
         int rootFirst = topLevelChildren.Count > 0 ? topLevelChildren[0] : 0;
         int rootLast = topLevelChildren.Count > 0 ? topLevelChildren[topLevelChildren.Count - 1] : 0;
         int totalTopLevel = topLevelChildren.Count;
@@ -779,13 +680,11 @@ public partial class PdfDocument
         writer.WriteLine($"<< /Type /Outlines /First {outlineItemObjs[rootFirst]} 0 R /Last {outlineItemObjs[rootLast]} 0 R /Count {totalTopLevel} >>");
         writer.WriteLine("endobj");
 
-        // Write each outline item
         for (int i = 0; i < count; i++)
         {
             var bm = _bookmarks[i];
             int objNum = outlineItemObjs[i];
 
-            // Resolve destination: page reference + Y position
             int pageIdx = Math.Min(bm.PageIndex, pageObjs.Count - 1);
             if (pageIdx < 0) pageIdx = 0;
             int pageRef = pageObjs[pageIdx].pageDict;
@@ -817,34 +716,27 @@ public partial class PdfDocument
         }
     }
 
-    /// <summary>Count total descendants of an outline node.</summary>
     private static int CountDescendants(int index, int[] firstChild, int[] nextSibling)
     {
         int total = 0;
         int child = firstChild[index];
         while (child >= 0)
         {
-            total++; // count this child
-            total += CountDescendants(child, firstChild, nextSibling); // count its descendants
+            total++;
+            total += CountDescendants(child, firstChild, nextSibling);
             child = nextSibling[child];
         }
         return total;
     }
 
-    /// <summary>
-    /// Compress data as a zlib stream (RFC 1950) for /FlateDecode: 2-byte header,
-    /// raw deflate body, Adler-32 checksum. DeflateStream alone emits raw deflate
-    /// (RFC 1951), which strict PDF viewers reject.
-    /// </summary>
     internal static byte[] CompressZlib(byte[] data)
     {
         using var ms = new MemoryStream();
-        ms.WriteByte(0x78); // CMF: deflate, 32K window
-        ms.WriteByte(0x9C); // FLG: default compression, FCHECK valid
+        ms.WriteByte(0x78);
+        ms.WriteByte(0x9C);
         using (var ds = new DeflateStream(ms, CompressionLevel.Fastest, true))
             ds.Write(data, 0, data.Length);
 
-        // Adler-32 of the uncompressed data (big-endian)
         uint a = 1, b = 0;
         for (int i = 0; i < data.Length; i++)
         {
@@ -860,32 +752,26 @@ public partial class PdfDocument
         return ms.ToArray();
     }
 
-    /// <summary>Write a CIDFont Type 2 (embedded TrueType) with all required objects.</summary>
     private void WriteCIDFont(PdfStreamWriter writer, PdfObjectAllocator alloc,
         string fontName, (int type0, int cidFont, int descriptor, int stream, int toUnicode) objs,
         EmbeddedFontData fontData, EncryptionParams? enc)
     {
-        // 1. Compress the subset font data (encrypt after compressing)
         byte[] compressed = EncryptBytes(enc, CompressZlib(fontData.SubsetData), objs.stream);
 
-        // 2. Build W (widths) array: /W [0 [w0 w1 w2 ...]]
         var wArray = new StringBuilder();
         wArray.Append("[0 [");
         for (int i = 0; i < fontData.Widths.Length; i++)
         {
             if (i > 0) wArray.Append(' ');
-            // Convert from font units to 1/1000 of text space
             int w = fontData.UnitsPerEm > 0 ? (int)(fontData.Widths[i] * 1000L / fontData.UnitsPerEm) : fontData.Widths[i];
             wArray.Append(w);
         }
         wArray.Append("]]");
 
-        // 3. Build ToUnicode CMap
         byte[] toUnicodeData = BuildToUnicodeCMap(fontData.CodepointToGlyphId);
 
         byte[] toUnicodeCompressed = EncryptBytes(enc, CompressZlib(toUnicodeData), objs.toUnicode);
 
-        // 4. Write font stream (subset TrueType data)
         alloc.RecordOffset(objs.stream, writer.Position);
         writer.WriteLine($"{objs.stream} 0 obj");
         writer.WriteLine($"<< /Length {compressed.Length} /Length1 {fontData.SubsetData.Length} /Filter /FlateDecode >>");
@@ -895,11 +781,9 @@ public partial class PdfDocument
         writer.WriteLine("endstream");
         writer.WriteLine("endobj");
 
-        // 5. Write font descriptor
-        // Strings, not ints: the descent is negative, and a culture's own minus sign must not reach the file
         string ascent = (fontData.UnitsPerEm > 0 ? fontData.Ascent * 1000 / fontData.UnitsPerEm : fontData.Ascent).ToString(CultureInfo.InvariantCulture);
         string descent = (fontData.UnitsPerEm > 0 ? fontData.Descent * 1000 / fontData.UnitsPerEm : fontData.Descent).ToString(CultureInfo.InvariantCulture);
-        int flags = 32; // Nonsymbolic
+        int flags = 32;
 
         alloc.RecordOffset(objs.descriptor, writer.Position);
         writer.WriteLine($"{objs.descriptor} 0 obj");
@@ -910,7 +794,6 @@ public partial class PdfDocument
         writer.WriteLine($"/FontFile2 {objs.stream} 0 R >>");
         writer.WriteLine("endobj");
 
-        // 6. Write CIDFont dictionary
         alloc.RecordOffset(objs.cidFont, writer.Position);
         writer.WriteLine($"{objs.cidFont} 0 obj");
         writer.WriteLine($"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{fontName}");
@@ -920,7 +803,6 @@ public partial class PdfDocument
         writer.WriteLine($"/DW 1000 >>");
         writer.WriteLine("endobj");
 
-        // 7. Write ToUnicode CMap
         alloc.RecordOffset(objs.toUnicode, writer.Position);
         writer.WriteLine($"{objs.toUnicode} 0 obj");
         writer.WriteLine($"<< /Length {toUnicodeCompressed.Length} /Filter /FlateDecode >>");
@@ -930,7 +812,6 @@ public partial class PdfDocument
         writer.WriteLine("endstream");
         writer.WriteLine("endobj");
 
-        // 8. Write Type0 font (the top-level font reference)
         alloc.RecordOffset(objs.type0, writer.Position);
         writer.WriteLine($"{objs.type0} 0 obj");
         writer.WriteLine($"<< /Type /Font /Subtype /Type0 /BaseFont /{fontName}");
@@ -940,7 +821,6 @@ public partial class PdfDocument
         writer.WriteLine("endobj");
     }
 
-    /// <summary>Build a ToUnicode CMap for text extraction from CIDFont.</summary>
     private static byte[] BuildToUnicodeCMap(Dictionary<int, ushort> codepointToGid)
     {
         var sb = new StringBuilder();
@@ -954,7 +834,6 @@ public partial class PdfDocument
         sb.AppendLine("<0000> <FFFF>");
         sb.AppendLine("endcodespacerange");
 
-        // Build reverse mapping: glyph ID -> Unicode codepoint
         var gidToCodepoint = new Dictionary<ushort, int>();
         foreach (var kv in codepointToGid)
         {
@@ -962,7 +841,6 @@ public partial class PdfDocument
                 gidToCodepoint[kv.Value] = kv.Key;
         }
 
-        // Write in batches of 100 (PDF limit per beginbfchar block)
         var entries = new KeyValuePair<ushort, int>[gidToCodepoint.Count];
         int ei = 0;
         foreach (var kv in gidToCodepoint) entries[ei++] = kv;
@@ -979,7 +857,6 @@ public partial class PdfDocument
                     sb.AppendLine($"<{entry.Key:X4}> <{entry.Value:X4}>");
                 else
                 {
-                    // Supplementary plane: encode as UTF-16 surrogate pair
                     int hi = 0xD800 + ((entry.Value - 0x10000) >> 10);
                     int lo = 0xDC00 + ((entry.Value - 0x10000) & 0x3FF);
                     sb.AppendLine($"<{entry.Key:X4}> <{hi:X4}{lo:X4}>");
@@ -1002,21 +879,14 @@ public partial class PdfDocument
     private static string EscapePdfString(string text)
         => text.Replace("\\", "\\\\").Replace("(", "\\(").Replace(")", "\\)");
 
-    /// <summary>Encrypt stream bytes for their containing object (no-op when unencrypted).</summary>
     private static byte[] EncryptBytes(EncryptionParams? enc, byte[] data, int objNum)
         => enc == null ? data : PdfEncryption.EncryptForObject(enc.EncryptionKey, objNum, 0, data);
 
     private readonly Dictionary<string, (int PageIndex, float TopPt)> _anchors = new(StringComparer.Ordinal);
 
-    /// <summary>HTML's fragment navigation: an empty fragment ("#") or "top" (any case) with no element of that id means the top of the document.</summary>
     private static bool IsDocumentTop(string id)
         => id.Length == 0 || string.Equals(id, "top", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// The action/destination entry of a link annotation: <c>/Dest [page /XYZ 0 top 0]</c> for an
-    /// internal link (its target anchor is guaranteed present -- unresolved ones were pruned at the
-    /// start of <see cref="WriteTo"/>), a URI action for an external one.
-    /// </summary>
     private string LinkTarget(PdfLinkAnnotation link, EncryptionParams? enc, int objNum, List<(int pageDict, int contentStream)> pageObjs)
     {
         if (link.TargetId != null)
@@ -1026,7 +896,6 @@ public partial class PdfDocument
                 int pageIdx = Math.Min(anchor.PageIndex, pageObjs.Count - 1);
                 return $" /Dest [{pageObjs[pageIdx].pageDict} 0 R /XYZ 0 {F(anchor.TopPt)} 0]";
             }
-            // "#" and "#top" with no element of that id: the top of the document (HTML fragment navigation).
             return $" /Dest [{pageObjs[0].pageDict} 0 R /Fit]";
         }
         return $" /A << /Type /Action /S /URI /URI {PdfString(enc, link.Url, objNum)} >>";
@@ -1044,11 +913,6 @@ public partial class PdfDocument
             _anchors[id] = (pageIndex, topPt);
     }
 
-    /// <summary>
-    /// Serialize a PDF string for the given containing object: a literal
-    /// (escaped) string when unencrypted, an RC4-encrypted hex string when
-    /// the document is encrypted (spec: ALL strings are encrypted).
-    /// </summary>
     private static string PdfString(EncryptionParams? enc, string text, int objNum)
     {
         if (enc == null) return "(" + EscapePdfString(text) + ")";
@@ -1062,7 +926,6 @@ public partial class PdfDocument
     }
 }
 
-/// <summary>Data for an embedded TrueType font (CIDFont Type 2).</summary>
 internal class EmbeddedFontData
 {
     public byte[] SubsetData { get; set; } = Array.Empty<byte>();
@@ -1072,13 +935,10 @@ internal class EmbeddedFontData
     public int Ascent { get; set; }
     public int Descent { get; set; }
     public Dictionary<int, List<(ushort newGlyphId, float r, float g, float b, bool useTextColor)>>? ColorLayers { get; set; }
-    /// <summary>Source font kept for glyph-level shaping at paint time (complex scripts only).</summary>
     public EggPdf.Text.TrueType.FontData? ShapingFont { get; set; }
-    /// <summary>Original glyph ID -> subset glyph ID, for glyphs reached through shaping rather than cmap.</summary>
     public Dictionary<ushort, ushort>? OldToNewGlyphId { get; set; }
 }
 
-/// <summary>Helper for tracking byte positions while writing.</summary>
 internal class PdfStreamWriter
 {
     private readonly Stream _stream;
