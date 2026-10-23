@@ -12,15 +12,17 @@ internal sealed class PdfSyntaxParser
     private readonly int _end;
     private readonly Func<PdfReference, PdfObject?>? _resolveLength;
     private readonly Func<int, int>? _findEndstream;
+    private readonly PdfParseBudget? _budget;
 
     public PdfSyntaxParser(byte[] data, int start, int end, Func<PdfReference, PdfObject?>? resolveLength = null,
-        Func<int, int>? findEndstream = null)
+        Func<int, int>? findEndstream = null, PdfParseBudget? budget = null)
     {
         _data = data;
         Position = start;
         _end = end;
         _resolveLength = resolveLength;
         _findEndstream = findEndstream;
+        _budget = budget;
     }
 
     public int Position { get; set; }
@@ -103,9 +105,32 @@ internal sealed class PdfSyntaxParser
         return value;
     }
 
-    public PdfObject ReadObject() => ReadObject(0);
+    public PdfObject ReadObject()
+    {
+        int start = Position;
+        try
+        {
+            return ReadObject(0);
+        }
+        finally
+        {
+            _budget?.Scanned(Position - start);
+        }
+    }
 
     private PdfObject ReadObject(int depth)
+    {
+        var value = ReadObjectWithoutAccounting(depth);
+        _budget?.Materialized(value switch
+        {
+            PdfString text => text.Bytes.Length,
+            PdfName name => name.Value.Length * 2L,
+            _ => 0,
+        });
+        return value;
+    }
+
+    private PdfObject ReadObjectWithoutAccounting(int depth)
     {
         if (depth > MaxNestingDepth) throw Error("Arrays or dictionaries are nested too deeply");
         SkipWhitespaceAndComments();

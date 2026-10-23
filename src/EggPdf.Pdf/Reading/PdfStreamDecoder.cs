@@ -71,6 +71,7 @@ internal static class PdfStreamDecoder
             throw new PdfFormatException("Invalid predictor parameters.");
         int bytesPerPixel = Math.Max(1, colors * bitsPerComponent / 8);
         int rowLength = (colors * bitsPerComponent * columns + 7) / 8;
+        if (rowLength + 1 > data.Length) return Array.Empty<byte>();
 
         var output = new MemoryStream();
         var previous = new byte[rowLength];

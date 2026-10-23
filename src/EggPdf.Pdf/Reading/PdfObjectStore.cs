@@ -15,8 +15,6 @@ internal sealed class PdfObjectStore
     private const long MaxDecodedBytesPerDocument = 256L * 1024 * 1024;
     private const int RepairDictionaryWindow = 4096;
     private const int MinCrossReferenceEntryBudget = 100_000;
-    private const long ParsedBytesAllowance = 16L * 1024 * 1024;
-    private const int ParsedBytesPerInputByte = 4;
 
     private enum EntryKind { Free, InFile, InObjectStream }
 
@@ -66,8 +64,8 @@ internal sealed class PdfObjectStore
     private Dictionary<int, long>? _scannedOffsets;
     private long[]? _scannedOffsetsAscending;
     private int[]? _endstreamOffsets;
+    private readonly PdfParseBudget _parseBudget;
     private long _decodedBytes;
-    private long _parsedBytes;
     private long _entryBudget;
     private bool _repairing;
 
@@ -75,6 +73,7 @@ internal sealed class PdfObjectStore
     {
         _data = data;
         _entryBudget = Math.Max(MinCrossReferenceEntryBudget, data.Length);
+        _parseBudget = new PdfParseBudget(data.Length);
     }
 
     public PdfDictionary Trailer { get; } = new();
@@ -284,14 +283,16 @@ internal sealed class PdfObjectStore
         foreach (var pair in scanned)
             _entries[pair.Key] = new Entry(EntryKind.InFile, pair.Value, 0);
 
+        int trailerEnd = _data.Length;
         for (int at = PdfSyntaxParser.LastIndexOf(_data, "trailer", _data.Length); at >= 0;
-             at = PdfSyntaxParser.LastIndexOf(_data, "trailer", at))
+             trailerEnd = at, at = PdfSyntaxParser.LastIndexOf(_data, "trailer", at))
         {
             try
             {
-                if (NewParser(at + "trailer".Length).ReadObject() is PdfDictionary trailer) MergeTrailer(trailer);
+                var parser = new PdfSyntaxParser(_data, at + "trailer".Length, trailerEnd, budget: _parseBudget);
+                if (parser.ReadObject() is PdfDictionary trailer) MergeTrailer(trailer);
             }
-            catch (PdfFormatException)
+            catch (PdfFormatException ex) when (ex is not PdfParseBudgetExceededException)
             {
             }
         }
@@ -318,7 +319,7 @@ internal sealed class PdfObjectStore
         {
             value = Get(number);
         }
-        catch (PdfFormatException)
+        catch (PdfFormatException ex) when (ex is not PdfParseBudgetExceededException)
         {
             return;
         }
@@ -344,7 +345,7 @@ internal sealed class PdfObjectStore
             foreach (var number in ObjectStreamOffsets(streamNumber).Offsets.Keys)
                 if (!_entries.ContainsKey(number)) _entries[number] = new Entry(EntryKind.InObjectStream, 0, streamNumber);
         }
-        catch (PdfFormatException)
+        catch (PdfFormatException ex) when (ex is not PdfParseBudgetExceededException)
         {
         }
     }
@@ -390,7 +391,7 @@ internal sealed class PdfObjectStore
         return index < _endstreamOffsets.Length ? _endstreamOffsets[index] : -1;
     }
 
-    private PdfSyntaxParser NewParser(int start) => new(_data, start, ParseEnd(start), ResolveLength, NextEndstream);
+    private PdfSyntaxParser NewParser(int start) => new(_data, start, ParseEnd(start), ResolveLength, NextEndstream, _parseBudget);
 
     private PdfObject ReadObjectAt(long offset, int expectedNumber)
     {
@@ -405,22 +406,8 @@ internal sealed class PdfObjectStore
         value = null;
         var parser = NewParser((int)offset);
         if (!parser.TryReadIndirectHeader(out int number, out _) || number != expectedNumber) return false;
-        try
-        {
-            value = parser.ReadIndirectObjectBody();
-        }
-        finally
-        {
-            SpendParseBudget(parser.Position - offset);
-        }
+        value = parser.ReadIndirectObjectBody();
         return true;
-    }
-
-    private void SpendParseBudget(long bytes)
-    {
-        _parsedBytes += Math.Max(0, bytes);
-        if (_parsedBytes > ParsedBytesPerInputByte * (_data.Length + _decodedBytes) + ParsedBytesAllowance)
-            throw new PdfFormatException("The document's objects overlap far more than a real PDF's do.");
     }
 
     private PdfObject? ResolveLength(PdfReference reference) =>
@@ -431,6 +418,7 @@ internal sealed class PdfObjectStore
         SpendDecodeBudget(stream.DataLength);
         var decoded = PdfStreamDecoder.Decode(stream);
         SpendDecodeBudget(decoded.Length);
+        _parseBudget.AllowScanningDecoded(decoded.Length);
         return decoded;
     }
 
@@ -446,16 +434,7 @@ internal sealed class PdfObjectStore
         if (IsEncrypted) throw new NotSupportedException("Objects inside an encrypted PDF's object streams can't be read.");
         var layout = ObjectStreamOffsets(streamNumber);
         if (!layout.Offsets.TryGetValue(number, out int offset)) return PdfNull.Instance;
-        int start = layout.First + offset;
-        var parser = new PdfSyntaxParser(layout.Data, start, layout.EndOf(offset));
-        try
-        {
-            return parser.ReadObject();
-        }
-        finally
-        {
-            SpendParseBudget(parser.Position - start);
-        }
+        return new PdfSyntaxParser(layout.Data, layout.First + offset, layout.EndOf(offset), budget: _parseBudget).ReadObject();
     }
 
     private ObjectStreamLayout ObjectStreamOffsets(int streamNumber)
@@ -474,7 +453,7 @@ internal sealed class PdfObjectStore
 
         var offsets = new Dictionary<int, int>();
         var ascending = new List<int>();
-        var header = new PdfSyntaxParser(data, 0, first);
+        var header = new PdfSyntaxParser(data, 0, first, budget: _parseBudget);
         long previousOffset = -1;
         for (int i = 0; i < count; i++)
         {

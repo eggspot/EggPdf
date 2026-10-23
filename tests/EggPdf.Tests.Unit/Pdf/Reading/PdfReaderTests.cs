@@ -216,6 +216,38 @@ public class PdfReaderTests
     }
 
     [Fact]
+    public void Open_RepairOfManyUnterminatedTrailers_TakesLinearTime()
+    {
+        var text = new StringBuilder("%PDF-1.7\n");
+        for (int k = 0; k < 40_000; k++) text.Append("trailer(");
+
+        ShouldFinishQuickly(() => PdfReader.Open(Latin1Bytes(text.ToString())));
+    }
+
+    [Fact]
+    public void Open_ObjectStreamDecodingToAHugeArray_StaysWithinMemory()
+    {
+        var data = new StringBuilder("100 0 [");
+        for (int i = 0; i < 15_000_000; i++) data.Append("<<>>");
+        data.Append(']');
+        var compressed = TestPdfBuilder.Zlib(Latin1Bytes(data.ToString()));
+        var head = Latin1Bytes("%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 100 0 R >> endobj\n" +
+                               "3 0 obj << /Type /ObjStm /N 1 /First 6 /Filter /FlateDecode /Length " +
+                               compressed.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + " >>\nstream\n");
+        var tail = Latin1Bytes("\nendstream\nendobj\n");
+        var pdf = new byte[head.Length + compressed.Length + tail.Length];
+        head.CopyTo(pdf, 0);
+        compressed.CopyTo(pdf, head.Length);
+        tail.CopyTo(pdf, head.Length + compressed.Length);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        ShouldFinishQuickly(() => PdfReader.Open(pdf));
+
+        (GC.GetAllocatedBytesForCurrentThread() - before).Should().BeLessThan(500L * 1024 * 1024,
+            "decoding the 60 MB stream is allowed, materializing 15 million objects from a tiny file isn't");
+    }
+
+    [Fact]
     public void Open_OverlappingStringsAcrossObjects_StaysWithinMemory()
     {
         const int count = 12_000;
