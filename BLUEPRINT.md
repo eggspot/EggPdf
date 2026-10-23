@@ -3692,7 +3692,7 @@ Where EggPdf fits among existing .NET HTML-to-PDF solutions:
 ## Project Governance
 
 ### License
-**MIT OR Apache-2.0**, at the user's option (owner, 2026-10-23). Chosen for maximum adoption: no copyleft, no commercial license needed, and Apache-2.0 adds a patent grant. Same license as QuestPDF, PdfSharpCore, AngleSharp.
+**MIT OR Apache-2.0**, at the user's option (owner, 2026-10-23). Chosen for maximum adoption: no copyleft, no commercial license needed, and Apache-2.0 adds a patent grant.
 
 ### Versioning Strategy
 **Semantic Versioning (SemVer 2.0):**
