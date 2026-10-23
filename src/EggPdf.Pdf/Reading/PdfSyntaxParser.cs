@@ -4,15 +4,15 @@ using System.Text;
 
 namespace EggPdf.Pdf;
 
-internal sealed class PdfSyntaxParser
+internal sealed partial class PdfSyntaxParser
 {
     private const int MaxNestingDepth = 256;
 
     private readonly byte[] _data;
-    private readonly int _end;
+    private int _end;
     private readonly Func<PdfReference, PdfObject?>? _resolveLength;
     private readonly Func<int, int>? _findEndstream;
-    private readonly PdfParseBudget? _budget;
+    private PdfParseBudget? _budget;
 
     public PdfSyntaxParser(byte[] data, int start, int end, Func<PdfReference, PdfObject?>? resolveLength = null,
         Func<int, int>? findEndstream = null, PdfParseBudget? budget = null)
