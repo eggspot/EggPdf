@@ -201,11 +201,61 @@ public class PdfReaderTests
     public void Open_RepairOfManyObjectStreamsSharingOneEndstream_TakesLinearTime()
     {
         var text = new StringBuilder("%PDF-1.7\n");
-        for (int k = 1; k <= 40_000; k++)
+        for (int k = 1; k <= 200_000; k++)
             text.Append(k.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(" 0 obj<</Type/ObjStm/N 1/First 0>>stream\n");
         text.Append("endstream\n");
 
         ShouldFinishQuickly(() => PdfReader.Open(Latin1Bytes(text.ToString())));
+    }
+
+    private static void ShouldStayWithinMemory(byte[] pdf)
+    {
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        ShouldFinishQuickly(() => PdfReader.Open(pdf));
+        (GC.GetAllocatedBytesForCurrentThread() - before).Should().BeLessThan(200L * 1024 * 1024);
+    }
+
+    [Fact]
+    public void Open_OverlappingStringsAcrossObjects_StaysWithinMemory()
+    {
+        const int count = 12_000;
+        var builder = new TestPdfBuilder().Add(1, "<< /Type /Catalog /Pages 2 0 R >>");
+        var kids = new StringBuilder();
+        for (int k = 3; k < 3 + count; k++)
+        {
+            kids.Append(k.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(" 0 R ");
+            builder.Add(k, k == 2 + count ? "(" + new string(')', count) : "(");
+        }
+        builder.Add(2, "<< /Type /Pages /Kids [" + kids + "] /Count " + count.ToString(System.Globalization.CultureInfo.InvariantCulture) + " >>");
+
+        ShouldStayWithinMemory(builder.BuildClassic(root: 1));
+    }
+
+    [Fact]
+    public void Open_OverlappingStringsInObjectStream_StaysWithinMemory()
+    {
+        const int count = 32_000;
+        var header = new StringBuilder();
+        var kids = new StringBuilder();
+        for (int i = 0; i < count; i++)
+        {
+            header.Append((100 + i).ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(' ')
+                  .Append(i.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(' ');
+            kids.Append((100 + i).ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(" 0 R ");
+        }
+        var compressed = TestPdfBuilder.Zlib(Latin1Bytes(header + new string('(', count) + new string(')', count)));
+        var head = Latin1Bytes("%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n" +
+                               "2 0 obj << /Type /Pages /Kids [" + kids + "] /Count " + count.ToString(System.Globalization.CultureInfo.InvariantCulture) + " >> endobj\n" +
+                               "3 0 obj << /Type /ObjStm /N " + count.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                               " /First " + header.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                               " /Filter /FlateDecode /Length " + compressed.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + " >>\nstream\n");
+        var tail = Latin1Bytes("\nendstream\nendobj\n");
+        var pdf = new byte[head.Length + compressed.Length + tail.Length];
+        head.CopyTo(pdf, 0);
+        compressed.CopyTo(pdf, head.Length);
+        tail.CopyTo(pdf, head.Length + compressed.Length);
+
+        ShouldStayWithinMemory(pdf);
     }
 
     [Fact]

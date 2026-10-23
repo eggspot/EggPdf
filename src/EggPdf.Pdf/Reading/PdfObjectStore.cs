@@ -15,6 +15,8 @@ internal sealed class PdfObjectStore
     private const long MaxDecodedBytesPerDocument = 256L * 1024 * 1024;
     private const int RepairDictionaryWindow = 4096;
     private const int MinCrossReferenceEntryBudget = 100_000;
+    private const long ParsedBytesAllowance = 16L * 1024 * 1024;
+    private const int ParsedBytesPerInputByte = 4;
 
     private enum EntryKind { Free, InFile, InObjectStream }
 
@@ -34,16 +36,26 @@ internal sealed class PdfObjectStore
 
     private sealed class ObjectStreamLayout
     {
-        public ObjectStreamLayout(byte[] data, int first, Dictionary<int, int> offsets)
+        private readonly int[] _ascendingOffsets;
+
+        public ObjectStreamLayout(byte[] data, int first, Dictionary<int, int> offsets, int[] ascendingOffsets)
         {
             Data = data;
             First = first;
             Offsets = offsets;
+            _ascendingOffsets = ascendingOffsets;
         }
 
         public byte[] Data { get; }
         public int First { get; }
         public Dictionary<int, int> Offsets { get; }
+
+        public int EndOf(int offset)
+        {
+            int index = Array.BinarySearch(_ascendingOffsets, offset + 1);
+            if (index < 0) index = ~index;
+            return index < _ascendingOffsets.Length ? First + _ascendingOffsets[index] : Data.Length;
+        }
     }
 
     private readonly byte[] _data;
@@ -55,6 +67,7 @@ internal sealed class PdfObjectStore
     private long[]? _scannedOffsetsAscending;
     private int[]? _endstreamOffsets;
     private long _decodedBytes;
+    private long _parsedBytes;
     private long _entryBudget;
     private bool _repairing;
 
@@ -392,8 +405,22 @@ internal sealed class PdfObjectStore
         value = null;
         var parser = NewParser((int)offset);
         if (!parser.TryReadIndirectHeader(out int number, out _) || number != expectedNumber) return false;
-        value = parser.ReadIndirectObjectBody();
+        try
+        {
+            value = parser.ReadIndirectObjectBody();
+        }
+        finally
+        {
+            SpendParseBudget(parser.Position - offset);
+        }
         return true;
+    }
+
+    private void SpendParseBudget(long bytes)
+    {
+        _parsedBytes += Math.Max(0, bytes);
+        if (_parsedBytes > ParsedBytesPerInputByte * (_data.Length + _decodedBytes) + ParsedBytesAllowance)
+            throw new PdfFormatException("The document's objects overlap far more than a real PDF's do.");
     }
 
     private PdfObject? ResolveLength(PdfReference reference) =>
@@ -419,7 +446,16 @@ internal sealed class PdfObjectStore
         if (IsEncrypted) throw new NotSupportedException("Objects inside an encrypted PDF's object streams can't be read.");
         var layout = ObjectStreamOffsets(streamNumber);
         if (!layout.Offsets.TryGetValue(number, out int offset)) return PdfNull.Instance;
-        return new PdfSyntaxParser(layout.Data, layout.First + offset, layout.Data.Length).ReadObject();
+        int start = layout.First + offset;
+        var parser = new PdfSyntaxParser(layout.Data, start, layout.EndOf(offset));
+        try
+        {
+            return parser.ReadObject();
+        }
+        finally
+        {
+            SpendParseBudget(parser.Position - start);
+        }
     }
 
     private ObjectStreamLayout ObjectStreamOffsets(int streamNumber)
@@ -437,6 +473,7 @@ internal sealed class PdfObjectStore
             throw new PdfFormatException("An object stream has an invalid /N or /First.");
 
         var offsets = new Dictionary<int, int>();
+        var ascending = new List<int>();
         var header = new PdfSyntaxParser(data, 0, first);
         long previousOffset = -1;
         for (int i = 0; i < count; i++)
@@ -445,9 +482,10 @@ internal sealed class PdfObjectStore
             long offset = header.ReadInteger();
             if (number <= 0 || number > MaxObjectNumber || offset <= previousOffset || first + offset >= data.Length) continue;
             previousOffset = offset;
+            ascending.Add((int)offset);
             if (!offsets.ContainsKey((int)number)) offsets[(int)number] = (int)offset;
         }
-        layout = new ObjectStreamLayout(data, first, offsets);
+        layout = new ObjectStreamLayout(data, first, offsets, ascending.ToArray());
         _objectStreams[streamNumber] = layout;
         return layout;
     }
