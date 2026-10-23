@@ -13,7 +13,7 @@
     <ToolCommandName>eggpdf</ToolCommandName>
     <PackageId>dotnet-eggpdf</PackageId>
     <Authors>Eggspot</Authors>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/eggspot/EggPdf</PackageProjectUrl>
   </PropertyGroup>
 

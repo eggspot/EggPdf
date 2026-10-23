@@ -1,7 +1,7 @@
 # EggPdf — HTML to PDF Service
 
 [![CI](https://github.com/eggspot/EggPdf/actions/workflows/ci.yml/badge.svg)](https://github.com/eggspot/EggPdf/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-yellow.svg)](LICENSE-MIT)
 
 Pure C# HTML/CSS to PDF rendering engine packaged as a ready-to-run REST API service. No WebKit, no Chromium, no native dependencies.
 
@@ -130,4 +130,4 @@ See the [GitHub repository](https://github.com/eggspot/EggPdf) for full C# usage
 
 ## License
 
-MIT — [github.com/eggspot/EggPdf](https://github.com/eggspot/EggPdf)
+MIT OR Apache-2.0 — [github.com/eggspot/EggPdf](https://github.com/eggspot/EggPdf)

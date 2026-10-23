@@ -1,6 +1,6 @@
 # EggPdf
 
-> Pure C# HTML/CSS-to-PDF rendering engine for .NET. Zero external dependencies. MIT license. Chrome-quality output.
+> Pure C# HTML/CSS-to-PDF rendering engine for .NET. Zero external dependencies. MIT OR Apache-2.0 license. Chrome-quality output.
 
 Built by Eggspot. Open source: https://github.com/eggspot/EggPdf
 

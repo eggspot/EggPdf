@@ -3,7 +3,7 @@
 ## Project Overview
 
 EggPdf is a pure C#, zero-dependency HTML/CSS-to-PDF rendering engine targeting Chrome Print parity.
-Open source under MIT license: https://github.com/eggspot/EggPdf
+Open source under MIT OR Apache-2.0: https://github.com/eggspot/EggPdf
 
 **PRs auto-merge.** Be extra careful -- all tests must pass before any PR.
 
