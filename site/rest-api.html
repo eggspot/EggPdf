@@ -271,7 +271,7 @@
       <p><code>200 OK</code> with <code>application/pdf</code> body (the encrypted document).</p>
 
       <h2 id="post-sign">POST /api/sign</h2>
-      <p>Add a digital-signature placeholder (<code>adbe.pkcs7.detached</code>) to an existing PDF. The endpoint does not hold private keys: compute the CMS signature with your certificate and embed it via the library (<code>PdfSigner.SignWithCmsData</code>), or sign fully in-process with <code>PdfSigner.Sign(pdfBytes, x509Certificate)</code> when you control the key material.</p>
+      <p>Add a digital-signature placeholder (<code>adbe.pkcs7.detached</code>) to an existing PDF. The endpoint does not hold private keys: compute the CMS signature with your certificate and embed it via the library (<code>PdfSigner.SignWithCmsData</code>), or sign fully in-process with <code>PdfSigner.Sign(pdfBytes, x509Certificate)</code>, <code>PdfSigner.Sign(pdfBytes, pfxBytes, password)</code> or <code>PdfSigner.SignWithPem(pdfBytes, certificatePem, privateKeyPem)</code> when you control the key material. The service never accepts private keys or certificate passwords in a request.</p>
       <h3>Request</h3>
       <div class="code-block"><pre><code><span class="pun">{</span>
   <span class="str">"pdf"</span><span class="pun">:</span> <span class="str">"&lt;base64-encoded PDF&gt;"</span><span class="pun">,</span>

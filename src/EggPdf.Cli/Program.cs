@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
@@ -27,10 +28,7 @@ public class Program
         }
 
         string? inputPath = null;
-        string? outputPath = null;
-        string? pdfaFlag = null;
-        string? invoicePath = null;
-        string? uaVersionFlag = null;
+        var optionValues = new Dictionary<string, string>(StringComparer.Ordinal);
         bool verbose = HasFlag(args, "--verbose") || HasFlag(args, "-v");
         bool tagged = HasFlag(args, "--tagged");
         bool noLocalFiles = HasFlag(args, "--no-local-files");
@@ -38,27 +36,20 @@ public class Program
 
         for (int i = 0; i < args.Length; i++)
         {
-            if (args[i] == "-o" || args[i] == "--output")
+            if (OptionsWithValue.Contains(args[i]))
             {
-                if (i + 1 < args.Length) outputPath = args[++i];
-            }
-            else if (args[i] == "--pdfa")
-            {
-                if (i + 1 < args.Length) pdfaFlag = args[++i];
-            }
-            else if (args[i] == "--invoice")
-            {
-                if (i + 1 < args.Length) invoicePath = args[++i];
-            }
-            else if (args[i] == "--ua-version")
-            {
-                if (i + 1 < args.Length) uaVersionFlag = args[++i];
+                if (i + 1 < args.Length) optionValues[args[i] == "--output" ? "-o" : args[i]] = args[++i];
             }
             else if (!args[i].StartsWith("-"))
             {
                 inputPath ??= args[i];
             }
         }
+
+        string? outputPath = optionValues.GetValueOrDefault("-o");
+        string? pdfaFlag = optionValues.GetValueOrDefault("--pdfa");
+        string? invoicePath = optionValues.GetValueOrDefault("--invoice");
+        string? uaVersionFlag = optionValues.GetValueOrDefault("--ua-version");
 
         PdfUaVersion uaVersion = PdfUaVersion.Ua1;
         if (uaVersionFlag != null)
@@ -169,6 +160,8 @@ public class Program
                 if (verbose) Console.Error.WriteLine($"Read {html.Length} chars from {inputPath}");
             }
 
+            using var signing = CliSigning.FromOptions(optionValues);
+
             var startTime = DateTime.UtcNow;
 
             var warnings = new EggPdf.Core.WarningCollector();
@@ -189,6 +182,11 @@ public class Program
                 options.ResourceResolver = new CompositeResolver(baseDirectory);
             }
             var pdf = HtmlToPdf.Render(html, options);
+            if (signing != null)
+            {
+                pdf = signing.Sign(pdf);
+                if (verbose) Console.Error.WriteLine($"Signed as {signing.SignerName}");
+            }
 
             foreach (var warning in warnings.Warnings)
                 Console.Error.WriteLine($"Warning [{warning.Code}]: {warning.Message}");
@@ -229,6 +227,13 @@ public class Program
             return 1;
         }
     }
+
+    private static readonly HashSet<string> OptionsWithValue = new(StringComparer.Ordinal)
+    {
+        "-o", "--output", "--pdfa", "--invoice", "--ua-version",
+        CliSigning.PfxOption, CliSigning.PfxPasswordEnvOption, CliSigning.CertificateOption, CliSigning.KeyOption,
+        CliSigning.KeyPasswordEnvOption, CliSigning.ReasonOption, CliSigning.LocationOption, CliSigning.NameOption,
+    };
 
     private static bool HasFlag(string[] args, string flag)
     {
@@ -272,6 +277,17 @@ OPTIONS:
                               Local files are then read only from the input
                               file's directory (stdin: the current directory;
                               URL input: none). Use both flags for untrusted HTML
+    --sign-pfx <file>        Sign the PDF with this PFX/PKCS#12 certificate (RSA or ECDSA)
+    --sign-password-env <VAR>
+                             Read the PFX password from environment variable VAR
+                              (never on the command line, where ps and shell history see it)
+    --sign-cert <file>       Sign with a PEM certificate; needs --sign-key
+    --sign-key <file>        PEM private key (PKCS#8, RSA, EC or encrypted PKCS#8)
+    --sign-key-password-env <VAR>
+                             Read an encrypted --sign-key's password from VAR
+    --sign-reason <text>     Signature reason, e.g. ""Approved""
+    --sign-location <text>   Signature location
+    --sign-name <text>       Signer name (default: the certificate's subject name)
     -v, --verbose            Show page count, render timing and file size
     --version                Show version
     -h, --help               Show this help
@@ -284,6 +300,7 @@ EXAMPLES:
     eggpdf report.html -o report.pdf --pdfa 2b
     eggpdf invoice.html -o invoice.pdf --pdfa 3b --invoice invoice-data.json
     eggpdf untrusted.html -o out.pdf --no-local-files --no-private-network
+    PFX_PASS=... eggpdf contract.html -o signed.pdf --sign-pfx signer.pfx --sign-password-env PFX_PASS --sign-reason Approved
     eggpdf report.html -o report.pdf --tagged --pdfa 2b
 
 INVOICE JSON (--invoice) FIELDS:

@@ -28,7 +28,7 @@ public static class PdfSigner
     private const int ContentsHexLength = 16384;
 
     /// <summary>
-    /// Sign a PDF in one call with an X.509 certificate (RSA private key).
+    /// Sign a PDF in one call with an X.509 certificate (RSA or ECDSA private key).
     /// Embeds a detached CMS/PKCS#7 signature (adbe.pkcs7.detached) with a
     /// correct /ByteRange, verifiable by standard PDF/CMS validators.
     /// </summary>
@@ -43,8 +43,6 @@ public static class PdfSigner
             ?? certificate.GetNameInfo(X509NameType.SimpleName, false)
             ?? "Signer";
 
-        // 1. Append the signature dictionary as an incremental update, with a
-        //    fixed-width ByteRange placeholder patched after assembly.
         const string byteRangePlaceholder = "[0 0000000000 0000000000 0000000000]";
         var sb = new StringBuilder();
         sb.AppendLine();
@@ -71,12 +69,11 @@ public static class PdfSigner
             output = ms.ToArray();
         }
 
-        // 2. Locate the Contents hex gap and patch the real ByteRange
         var text = Encoding.ASCII.GetString(output, pdfBytes.Length, output.Length - pdfBytes.Length);
         int hexInAppend = text.IndexOf(new string('0', ContentsHexLength), StringComparison.Ordinal);
         int hexStart = pdfBytes.Length + hexInAppend;
-        int gapStart = hexStart - 1;                     // the '<'
-        int gapEnd = hexStart + ContentsHexLength + 1;   // after the '>'
+        int gapStart = hexStart - 1;
+        int gapEnd = hexStart + ContentsHexLength + 1;
         int tailLength = output.Length - gapEnd;
 
         string byteRange = $"[0 {gapStart:D10} {gapEnd:D10} {tailLength:D10}]";
@@ -84,7 +81,6 @@ public static class PdfSigner
         var brBytes = Encoding.ASCII.GetBytes(byteRange);
         Array.Copy(brBytes, 0, output, pdfBytes.Length + brInAppend, brBytes.Length);
 
-        // 3. Hash the two byte ranges and build the detached CMS signature
         byte[] digest;
         using (var sha = SHA256.Create())
         {
@@ -97,11 +93,36 @@ public static class PdfSigner
         if (cms.Length * 2 > ContentsHexLength)
             throw new InvalidOperationException("CMS signature exceeds the reserved /Contents space.");
 
-        // 4. Write the CMS hex into the reserved gap
         var cmsHex = Encoding.ASCII.GetBytes(BitConverter.ToString(cms).Replace("-", ""));
         Array.Copy(cmsHex, 0, output, hexStart, cmsHex.Length);
 
         return output;
+    }
+
+    /// <summary>
+    /// Sign a PDF in one call with a certificate and private key (RSA or ECDSA) from PFX/PKCS#12 bytes; same
+    /// signature as <see cref="Sign(byte[], X509Certificate2, SignOptions?)"/>. <paramref name="password"/> is null
+    /// or empty when the PFX has none. To sign many documents, load once with <see cref="PdfSigningCertificate.FromPfx"/>.
+    /// </summary>
+    /// <exception cref="CryptographicException">The bytes aren't a PKCS#12 file or the password is wrong.</exception>
+    public static byte[] Sign(byte[] pdfBytes, byte[] pfx, string? password, SignOptions? options = null)
+    {
+        using var certificate = PdfSigningCertificate.FromPfx(pfx, password);
+        return Sign(pdfBytes, certificate, options);
+    }
+
+    /// <summary>
+    /// Sign a PDF in one call with a PEM certificate and PEM private key (RSA or ECDSA; PKCS#8, PKCS#1, SEC1, or
+    /// encrypted PKCS#8 with <paramref name="privateKeyPassword"/>). The pair is loaded through
+    /// <see cref="PdfSigningCertificate.FromPem"/>, so it behaves exactly like a PFX. Not available on .NET Standard 2.0.
+    /// </summary>
+    /// <exception cref="CryptographicException">The PEM can't be read, the password is wrong, or the key doesn't match the certificate.</exception>
+    /// <exception cref="PlatformNotSupportedException">Running on the .NET Standard 2.0 build.</exception>
+    public static byte[] SignWithPem(byte[] pdfBytes, string certificatePem, string privateKeyPem,
+        string? privateKeyPassword = null, SignOptions? options = null)
+    {
+        using var certificate = PdfSigningCertificate.FromPem(certificatePem, privateKeyPem, privateKeyPassword);
+        return Sign(pdfBytes, certificate, options);
     }
 
     /// <summary>
@@ -119,11 +140,9 @@ public static class PdfSigner
         string reason = options.Reason ?? "";
         string location = options.Location ?? "";
 
-        // Create signature annotation as an incremental update
         var sb = new StringBuilder();
-        sb.AppendLine(); // newline separator
+        sb.AppendLine();
 
-        // Signature value object
         int sigValObj = FindNextObjNumber(pdfBytes) + 1;
         sb.AppendLine($"{sigValObj} 0 obj");
         sb.Append("<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached");
@@ -133,7 +152,7 @@ public static class PdfSigner
         if (!string.IsNullOrEmpty(location))
             sb.Append($" /Location ({EscapePdf(location)})");
         sb.Append($" /M ({PdfDates.PdfDate(DateTime.UtcNow)})");
-        sb.Append($" /Contents <{new string('0', 16384)}>"); // 8KB placeholder
+        sb.Append($" /Contents <{new string('0', 16384)}>");
         sb.Append($" /ByteRange [0 {pdfBytes.Length} {pdfBytes.Length} 0]");
         sb.AppendLine(" >>");
         sb.AppendLine("endobj");
@@ -151,26 +170,23 @@ public static class PdfSigner
     /// First call AddSignaturePlaceholder(), compute the CMS hash externally,
     /// then call this to insert the signature data.
     /// </summary>
+    /// <exception cref="InvalidOperationException">The CMS is larger than the reserved placeholder (8 KB).</exception>
     public static byte[] SignWithCmsData(byte[] pdfWithPlaceholder, byte[] cmsSignature)
     {
         if (pdfWithPlaceholder == null || cmsSignature == null)
             return pdfWithPlaceholder ?? Array.Empty<byte>();
 
-        // Find the Contents placeholder in the PDF
         var pdfText = Encoding.ASCII.GetString(pdfWithPlaceholder);
         var placeholder = new string('0', 16384);
         int placeholderIdx = pdfText.IndexOf(placeholder, StringComparison.Ordinal);
         if (placeholderIdx < 0) return pdfWithPlaceholder;
 
-        // Convert CMS signature to hex
         string cmsHex = BitConverter.ToString(cmsSignature).Replace("-", "");
         if (cmsHex.Length > placeholder.Length)
-            cmsHex = cmsHex.Substring(0, placeholder.Length); // truncate if too large
+            throw new InvalidOperationException("CMS signature exceeds the reserved /Contents space.");
 
-        // Pad with zeros
         cmsHex = cmsHex.PadRight(placeholder.Length, '0');
 
-        // Replace placeholder
         var result = (byte[])pdfWithPlaceholder.Clone();
         var cmsBytes = Encoding.ASCII.GetBytes(cmsHex);
         Array.Copy(cmsBytes, 0, result, placeholderIdx, cmsBytes.Length);
@@ -178,10 +194,6 @@ public static class PdfSigner
         return result;
     }
 
-    /// <summary>
-    /// Signing appends dictionary strings in plaintext; a compliant reader of
-    /// an encrypted document decrypts ALL strings, turning them into garbage.
-    /// </summary>
     private static void ThrowIfEncrypted(byte[] pdfBytes)
     {
         if (PdfInspect.IsEncrypted(pdfBytes))
@@ -200,7 +212,6 @@ public static class PdfSigner
             idx = text.IndexOf(" 0 obj", idx, StringComparison.Ordinal);
             if (idx < 0) break;
 
-            // Read back to find the object number
             int numEnd = idx;
             int numStart = numEnd - 1;
             while (numStart >= 0 && text[numStart] >= '0' && text[numStart] <= '9')

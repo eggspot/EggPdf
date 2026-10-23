@@ -338,7 +338,10 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   back to the glyph's outline in the current text color
 
 ### Business
-- Digital signatures — one-call X.509 signing (`PdfSigner.Sign(pdf, cert)`, detached CMS/PKCS#7) or external-CMS two-step flow for HSMs
+- Digital signatures — one-call signing (detached CMS/PKCS#7) with an `X509Certificate2`, PFX bytes + password
+  (`PdfSigner.Sign(pdf, pfx, password)`) or a PEM certificate + key (`PdfSigner.SignWithPem`; load once with
+  `PdfSigningCertificate.FromPfx/FromPem`), RSA or ECDSA keys, CLI `--sign-pfx` / `--sign-cert --sign-key`; or the
+  external-CMS two-step flow for HSMs
 - Password protection with permission flags — view-only PDFs that block editing/copying (RC4 40/128-bit)
 - AcroForm fields (fillable forms from HTML form elements)
 - PDF merging

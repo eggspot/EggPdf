@@ -2355,6 +2355,16 @@ services:
 - PAdES B-B (basic signature) and B-T (with RFC 3161 timestamp)
 - Certification signature with DocMDP (control allowed modifications after signing)
 - API: `PdfSigner.Sign(pdfBytes, certificate, options)` -- signs an already-generated PDF
+- Certificate sources (implemented): `X509Certificate2`, PFX bytes + password (`PdfSigner.Sign(pdf, pfx, password)`),
+  PEM certificate + key (`PdfSigner.SignWithPem`); `PdfSigningCertificate.FromPfx/FromPem` load once for many documents
+  and re-export PEM through PKCS#12. RSA (PKCS#1 v1.5) and ECDSA (ecdsa-with-SHA256). PEM needs .NET Standard 2.1+
+  (the .NET Standard 2.0 build throws PlatformNotSupportedException). CLI: `--sign-pfx`/`--sign-cert`/`--sign-key` with
+  passwords from environment variables. Not wired on purpose: the REST service never accepts key material (a
+  server-configured certificate could come later), and Fluent/`PdfRenderOptions` don't sign (signing applies to the
+  finished bytes)
+- Known gap (current implementation): `PdfSigner.Sign` appends the `/Sig` dictionary without an AcroForm signature
+  field, widget or incremental xref/trailer, so the CMS and `/ByteRange` verify but viewers like Acrobat may not list
+  the signature. Fixed together with signature verification and the visible-signature appearance
 
 **PDF forms (AcroForm):**
 - Generate fillable form fields from HTML `<input>`, `<select>`, `<textarea>`, `<button>`
