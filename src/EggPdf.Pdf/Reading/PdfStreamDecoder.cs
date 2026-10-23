@@ -19,16 +19,20 @@ internal static class PdfStreamDecoder
             else throw new PdfFormatException("Chained stream filters aren't supported in structural streams.");
         }
 
+        if (stream.DataLength > MaxDecodedBytes) throw new PdfFormatException("A structural stream is larger than the 64 MB limit.");
+        int length = (int)stream.DataLength;
+        var window = stream.Source.Window(stream.DataStart, length);
+        if (window.End - window.Offset < length) throw new PdfFormatException("A stream runs past the end of the file.");
         if (filter == null)
         {
-            var raw = new byte[stream.DataLength];
-            Array.Copy(stream.Source, stream.DataStart, raw, 0, stream.DataLength);
+            var raw = new byte[length];
+            Array.Copy(window.Data, window.Offset, raw, 0, length);
             return raw;
         }
         if (filter is not PdfName name || (name.Value != "FlateDecode" && name.Value != "Fl"))
             throw new PdfFormatException("Only FlateDecode is supported in object and cross-reference streams.");
 
-        var inflated = Inflate(stream.Source, stream.DataStart, stream.DataLength);
+        var inflated = Inflate(window.Data, window.Offset, length);
         var parameters = stream.Dictionary.Get("DecodeParms");
         if (parameters is PdfArray parameterList) parameters = parameterList.Items.Count > 0 ? parameterList.Items[0] : null;
         return parameters is PdfDictionary dictionary ? ApplyPredictor(inflated, dictionary) : inflated;

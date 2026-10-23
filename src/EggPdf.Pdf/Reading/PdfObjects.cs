@@ -64,7 +64,7 @@ internal sealed class PdfDictionary : PdfObject
 
 internal sealed class PdfStream : PdfObject
 {
-    public PdfStream(PdfDictionary dictionary, byte[] source, int dataStart, int dataLength)
+    public PdfStream(PdfDictionary dictionary, PdfByteSource source, long dataStart, long dataLength)
     {
         Dictionary = dictionary;
         Source = source;
@@ -74,11 +74,11 @@ internal sealed class PdfStream : PdfObject
 
     public PdfDictionary Dictionary { get; }
 
-    public byte[] Source { get; }
+    public PdfByteSource Source { get; }
 
-    public int DataStart { get; }
+    public long DataStart { get; }
 
-    public int DataLength { get; }
+    public long DataLength { get; }
 }
 
 internal sealed class PdfReference : PdfObject

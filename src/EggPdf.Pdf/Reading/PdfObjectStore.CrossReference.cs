@@ -13,21 +13,21 @@ internal sealed partial class PdfObjectStore
     {
         try
         {
-            int startxref = PdfSyntaxParser.LastIndexOf(_data, "startxref", _data.Length);
+            long startxref = _source.LastIndexOf("startxref");
             if (startxref < 0) return false;
-            long offset = new PdfSyntaxParser(_data, startxref + "startxref".Length, _data.Length).ReadInteger();
+            long offset = ParseAt(startxref + "startxref".Length, parser => parser.ReadInteger());
 
             _crossReference = new PdfCrossReference();
             var visited = new HashSet<long>();
             while (offset >= 0 && visited.Add(offset))
             {
                 if (visited.Count > MaxCrossReferenceSections) throw new PdfFormatException("Too many cross-reference sections.");
-                if (offset >= _data.Length) return false;
-                var parser = NewParser((int)offset);
+                if (offset >= _length) return false;
+                long rowsHeader = ParseAt(offset, parser => parser.TryReadKeyword("xref") ? parser.FilePosition : -1);
                 PdfDictionary trailer;
-                if (parser.TryReadKeyword("xref"))
+                if (rowsHeader >= 0)
                 {
-                    var table = ReadClassicTable(parser, out trailer);
+                    var table = ReadClassicTable(rowsHeader, out trailer);
                     PdfCrossReferenceSection? hybrid = null;
                     if (trailer.Get("XRefStm") is PdfNumber stream && stream.IsInteger && visited.Add((long)stream.Value))
                         hybrid = ReadCrossReferenceStream((long)stream.Value, out _);
@@ -54,44 +54,55 @@ internal sealed partial class PdfObjectStore
         }
     }
 
-    private PdfCrossReferenceSection ReadClassicTable(PdfSyntaxParser parser, out PdfDictionary trailer)
+    private PdfCrossReferenceSection ReadClassicTable(long position, out PdfDictionary trailer)
     {
         var section = new PdfCrossReferenceSection();
-        while (!parser.TryReadKeyword("trailer"))
+        while (true)
         {
-            long first = parser.ReadInteger();
-            long count = parser.ReadInteger();
-            if (first < 0 || count < 0 || first + count > PdfCrossReference.MaxObjectNumber + 1)
-                throw new PdfFormatException("Cross-reference subsection out of range.");
-            parser.SkipWhitespaceAndComments();
-            int rowsStart = parser.Position;
-            if (count > 0 && TryMeasureRowStride(rowsStart, count, out int stride))
+            var step = ParseAt<(PdfDictionary? Trailer, long First, long Count, long RowsStart)>(position, parser =>
             {
-                section.Add(new PdfClassicRows(_data, (int)first, (int)count, rowsStart, stride));
-                parser.Position = (int)(rowsStart + (long)stride * (count - 1) + PdfClassicRows.RowTextLength);
+                if (parser.TryReadKeyword("trailer"))
+                    return (parser.ReadObject() as PdfDictionary ?? throw new PdfFormatException("The trailer isn't a dictionary."), 0, 0, 0);
+                long first = parser.ReadInteger();
+                long count = parser.ReadInteger();
+                parser.SkipWhitespaceAndComments();
+                return (null, first, count, parser.FilePosition);
+            });
+            if (step.Trailer != null)
+            {
+                trailer = step.Trailer;
+                return section;
+            }
+            if (step.First < 0 || step.Count < 0 || step.First + step.Count > PdfCrossReference.MaxObjectNumber + 1)
+                throw new PdfFormatException("Cross-reference subsection out of range.");
+            if (step.Count > 0 && TryMeasureRowStride(step.RowsStart, step.Count, out int stride))
+            {
+                section.Add(new PdfClassicRows(_source, (int)step.First, (int)step.Count, step.RowsStart, stride));
+                position = step.RowsStart + stride * (step.Count - 1) + PdfClassicRows.RowTextLength;
             }
             else
             {
-                section.Add(new PdfParsedRows((int)first, ParseRows(parser, count)));
+                var (entries, end) = ParseAt(step.RowsStart, parser => (ParseRows(parser, step.Count), parser.FilePosition));
+                section.Add(new PdfParsedRows((int)step.First, entries));
+                position = end;
             }
         }
-        trailer = parser.ReadObject() as PdfDictionary ?? throw new PdfFormatException("The trailer isn't a dictionary.");
-        return section;
     }
 
-    private bool TryMeasureRowStride(int rowsStart, long count, out int stride)
+    private bool TryMeasureRowStride(long rowsStart, long count, out int stride)
     {
         stride = 0;
-        if (!PdfClassicRows.TryReadRow(_data, rowsStart, out _, out _)) return false;
+        if (!PdfClassicRows.TryReadRow(_source, rowsStart, out _, out _)) return false;
+        var lineBreakWindow = _source.Window(rowsStart + PdfClassicRows.RowTextLength, MaxRowLineBreak);
         int lineBreak = 0;
-        int after = rowsStart + PdfClassicRows.RowTextLength;
-        while (lineBreak < MaxRowLineBreak && after + lineBreak < _data.Length && PdfSyntaxParser.IsWhitespace(_data[after + lineBreak]))
+        while (lineBreak < MaxRowLineBreak && lineBreakWindow.Offset + lineBreak < lineBreakWindow.End &&
+               PdfSyntaxParser.IsWhitespace(lineBreakWindow.Data[lineBreakWindow.Offset + lineBreak]))
             lineBreak++;
         if (lineBreak == 0) return false;
         stride = PdfClassicRows.RowTextLength + lineBreak;
         if (count == 1) return true;
         long last = rowsStart + (long)stride * (count - 1);
-        return PdfClassicRows.TryReadRow(_data, rowsStart + stride, out _, out _) && PdfClassicRows.TryReadRow(_data, last, out _, out _);
+        return PdfClassicRows.TryReadRow(_source, rowsStart + stride, out _, out _) && PdfClassicRows.TryReadRow(_source, last, out _, out _);
     }
 
     private PdfCrossReferenceEntry[] ParseRows(PdfSyntaxParser parser, long count)
@@ -111,10 +122,9 @@ internal sealed partial class PdfObjectStore
 
     private PdfCrossReferenceSection ReadCrossReferenceStream(long offset, out PdfDictionary dictionary)
     {
-        if (offset < 0 || offset >= _data.Length) throw new PdfFormatException("Cross-reference stream offset out of range.");
-        var parser = NewParser((int)offset);
-        if (!parser.TryReadIndirectHeader(out _, out _) || parser.ReadIndirectObjectBody() is not PdfStream stream)
-            throw new PdfFormatException("No cross-reference stream at the given offset.");
+        if (offset < 0 || offset >= _length) throw new PdfFormatException("Cross-reference stream offset out of range.");
+        var stream = ParseAt(offset, parser => parser.TryReadIndirectHeader(out _, out _) ? parser.ReadIndirectObjectBody() as PdfStream : null)
+            ?? throw new PdfFormatException("No cross-reference stream at the given offset.");
 
         dictionary = stream.Dictionary;
         if (dictionary.Get("W") is not PdfArray widthArray || widthArray.Items.Count != 3)

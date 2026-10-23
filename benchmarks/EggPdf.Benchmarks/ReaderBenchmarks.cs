@@ -32,6 +32,13 @@ public class ReaderBenchmarks
     [Benchmark(Description = "Open + last page, 150k pages, balanced tree")]
     public double LastPageBalanced() => PdfReader.Open(_balanced).GetPage(Pages).Width;
 
+    [Benchmark(Description = "Open + last page from a Stream, 150k pages, balanced tree")]
+    public double LastPageBalancedFromStream()
+    {
+        using var reader = PdfReader.Open(new MemoryStream(_balanced, writable: false));
+        return reader.GetPage(Pages).Width;
+    }
+
     private static byte[] Build(bool balanced)
     {
         var bodies = new string[Pages + 3 + (balanced ? Pages / PagesPerNode : 0)];

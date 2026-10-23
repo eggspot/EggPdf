@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 
 namespace EggPdf.Pdf;
 
@@ -8,10 +9,11 @@ namespace EggPdf.Pdf;
 /// nesting depth, page-tree depth, cross-reference size and decompressed stream size are capped, and a file that
 /// can't be read throws <see cref="PdfFormatException"/>. Pages are read on demand: opening a document reads the
 /// page tree's root and checks its last page, and each lookup reads only the page tree nodes on the way to that page,
-/// so memory stays small however many pages the file has. Lookups may be called from several threads; they run one
-/// at a time.
+/// so memory stays small however many pages the file has. Files larger than memory can be read from a stream or a
+/// path; dispose the reader to close a file it opened. Lookups may be called from several threads; they run one at a
+/// time.
 /// </summary>
-public sealed class PdfReader
+public sealed class PdfReader : IDisposable
 {
     private const int HeaderSearchWindow = 1024;
 
@@ -38,22 +40,77 @@ public sealed class PdfReader
     /// <summary>Opens a PDF held in memory.</summary>
     /// <exception cref="PdfFormatException">The bytes aren't a readable PDF, or exceed a safety limit.</exception>
     /// <exception cref="NotSupportedException">The pages sit inside an encrypted object stream.</exception>
-    public static PdfReader Open(byte[] pdf)
+    public static PdfReader Open(byte[] pdf) =>
+        Open(PdfByteSource.Over(pdf ?? throw new ArgumentNullException(nameof(pdf))));
+
+    /// <summary>
+    /// Opens a PDF from a readable, seekable stream without loading it into memory, so files of any size can be read
+    /// (offsets beyond 2 GB included). The PDF must start at position 0 of the stream; reading moves the stream's
+    /// position. The stream isn't closed by the reader and must stay open and unchanged while the reader is used.
+    /// </summary>
+    /// <exception cref="ArgumentException">The stream isn't readable and seekable.</exception>
+    /// <exception cref="PdfFormatException">The stream isn't a readable PDF, or exceeds a safety limit.</exception>
+    /// <exception cref="NotSupportedException">The pages sit inside an encrypted object stream.</exception>
+    /// <exception cref="IOException">Reading the stream failed.</exception>
+    public static PdfReader Open(Stream pdf) =>
+        Open(PdfByteSource.Over(pdf ?? throw new ArgumentNullException(nameof(pdf)), ownsStream: false));
+
+    /// <summary>
+    /// Opens the PDF file at <paramref name="path"/> without loading it into memory. Dispose the reader to close the file.
+    /// </summary>
+    /// <exception cref="PdfFormatException">The file isn't a readable PDF, or exceeds a safety limit.</exception>
+    /// <exception cref="NotSupportedException">The pages sit inside an encrypted object stream.</exception>
+    /// <exception cref="IOException">The file can't be opened or read (for example <see cref="FileNotFoundException"/>).</exception>
+    /// <exception cref="UnauthorizedAccessException">The file can't be opened for reading.</exception>
+    public static PdfReader Open(string path)
     {
-        if (pdf == null) throw new ArgumentNullException(nameof(pdf));
-        if (PdfSyntaxParser.IndexOf(pdf, "%PDF-", 0, Math.Min(pdf.Length, HeaderSearchWindow)) < 0)
-            throw new PdfFormatException("The data doesn't start with a %PDF- header.");
-        return Guarded(() =>
+        if (path == null) throw new ArgumentNullException(nameof(path));
+        var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        try
         {
-            var store = PdfObjectStore.Load(pdf);
-            return new PdfReader(store, new PdfPageTree(store));
-        });
+            return Open(PdfByteSource.Over(file, ownsStream: true));
+        }
+        catch
+        {
+            file.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Counts the pages of a PDF held in memory; same as <c>Open(pdf).PageCount</c>.</summary>
     /// <exception cref="PdfFormatException">The bytes aren't a readable PDF, or exceed a safety limit.</exception>
     /// <exception cref="NotSupportedException">The pages sit inside an encrypted object stream.</exception>
     public static int GetPageCount(byte[] pdf) => Open(pdf).PageCount;
+
+    /// <summary>Counts the pages of a PDF read from a readable, seekable stream; same as <c>Open(pdf).PageCount</c>.</summary>
+    /// <exception cref="ArgumentException">The stream isn't readable and seekable.</exception>
+    /// <exception cref="PdfFormatException">The stream isn't a readable PDF, or exceeds a safety limit.</exception>
+    /// <exception cref="NotSupportedException">The pages sit inside an encrypted object stream.</exception>
+    public static int GetPageCount(Stream pdf) => Open(pdf).PageCount;
+
+    /// <summary>Counts the pages of the PDF file at <paramref name="path"/> without loading it into memory.</summary>
+    /// <exception cref="PdfFormatException">The file isn't a readable PDF, or exceeds a safety limit.</exception>
+    /// <exception cref="NotSupportedException">The pages sit inside an encrypted object stream.</exception>
+    public static int GetPageCount(string path)
+    {
+        using var reader = Open(path);
+        return reader.PageCount;
+    }
+
+    /// <summary>Closes the file when the reader opened it from a path; a reader over bytes or a caller's stream has nothing to close.</summary>
+    public void Dispose() => Store.Source.Dispose();
+
+    private static PdfReader Open(PdfByteSource source)
+    {
+        var header = source.Window(0, (int)Math.Min(source.Length, HeaderSearchWindow));
+        if (PdfSyntaxParser.IndexOf(header.Data, "%PDF-", header.Offset, header.End) < 0)
+            throw new PdfFormatException("The data doesn't start with a %PDF- header.");
+        return Guarded(() =>
+        {
+            var store = PdfObjectStore.Load(source);
+            return new PdfReader(store, new PdfPageTree(store));
+        });
+    }
 
     /// <summary>The displayed size and rotation of page <paramref name="pageNumber"/> (1-based).</summary>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="pageNumber"/> is below 1 or above <see cref="PageCount"/>.</exception>
@@ -81,7 +138,8 @@ public sealed class PdfReader
         {
             return read();
         }
-        catch (Exception ex) when (ex is not PdfFormatException && ex is not NotSupportedException && ex is not OutOfMemoryException)
+        catch (Exception ex) when (ex is not PdfFormatException && ex is not NotSupportedException && ex is not OutOfMemoryException &&
+                                   ex is not IOException && ex is not ObjectDisposedException)
         {
             throw new PdfFormatException("The PDF is damaged and can't be read.", ex);
         }

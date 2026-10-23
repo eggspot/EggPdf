@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 
 namespace EggPdf.Pdf;
 
-internal sealed partial class PdfObjectStore
+internal sealed partial class PdfObjectStore : IPdfStreamLocator
 {
     private const int MaxObjectsPerObjectStream = 1_000_000;
     private const int MaxReferenceChain = 32;
@@ -53,33 +53,44 @@ internal sealed partial class PdfObjectStore
         }
     }
 
-    private readonly byte[] _data;
+    private const int InitialWindowBytes = 4 * 1024;
+    private const int MaxWindowBytes = 64 * 1024 * 1024;
+    private const int EndstreamWindowBytes = 64;
+    private const int ScanChunkBytes = 1024 * 1024;
+    private const int ScanOverlapBytes = 64;
+    private const int TrailerWindowBytes = 1024 * 1024;
+    private const int MaxIndexedKeywords = 8_000_000;
+    private const int CutTokenBytes = 64;
+
+    private readonly PdfByteSource _source;
+    private readonly long _length;
     private readonly PdfObjectCache<PdfObject> _cache = new(ObjectCacheBytes);
     private readonly PdfObjectCache<ObjectStreamLayout> _objectStreams = new(ObjectStreamCacheBytes, alwaysKept: 2);
     private readonly HashSet<int> _resolving = new();
     private readonly Func<PdfReference, PdfObject?> _resolveLength;
-    private readonly Func<int, int> _findEndstream;
     private PdfSyntaxParser? _fileSummaryParser;
     private PdfCrossReference? _crossReference;
     private Dictionary<int, PdfCrossReferenceEntry>? _repairedEntries;
     private Dictionary<int, long>? _scannedOffsets;
     private long[]? _scannedOffsetsAscending;
-    private int[]? _endstreamOffsets;
+    private long[]? _endstreamOffsets;
     private PdfParseBudget _parseBudget;
     private readonly long _decodedBytesLimit;
     private long _decodedBytes;
     private long _entryBudget;
     private int? _highestObjectNumber;
 
-    private PdfObjectStore(byte[] data)
+    private PdfObjectStore(PdfByteSource source)
     {
-        _data = data;
+        _source = source;
+        _length = source.Length;
         _resolveLength = ResolveLength;
-        _findEndstream = NextEndstream;
-        _entryBudget = Math.Max(MinCrossReferenceEntryBudget, data.Length);
-        _parseBudget = new PdfParseBudget(data.Length);
-        _decodedBytesLimit = Math.Min(MaxDecodedBytesPerOperation, DecodedBytesAllowance + DecodedBytesPerInputByte * (long)data.Length);
+        _entryBudget = Math.Max(MinCrossReferenceEntryBudget, _length);
+        _parseBudget = new PdfParseBudget(_length);
+        _decodedBytesLimit = Math.Min(MaxDecodedBytesPerOperation, DecodedBytesAllowance + DecodedBytesPerInputByte * _length);
     }
+
+    public PdfByteSource Source => _source;
 
     public PdfDictionary Trailer { get; } = new();
 
@@ -93,12 +104,12 @@ internal sealed partial class PdfObjectStore
 
     public bool IsEncrypted => Trailer.Get("Encrypt") is { } encrypt && encrypt is not PdfNull;
 
-    public static PdfObjectStore Load(byte[] data)
+    public static PdfObjectStore Load(PdfByteSource source)
     {
-        var store = new PdfObjectStore(data);
+        var store = new PdfObjectStore(source);
         if (!store.TryLoadCrossReferences() || !store.HasReadableCatalog())
         {
-            store = new PdfObjectStore(data);
+            store = new PdfObjectStore(source);
             store.RebuildFromObjectScan();
         }
         if (store.FindCatalog() == null) throw new PdfFormatException("No document catalog found: this isn't a readable PDF.");
@@ -107,7 +118,7 @@ internal sealed partial class PdfObjectStore
 
     public void ResetCallBudgets()
     {
-        _parseBudget = new PdfParseBudget(_data.Length);
+        _parseBudget = new PdfParseBudget(_length);
         _decodedBytes = 0;
     }
 
@@ -150,11 +161,10 @@ internal sealed partial class PdfObjectStore
         if (!TryGetEntry(number, out var entry) || entry.Kind == PdfCrossReferenceEntryKind.Free) return null;
         if (entry.Kind == PdfCrossReferenceEntryKind.InFile)
         {
-            if (entry.Offset >= 0 && entry.Offset < _data.Length)
+            if (entry.Offset >= 0 && entry.Offset < _length)
             {
-                int start = (int)entry.Offset;
-                var parser = (_fileSummaryParser ??= NewParser(start)).MoveTo(start, ParseEnd(start), _parseBudget);
-                if (parser.TryReadIndirectHeader(out int found, out _) && found == number) return parser.ReadPageTreeSummary();
+                var summary = SummaryAt(entry.Offset, number, out bool found);
+                if (found) return summary;
             }
             return Get(number) is PdfDictionary scanned ? PdfPageTreeSummary.Of(scanned) : null;
         }
@@ -200,13 +210,15 @@ internal sealed partial class PdfObjectStore
         foreach (var pair in scanned)
             _repairedEntries[pair.Key] = new PdfCrossReferenceEntry(PdfCrossReferenceEntryKind.InFile, pair.Value, 0);
 
-        int trailerEnd = _data.Length;
-        for (int at = PdfSyntaxParser.LastIndexOf(_data, "trailer", _data.Length); at >= 0;
-             trailerEnd = at, at = PdfSyntaxParser.LastIndexOf(_data, "trailer", at))
+        var trailers = _source.FindAll("trailer", MaxIndexedKeywords);
+        for (int t = trailers.Length - 1; t >= 0; t--)
         {
+            long trailerEnd = t + 1 < trailers.Length ? trailers[t + 1] : _length;
             try
             {
-                var parser = new PdfSyntaxParser(_data, at + "trailer".Length, trailerEnd, budget: _parseBudget);
+                long start = trailers[t] + "trailer".Length;
+                var window = _source.Window(start, (int)Math.Min(TrailerWindowBytes, trailerEnd - start));
+                var parser = new PdfSyntaxParser(window.Data, window.Offset, window.End, budget: _parseBudget, baseOffset: window.BaseOffset);
                 if (parser.ReadObject() is PdfDictionary trailer) MergeTrailer(trailer);
             }
             catch (PdfFormatException ex) when (ex is not PdfParseBudgetExceededException)
@@ -219,12 +231,13 @@ internal sealed partial class PdfObjectStore
         for (int i = 0; i < byOffset.Count; i++)
         {
             int number = byOffset[i].Key;
-            int start = (int)byOffset[i].Value;
-            int end = i + 1 < byOffset.Count ? (int)byOffset[i + 1].Value : _data.Length;
-            end = Math.Min(end, start + RepairDictionaryWindow);
-            bool catalog = PdfSyntaxParser.IndexOf(_data, "/Catalog", start, end) >= 0;
-            bool objectStream = PdfSyntaxParser.IndexOf(_data, "/ObjStm", start, end) >= 0;
-            bool crossReference = PdfSyntaxParser.IndexOf(_data, "/XRef", start, end) >= 0;
+            long start = byOffset[i].Value;
+            long end = Math.Min(i + 1 < byOffset.Count ? byOffset[i + 1].Value : _length, start + RepairDictionaryWindow);
+            var window = _source.Window(start, (int)(end - start));
+            int windowEnd = window.Offset + (int)(end - start);
+            bool catalog = PdfSyntaxParser.IndexOf(window.Data, "/Catalog", window.Offset, windowEnd) >= 0;
+            bool objectStream = PdfSyntaxParser.IndexOf(window.Data, "/ObjStm", window.Offset, windowEnd) >= 0;
+            bool crossReference = PdfSyntaxParser.IndexOf(window.Data, "/XRef", window.Offset, windowEnd) >= 0;
             if (catalog || objectStream || crossReference) InspectForRepair(number);
         }
     }
@@ -272,13 +285,24 @@ internal sealed partial class PdfObjectStore
     {
         if (_scannedOffsets != null) return _scannedOffsets;
         var offsets = new Dictionary<int, long>();
-        for (int i = 0; i < _data.Length; i++)
+        const int span = ScanChunkBytes + ScanOverlapBytes + 1;
+        byte[]? buffer = _source.IsInMemory ? null : new byte[(int)Math.Min(span, _length)];
+        for (long chunkStart = 0; chunkStart < _length; chunkStart += ScanChunkBytes)
         {
-            if (i > 0 && _data[i - 1] != '\n' && _data[i - 1] != '\r') continue;
-            if (_data[i] < '0' || _data[i] > '9') continue;
-            var parser = new PdfSyntaxParser(_data, i, _data.Length);
-            if (parser.TryReadIndirectHeader(out int number, out _) && number <= PdfCrossReference.MaxObjectNumber)
-                offsets[number] = i;
+            long readStart = Math.Max(0, chunkStart - 1);
+            int length = (int)Math.Min(span, _length - readStart);
+            var window = buffer == null ? _source.Window(readStart, length) : ReadInto(buffer, readStart, length);
+            var data = window.Data;
+            int first = window.Offset + (int)(chunkStart - readStart);
+            int last = Math.Min(window.End, first + ScanChunkBytes);
+            for (int i = first; i < last; i++)
+            {
+                if (window.BaseOffset + i > 0 && data[i - 1] != '\n' && data[i - 1] != '\r') continue;
+                if (data[i] < '0' || data[i] > '9') continue;
+                var parser = new PdfSyntaxParser(data, i, window.End);
+                if (parser.TryReadIndirectHeader(out int number, out _) && number <= PdfCrossReference.MaxObjectNumber)
+                    offsets[number] = window.BaseOffset + i;
+            }
         }
         _scannedOffsetsAscending = new long[offsets.Count];
         offsets.Values.CopyTo(_scannedOffsetsAscending, 0);
@@ -286,34 +310,89 @@ internal sealed partial class PdfObjectStore
         return _scannedOffsets = offsets;
     }
 
-    private int ParseEnd(long objectOffset)
+    private PdfByteWindow ReadInto(byte[] buffer, long start, int length)
     {
-        if (_repairedEntries == null || _scannedOffsetsAscending == null) return _data.Length;
-        int index = Array.BinarySearch(_scannedOffsetsAscending, objectOffset + 1);
-        if (index < 0) index = ~index;
-        return index < _scannedOffsetsAscending.Length ? (int)_scannedOffsetsAscending[index] : _data.Length;
+        _source.Read(start, buffer, length);
+        return new PdfByteWindow(buffer, 0, start, length);
     }
 
-    private int NextEndstream(int from)
+    private long ParseEnd(long objectOffset)
     {
-        if (_endstreamOffsets == null)
-        {
-            var found = new List<int>();
-            for (int at = PdfSyntaxParser.IndexOf(_data, "endstream", 0, _data.Length); at >= 0;
-                 at = PdfSyntaxParser.IndexOf(_data, "endstream", at + 1, _data.Length))
-                found.Add(at);
-            _endstreamOffsets = found.ToArray();
-        }
+        if (_repairedEntries == null || _scannedOffsetsAscending == null) return _length;
+        int index = Array.BinarySearch(_scannedOffsetsAscending, objectOffset + 1);
+        if (index < 0) index = ~index;
+        return index < _scannedOffsetsAscending.Length ? _scannedOffsetsAscending[index] : _length;
+    }
+
+    private long NextEndstream(long from)
+    {
+        _endstreamOffsets ??= _source.FindAll("endstream", MaxIndexedKeywords);
         int index = Array.BinarySearch(_endstreamOffsets, from);
         if (index < 0) index = ~index;
         return index < _endstreamOffsets.Length ? _endstreamOffsets[index] : -1;
     }
 
-    private PdfSyntaxParser NewParser(int start) => new(_data, start, ParseEnd(start), _resolveLength, _findEndstream, _parseBudget);
+    public bool EndstreamAt(long position)
+    {
+        var window = _source.Window(position, EndstreamWindowBytes);
+        return new PdfSyntaxParser(window.Data, window.Offset, window.End).TryReadKeyword("endstream");
+    }
+
+    public bool TryFindDataEnd(long dataStart, long end, out long dataLength)
+    {
+        dataLength = 0;
+        long endstream = NextEndstream(dataStart);
+        if (endstream < 0 || endstream + "endstream".Length > end) return false;
+        long dataEnd = endstream;
+        long tailStart = Math.Max(dataStart, endstream - 2);
+        var tail = _source.Window(tailStart, (int)(endstream - tailStart));
+        int last = tail.Offset + (int)(endstream - tailStart) - 1;
+        if (dataEnd > dataStart && tail.Data[last] == '\n')
+        {
+            dataEnd--;
+            last--;
+        }
+        if (dataEnd > dataStart && last >= tail.Offset && tail.Data[last] == '\r') dataEnd--;
+        dataLength = dataEnd - dataStart;
+        return true;
+    }
+
+    private PdfSyntaxParser NewParser(long start, int windowBytes = InitialWindowBytes)
+    {
+        long end = ParseEnd(start);
+        int length = (int)Math.Max(0, Math.Min(_source.IsInMemory ? int.MaxValue : windowBytes, end - start));
+        var window = _source.Window(start, length);
+        return new PdfSyntaxParser(window.Data, window.Offset, window.End, _resolveLength, this, _parseBudget, window.BaseOffset, end);
+    }
+
+    private T ParseAt<T>(long start, Func<PdfSyntaxParser, T> read)
+    {
+        for (int windowBytes = InitialWindowBytes; ; windowBytes = (int)Math.Min(8L * windowBytes, MaxWindowBytes))
+        {
+            var parser = NewParser(start, windowBytes);
+            bool canGrow = parser.EndsBeforeObject && windowBytes < MaxWindowBytes;
+            T result;
+            try
+            {
+                result = read(parser);
+            }
+            catch (PdfWindowTooSmallException) when (canGrow)
+            {
+                continue;
+            }
+            catch (PdfFormatException ex) when (ex is not PdfParseBudgetExceededException && canGrow &&
+                                                parser.Position >= parser.End - CutTokenBytes)
+            {
+                continue;
+            }
+            if (canGrow && parser.ReachedWindowEnd) continue;
+            return result;
+        }
+    }
 
     private PdfObject ReadObjectAt(long offset, int expectedNumber)
     {
-        if (offset >= 0 && offset < _data.Length && TryParseIndirectObject(offset, expectedNumber, out var value)) return value!;
+        if (offset >= 0 && offset < _length && TryParseIndirectObject(offset, expectedNumber, out var value)) return value!;
         if (ScanObjectOffsets().TryGetValue(expectedNumber, out var scanned) && scanned != offset &&
             TryParseIndirectObject(scanned, expectedNumber, out value)) return value!;
         throw new PdfFormatException($"Object {expectedNumber.ToString(System.Globalization.CultureInfo.InvariantCulture)} isn't where the cross-reference says.");
@@ -321,11 +400,25 @@ internal sealed partial class PdfObjectStore
 
     private bool TryParseIndirectObject(long offset, int expectedNumber, out PdfObject? value)
     {
-        value = null;
-        var parser = NewParser((int)offset);
-        if (!parser.TryReadIndirectHeader(out int number, out _) || number != expectedNumber) return false;
-        value = parser.ReadIndirectObjectBody();
-        return true;
+        value = ParseAt(offset, parser =>
+            parser.TryReadIndirectHeader(out int number, out _) && number == expectedNumber ? parser.ReadIndirectObjectBody() : null);
+        return value != null;
+    }
+
+    private PdfPageTreeSummary? SummaryAt(long offset, int number, out bool found)
+    {
+        if (!_source.IsInMemory) return SummaryFromStream(offset, number, out found);
+        var parser = (_fileSummaryParser ??= NewParser(offset)).MoveTo((int)offset, (int)ParseEnd(offset), _parseBudget);
+        found = parser.TryReadIndirectHeader(out int header, out _) && header == number;
+        return found ? parser.ReadPageTreeSummary() : null;
+    }
+
+    private PdfPageTreeSummary? SummaryFromStream(long offset, int number, out bool found)
+    {
+        var result = ParseAt<(PdfPageTreeSummary? Summary, bool Found)>(offset, parser =>
+            parser.TryReadIndirectHeader(out int header, out _) && header == number ? (parser.ReadPageTreeSummary(), true) : (null, false));
+        found = result.Found;
+        return result.Summary;
     }
 
     private PdfObject? ResolveLength(PdfReference reference) =>

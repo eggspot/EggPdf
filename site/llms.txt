@@ -80,14 +80,16 @@ curl -X POST http://localhost:8080/api/render \
 - Per-character font fallback for every script (Hangul/Kana/Han, Arabic, Hebrew, Thai, Indic, symbols ⚠ ✔, ...) from installed fonts chosen by cmap coverage; uncovered characters raise a FONT_GLYPH_MISSING warning instead of silent boxes
 
 ## Existing PDFs
-- `PdfReader.Open(bytes)`: `PageCount`, `GetPage(n)` (displayed width/height in points, rotation), `IsEncrypted`;
-  `PdfReader.GetPageCount(bytes)`. Any producer (xref/object streams, incremental updates, damaged files repaired),
+- `PdfReader.Open(bytes)` (or `Open(stream)` / `Open(path)` for multi-GB files, without loading them; dispose to
+  close the file): `PageCount`, `GetPage(n)` (displayed width/height in points, rotation), `IsEncrypted`;
+  `PdfReader.GetPageCount(bytes|stream|path)`. Any producer (xref/object streams, incremental updates, damaged files repaired),
   safety limits for untrusted uploads, `PdfFormatException` when unreadable; pages are read on demand (a 150k-page
   file opens and looks up a page in ~4-30 ms with kilobytes to a few MB of allocation, instead of ~450 MB; a flat
   page tree costs ~10 MB, or ~60 MB when every page sits in one compressed object stream)
 - `new PdfStamper(pdf).AddImage(page, png, x, y, width, height).Build()`: images on existing pages (top-left, points,
   rotation-aware), appended as an incremental update so earlier signatures still verify (validators report the
-  added content); certified (DocMDP) PDFs are refused; REST `POST /api/stamp`
+  added content); certified (DocMDP) PDFs are refused; `new PdfStamper(stream)` + `Build(outputStream)` for files of
+  any size with only the update in memory; REST `POST /api/stamp`
 
 ## Security
 ```csharp

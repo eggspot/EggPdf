@@ -9,6 +9,7 @@ namespace EggPdf.Pdf;
 internal sealed class PdfIncrementalUpdate
 {
     private const int MaxObjectNumber = 8_388_607;
+    private const long MaxClassicOffset = 9_999_999_999;
     private static readonly Encoding Latin1 = Encoding.GetEncoding(28591);
 
     private readonly MemoryStream _output = new();
@@ -17,12 +18,16 @@ internal sealed class PdfIncrementalUpdate
     private readonly long _originalLength;
     private int _nextNumber;
 
-    public PdfIncrementalUpdate(byte[] original, PdfObjectStore store)
+    public PdfIncrementalUpdate(PdfObjectStore store)
     {
         _store = store;
-        _originalLength = original.Length;
-        if (original.Length > 0 && original[original.Length - 1] != '\n' && original[original.Length - 1] != '\r')
-            _output.WriteByte((byte)'\n');
+        _originalLength = store.Source.Length;
+        if (_originalLength > 0)
+        {
+            var last = store.Source.Window(_originalLength - 1, 1);
+            byte lastByte = last.Data[last.Offset];
+            if (lastByte != '\n' && lastByte != '\r') _output.WriteByte((byte)'\n');
+        }
         int declaredSize = PdfStreamDecoder.IntegerOr(store.Trailer.Get("Size"), 0);
         _nextNumber = Math.Max(store.HighestObjectNumber + 1, declaredSize);
         if (_nextNumber > MaxObjectNumber + 1)
@@ -67,6 +72,8 @@ internal sealed class PdfIncrementalUpdate
     private void WriteCrossReferenceTable()
     {
         long offset = FileOffset;
+        if (offset > MaxClassicOffset)
+            throw new NotSupportedException("A classic cross-reference table can't address offsets beyond 9,999,999,999 bytes.");
         var table = new StringBuilder("xref\n");
         foreach (var (first, entries) in Subsections())
         {
@@ -86,6 +93,8 @@ internal sealed class PdfIncrementalUpdate
         int number = Allocate();
         long offset = FileOffset;
         _written.Add((number, 0, offset));
+        int offsetWidth = 4;
+        while (offsetWidth < 8 && offset >> (8 * offsetWidth) != 0) offsetWidth++;
         var rows = new MemoryStream();
         var index = new PdfArray();
         foreach (var (first, entries) in Subsections())
@@ -95,14 +104,14 @@ internal sealed class PdfIncrementalUpdate
             foreach (var (_, generation, objectOffset) in entries)
             {
                 rows.WriteByte(1);
-                for (int shift = 24; shift >= 0; shift -= 8) rows.WriteByte((byte)(objectOffset >> shift));
+                for (int shift = 8 * (offsetWidth - 1); shift >= 0; shift -= 8) rows.WriteByte((byte)(objectOffset >> shift));
                 rows.WriteByte((byte)(generation >> 8));
                 rows.WriteByte((byte)generation);
             }
         }
         var dictionary = Trailer(index);
         dictionary.Set("Type", new PdfName("XRef"));
-        dictionary.Set("W", new PdfArray { Items = { new PdfNumber(1), new PdfNumber(4), new PdfNumber(2) } });
+        dictionary.Set("W", new PdfArray { Items = { new PdfNumber(1), new PdfNumber(offsetWidth), new PdfNumber(2) } });
         var data = rows.ToArray();
         dictionary.Set("Length", new PdfNumber(data.Length));
         WriteText(number.ToString(CultureInfo.InvariantCulture) + " 0 obj\n" + PdfObjectSerializer.Serialize(dictionary) + "\nstream\n");
