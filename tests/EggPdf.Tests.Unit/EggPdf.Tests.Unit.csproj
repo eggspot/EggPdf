@@ -11,7 +11,6 @@
     <PackageReference Include="xunit" Version="2.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
     <PackageReference Include="FluentAssertions" Version="7.*" />
-    <!-- Test-only: validates the zero-dependency CMS builder against the reference implementation -->
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.*" />
   </ItemGroup>
 
@@ -27,8 +26,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Runs every test under a hostile regional culture (decimal comma, U+2212 minus, ...) -->
     <Compile Include="..\HostileCulture.cs" Link="HostileCulture.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Pdf\Reading\Fixtures\*.pdf" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

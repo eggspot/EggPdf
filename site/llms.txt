@@ -79,6 +79,11 @@ curl -X POST http://localhost:8080/api/render \
 - Weight-accurate faces (300–900), real font metrics, full Vietnamese/extended Latin
 - Per-character font fallback for every script (Hangul/Kana/Han, Arabic, Hebrew, Thai, Indic, symbols ⚠ ✔, ...) from installed fonts chosen by cmap coverage; uncovered characters raise a FONT_GLYPH_MISSING warning instead of silent boxes
 
+## Existing PDFs
+- `PdfReader.Open(bytes)`: `PageCount`, `GetPage(n)` (displayed width/height in points, rotation), `IsEncrypted`;
+  `PdfReader.GetPageCount(bytes)`. Any producer (xref/object streams, incremental updates, damaged files repaired),
+  safety limits for untrusted uploads, `PdfFormatException` when unreadable
+
 ## Security
 ```csharp
 // One-call PKI signing (detached CMS/PKCS#7, zero extra packages)
