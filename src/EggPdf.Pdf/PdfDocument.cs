@@ -432,7 +432,7 @@ public partial class PdfDocument
                 byte[] jpegBody = EncryptBytes(enc, img.Data, kv.Value);
                 var imgDict = new StringBuilder();
                 imgDict.Append($"<< /Type /XObject /Subtype /Image /Width {img.Width} /Height {img.Height}");
-                imgDict.Append($" /ColorSpace /DeviceRGB /BitsPerComponent {img.BitsPerComponent}");
+                imgDict.Append($" /ColorSpace {img.ColorSpace} /BitsPerComponent {img.BitsPerComponent}{img.DecodeEntry}");
                 imgDict.Append($" /Filter /DCTDecode /Length {jpegBody.Length}");
                 imgDict.Append(" >>");
                 writer.WriteLine(imgDict.ToString());
@@ -836,7 +836,7 @@ public partial class PdfDocument
     /// raw deflate body, Adler-32 checksum. DeflateStream alone emits raw deflate
     /// (RFC 1951), which strict PDF viewers reject.
     /// </summary>
-    private static byte[] CompressZlib(byte[] data)
+    internal static byte[] CompressZlib(byte[] data)
     {
         using var ms = new MemoryStream();
         ms.WriteByte(0x78); // CMF: deflate, 32K window
