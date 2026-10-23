@@ -37,6 +37,22 @@ public class StatisticsTests
     }
 
     [Fact]
+    public async Task CollectStatistics_CancelledRenderAsync_LeavesNoStaleCount()
+    {
+        var statistics = new RenderStatistics();
+        var doc = Document.New().CollectStatistics(statistics);
+        doc.AddPage().Content().Item().Text("only page");
+        doc.Render();
+        using var cancelled = new System.Threading.CancellationTokenSource();
+        cancelled.Cancel();
+
+        Func<Task> act = () => doc.RenderAsync(cancelled.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        statistics.PageCount.Should().Be(0);
+    }
+
+    [Fact]
     public void CollectStatistics_Null_Throws()
     {
         Action act = () => Document.New().CollectStatistics(null!);

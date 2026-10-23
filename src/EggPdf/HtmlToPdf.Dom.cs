@@ -70,6 +70,7 @@ public static partial class HtmlToPdf
     internal static byte[] RenderDocumentWithOptions(HtmlDocument document, string? basePath, PdfRenderOptions options,
         CancellationToken ct = default)
     {
+        options.Statistics?.Reset();
         return RenderInternal(document, basePath, options.Encryption, options.Conformance, options.Invoice, options.Tagged,
             options.UaVersion, options.Warnings, CreateResourceLoader(options, basePath, ct), options.Statistics);
     }
@@ -78,6 +79,7 @@ public static partial class HtmlToPdf
     internal static Task<byte[]> RenderDocumentWithOptionsAsync(HtmlDocument document, string? basePath, PdfRenderOptions options,
         CancellationToken ct)
     {
+        options.Statistics?.Reset();
         ct.ThrowIfCancellationRequested();
         try
         {

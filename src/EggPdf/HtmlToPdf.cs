@@ -286,6 +286,7 @@ public static partial class HtmlToPdf
     /// </summary>
     public static Task<byte[]> RenderAsync(string? html, PdfRenderOptions options, CancellationToken ct = default)
     {
+        options?.Statistics?.Reset();
         ct.ThrowIfCancellationRequested();
         try
         {
@@ -299,6 +300,7 @@ public static partial class HtmlToPdf
 
     private static byte[] RenderWithOptions(string? html, PdfRenderOptions? options, CancellationToken ct)
     {
+        options?.Statistics?.Reset();
         return RenderInternal(ApplyRenderOptions(html ?? "", options), null,
             options?.Encryption, options?.Conformance, options?.Invoice, options?.Tagged ?? false,
             options?.UaVersion ?? Pdf.PdfUaVersion.Ua1, options?.Warnings, CreateResourceLoader(options, null, ct),
@@ -378,7 +380,6 @@ public static partial class HtmlToPdf
     private static byte[] RenderInternal(HtmlDocument document, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1, WarningCollector? warnings = null, ResourceLoader? resources = null, RenderStatistics? statistics = null)
     {
         resources ??= ResourceLoader.BuiltIn(basePath);
-        if (statistics != null) statistics.PageCount = 0; // a render that throws must not leave a stale count
 
         // 1b. Decode Cloudflare email obfuscation (browsers do this via script,
         // which a PDF engine does not run).

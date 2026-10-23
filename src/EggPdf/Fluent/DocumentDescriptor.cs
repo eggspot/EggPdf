@@ -223,7 +223,8 @@ public sealed class DocumentDescriptor
 
     /// <summary>
     /// Fills <paramref name="collector"/> with facts about the PDF each render writes, e.g.
-    /// <see cref="RenderStatistics.PageCount"/>. Read it after rendering. Same as <see cref="PdfRenderOptions.Statistics"/>.
+    /// <see cref="RenderStatistics.PageCount"/>. Read it after rendering; every render of this document shares it, so
+    /// don't render the same document concurrently while reading it. Same as <see cref="PdfRenderOptions.Statistics"/>.
     /// </summary>
     public DocumentDescriptor CollectStatistics(RenderStatistics collector)
     {

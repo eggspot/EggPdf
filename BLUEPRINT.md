@@ -2040,7 +2040,7 @@ POST /api/render
     }
   }
   Response: application/pdf (streamed)
-  Headers: X-EggPdf-Pages (page count), X-EggPdf-Warnings (warning count)
+  Headers: X-EggPdf-Page-Count (page count), X-EggPdf-Warnings (warning messages, when any)
 
 POST /api/render/image
   Body: {

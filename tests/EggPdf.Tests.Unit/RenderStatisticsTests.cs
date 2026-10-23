@@ -69,6 +69,20 @@ public class RenderStatisticsTests
     }
 
     [Fact]
+    public async Task RenderAsync_CancelledBeforeStart_LeavesNoStaleCount()
+    {
+        var statistics = new RenderStatistics();
+        HtmlToPdf.Render(ThreePages, new PdfRenderOptions { Statistics = statistics });
+        using var cancelled = new System.Threading.CancellationTokenSource();
+        cancelled.Cancel();
+
+        Func<Task> act = () => HtmlToPdf.RenderAsync("<p>x</p>", new PdfRenderOptions { Statistics = statistics }, cancelled.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        statistics.PageCount.Should().Be(0);
+    }
+
+    [Fact]
     public void Render_FailingRender_LeavesNoStaleCount()
     {
         var statistics = new RenderStatistics();
