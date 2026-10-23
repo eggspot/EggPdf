@@ -170,6 +170,17 @@ public class ApiEndpointTests
     }
 
     [Fact]
+    public async Task Stamp_NullStampEntry_ReturnsBadRequest()
+    {
+        var pdf = System.Convert.ToBase64String(EggPdf.HtmlToPdf.Render("<p>x</p>"));
+        var content = new StringContent("{\"pdf\":\"" + pdf + "\",\"stamps\":[null]}", Encoding.UTF8, "application/json");
+
+        var resp = await _client.PostAsync($"{_fixture.BaseUrl}/api/stamp", content);
+
+        resp.StatusCode.Should().Be(System.Net.HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task RenderUrl_LoopbackAddress_Refused()
     {
         var content = new StringContent(

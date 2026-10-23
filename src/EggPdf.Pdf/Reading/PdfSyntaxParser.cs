@@ -246,21 +246,21 @@ internal sealed class PdfSyntaxParser
     private PdfName ReadName()
     {
         Position++;
-        var bytes = new List<byte>();
+        var name = new StringBuilder();
         while (Position < _end && !IsWhitespace(_data[Position]) && !IsDelimiter(_data[Position]))
         {
             byte b = _data[Position++];
             if (b == '#' && Position + 1 < _end && TryHex(_data[Position], out int hi) && TryHex(_data[Position + 1], out int lo))
             {
-                bytes.Add((byte)(hi * 16 + lo));
+                name.Append((char)(hi * 16 + lo));
                 Position += 2;
             }
             else
             {
-                bytes.Add(b);
+                name.Append((char)b);
             }
         }
-        return new PdfName(Encoding.UTF8.GetString(bytes.ToArray()));
+        return new PdfName(name.ToString());
     }
 
     private PdfString ReadLiteralString()

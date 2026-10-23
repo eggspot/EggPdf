@@ -84,7 +84,8 @@ curl -X POST http://localhost:8080/api/render \
   `PdfReader.GetPageCount(bytes)`. Any producer (xref/object streams, incremental updates, damaged files repaired),
   safety limits for untrusted uploads, `PdfFormatException` when unreadable
 - `new PdfStamper(pdf).AddImage(page, png, x, y, width, height).Build()`: images on existing pages (top-left, points,
-  rotation-aware), appended as an incremental update so earlier signatures stay valid; REST `POST /api/stamp`
+  rotation-aware), appended as an incremental update so earlier signatures still verify (validators report the
+  added content); certified (DocMDP) PDFs are refused; REST `POST /api/stamp`
 
 ## Security
 ```csharp

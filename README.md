@@ -350,7 +350,9 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   by scanning, with safety limits for untrusted uploads (`PdfFormatException` when unreadable)
 - Stamp images onto pages of an existing PDF (`new PdfStamper(pdf).AddImage(page, png, x, y, width, height).Build()`):
   PNG/JPEG/GIF/BMP/WebP at top-left coordinates in points on the page as displayed (crop box and rotation handled),
-  stretch or contain; written as an incremental update, so earlier signatures still verify. REST `POST /api/stamp`
+  stretch or contain; written as an incremental update, so the bytes an earlier signature covers are unchanged and it
+  still verifies (validators report the content added after signing). Certified (DocMDP) PDFs are refused, since no
+  certification level permits new page content. REST `POST /api/stamp`
 - JPEG images keep their colour space (grayscale, RGB, CMYK incl. Adobe-inverted) instead of always being tagged RGB
 - QR codes and barcodes
 - ZUGFeRD/Factur-X e-invoicing (`HtmlToPdf.Render(html, PdfAConformance.PdfA3b, new FacturXInvoice {...})`,

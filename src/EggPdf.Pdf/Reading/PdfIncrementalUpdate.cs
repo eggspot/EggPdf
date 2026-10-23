@@ -8,6 +8,7 @@ namespace EggPdf.Pdf;
 
 internal sealed class PdfIncrementalUpdate
 {
+    private const int MaxObjectNumber = 8_388_607;
     private static readonly Encoding Latin1 = Encoding.GetEncoding(28591);
 
     private readonly MemoryStream _output = new();
@@ -23,9 +24,16 @@ internal sealed class PdfIncrementalUpdate
             _output.WriteByte((byte)'\n');
         int declaredSize = PdfStreamDecoder.IntegerOr(store.Trailer.Get("Size"), 0);
         _nextNumber = Math.Max(store.HighestObjectNumber + 1, declaredSize);
+        if (_nextNumber > MaxObjectNumber + 1)
+            throw new PdfFormatException("The PDF's trailer /Size is beyond the 8,388,607 objects a PDF can hold.");
     }
 
-    public int Allocate() => _nextNumber++;
+    public int Allocate()
+    {
+        if (_nextNumber > MaxObjectNumber)
+            throw new PdfFormatException("The update would need more than the 8,388,607 objects a PDF can hold.");
+        return _nextNumber++;
+    }
 
     public void WriteObject(int number, int generation, PdfObject value) =>
         Write(number, generation, PdfObjectSerializer.Serialize(value), null);

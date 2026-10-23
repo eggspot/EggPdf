@@ -402,7 +402,7 @@ app.MapPost("/api/stamp", async (HttpContext ctx) =>
         var stamper = new EggPdf.Pdf.PdfStamper(Convert.FromBase64String(request.Pdf));
         foreach (var stamp in request.Stamps)
         {
-            if (string.IsNullOrEmpty(stamp.Image))
+            if (string.IsNullOrEmpty(stamp?.Image))
                 return Results.BadRequest(new { error = "every stamp needs an image" });
             var fit = (stamp.Fit ?? "stretch").ToLowerInvariant() switch
             {

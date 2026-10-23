@@ -177,6 +177,113 @@ public class PdfStamperTests
     }
 
     [Fact]
+    public void Build_NonUtf8ResourceNames_SurviveByteForByte()
+    {
+        var original = new TestPdfBuilder()
+            .Add(1, "<< /Type /Catalog /Pages 2 0 R >>")
+            .Add(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 300 300] >>")
+            .Add(3, "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /Font << /F#E9 5 0 R /F#E8 5 0 R >> " +
+                    "/ColorSpace << /CS0 [/Separation /PANTONE#AE#20Red /DeviceCMYK 6 0 R] >> >> >>")
+            .Add(4, "<< /Length 0 >>\nstream\n\nendstream")
+            .Add(5, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+            .Add(6, "<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 1 1 0] /N 1 >>")
+            .BuildClassic(root: 1);
+
+        var stamped = new PdfStamper(original).AddImage(1, Png, 0, 0, 10, 10).Build();
+
+        var appended = Latin1(stamped).Substring(original.Length);
+        appended.Should().Contain("/F#E9 5 0 R").And.Contain("/F#E8 5 0 R").And.Contain("/PANTONE#AE#20Red");
+    }
+
+    [Fact]
+    public void Build_RealNumbersInThePageDictionary_KeepTheirPrecision()
+    {
+        var original = new TestPdfBuilder()
+            .Add(1, "<< /Type /Catalog /Pages 2 0 R >>")
+            .Add(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+            .Add(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.27559 841.88976] /UserData [-0.000049] >>")
+            .BuildClassic(root: 1);
+
+        var stamped = new PdfStamper(original).AddImage(1, Png, 0, 0, 10, 10).Build();
+
+        Latin1(stamped).Substring(original.Length).Should().Contain("595.27559").And.Contain("841.88976").And.Contain("-0.000049");
+    }
+
+    [Fact]
+    public void Build_StampsAreMarkedAsArtifactsForTaggedDocuments()
+    {
+        var original = RotatedDocument(0);
+
+        var stamped = new PdfStamper(original).AddImage(1, Png, 0, 0, 10, 10).Build();
+
+        Latin1(stamped).Substring(original.Length).Should().MatchRegex(@"/Artifact BMC q [^\n]* Do Q EMC");
+    }
+
+    [Fact]
+    public void Build_SameImageOnSeveralPages_IsEmbeddedOnce()
+    {
+        var original = HtmlToPdf.Render("<div style=\"page-break-after:always\">a</div><div style=\"page-break-after:always\">b</div><div>c</div>");
+
+        var stamped = new PdfStamper(original)
+            .AddImage(1, Png, 0, 0, 10, 10)
+            .AddImage(2, Png, 0, 0, 10, 10)
+            .AddImage(3, Png, 0, 0, 10, 10)
+            .Build();
+
+        var appended = Latin1(stamped).Substring(original.Length);
+        Regex.Matches(appended, @"/SMask \d+ 0 R").Count.Should().Be(1);
+        Regex.Matches(appended, @"/Subtype /Image").Count.Should().Be(2, "one image plus its soft mask");
+    }
+
+    [Theory]
+    [InlineData("/P 1")]
+    [InlineData("/P 2")]
+    [InlineData("/P 3")]
+    [InlineData("")]
+    public void Constructor_CertifiedDocument_ThrowsNotSupported(string permission)
+    {
+        var original = new TestPdfBuilder()
+            .Add(1, "<< /Type /Catalog /Pages 2 0 R /Perms << /DocMDP 4 0 R >> >>")
+            .Add(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 300 300] >>")
+            .Add(3, "<< /Type /Page /Parent 2 0 R >>")
+            .Add(4, $"<< /Type /Sig /Reference [<< /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams {permission} /V /1.2 >> >>] >>")
+            .BuildClassic(root: 1);
+
+        Action act = () => new PdfStamper(original);
+
+        act.Should().Throw<NotSupportedException>().WithMessage("*certif*");
+    }
+
+    [Fact]
+    public void Constructor_HostileTrailerSize_ThrowsPdfFormatException()
+    {
+        var original = new TestPdfBuilder()
+            .Add(1, "<< /Type /Catalog /Pages 2 0 R >>")
+            .Add(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 300 300] >>")
+            .Add(3, "<< /Type /Page /Parent 2 0 R >>")
+            .BuildClassic(root: 1);
+        var hostile = Encoding.GetEncoding("ISO-8859-1").GetBytes(
+            Latin1(original).Replace("/Size 4", "/Size 2147483647"));
+
+        Action act = () => new PdfStamper(hostile).AddImage(1, Png, 0, 0, 10, 10).Build();
+
+        act.Should().Throw<PdfFormatException>();
+    }
+
+    [Theory]
+    [InlineData(1e300, 0, 10, 10)]
+    [InlineData(0, 0, 1e-9, 10)]
+    [InlineData(0, 0, 10, 2e6)]
+    public void AddImage_OutOfRangeGeometry_Throws(double x, double y, double width, double height)
+    {
+        var stamper = new PdfStamper(HtmlToPdf.Render("<p>x</p>"));
+
+        Action act = () => stamper.AddImage(1, Png, x, y, width, height);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
     public void AddImage_PageOutOfRange_Throws()
     {
         var stamper = new PdfStamper(HtmlToPdf.Render("<p>x</p>"));

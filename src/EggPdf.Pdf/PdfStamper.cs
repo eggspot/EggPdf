@@ -19,12 +19,14 @@ public enum PdfImageFit
 /// the original bytes, so everything already in the file (fonts, annotations, form fields) stays as it was and an
 /// earlier signature still verifies over the bytes it signed. Positions are in PDF points with the origin at the
 /// top-left of the page as a viewer shows it (crop box and rotation applied), the same space as
-/// <see cref="PdfReader.GetPage"/>. Encrypted files and files whose cross-reference had to be repaired can't be
-/// stamped.
+/// <see cref="PdfReader.GetPage"/>. Encrypted files, files whose cross-reference had to be repaired and certified
+/// (DocMDP) files can't be stamped. Stamps are marked as artifacts so tagged PDFs stay valid.
 /// </summary>
 public sealed class PdfStamper
 {
     private const string ResourceNamePrefix = "EggPdfStamp";
+    private const double MaxExtent = 14400;
+    private const double MinSize = 0.01;
 
     private sealed class Stamp
     {
@@ -51,10 +53,11 @@ public sealed class PdfStamper
     private readonly byte[] _original;
     private readonly PdfReader _reader;
     private readonly List<Stamp> _stamps = new();
+    private readonly List<(byte[] Source, PdfImage Decoded)> _images = new();
 
     /// <summary>Opens <paramref name="pdf"/> for stamping; the bytes aren't modified.</summary>
     /// <exception cref="PdfFormatException">The bytes aren't a readable PDF, or its cross-reference is damaged.</exception>
-    /// <exception cref="NotSupportedException">The PDF is encrypted.</exception>
+    /// <exception cref="NotSupportedException">The PDF is encrypted, or certified with a DocMDP signature.</exception>
     public PdfStamper(byte[] pdf)
     {
         _original = pdf ?? throw new ArgumentNullException(nameof(pdf));
@@ -62,6 +65,9 @@ public sealed class PdfStamper
         if (_reader.IsEncrypted) throw new NotSupportedException("Stamping an encrypted PDF isn't supported.");
         if (_reader.Store.WasRepaired)
             throw new PdfFormatException("The PDF's cross-reference is damaged: it can be read but not updated in place.");
+        if (IsCertified(_reader.Store))
+            throw new NotSupportedException(
+                "The PDF is certified (a DocMDP signature): no certification level permits new page content, so stamping would invalidate it.");
     }
 
     /// <summary>
@@ -69,7 +75,10 @@ public sealed class PdfStamper
     /// in the box whose top-left corner is (<paramref name="x"/>, <paramref name="y"/>), in points from the top-left of
     /// the displayed page.
     /// </summary>
-    /// <exception cref="ArgumentOutOfRangeException">The page doesn't exist, or a size isn't a positive finite number.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The page doesn't exist, a position is outside ±14,400 points, or a size is outside 0.01 to 14,400 points
+    /// (14,400 points is the largest page side PDF allows).
+    /// </exception>
     /// <exception cref="ArgumentException">The bytes aren't a supported image.</exception>
     public PdfStamper AddImage(int pageNumber, byte[] image, double x, double y, double width, double height,
         PdfImageFit fit = PdfImageFit.Stretch)
@@ -77,14 +86,22 @@ public sealed class PdfStamper
         if (image == null) throw new ArgumentNullException(nameof(image));
         if (pageNumber < 1 || pageNumber > _reader.PageCount)
             throw new ArgumentOutOfRangeException(nameof(pageNumber), pageNumber, "Page numbers run from 1 to the page count.");
-        if (!IsFinite(x)) throw new ArgumentOutOfRangeException(nameof(x));
-        if (!IsFinite(y)) throw new ArgumentOutOfRangeException(nameof(y));
-        if (!IsFinite(width) || width <= 0) throw new ArgumentOutOfRangeException(nameof(width));
-        if (!IsFinite(height) || height <= 0) throw new ArgumentOutOfRangeException(nameof(height));
-        var decoded = DecodeImage(image)
-            ?? throw new ArgumentException("Not a supported image: use PNG, JPEG, GIF, BMP or WebP.", nameof(image));
-        _stamps.Add(new Stamp(pageNumber, decoded, x, y, width, height, fit));
+        if (!InRange(x, -MaxExtent)) throw new ArgumentOutOfRangeException(nameof(x), x, "Positions run from -14,400 to 14,400 points.");
+        if (!InRange(y, -MaxExtent)) throw new ArgumentOutOfRangeException(nameof(y), y, "Positions run from -14,400 to 14,400 points.");
+        if (!InRange(width, MinSize)) throw new ArgumentOutOfRangeException(nameof(width), width, "Sizes run from 0.01 to 14,400 points.");
+        if (!InRange(height, MinSize)) throw new ArgumentOutOfRangeException(nameof(height), height, "Sizes run from 0.01 to 14,400 points.");
+        _stamps.Add(new Stamp(pageNumber, Decoded(image), x, y, width, height, fit));
         return this;
+    }
+
+    private PdfImage Decoded(byte[] image)
+    {
+        foreach (var (source, decoded) in _images)
+            if (SameBytes(source, image)) return decoded;
+        var result = DecodeImage(image)
+            ?? throw new ArgumentException("Not a supported image: use PNG, JPEG, GIF, BMP or WebP.", nameof(image));
+        _images.Add((image, result));
+        return result;
     }
 
     /// <summary>Returns the original PDF with the images added as an incremental update (the input itself when nothing was added).</summary>
@@ -103,12 +120,14 @@ public sealed class PdfStamper
             list.Add(stamp);
         }
 
+        var imageNumbers = new Dictionary<PdfImage, int>();
         foreach (var pair in byPage)
-            StampPage(update, _reader.GetPageNode(pair.Key), pair.Value, saveState);
+            StampPage(update, _reader.GetPageNode(pair.Key), pair.Value, saveState, imageNumbers);
         return update.Finish();
     }
 
-    private void StampPage(PdfIncrementalUpdate update, PdfPageNode page, List<Stamp> stamps, int saveState)
+    private void StampPage(PdfIncrementalUpdate update, PdfPageNode page, List<Stamp> stamps, int saveState,
+        Dictionary<PdfImage, int> imageNumbers)
     {
         var reference = page.Reference
             ?? throw new NotSupportedException("The page is written inline in its parent's /Kids and can't be revised.");
@@ -116,16 +135,17 @@ public sealed class PdfStamper
 
         var resources = Copy(store.Resolve(page.Resources) as PdfDictionary);
         var xObjects = Copy(store.Resolve(resources.Get("XObject")) as PdfDictionary);
-        var operators = new StringBuilder("Q\n");
+        var operators = new StringBuilder("\nQ\n");
         int suffix = 1;
         foreach (var stamp in stamps)
         {
             string name;
             do name = ResourceNamePrefix + (suffix++).ToString(System.Globalization.CultureInfo.InvariantCulture);
             while (xObjects.Get(name) != null);
-            int imageNumber = WriteImage(update, stamp.Image);
+            if (!imageNumbers.TryGetValue(stamp.Image, out int imageNumber))
+                imageNumbers[stamp.Image] = imageNumber = WriteImage(update, stamp.Image);
             xObjects.Set(name, new PdfReference(imageNumber, 0));
-            operators.Append(Placement(page, stamp)).Append(" /").Append(name).Append(" Do Q\n");
+            operators.Append("/Artifact BMC ").Append(Placement(page, stamp)).Append(" /").Append(name).Append(" Do Q EMC\n");
         }
         resources.Set("XObject", xObjects);
 
@@ -225,5 +245,26 @@ public sealed class PdfStamper
         return string.Join(" ", parts);
     }
 
-    private static bool IsFinite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
+    private static bool InRange(double value, double minimum) => value >= minimum && value <= MaxExtent;
+
+    private static bool SameBytes(byte[] a, byte[] b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++)
+            if (a[i] != b[i]) return false;
+        return true;
+    }
+
+    private static bool IsCertified(PdfObjectStore store)
+    {
+        var permissions = store.Resolve(store.FindCatalog()?.Get("Perms")) as PdfDictionary;
+        var signature = store.Resolve(permissions?.Get("DocMDP")) as PdfDictionary;
+        if (store.Resolve(signature?.Get("Reference")) is not PdfArray references) return false;
+        foreach (var item in references.Items)
+            if (store.Resolve(item) is PdfDictionary reference
+                && store.Resolve(reference.Get("TransformMethod")) is PdfName { Value: "DocMDP" })
+                return true;
+        return false;
+    }
 }

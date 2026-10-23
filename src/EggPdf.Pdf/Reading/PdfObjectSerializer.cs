@@ -16,10 +16,10 @@ internal static class PdfObjectSerializer
     public static string Number(double value)
     {
         if (double.IsNaN(value) || double.IsInfinity(value)) return "0";
-        double rounded = Math.Round(value, 4);
+        double rounded = Math.Round(value, 10);
         return rounded == Math.Floor(rounded) && Math.Abs(rounded) < 1e15
             ? ((long)rounded).ToString(CultureInfo.InvariantCulture)
-            : rounded.ToString("0.####", CultureInfo.InvariantCulture);
+            : rounded.ToString("0.##########", CultureInfo.InvariantCulture);
     }
 
     private static void Write(StringBuilder output, PdfObject value)
@@ -75,12 +75,20 @@ internal static class PdfObjectSerializer
     private static void WriteName(StringBuilder output, string name)
     {
         output.Append('/');
-        foreach (var b in Encoding.UTF8.GetBytes(name))
+        foreach (char c in name)
         {
-            if (b < 0x21 || b > 0x7E || b == '#' || PdfSyntaxParser.IsDelimiter(b))
-                output.Append('#').Append(b.ToString("X2", CultureInfo.InvariantCulture));
+            if (c > 0xFF)
+                foreach (var b in Encoding.UTF8.GetBytes(c.ToString())) WriteNameByte(output, b);
             else
-                output.Append((char)b);
+                WriteNameByte(output, (byte)c);
         }
+    }
+
+    private static void WriteNameByte(StringBuilder output, byte b)
+    {
+        if (b < 0x21 || b > 0x7E || b == '#' || PdfSyntaxParser.IsDelimiter(b))
+            output.Append('#').Append(b.ToString("X2", CultureInfo.InvariantCulture));
+        else
+            output.Append((char)b);
     }
 }
