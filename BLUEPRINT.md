@@ -27,7 +27,7 @@ The .NET ecosystem has no good pure-C# HTML-to-PDF solution:
 | **QuestPDF** | Excellent fluent API, but no HTML input. Different paradigm |
 | **Aspose.PDF** | Commercial ($$$). Huge binary. Inconsistent HTML rendering |
 
-**EggPdf fills the gap:** Chrome-quality HTML rendering, pure C#, MIT-licensed, single small DLL, zero dependencies. Works everywhere -- .NET Framework 4.6.2 through .NET 9+.
+**EggPdf fills the gap:** Chrome-quality HTML rendering, pure C#, MIT OR Apache-2.0 licensed, single small DLL, zero dependencies. Works everywhere -- .NET Framework 4.6.2 through .NET 9+.
 
 ---
 
@@ -3610,7 +3610,7 @@ Where EggPdf fits among existing .NET HTML-to-PDF solutions:
 | **QuestPDF** | Fluent PDF builder (no HTML) | None | Community MIT | N/A | Yes |
 | **PdfSharpCore** | Low-level PDF (no HTML) | None | MIT | N/A | Yes |
 | **WeasyPrint** | Own engine | Python runtime | BSD | High | No (.NET) |
-| **EggPdf** | Own rendering engine | **None** | **MIT** | **Target: High** | **Yes** |
+| **EggPdf** | Own rendering engine | **None** | **MIT OR Apache-2.0** | **Target: High** | **Yes** |
 
 **Our unique position:** The only pure C#, zero-dependency library that accepts raw HTML input and targets Chrome-level print quality. No other library in the .NET ecosystem occupies this space.
 
@@ -3692,7 +3692,7 @@ Where EggPdf fits among existing .NET HTML-to-PDF solutions:
 ## Project Governance
 
 ### License
-**MIT License.** Chosen for maximum adoption. No copyleft, no commercial license needed. Same license as QuestPDF, PdfSharpCore, AngleSharp.
+**MIT OR Apache-2.0**, at the user's option (owner, 2026-10-23). Chosen for maximum adoption: no copyleft, no commercial license needed, and Apache-2.0 adds a patent grant.
 
 ### Versioning Strategy
 **Semantic Versioning (SemVer 2.0):**
@@ -3712,7 +3712,7 @@ Where EggPdf fits among existing .NET HTML-to-PDF solutions:
 ### Project Files
 ```
 EggPdf/
-|-- LICENSE                          # MIT
+|-- LICENSE-MIT, LICENSE-APACHE     # MIT OR Apache-2.0
 |-- CHANGELOG.md                     # Per-version changes (keep updated every PR)
 |-- CONTRIBUTING.md                  # How to contribute: code style, PR process, testing requirements
 |-- ARCHITECTURE.md                  # High-level architecture guide (extracted from this blueprint)

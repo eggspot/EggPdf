@@ -11,7 +11,7 @@
     <!-- Shared NuGet metadata (applies when IsPackable=true) -->
     <Authors>Eggspot</Authors>
     <Company>Eggspot</Company>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/eggspot/EggPdf</PackageProjectUrl>
     <RepositoryUrl>https://github.com/eggspot/EggPdf</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

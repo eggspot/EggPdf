@@ -3,7 +3,7 @@
 [![CI](https://github.com/eggspot/EggPdf/actions/workflows/ci.yml/badge.svg)](https://github.com/eggspot/EggPdf/actions/workflows/ci.yml)
 [![NuGet](https://img.shields.io/nuget/v/EggPdf.svg)](https://www.nuget.org/packages/EggPdf)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/EggPdf.svg)](https://www.nuget.org/packages/EggPdf)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-yellow.svg)](LICENSE-MIT)
 
 **Pure C# HTML/CSS to PDF rendering engine.** Zero dependencies. Chrome-quality output.
 
@@ -24,7 +24,7 @@ Write normal HTML and CSS. Get a perfect PDF. No WebKit, no Chromium, no native 
 | PDF/UA | UA-1 | No | No | No |
 | Tagged PDF | Yes | No | No | No |
 | Digital Signatures | Yes | No | No | No |
-| License | MIT | Commercial | LGPL | Apache 2 |
+| License | MIT or Apache-2.0 | Commercial | LGPL | Apache 2 |
 
 ## Quick Start
 
@@ -492,6 +492,6 @@ Your sponsorship helps us:
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+Licensed under either the [MIT License](LICENSE-MIT) or the [Apache License 2.0](LICENSE-APACHE), at your option.
 
 Copyright (c) 2025 Eggspot

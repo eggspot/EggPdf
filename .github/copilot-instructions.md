@@ -2,7 +2,7 @@
 
 ## Project
 EggPdf is a pure C#, zero-dependency HTML/CSS-to-PDF rendering engine.
-MIT license. Open source at https://github.com/eggspot/EggPdf
+MIT OR Apache-2.0 license. Open source at https://github.com/eggspot/EggPdf
 
 ## Architecture
 8-stage pipeline: HTML Parse -> CSS Parse -> Style Resolve -> Box Generate -> Layout -> Fragment -> Paint -> PDF Write.
