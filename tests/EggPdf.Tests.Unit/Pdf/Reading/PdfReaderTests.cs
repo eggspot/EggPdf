@@ -30,6 +30,18 @@ public class PdfReaderTests
     }
 
     [Fact]
+    public void Open_MacOsQuartzOutput_ReadsPagesAndLetterSize()
+    {
+        var pdf = System.IO.File.ReadAllBytes(System.IO.Path.Combine(AppContext.BaseDirectory, "Pdf", "Reading", "Fixtures", "macos-quartz-2-pages.pdf"));
+
+        var reader = PdfReader.Open(pdf);
+
+        reader.PageCount.Should().Be(2);
+        reader.GetPage(2).Width.Should().Be(612);
+        reader.GetPage(2).Height.Should().Be(792);
+    }
+
+    [Fact]
     public void Open_ClassicXref_InheritsMediaBoxFromPageTree()
     {
         var reader = PdfReader.Open(TwoPageDocument().BuildClassic(root: 1));
@@ -121,7 +133,7 @@ public class PdfReaderTests
 
         Action act = () => PdfReader.Open(pdf);
 
-        act.Should().Throw<PdfFormatException>();
+        act.Should().Throw<PdfFormatException>().WithMessage("*cycle*");
     }
 
     [Fact]
@@ -141,28 +153,15 @@ public class PdfReaderTests
     public void Open_DecompressionBombInObjectStream_ThrowsPdfFormatException()
     {
         var bomb = TestPdfBuilder.Zlib(new byte[70 * 1024 * 1024]);
-        var latin1 = Encoding.GetEncoding("ISO-8859-1");
-        var pdf = new TestPdfBuilder()
+        var withBomb = new TestPdfBuilder()
             .Add(1, "<< /Type /Catalog /Pages 2 0 R >>")
             .Add(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", inObjectStream: true)
             .Add(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>")
-            .BuildWithXrefStream(root: 1, pngUpPredictor: false);
-        var text = latin1.GetString(pdf);
-        int streamStart = text.IndexOf("/Type /ObjStm", StringComparison.Ordinal);
-        int dataStart = text.IndexOf("stream\n", streamStart, StringComparison.Ordinal) + 7;
-        int dataEnd = text.IndexOf("\nendstream", dataStart, StringComparison.Ordinal);
-        var lengthKey = text.IndexOf("/Length ", streamStart, StringComparison.Ordinal);
-        var lengthEnd = text.IndexOf(" >>", lengthKey, StringComparison.Ordinal);
-        var prefix = text.Substring(0, lengthKey) + "/Length " + bomb.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                     + text.Substring(lengthEnd, dataStart - lengthEnd);
-        var withBomb = new byte[latin1.GetByteCount(prefix) + bomb.Length + (pdf.Length - dataEnd)];
-        latin1.GetBytes(prefix).CopyTo(withBomb, 0);
-        bomb.CopyTo(withBomb, latin1.GetByteCount(prefix));
-        Array.Copy(pdf, dataEnd, withBomb, latin1.GetByteCount(prefix) + bomb.Length, pdf.Length - dataEnd);
+            .BuildWithXrefStream(root: 1, pngUpPredictor: false, objectStreamData: bomb);
 
         Action act = () => PdfReader.Open(withBomb);
 
-        act.Should().Throw<PdfFormatException>();
+        act.Should().Throw<PdfFormatException>().WithMessage("*64 MB*");
     }
 
     [Fact]

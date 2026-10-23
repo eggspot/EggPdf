@@ -345,6 +345,9 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Password protection with permission flags — view-only PDFs that block editing/copying (RC4 40/128-bit)
 - AcroForm fields (fillable forms from HTML form elements)
 - PDF merging
+- Read existing PDFs from any producer (`PdfReader.Open(bytes)`: page count, displayed page size and rotation,
+  encryption flag): classic and stream cross-references, incremental updates, object streams, damaged files repaired
+  by scanning, with safety limits for untrusted uploads (`PdfFormatException` when unreadable)
 - QR codes and barcodes
 - ZUGFeRD/Factur-X e-invoicing (`HtmlToPdf.Render(html, PdfAConformance.PdfA3b, new FacturXInvoice {...})`,
   `PdfRenderOptions.Invoice`, the CLI's `--invoice <path>` flag, or the REST API's `options.invoice`

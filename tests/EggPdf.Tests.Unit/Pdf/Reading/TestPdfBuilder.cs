@@ -38,7 +38,7 @@ internal sealed class TestPdfBuilder
         return output.ToArray();
     }
 
-    public byte[] BuildWithXrefStream(int root, bool pngUpPredictor, bool hybrid = false)
+    public byte[] BuildWithXrefStream(int root, bool pngUpPredictor, bool hybrid = false, byte[]? objectStreamData = null)
     {
         var output = new MemoryStream();
         Write(output, "%PDF-1.7\n%\xE2\xE3\xCF\xD3\n");
@@ -64,7 +64,7 @@ internal sealed class TestPdfBuilder
             }
             var first = header.Length;
             var raw = Latin1.GetBytes(header.ToString() + data);
-            var compressed = Zlib(raw);
+            var compressed = objectStreamData ?? Zlib(raw);
             offsets[objectStreamNumber] = output.Position;
             Write(output, $"{N(objectStreamNumber)} 0 obj\n<< /Type /ObjStm /N {N(packed.Count)} /First {N(first)} /Filter /FlateDecode /Length {N(compressed.Length)} >>\nstream\n");
             output.Write(compressed, 0, compressed.Length);

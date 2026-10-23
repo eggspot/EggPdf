@@ -31,4 +31,8 @@
     <Compile Include="..\HostileCulture.cs" Link="HostileCulture.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Pdf\Reading\Fixtures\*.pdf" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
