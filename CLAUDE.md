@@ -251,8 +251,8 @@ Sync" above), also do one of, in the SAME change:
 - Add a typed `EggPdf.Fluent` method for it (e.g. `Container.Border(...)`, `PageDescriptor.Watermark(...)`),
   mirroring the naming/shape of nearby methods in `Container`/`PageDescriptor`/`ColumnDescriptor`/
   `RowDescriptor`/`TableDescriptor`
-- Or confirm it's already reachable via `.RawStyle()`/`.RawAttribute()`/`.Raw()`/`.Css()` and say so explicitly (e.g. in the PR
-  description or a code comment) -- don't leave it silently undiscoverable
+- Or confirm it's already reachable via `.RawStyle()`/`.RawAttribute()`/`.Raw()`/`.Css()` and say so explicitly in the PR
+  description -- don't leave it silently undiscoverable
 - Or, if typed sugar is genuinely out of scope for this change, say so explicitly and track it as a
   known gap (e.g. in BLUEPRINT.md) rather than letting the two APIs silently drift apart
 
