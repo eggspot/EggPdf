@@ -24,8 +24,10 @@ internal sealed class ResourceLoader
     private readonly bool _allowLocalFileAccess;
     private readonly string? _basePath;
     private readonly WarningCollector? _warnings;
-    private readonly ConcurrentDictionary<string, byte[]?> _loaded = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, bool> _warned = new(StringComparer.Ordinal);
+    // Created on first use: most renders load nothing external, and every render builds a loader
+    private ConcurrentDictionary<string, byte[]?>? _loaded;
+    private ConcurrentDictionary<string, bool>? _warned;
+    private ConcurrentDictionary<string, Text.TrueType.FontData?>? _parsedFonts;
 
     internal ResourceLoader(IResourceResolver? resolver, bool allowLocalFileAccess, string? basePath,
         WarningCollector? warnings, CancellationToken ct)
@@ -46,7 +48,8 @@ internal sealed class ResourceLoader
     internal bool UsesResolver => _resolver != null;
 
     /// <summary>Parsed web fonts for this render, keyed by source URL (resolver path only).</summary>
-    internal ConcurrentDictionary<string, Text.TrueType.FontData?> ParsedFonts { get; } = new(StringComparer.Ordinal);
+    internal ConcurrentDictionary<string, Text.TrueType.FontData?> ParsedFonts =>
+        LazyInitializer.EnsureInitialized(ref _parsedFonts, () => new(StringComparer.Ordinal))!;
 
     internal static bool IsRemote(string url) =>
         url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
@@ -76,9 +79,10 @@ internal sealed class ResourceLoader
             url = ResolveAgainstBasePath(url, basePath);
         }
 
-        if (_loaded.TryGetValue(url, out var cached)) return cached;
+        var loaded = LazyInitializer.EnsureInitialized(ref _loaded, () => new(StringComparer.Ordinal))!;
+        if (loaded.TryGetValue(url, out var cached)) return cached;
         var data = _resolver != null ? ResolveThroughResolver(url, type) : LoadBuiltIn(url, type, remote);
-        _loaded.TryAdd(url, data);
+        loaded.TryAdd(url, data);
         return data;
     }
 
@@ -102,12 +106,14 @@ internal sealed class ResourceLoader
     {
         var resolver = _resolver!;
         var limit = HtmlToPdf.ResourceTimeout;
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+        var timeout = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
         timeout.CancelAfter(limit);
 
         // Off the calling thread, so a resolver that awaits without ConfigureAwait(false) can't deadlock
         // against a caller's synchronization context while this thread blocks
         var task = Task.Run(() => resolver.ResolveAsync(url, type, timeout.Token));
+        // Disposed only once the resolver is done with its token, even if this render stops waiting first
+        task.ContinueWith(_ => timeout.Dispose(), TaskScheduler.Default);
         try
         {
             // Bounded wait even if the resolver ignores its token; throws if the caller cancels
@@ -143,7 +149,9 @@ internal sealed class ResourceLoader
 
     private void WarnOnce(string url, string code, string message)
     {
-        if (_warnings == null || !_warned.TryAdd(code + "|" + url, true)) return;
+        if (_warnings == null) return;
+        var warned = LazyInitializer.EnsureInitialized(ref _warned, () => new(StringComparer.Ordinal))!;
+        if (!warned.TryAdd(code + "|" + url, true)) return;
         lock (_warnings) _warnings.Add(code, message);
     }
 

@@ -103,6 +103,10 @@ public class HttpResourceResolver : IResourceResolver
         {
             return null; // refused address, network failure, or our own timeout
         }
+        catch (Exception ex) when (!(ex is OperationCanceledException))
+        {
+            throw new OperationCanceledException("The caller cancelled the fetch.", ex, ct);
+        }
     }
 
     private bool IsAddressAllowed(IPAddress address) =>

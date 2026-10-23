@@ -190,7 +190,9 @@ public class Program
             {
                 // Safe http(s) fetching (also loads remote images); local files stay readable, confined to
                 // the input file's directory, unless --no-local-files
-                var baseDirectory = inputPath == "-" || inputPath.StartsWith("http://") || inputPath.StartsWith("https://")
+                var baseDirectory = inputPath == "-" ||
+                                    inputPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                                    inputPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
                     ? null
                     : Path.GetDirectoryName(Path.GetFullPath(inputPath));
                 options.ResourceResolver = new CompositeResolver(baseDirectory);
