@@ -188,6 +188,48 @@ public class PdfReaderTests
     }
 
     [Fact]
+    public void Open_RepairOfManyUnterminatedStrings_TakesLinearTime()
+    {
+        var text = new StringBuilder("%PDF-1.7\n");
+        for (int k = 1; k <= 40_000; k++)
+            text.Append(k.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(" 0 obj<</Type/Catalog/A(\n");
+
+        ShouldFinishQuickly(() => PdfReader.Open(Latin1Bytes(text.ToString())));
+    }
+
+    [Fact]
+    public void Open_RepairOfManyObjectStreamsSharingOneEndstream_TakesLinearTime()
+    {
+        var text = new StringBuilder("%PDF-1.7\n");
+        for (int k = 1; k <= 40_000; k++)
+            text.Append(k.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(" 0 obj<</Type/ObjStm/N 1/First 0>>stream\n");
+        text.Append("endstream\n");
+
+        ShouldFinishQuickly(() => PdfReader.Open(Latin1Bytes(text.ToString())));
+    }
+
+    [Fact]
+    public void Open_TinyXrefStreamDeclaringMillionsOfEntries_StaysWithinMemory()
+    {
+        var rows = TestPdfBuilder.Zlib(new byte[8 * 1024 * 1024]);
+        var latin1 = Encoding.GetEncoding("ISO-8859-1");
+        var head = latin1.GetBytes("%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\n");
+        var streamHead = latin1.GetBytes("3 0 obj << /Type /XRef /W [1 0 0] /Index [0 8388607] /Size 8388607 /Root 1 0 R /Filter /FlateDecode /Length "
+            + rows.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + " >>\nstream\n");
+        var tail = latin1.GetBytes("\nendstream\nendobj\nstartxref\n" + head.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\n%%EOF\n");
+        var pdf = new byte[head.Length + streamHead.Length + rows.Length + tail.Length];
+        head.CopyTo(pdf, 0);
+        streamHead.CopyTo(pdf, head.Length);
+        rows.CopyTo(pdf, head.Length + streamHead.Length);
+        tail.CopyTo(pdf, head.Length + streamHead.Length + rows.Length);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        ShouldFinishQuickly(() => PdfReader.Open(pdf));
+
+        (GC.GetAllocatedBytesForCurrentThread() - before).Should().BeLessThan(200L * 1024 * 1024);
+    }
+
+    [Fact]
     public void Open_ObjectDeletedInLaterRevision_IsNotResurrected()
     {
         var original = TwoPageDocument().BuildClassic(root: 1);

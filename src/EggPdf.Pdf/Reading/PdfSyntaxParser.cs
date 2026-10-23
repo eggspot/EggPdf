@@ -383,7 +383,7 @@ internal sealed class PdfSyntaxParser
         }
 
         int endstream = _findEndstream?.Invoke(dataStart) ?? IndexOf(_data, "endstream", dataStart, _end);
-        if (endstream < 0) throw Error("Stream has no endstream");
+        if (endstream < 0 || endstream + "endstream".Length > _end) throw Error("Stream has no endstream");
         int dataEnd = endstream;
         if (dataEnd > dataStart && _data[dataEnd - 1] == '\n') dataEnd--;
         if (dataEnd > dataStart && _data[dataEnd - 1] == '\r') dataEnd--;

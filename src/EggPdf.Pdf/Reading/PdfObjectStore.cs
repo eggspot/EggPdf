@@ -14,6 +14,7 @@ internal sealed class PdfObjectStore
     private const int MaxNestedLengthReads = 4;
     private const long MaxDecodedBytesPerDocument = 256L * 1024 * 1024;
     private const int RepairDictionaryWindow = 4096;
+    private const int MinCrossReferenceEntryBudget = 100_000;
 
     private enum EntryKind { Free, InFile, InObjectStream }
 
@@ -51,10 +52,17 @@ internal sealed class PdfObjectStore
     private readonly Dictionary<int, ObjectStreamLayout> _objectStreams = new();
     private readonly HashSet<int> _resolving = new();
     private Dictionary<int, long>? _scannedOffsets;
+    private long[]? _scannedOffsetsAscending;
     private int[]? _endstreamOffsets;
     private long _decodedBytes;
+    private long _entryBudget;
+    private bool _repairing;
 
-    private PdfObjectStore(byte[] data) => _data = data;
+    private PdfObjectStore(byte[] data)
+    {
+        _data = data;
+        _entryBudget = Math.Max(MinCrossReferenceEntryBudget, data.Length);
+    }
 
     public PdfDictionary Trailer { get; } = new();
 
@@ -169,7 +177,7 @@ internal sealed class PdfObjectStore
                 if (!inUse && !parser.TryReadKeyword("f")) throw new PdfFormatException("Malformed cross-reference entry.");
                 int number = (int)(first + i);
                 if (inUse) AddEntry(number, new Entry(EntryKind.InFile, offset, 0));
-                else freedInRevision.Add(number);
+                else RecordFreed(number, freedInRevision);
             }
         }
         return parser.ReadObject() as PdfDictionary ?? throw new PdfFormatException("The trailer isn't a dictionary.");
@@ -219,10 +227,21 @@ internal sealed class PdfObjectStore
                 int number = (int)(first + i);
                 if (type == 1) AddEntry(number, new Entry(EntryKind.InFile, field2, 0));
                 else if (type == 2 && field2 > 0 && field2 <= MaxObjectNumber) AddEntry(number, new Entry(EntryKind.InObjectStream, 0, (int)field2));
-                else freedInRevision.Add(number);
+                else RecordFreed(number, freedInRevision);
             }
         }
         return dictionary;
+    }
+
+    private void RecordFreed(int number, List<int> freedInRevision)
+    {
+        SpendEntryBudget();
+        freedInRevision.Add(number);
+    }
+
+    private void SpendEntryBudget()
+    {
+        if (--_entryBudget < 0) throw new PdfFormatException("The cross-reference declares more objects than the file can hold.");
     }
 
     private static long ReadField(byte[] rows, ref int position, int width)
@@ -234,6 +253,7 @@ internal sealed class PdfObjectStore
 
     private void AddEntry(int number, Entry entry)
     {
+        SpendEntryBudget();
         if (number <= 0 || number > MaxObjectNumber || _entries.ContainsKey(number)) return;
         _entries[number] = entry;
     }
@@ -246,6 +266,7 @@ internal sealed class PdfObjectStore
 
     private void RebuildFromObjectScan()
     {
+        _repairing = true;
         var scanned = ScanObjectOffsets();
         foreach (var pair in scanned)
             _entries[pair.Key] = new Entry(EntryKind.InFile, pair.Value, 0);
@@ -327,7 +348,18 @@ internal sealed class PdfObjectStore
             if (parser.TryReadIndirectHeader(out int number, out _) && number <= MaxObjectNumber)
                 offsets[number] = i;
         }
+        _scannedOffsetsAscending = new long[offsets.Count];
+        offsets.Values.CopyTo(_scannedOffsetsAscending, 0);
+        Array.Sort(_scannedOffsetsAscending);
         return _scannedOffsets = offsets;
+    }
+
+    private int ParseEnd(long objectOffset)
+    {
+        if (!_repairing || _scannedOffsetsAscending == null) return _data.Length;
+        int index = Array.BinarySearch(_scannedOffsetsAscending, objectOffset + 1);
+        if (index < 0) index = ~index;
+        return index < _scannedOffsetsAscending.Length ? (int)_scannedOffsetsAscending[index] : _data.Length;
     }
 
     private int NextEndstream(int from)
@@ -345,7 +377,7 @@ internal sealed class PdfObjectStore
         return index < _endstreamOffsets.Length ? _endstreamOffsets[index] : -1;
     }
 
-    private PdfSyntaxParser NewParser(int start) => new(_data, start, _data.Length, ResolveLength, NextEndstream);
+    private PdfSyntaxParser NewParser(int start) => new(_data, start, ParseEnd(start), ResolveLength, NextEndstream);
 
     private PdfObject ReadObjectAt(long offset, int expectedNumber)
     {
@@ -369,11 +401,17 @@ internal sealed class PdfObjectStore
 
     private byte[] Decode(PdfStream stream)
     {
+        SpendDecodeBudget(stream.DataLength);
         var decoded = PdfStreamDecoder.Decode(stream);
-        _decodedBytes += decoded.Length;
+        SpendDecodeBudget(decoded.Length);
+        return decoded;
+    }
+
+    private void SpendDecodeBudget(long bytes)
+    {
+        _decodedBytes += bytes;
         if (_decodedBytes > MaxDecodedBytesPerDocument)
             throw new PdfFormatException("The document's compressed structure expands beyond the 256 MB limit.");
-        return decoded;
     }
 
     private PdfObject ReadFromObjectStream(int streamNumber, int number)
