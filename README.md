@@ -347,7 +347,9 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - PDF merging
 - Read existing PDFs from any producer (`PdfReader.Open(bytes)`: page count, displayed page size and rotation,
   encryption flag): classic and stream cross-references, incremental updates, object streams, damaged files repaired
-  by scanning, with safety limits for untrusted uploads (`PdfFormatException` when unreadable)
+  by scanning, with safety limits for untrusted uploads (`PdfFormatException` when unreadable). Pages are read on
+  demand: on a 150,000-page file, opening and looking up a page allocates kilobytes to a few MB (a flat page tree
+  costs more: every kid is classified once), instead of the ~450 MB of a full load
 - Stamp images onto pages of an existing PDF (`new PdfStamper(pdf).AddImage(page, png, x, y, width, height).Build()`):
   PNG/JPEG/GIF/BMP/WebP at top-left coordinates in points on the page as displayed (crop box and rotation handled),
   stretch or contain; written as an incremental update, so the bytes an earlier signature covers are unchanged and it

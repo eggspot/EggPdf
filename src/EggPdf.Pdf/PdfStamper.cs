@@ -106,7 +106,10 @@ public sealed class PdfStamper
     }
 
     /// <summary>Returns the original PDF with the images added as an incremental update (a copy of the input when nothing was added).</summary>
-    /// <exception cref="PdfFormatException">The update would take the file past the 8,388,607 objects a PDF can hold.</exception>
+    /// <exception cref="PdfFormatException">
+    /// A stamped page's part of the page tree is damaged, or the update would take the file past the 8,388,607 objects a
+    /// PDF can hold.
+    /// </exception>
     public byte[] Build()
     {
         var appended = AppendedBytes();
@@ -120,7 +123,10 @@ public sealed class PdfStamper
     /// Writes the original PDF followed by the images as an incremental update to <paramref name="output"/>. Only the
     /// update is held in memory, so this is the way to stamp large files.
     /// </summary>
-    /// <exception cref="PdfFormatException">The update would take the file past the 8,388,607 objects a PDF can hold.</exception>
+    /// <exception cref="PdfFormatException">
+    /// A stamped page's part of the page tree is damaged, or the update would take the file past the 8,388,607 objects a
+    /// PDF can hold.
+    /// </exception>
     public void Build(Stream output)
     {
         if (output == null) throw new ArgumentNullException(nameof(output));

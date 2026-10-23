@@ -73,12 +73,14 @@ internal sealed class TestPdfBuilder
 
         int size = xrefStreamNumber + 1;
         long xrefOffset = output.Position;
+        var packedIndex = new Dictionary<int, int>();
+        for (int i = 0; i < packed.Count; i++) packedIndex[packed[i]] = i;
         var rows = new List<byte[]>();
         for (int i = 0; i < size; i++)
         {
             if (i == xrefStreamNumber) rows.Add(Row(1, xrefOffset, 0));
             else if (offsets.TryGetValue(i, out var o)) rows.Add(Row(1, o, 0));
-            else if (packed.Contains(i)) rows.Add(Row(2, objectStreamNumber, packed.IndexOf(i)));
+            else if (packedIndex.TryGetValue(i, out int index)) rows.Add(Row(2, objectStreamNumber, index));
             else rows.Add(Row(0, 0, 0));
         }
 

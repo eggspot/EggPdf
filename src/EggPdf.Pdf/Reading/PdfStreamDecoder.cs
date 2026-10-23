@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace EggPdf.Pdf;
@@ -6,6 +7,7 @@ namespace EggPdf.Pdf;
 internal static class PdfStreamDecoder
 {
     public const int MaxDecodedBytes = 64 * 1024 * 1024;
+    private const int InflateChunkBytes = 64 * 1024;
 
     public static byte[] Decode(PdfStream stream)
     {
@@ -17,13 +19,16 @@ internal static class PdfStreamDecoder
             else throw new PdfFormatException("Chained stream filters aren't supported in structural streams.");
         }
 
-        var raw = new byte[stream.DataLength];
-        Array.Copy(stream.Source, stream.DataStart, raw, 0, stream.DataLength);
-        if (filter == null) return raw;
+        if (filter == null)
+        {
+            var raw = new byte[stream.DataLength];
+            Array.Copy(stream.Source, stream.DataStart, raw, 0, stream.DataLength);
+            return raw;
+        }
         if (filter is not PdfName name || (name.Value != "FlateDecode" && name.Value != "Fl"))
             throw new PdfFormatException("Only FlateDecode is supported in object and cross-reference streams.");
 
-        var inflated = Inflate(raw);
+        var inflated = Inflate(stream.Source, stream.DataStart, stream.DataLength);
         var parameters = stream.Dictionary.Get("DecodeParms");
         if (parameters is PdfArray parameterList) parameters = parameterList.Items.Count > 0 ? parameterList.Items[0] : null;
         return parameters is PdfDictionary dictionary ? ApplyPredictor(inflated, dictionary) : inflated;
@@ -34,23 +39,38 @@ internal static class PdfStreamDecoder
             ? (int)number.Value
             : fallback;
 
-    private static byte[] Inflate(byte[] raw)
+    private static byte[] Inflate(byte[] source, int start, int length)
     {
-        int skip = raw.Length >= 2 && (raw[0] & 0x0F) == 8 && ((raw[0] << 8) | raw[1]) % 31 == 0 ? 2 : 0;
+        int skip = length >= 2 && (source[start] & 0x0F) == 8 && ((source[start] << 8) | source[start + 1]) % 31 == 0 ? 2 : 0;
         try
         {
-            using var input = new MemoryStream(raw, skip, raw.Length - skip);
+            using var input = new MemoryStream(source, start + skip, length - skip, writable: false);
             using var inflater = new System.IO.Compression.DeflateStream(input, System.IO.Compression.CompressionMode.Decompress);
-            using var output = new MemoryStream();
-            var buffer = new byte[81920];
+            var chunks = new List<byte[]>();
+            var chunk = new byte[InflateChunkBytes];
+            int filled = 0;
+            long total = 0;
             int read;
-            while ((read = inflater.Read(buffer, 0, buffer.Length)) > 0)
+            while ((read = inflater.Read(chunk, filled, chunk.Length - filled)) > 0)
             {
-                if (output.Length + read > MaxDecodedBytes)
-                    throw new PdfFormatException("A compressed stream expands beyond the 64 MB limit.");
-                output.Write(buffer, 0, read);
+                total += read;
+                if (total > MaxDecodedBytes) throw new PdfFormatException("A compressed stream expands beyond the 64 MB limit.");
+                filled += read;
+                if (filled < chunk.Length) continue;
+                chunks.Add(chunk);
+                chunk = new byte[InflateChunkBytes];
+                filled = 0;
             }
-            return output.ToArray();
+
+            var result = new byte[total];
+            int at = 0;
+            foreach (var full in chunks)
+            {
+                Buffer.BlockCopy(full, 0, result, at, full.Length);
+                at += full.Length;
+            }
+            Buffer.BlockCopy(chunk, 0, result, at, filled);
+            return result;
         }
         catch (InvalidDataException ex)
         {
@@ -73,10 +93,11 @@ internal static class PdfStreamDecoder
         int rowLength = (colors * bitsPerComponent * columns + 7) / 8;
         if (rowLength + 1 > data.Length) return Array.Empty<byte>();
 
-        var output = new MemoryStream();
+        int rows = data.Length / (rowLength + 1);
+        var output = new byte[(long)rows * rowLength];
         var previous = new byte[rowLength];
         var row = new byte[rowLength];
-        for (int offset = 0; offset + 1 + rowLength <= data.Length; offset += 1 + rowLength)
+        for (int r = 0, offset = 0; r < rows; r++, offset += 1 + rowLength)
         {
             int type = data[offset];
             for (int i = 0; i < rowLength; i++)
@@ -95,12 +116,12 @@ internal static class PdfStreamDecoder
                     _ => throw new PdfFormatException("Invalid PNG predictor row type."),
                 };
             }
-            output.Write(row, 0, rowLength);
+            Buffer.BlockCopy(row, 0, output, r * rowLength, rowLength);
             var swap = previous;
             previous = row;
             row = swap;
         }
-        return output.ToArray();
+        return output;
     }
 
     private static int Paeth(int a, int b, int c)
