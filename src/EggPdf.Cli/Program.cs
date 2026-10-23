@@ -38,7 +38,7 @@ public class Program
         {
             if (OptionsWithValue.Contains(args[i]))
             {
-                if (i + 1 < args.Length) optionValues[args[i]] = args[++i];
+                if (i + 1 < args.Length) optionValues[args[i] == "--output" ? "-o" : args[i]] = args[++i];
             }
             else if (!args[i].StartsWith("-"))
             {
@@ -46,7 +46,7 @@ public class Program
             }
         }
 
-        string? outputPath = optionValues.GetValueOrDefault("-o") ?? optionValues.GetValueOrDefault("--output");
+        string? outputPath = optionValues.GetValueOrDefault("-o");
         string? pdfaFlag = optionValues.GetValueOrDefault("--pdfa");
         string? invoicePath = optionValues.GetValueOrDefault("--invoice");
         string? uaVersionFlag = optionValues.GetValueOrDefault("--ua-version");

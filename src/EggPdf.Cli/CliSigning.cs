@@ -43,6 +43,10 @@ internal sealed class CliSigning : IDisposable
             throw new ArgumentException($"Use either {PfxOption} or {CertificateOption} with {KeyOption}, not both.");
         if (pfxPath == null && (certificatePath == null || keyPath == null))
             throw new ArgumentException($"{CertificateOption} and {KeyOption} must be given together.");
+        if (pfxPath != null && values.ContainsKey(KeyPasswordEnvOption))
+            throw new ArgumentException($"{KeyPasswordEnvOption} goes with {KeyOption}; for {PfxOption} use {PfxPasswordEnvOption}.");
+        if (pfxPath == null && values.ContainsKey(PfxPasswordEnvOption))
+            throw new ArgumentException($"{PfxPasswordEnvOption} goes with {PfxOption}; for {KeyOption} use {KeyPasswordEnvOption}.");
 
         var certificate = pfxPath != null
             ? PdfSigningCertificate.FromPfx(ReadFile(pfxPath), PasswordFromEnvironment(values, PfxPasswordEnvOption))

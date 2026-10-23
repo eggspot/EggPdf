@@ -28,7 +28,7 @@ public static class PdfSigningCertificate
     /// <summary>
     /// Loads a certificate from <paramref name="certificatePem"/> (<c>-----BEGIN CERTIFICATE-----</c>) and its private key
     /// from <paramref name="privateKeyPem"/>: <c>PRIVATE KEY</c> (PKCS#8), <c>RSA PRIVATE KEY</c>, <c>EC PRIVATE KEY</c>, or
-    /// <c>ENCRYPTED PRIVATE KEY</c> with <paramref name="privateKeyPassword"/>. Not available on .NET Standard 2.0
+    /// <c>ENCRYPTED PRIVATE KEY</c> with <paramref name="privateKeyPassword"/> (ignored for an unencrypted key). Not available on .NET Standard 2.0
     /// (e.g. .NET Framework): use <see cref="FromPfx"/> there.
     /// </summary>
     /// <exception cref="CryptographicException">The PEM can't be read, the password is wrong, or the key doesn't match the certificate.</exception>
@@ -61,13 +61,33 @@ public static class PdfSigningCertificate
         RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? X509KeyStorageFlags.DefaultKeySet : X509KeyStorageFlags.EphemeralKeySet;
 #endif
 
+#if !NETSTANDARD2_0
+    private static bool IsEncryptedKey(string privateKeyPem) =>
+        privateKeyPem.IndexOf("-----BEGIN ENCRYPTED PRIVATE KEY-----", StringComparison.Ordinal) >= 0;
+
+    private static string RequirePassword(string? password) =>
+        password ?? throw new CryptographicException("The private key is encrypted: pass its password.");
+#endif
+
 #if NET5_0_OR_GREATER
     private static X509Certificate2 LoadPemWithKey(string certificatePem, string privateKeyPem, string? password) =>
-        password == null
-            ? X509Certificate2.CreateFromPem(certificatePem, privateKeyPem)
-            : X509Certificate2.CreateFromEncryptedPem(certificatePem, privateKeyPem, password);
+        IsEncryptedKey(privateKeyPem)
+            ? X509Certificate2.CreateFromEncryptedPem(certificatePem, privateKeyPem, RequirePassword(password))
+            : X509Certificate2.CreateFromPem(certificatePem, privateKeyPem);
 #elif NETSTANDARD2_1
     private static X509Certificate2 LoadPemWithKey(string certificatePem, string privateKeyPem, string? password)
+    {
+        try
+        {
+            return AttachPemKey(certificatePem, privateKeyPem, password);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new CryptographicException("The private key doesn't match the certificate.", ex);
+        }
+    }
+
+    private static X509Certificate2 AttachPemKey(string certificatePem, string privateKeyPem, string? password)
     {
         using var certificate = new X509Certificate2(PemBlock(certificatePem, "CERTIFICATE"));
         var (label, keyDer) = FirstKeyBlock(privateKeyPem);
@@ -116,9 +136,6 @@ public static class PdfSigningCertificate
             ecdsa.ImportPkcs8PrivateKey(keyDer, out _);
         return certificate.CopyWithPrivateKey(ecdsa);
     }
-
-    private static string RequirePassword(string? password) =>
-        password ?? throw new CryptographicException("The private key is encrypted: pass its password.");
 
     private static (string Label, byte[] Der) FirstKeyBlock(string pem)
     {

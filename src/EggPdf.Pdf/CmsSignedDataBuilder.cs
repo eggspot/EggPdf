@@ -23,7 +23,7 @@ internal static class CmsSignedDataBuilder
         using var rsa = certificate.GetRSAPrivateKey();
         using var ecdsa = rsa == null ? certificate.GetECDsaPrivateKey() : null;
         if (rsa == null && ecdsa == null)
-            throw new NotSupportedException("Signing needs a certificate with an RSA or ECDSA private key.");
+            throw new InvalidOperationException("Signing needs a certificate with an RSA or ECDSA private key.");
 
         var attrContentType = Sequence(Oid(OidContentType), SetOf(Oid(OidData)));
         var attrSigningTime = Sequence(Oid(OidSigningTime), SetOf(UtcTime(signingTimeUtc)));
@@ -169,7 +169,7 @@ internal static class CmsSignedDataBuilder
         return Tlv(0x02, trimmed);
     }
 
-    private static byte[] EcdsaSignatureToDer(byte[] rConcatS)
+    internal static byte[] EcdsaSignatureToDer(byte[] rConcatS)
     {
         int half = rConcatS.Length / 2;
         var r = new byte[half];

@@ -161,7 +161,63 @@ public class PdfSignerCertificateFormatsTests
     }
 
     [Fact]
-    public void FromPem_ReturnsCertificateThatBehavesLikeAPfx()
+    public void Sign_CertificateWithoutPrivateKey_ThrowsInvalidOperationException()
+    {
+        var (cert, key) = CreateRsaCertificate();
+        using (cert) using (key)
+        {
+            using var publicOnly = new X509Certificate2(cert.RawData);
+
+            Action act = () => PdfSigner.Sign(Pdf, publicOnly);
+
+            act.Should().Throw<InvalidOperationException>();
+        }
+    }
+
+    [Fact]
+    public void SignWithPem_PasswordForUnencryptedKey_IsIgnored()
+    {
+        var (cert, key) = CreateRsaCertificate();
+        using (cert) using (key)
+        {
+            var signed = PdfSigner.SignWithPem(Pdf, cert.ExportCertificatePem(), key.ExportPkcs8PrivateKeyPem(), "unused");
+
+            VerifySignature(signed);
+        }
+    }
+
+    [Theory]
+    [InlineData("0102", "0304", "30080202010202020304")]
+    [InlineData("8001", "7F02", "3009020300800102027F02")]
+    [InlineData("0000", "0001", "3006020100020101")]
+    [InlineData("0080", "00FF", "300802020080020200FF")]
+    public void EcdsaSignatureToDer_FixedRAndS_EncodesMinimalPositiveIntegers(string rHex, string sHex, string expectedDerHex)
+    {
+        var rConcatS = Convert.FromHexString(rHex + sHex);
+
+        var der = CmsSignedDataBuilder.EcdsaSignatureToDer(rConcatS);
+
+        Convert.ToHexString(der).Should().Be(expectedDerHex);
+    }
+
+    [Fact]
+    public void EcdsaSignatureToDer_P521Halves_RoundTripsThroughTheBcl()
+    {
+        using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP521);
+        var hash = SHA256.HashData(Encoding.ASCII.GetBytes("payload"));
+        for (int i = 0; i < 50; i++)
+        {
+            var rConcatS = ecdsa.SignHash(hash);
+            rConcatS.Length.Should().Be(132);
+
+            var der = CmsSignedDataBuilder.EcdsaSignatureToDer(rConcatS);
+
+            ecdsa.VerifyHash(hash, der, DSASignatureFormat.Rfc3279DerSequence).Should().BeTrue();
+        }
+    }
+
+    [Fact]
+    public void FromPem_ValidPair_ReturnsCertificateWithUsablePrivateKey()
     {
         var (cert, key) = CreateRsaCertificate();
         using (cert) using (key)
