@@ -859,10 +859,13 @@ public static partial class BlockLayout
                 var whiteSpaceProp = style.Get("white-space") ?? "normal";
                 bool preserveWhitespace = whiteSpaceProp == "pre" || whiteSpaceProp == "pre-wrap" || whiteSpaceProp == "pre-line";
 
-                // Skip empty text nodes unless preserving whitespace.
-                // IsHtmlWhitespaceOnly preserves \u00A0 (non-breaking space) — it is never skipped.
                 if (!preserveWhitespace && IsHtmlWhitespaceOnly(textNode.Data))
+                {
+                    if (textNode.Data.Length > 0)
+                        prevTextEndedWithSpace = true;
+                    prevInlineElementEndedWithSpace = false;
                     continue;
+                }
 
                 // Check if parent has mixed inline content (inline elements + text)
                 bool hasInlineSiblings = HasInlineElementSiblings(element, style, resolver);
@@ -936,6 +939,7 @@ public static partial class BlockLayout
                     // NBSP is rendered content, not a collapsible boundary space
                     char ilLastChar = textNode.Data.Length > 0 ? textNode.Data[textNode.Data.Length - 1] : '\0';
                     prevTextEndedWithSpace = ilLastChar != NonBreakingSpace && char.IsWhiteSpace(ilLastChar);
+                    prevInlineElementEndedWithSpace = false;
                     continue;
                 }
 
@@ -1045,6 +1049,7 @@ public static partial class BlockLayout
 
                     char fatLastChar = textNode.Data.Length > 0 ? textNode.Data[textNode.Data.Length - 1] : '\0';
                     prevTextEndedWithSpace = fatLastChar != NonBreakingSpace && char.IsWhiteSpace(fatLastChar);
+                    prevInlineElementEndedWithSpace = false;
                     continue;
                 }
 

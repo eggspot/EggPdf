@@ -78,6 +78,25 @@ public class InlineBoundarySpaceTests
         text.Should().Contain("(Label) Tj");
     }
 
+    [Theory]
+    [InlineData("<p><b>Alpha</b> <i>Beta</i></p>", "( Beta)")]
+    [InlineData("<p><b>Name:</b>\n    <span>John</span></p>", "( John)")]
+    [InlineData("<p>x <b>A</b> <!--c-->y</p>", "( y)")]
+    public async Task WhitespaceOnlyTextNodeBetweenInlineContent_CollapsesToOneSpace(string body, string expected)
+    {
+        var text = await RenderAscii(body);
+
+        text.Should().Contain(expected + " Tj");
+    }
+
+    [Fact]
+    public async Task InlineElementEndingWithSpace_ThenTextNodesSplitByComment_NoExtraSpace()
+    {
+        var text = await RenderAscii("<p><b>A </b>x<!--c-->y</p>");
+
+        text.Should().Contain("(y) Tj");
+    }
+
     [Fact]
     public async Task TextNodesSplitByComment_KeepTheirSpace()
     {
