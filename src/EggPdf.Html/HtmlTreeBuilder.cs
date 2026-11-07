@@ -152,8 +152,9 @@ internal class HtmlTreeBuilder
             return;
         }
 
-        // Everything else goes into body
         EnsureBodyElement();
+
+        CloseImpliedEndTags(tagName);
 
         // Handle <p> implicit close
         if (ImplicitlyClosesParagraph.Contains(tagName))
@@ -329,6 +330,84 @@ internal class HtmlTreeBuilder
     }
 
     private HtmlElement? CurrentNode() => _openElements.Count > 0 ? _openElements.Peek() : null;
+
+    private static readonly HashSet<string> ListItemTags = new(StringComparer.OrdinalIgnoreCase) { "li" };
+    private static readonly HashSet<string> DefinitionItemTags = new(StringComparer.OrdinalIgnoreCase) { "dd", "dt" };
+    private static readonly HashSet<string> TableCellTags = new(StringComparer.OrdinalIgnoreCase) { "td", "th" };
+    private static readonly HashSet<string> TableRowTags = new(StringComparer.OrdinalIgnoreCase) { "tr" };
+    private static readonly HashSet<string> TableSectionTags = new(StringComparer.OrdinalIgnoreCase) { "thead", "tbody", "tfoot" };
+    private static readonly HashSet<string> OptionTags = new(StringComparer.OrdinalIgnoreCase) { "option" };
+    private static readonly HashSet<string> OptionGroupTags = new(StringComparer.OrdinalIgnoreCase) { "optgroup" };
+
+    private static readonly HashSet<string> TableScopeBoundaries = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "html", "body", "table", "template"
+    };
+
+    private static readonly HashSet<string> ListItemScopeBoundaries = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "html", "body", "applet", "area", "article", "aside", "base", "basefont", "bgsound", "blockquote",
+        "button", "caption", "center", "col", "colgroup", "dd", "details", "dir", "dl", "dt", "embed",
+        "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2", "h3", "h4",
+        "h5", "h6", "header", "hgroup", "hr", "iframe", "img", "input", "li", "link", "listing", "main",
+        "marquee", "menu", "meta", "nav", "noembed", "noframes", "noscript", "object", "ol", "plaintext",
+        "pre", "script", "search", "section", "select", "source", "style", "summary", "table", "tbody", "td",
+        "template", "textarea", "tfoot", "th", "thead", "title", "tr", "track", "ul", "wbr", "xmp"
+    };
+
+    private void CloseImpliedEndTags(string tagName)
+    {
+        switch (tagName.ToLowerInvariant())
+        {
+            case "li":
+                CloseOpenElementInScope(ListItemTags, ListItemScopeBoundaries);
+                break;
+            case "dd":
+            case "dt":
+                CloseOpenElementInScope(DefinitionItemTags, ListItemScopeBoundaries);
+                break;
+            case "td":
+            case "th":
+                CloseOpenElementInScope(TableCellTags, TableScopeBoundaries);
+                break;
+            case "tr":
+                CloseOpenElementInScope(TableCellTags, TableScopeBoundaries);
+                CloseOpenElementInScope(TableRowTags, TableScopeBoundaries);
+                break;
+            case "thead":
+            case "tbody":
+            case "tfoot":
+                CloseOpenElementInScope(TableCellTags, TableScopeBoundaries);
+                CloseOpenElementInScope(TableRowTags, TableScopeBoundaries);
+                CloseOpenElementInScope(TableSectionTags, TableScopeBoundaries);
+                break;
+            case "option":
+                if (CurrentNode()?.TagName == "option") _openElements.Pop();
+                break;
+            case "optgroup":
+                if (CurrentNode()?.TagName == "option") _openElements.Pop();
+                CloseOpenElementInScope(OptionGroupTags, OptionTags);
+                if (CurrentNode()?.TagName == "optgroup") _openElements.Pop();
+                break;
+        }
+    }
+
+    private void CloseOpenElementInScope(HashSet<string> targets, HashSet<string> boundaries)
+    {
+        string? found = null;
+        foreach (var open in _openElements)
+        {
+            if (targets.Contains(open.TagName))
+            {
+                found = open.TagName;
+                break;
+            }
+            if (boundaries.Contains(open.TagName))
+                return;
+        }
+        if (found != null)
+            CloseUpTo(found);
+    }
 
     private static HtmlElement CreateElement(HtmlToken token)
     {
