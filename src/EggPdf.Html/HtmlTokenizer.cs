@@ -504,11 +504,11 @@ public class HtmlTokenizer
             _pos++;
         }
 
-        if (_pos < _input.Length && _input[_pos] == ';')
-            _pos++;
-
         if (digitCount == 0)
             return hex ? "&#x" : "&#";
+
+        if (_pos < _input.Length && _input[_pos] == ';')
+            _pos++;
 
         return CodepointToText(codepoint);
     }
