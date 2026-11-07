@@ -86,7 +86,6 @@ public class HtmlTokenizerTests
     [Fact]
     public void NamedEntity_LongestMatchWins()
     {
-        // "&not" is a valid entity (¬), but "&notin;" must match the longer name (∉)
         var tokens = Tokenize("a&notin;b");
         tokens.Should().HaveCount(1);
         tokens[0].Data.Should().Be("a∉b");
@@ -244,9 +243,8 @@ public class HtmlTokenizerTests
     }
 
     [Fact]
-    public void MultipleAttributes_DuplicateKept()
+    public void MultipleAttributes_DuplicateKept_FirstValueFirst()
     {
-        // Per HTML5 spec, first attribute wins on duplicate names
         var tokens = Tokenize("<div class=\"a\" class=\"b\">");
         tokens[0].Attributes.Should().HaveCount(2);
         tokens[0].Attributes[0].Value.Should().Be("a");
@@ -261,10 +259,8 @@ public class HtmlTokenizerTests
     }
 
     [Fact]
-    public void StyleTag_ContentAsRawText()
+    public void StyleTag_TokenizesWithoutError()
     {
-        // After <style>, tokenizer should enter raw text mode
-        // For Phase 1 tokenizer, we just verify it doesn't crash
         var tokens = Tokenize("<style>body { color: red; }</style>");
         tokens.Should().NotBeEmpty();
         tokens.Should().Contain(t => t.Type == HtmlTokenType.StartTag && t.TagName == "style");
