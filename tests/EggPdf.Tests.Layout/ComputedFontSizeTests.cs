@@ -31,6 +31,64 @@ public class ComputedFontSizeTests
         FontSizePx(root, "d").Should().BeApproximately(expectedPx, 0.01f);
     }
 
+    [Theory]
+    [InlineData("2vw")]
+    [InlineData("calc(10px + 1vw)")]
+    [InlineData("clamp(12px, 2vw, 30px)")]
+    public void ParentFontSizeNotComputable_ChildEmStaysRelativeToResolvedParent(string parentFontSize)
+    {
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0;font-size:" + parentFontSize + "'>" +
+            "<div id='d' style='font-size:2em;width:10em'>A</div><h1 id='h'>H</h1></body>", 600, 800);
+
+        root.FindById("d")!.Style.FontSize.Should().Be("2em");
+        root.FindById("h")!.Style.FontSize.Should().Be("2em");
+        float bodyPx = BlockLayout.ResolveLength(parentFontSize, 0f, 16f);
+        root.FindById("d")!.Width.Should().BeApproximately(bodyPx * 2f * 10f, 0.5f);
+    }
+
+    [Fact]
+    public void RootFontSizeNotComputable_RemStaysForLayout()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<html style='font-size:calc(10px + 2px)'><body style='margin:0'><div id='d' style='font-size:2rem'>A</div></body></html>",
+            600, 800);
+
+        root.FindById("d")!.Style.FontSize.Should().Be("2rem");
+    }
+
+    [Fact]
+    public void ParentFontSizeNotComputable_AbsoluteChildStillComputes()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0;font-size:2vw'><div id='d' style='font-size:12pt'>A</div></body>", 600, 800);
+
+        root.FindById("d")!.Style.FontSize.Should().Be("16px");
+    }
+
+    [Theory]
+    [InlineData("inherit", 12f)]
+    [InlineData("initial", 16f)]
+    [InlineData("unset", 12f)]
+    public void FontSizeCssWideKeyword_ComputesToPx(string keyword, float expectedPx)
+    {
+        var root = Layout("<div id='d' style='font-size:" + keyword + "'>Text</div>");
+
+        FontSizePx(root, "d").Should().BeApproximately(expectedPx, 0.01f);
+    }
+
+    [Fact]
+    public void PseudoElementEmFontSize_IsRelativeToElement()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<html><head><style>#d::before{content:'X';font-size:2em}</style></head>" +
+            "<body style='margin:0;font-size:12px'><div id='d' style='font-size:10px'>Text</div></body></html>", 600, 800);
+
+        var generated = root.FindById("d")!.FindAll(b => b.Text == "X");
+        generated.Should().NotBeEmpty();
+        BlockLayout.ResolveLength(generated[0].Style.FontSize, 0f, 0f).Should().BeApproximately(20f, 0.01f);
+    }
+
     [Fact]
     public void FontSizePercent_TextHasNonZeroLineBox()
     {
