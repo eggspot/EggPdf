@@ -6,6 +6,38 @@ namespace EggPdf.Tests.Unit.Html;
 
 public class HtmlTokenizerTests
 {
+    [Theory]
+    [InlineData("&#xD800;", 0xFFFD)]
+    [InlineData("&#xDFFF;", 0xFFFD)]
+    [InlineData("&#99999999999;", 0xFFFD)]
+    [InlineData("&#xFFFFFFFFFFFF;", 0xFFFD)]
+    [InlineData("&#x110000;", 0xFFFD)]
+    [InlineData("&#0;", 0xFFFD)]
+    [InlineData("&#146;", 0x2019)]
+    [InlineData("&#147;", 0x201C)]
+    [InlineData("&#150;", 0x2013)]
+    [InlineData("&#x80;", 0x20AC)]
+    [InlineData("&#x81;", 0x0081)]
+    [InlineData("&#x10FFFF;", 0x10FFFF)]
+    [InlineData("&#x1F600;", 0x1F600)]
+    public void NumericReference_EdgeCodepoint_DecodesWithoutThrowing(string reference, int expectedCodepoint)
+    {
+        var tokens = Tokenize("a" + reference + "b");
+
+        tokens.Should().ContainSingle()
+            .Which.Data.Should().Be("a" + char.ConvertFromUtf32(expectedCodepoint) + "b");
+    }
+
+    [Fact]
+    public void NumericReference_NonAsciiDigit_IsLeftAsText()
+    {
+        string arabicIndicThree = ((char)0x0663).ToString();
+
+        var tokens = Tokenize("a&#" + arabicIndicThree + ";b");
+
+        tokens.Should().ContainSingle().Which.Data.Should().Be("a&#" + arabicIndicThree + ";b");
+    }
+
     private static List<HtmlToken> Tokenize(string html)
     {
         var tokenizer = new HtmlTokenizer(html);

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Text;
 
 namespace EggPdf.Html;
@@ -492,33 +491,57 @@ public class HtmlTokenizer
             _pos++;
         }
 
-        var numBuf = new StringBuilder();
+        int radix = hex ? 16 : 10;
+        int digitCount = 0;
+        int codepoint = 0;
         while (_pos < _input.Length)
         {
-            char c = _input[_pos];
-            if (hex ? IsHexDigit(c) : char.IsDigit(c))
-            {
-                numBuf.Append(c);
-                _pos++;
-            }
-            else
-                break;
+            int digit = DigitValue(_input[_pos], hex);
+            if (digit < 0) break;
+            if (codepoint <= MaxCodepoint)
+                codepoint = codepoint * radix + digit;
+            digitCount++;
+            _pos++;
         }
 
         if (_pos < _input.Length && _input[_pos] == ';')
             _pos++;
 
-        if (numBuf.Length == 0)
+        if (digitCount == 0)
             return hex ? "&#x" : "&#";
 
-        int codepoint = hex
-            ? Convert.ToInt32(numBuf.ToString(), 16)
-            : int.Parse(numBuf.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture);
+        return CodepointToText(codepoint);
+    }
 
-        if (codepoint == 0 || codepoint > 0x10FFFF)
-            return "\uFFFD";
+    private const int MaxCodepoint = 0x10FFFF;
+    private const int FirstSurrogate = 0xD800;
+    private const int LastSurrogate = 0xDFFF;
+    private static readonly string ReplacementCharacterText = ((char)0xFFFD).ToString();
 
+    private static readonly int[] Windows1252C1Codepoints =
+    {
+        0x20AC, 0x0081, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021,
+        0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008D, 0x017D, 0x008F,
+        0x0090, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
+        0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x009D, 0x017E, 0x0178,
+    };
+
+    private static string CodepointToText(int codepoint)
+    {
+        if (codepoint == 0 || codepoint > MaxCodepoint || (codepoint >= FirstSurrogate && codepoint <= LastSurrogate))
+            return ReplacementCharacterText;
+        if (codepoint >= 0x80 && codepoint <= 0x9F)
+            codepoint = Windows1252C1Codepoints[codepoint - 0x80];
         return char.ConvertFromUtf32(codepoint);
+    }
+
+    private static int DigitValue(char c, bool hex)
+    {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (!hex) return -1;
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
     }
 
     private string ConsumeNamedReference()
@@ -637,9 +660,6 @@ public class HtmlTokenizer
         ["ceil"] = "\u2308", ["rceil"] = "\u2309", ["lceil"] = "\u2308",
         ["lfloor"] = "\u230A", ["rfloor"] = "\u230B", ["lang"] = "\u2329", ["rang"] = "\u232A",
     };
-
-    private static bool IsHexDigit(char c) =>
-        (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 
     private enum TokenizerState
     {
