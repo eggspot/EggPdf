@@ -353,6 +353,7 @@ public static partial class HtmlToPdf
     private static byte[] RenderInternal(HtmlDocument document, string? basePath, Pdf.PdfEncryption? encryption = null, Pdf.PdfAConformance? conformance = null, Pdf.FacturXInvoice? invoice = null, bool tagged = false, Pdf.PdfUaVersion uaVersion = Pdf.PdfUaVersion.Ua1, WarningCollector? warnings = null, ResourceLoader? resources = null, RenderStatistics? statistics = null)
     {
         resources ??= ResourceLoader.BuiltIn(basePath);
+        BlockLayout.ResetRootFontSize();
 
         if (document.Body != null)
             DecodeCloudflareEmails(document.Body);

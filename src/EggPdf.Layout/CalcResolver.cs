@@ -10,12 +10,6 @@ namespace EggPdf.Layout;
 /// </summary>
 public static class CalcResolver
 {
-    private const float DefaultFontSize = 16f;
-
-    /// <summary>
-    /// Check if a CSS value contains a math function (calc, min, max, clamp).
-    /// </summary>
-    // Known math function names (for IsMathFunction detection)
     private static readonly string[] _mathFunctions = {
         "calc(", "min(", "max(", "clamp(",
         "sin(", "cos(", "tan(", "asin(", "acos(", "atan(", "atan2(",
@@ -23,6 +17,9 @@ public static class CalcResolver
         "round(", "mod(", "rem(", "log(", "exp("
     };
 
+    /// <summary>
+    /// Check if a CSS value contains a math function (calc, min, max, clamp).
+    /// </summary>
     public static bool IsMathFunction(string value)
     {
         if (string.IsNullOrEmpty(value)) return false;
@@ -71,7 +68,6 @@ public static class CalcResolver
             return EvaluateClamp(inner, containingSize, fontSize);
         }
 
-        // ── CSS math functions (Level 4) ──────────────────────────────────
         if (StartsWithIgnoreCase(value, "sin(") && value[value.Length - 1] == ')')
             return (float)Math.Sin(ToRadians(Resolve(value.Substring(4, value.Length - 5), containingSize, fontSize), value.Substring(4, value.Length - 5)));
         if (StartsWithIgnoreCase(value, "cos(") && value[value.Length - 1] == ')')
@@ -117,7 +113,6 @@ public static class CalcResolver
         }
         if (StartsWithIgnoreCase(value, "round(") && value[value.Length - 1] == ')')
         {
-            // round([strategy,] value, step)
             var ra = SplitArgs(value.Substring(6, value.Length - 7));
             int vi = 0;
             string strategy = "nearest";
@@ -144,9 +139,9 @@ public static class CalcResolver
                 float mv = Resolve(ma[0].Trim(), containingSize, fontSize);
                 float ms = Resolve(ma[1].Trim(), containingSize, fontSize);
                 if (ms == 0) return mv;
-                float r = mv % ms;
-                // mod() returns value with same sign as divisor (like Python %)
-                return (r < 0 && ms > 0) || (r > 0 && ms < 0) ? r + ms : r;
+                float remainderWithDividendSign = mv % ms;
+                bool signDiffersFromDivisor = (remainderWithDividendSign < 0 && ms > 0) || (remainderWithDividendSign > 0 && ms < 0);
+                return signDiffersFromDivisor ? remainderWithDividendSign + ms : remainderWithDividendSign;
             }
         }
         if (StartsWithIgnoreCase(value, "rem(") && value[value.Length - 1] == ')')
@@ -156,7 +151,7 @@ public static class CalcResolver
             {
                 float rev = Resolve(rea[0].Trim(), containingSize, fontSize);
                 float res = Resolve(rea[1].Trim(), containingSize, fontSize);
-                return res == 0 ? rev : rev % res; // rem() keeps dividend sign
+                return res == 0 ? rev : rev % res;
             }
         }
         if (StartsWithIgnoreCase(value, "log(") && value[value.Length - 1] == ')')
@@ -173,21 +168,15 @@ public static class CalcResolver
         if (StartsWithIgnoreCase(value, "exp(") && value[value.Length - 1] == ')')
             return (float)Math.Exp(Resolve(value.Substring(4, value.Length - 5), containingSize, fontSize));
 
-        // Not a math function, try resolving as a single term
         return ResolveTerm(value, containingSize, fontSize);
     }
 
-    /// <summary>
-    /// Evaluate a calc() expression that may contain +, -, *, / operators and mixed units.
-    /// Supports nested calc().
-    /// </summary>
     private static float EvaluateExpression(string expr, float containingSize, float fontSize)
     {
         expr = expr.Trim();
         if (string.IsNullOrEmpty(expr))
             return 0;
 
-        // Tokenize the expression into terms and operators
         var tokens = Tokenize(expr, containingSize, fontSize);
         if (tokens.Length == 0)
             return 0;
@@ -195,14 +184,8 @@ public static class CalcResolver
         return EvaluateTokens(tokens);
     }
 
-    /// <summary>
-    /// Tokenize a calc expression into a flat array of numbers and operators.
-    /// Each term is resolved to px. Supports nested calc/min/max/clamp.
-    /// </summary>
     private static float[] Tokenize(string expr, float containingSize, float fontSize)
     {
-        // We'll parse left-to-right, respecting operator precedence (* / before + -)
-        // First, collect terms and operators
         var values = new System.Collections.Generic.List<float>();
         var operators = new System.Collections.Generic.List<char>();
 
@@ -212,7 +195,6 @@ public static class CalcResolver
             SkipWhitespace(expr, ref pos);
             if (pos >= expr.Length) break;
 
-            // Check for nested function (calc, min, max, clamp)
             if (IsNestedFunction(expr, pos))
             {
                 int funcEnd = FindFunctionEnd(expr, pos);
@@ -226,21 +208,18 @@ public static class CalcResolver
                 }
             }
 
-            // Check for operator (but not unary minus at start or after another operator)
             char c = expr[pos];
             if ((c == '+' || c == '-') && values.Count > 0 && values.Count > operators.Count)
             {
-                // This is a binary operator if preceded by whitespace on both sides
-                // Per CSS spec, + and - must be surrounded by whitespace
                 bool leftSpace = pos > 0 && (expr[pos - 1] == ' ' || expr[pos - 1] == '\t');
                 bool rightSpace = pos + 1 < expr.Length && (expr[pos + 1] == ' ' || expr[pos + 1] == '\t');
-                if (leftSpace && rightSpace)
+                bool isWhitespaceDelimitedBinaryOperator = leftSpace && rightSpace;
+                if (isWhitespaceDelimitedBinaryOperator)
                 {
                     operators.Add(c);
                     pos++;
                     continue;
                 }
-                // Otherwise it's a sign for the next number - fall through to term parsing
             }
             else if ((c == '*' || c == '/') && values.Count > 0)
             {
@@ -249,7 +228,6 @@ public static class CalcResolver
                 continue;
             }
 
-            // Parse a term (number with unit, or nested function)
             string term = ExtractTerm(expr, ref pos);
             if (!string.IsNullOrEmpty(term))
             {
@@ -257,12 +235,10 @@ public static class CalcResolver
             }
             else
             {
-                pos++; // skip unrecognized character
+                pos++;
             }
         }
 
-        // Now evaluate respecting precedence: first * and /, then + and -
-        // Apply * and / first
         for (int i = 0; i < operators.Count; i++)
         {
             if (operators[i] == '*' || operators[i] == '/')
@@ -277,7 +253,6 @@ public static class CalcResolver
             }
         }
 
-        // Apply + and -
         float final_result = values.Count > 0 ? values[0] : 0;
         for (int i = 0; i < operators.Count; i++)
         {
@@ -338,9 +313,6 @@ public static class CalcResolver
         return val;
     }
 
-    /// <summary>
-    /// Split function arguments by commas, respecting nested parentheses.
-    /// </summary>
     private static string[] SplitArgs(string inner)
     {
         var args = new System.Collections.Generic.List<string>();
@@ -365,89 +337,38 @@ public static class CalcResolver
         return args.ToArray();
     }
 
-    /// <summary>
-    /// Resolve a single CSS value term (number + unit) to pixels.
-    /// </summary>
     private static float ResolveTerm(string term, float containingSize, float fontSize)
     {
         term = term.Trim();
         if (string.IsNullOrEmpty(term))
             return 0;
 
-        // Check for nested function
         if (StartsWithIgnoreCase(term, "calc(") || StartsWithIgnoreCase(term, "min(") ||
             StartsWithIgnoreCase(term, "max(") || StartsWithIgnoreCase(term, "clamp("))
         {
             return Resolve(term, containingSize, fontSize);
         }
 
-        if (term.EndsWith("px", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2));
-
-        // Check rem before em since "rem" also EndsWith("em")
-        if (term.EndsWith("rem", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 3)) * DefaultFontSize;
-
-        if (term.EndsWith("em", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * fontSize;
-
-        if (term.EndsWith("%"))
+        if (term[term.Length - 1] == '%')
             return ParseFloat(term.Substring(0, term.Length - 1)) / 100f * containingSize;
 
-        if (term.EndsWith("pt", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * 96f / 72f;
-
-        if (term.EndsWith("cm", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * 96f / 2.54f;
-
-        if (term.EndsWith("mm", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * 96f / 25.4f;
-
-        if (term.EndsWith("in", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * 96f;
-
-        if (term.EndsWith("pc", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * 96f / 6f; // 1pc = 12pt = 16px
-
-        if (term.EndsWith("vw", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) / 100f * BlockLayout.ViewportWidth;
-
-        if (term.EndsWith("vh", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) / 100f * BlockLayout.ViewportHeight;
-
-        if (term.EndsWith("vmin", StringComparison.OrdinalIgnoreCase))
-        {
-            float vmin = BlockLayout.ViewportWidth > 0 && BlockLayout.ViewportHeight > 0
-                ? System.Math.Min(BlockLayout.ViewportWidth, BlockLayout.ViewportHeight) : containingSize;
-            return ParseFloat(term.Substring(0, term.Length - 4)) / 100f * vmin;
-        }
-
-        if (term.EndsWith("vmax", StringComparison.OrdinalIgnoreCase))
-        {
-            float vmax = BlockLayout.ViewportWidth > 0 && BlockLayout.ViewportHeight > 0
-                ? System.Math.Max(BlockLayout.ViewportWidth, BlockLayout.ViewportHeight) : containingSize;
-            return ParseFloat(term.Substring(0, term.Length - 4)) / 100f * vmax;
-        }
-
-        if (term.EndsWith("ch", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * fontSize * 0.5f;
-
-        if (term.EndsWith("lh", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * fontSize * 1.2f;
+        int unitStart = LengthUnits.UnitStart(term);
+        if (unitStart < term.Length && unitStart > 0 &&
+            LengthUnits.TryToPx(LengthUnits.ParseNumber(term, unitStart), term, unitStart, containingSize, fontSize, out float px))
+            return px;
 
         if (term.EndsWith("deg", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 3)); // return degrees as-is for trig
+            return ParseFloat(term.Substring(0, term.Length - 3));
 
         if (term.EndsWith("rad", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 3)) * 180f / (float)Math.PI; // convert to degrees
+            return ParseFloat(term.Substring(0, term.Length - 3)) * 180f / (float)Math.PI;
 
         if (term.EndsWith("turn", StringComparison.OrdinalIgnoreCase))
             return ParseFloat(term.Substring(0, term.Length - 4)) * 360f;
 
         if (term.EndsWith("grad", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 4)) * 0.9f; // grad → degrees
+            return ParseFloat(term.Substring(0, term.Length - 4)) * 0.9f;
 
-        // Bare number (unitless, e.g. multiplier in calc)
         return ParseFloat(term);
     }
 
@@ -461,22 +382,18 @@ public static class CalcResolver
         return false;
     }
 
-    /// <summary>Convert a numeric value to radians, detecting deg/rad/turn/grad suffix in original string.</summary>
     private static double ToRadians(float value, string originalExpr)
     {
         var t = originalExpr.Trim().ToLowerInvariant();
         if (t.EndsWith("deg")) return value * Math.PI / 180.0;
         if (t.EndsWith("turn")) return value * 2.0 * Math.PI;
         if (t.EndsWith("grad")) return value * Math.PI / 200.0;
-        // rad or unitless: assume already radians if no deg suffix found in expression
         if (t.EndsWith("rad")) return value;
-        // Default: treat as degrees (most common in CSS)
         return value * Math.PI / 180.0;
     }
 
     private static int FindFunctionEnd(string expr, int pos)
     {
-        // Find the opening paren
         int openParen = expr.IndexOf('(', pos);
         if (openParen < 0) return -1;
 
@@ -493,9 +410,6 @@ public static class CalcResolver
         return -1;
     }
 
-    /// <summary>
-    /// Extract a single term (number + unit) from the expression.
-    /// </summary>
     private static string ExtractTerm(string expr, ref int pos)
     {
         SkipWhitespace(expr, ref pos);
@@ -503,11 +417,9 @@ public static class CalcResolver
 
         int start = pos;
 
-        // Handle sign
         if (pos < expr.Length && (expr[pos] == '-' || expr[pos] == '+'))
             pos++;
 
-        // Consume digits and decimal point
         bool hasDigit = false;
         while (pos < expr.Length && (char.IsDigit(expr[pos]) || expr[pos] == '.'))
         {
@@ -517,11 +429,10 @@ public static class CalcResolver
 
         if (!hasDigit)
         {
-            pos = start; // reset
+            pos = start;
             return "";
         }
 
-        // Consume unit suffix
         while (pos < expr.Length && (char.IsLetter(expr[pos]) || expr[pos] == '%'))
             pos++;
 
