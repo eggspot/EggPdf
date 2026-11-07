@@ -22,6 +22,9 @@ public static partial class BlockLayout
             ResolveLength(style.Get("margin-right"), availableWidth, fontSize);
         float preferred = FlexLayout.MeasureMaxContentWidth(element, style, resolver, fontSize)
                           + horizontalExtras + ShrinkToFitRoundingAllowancePx;
+        var minWidth = ResolveOptionalLength(style.Get("min-width"), availableWidth, fontSize);
+        if (minWidth.HasValue && minWidth.Value + horizontalExtras > preferred)
+            preferred = minWidth.Value + horizontalExtras;
         return preferred < availableWidth ? preferred : availableWidth;
     }
 }

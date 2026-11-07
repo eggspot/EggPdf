@@ -42,6 +42,12 @@ public static partial class BlockLayout
         return false;
     }
 
+    internal const float DefaultImageWidthPx = 150f;
+    internal const float DefaultSvgWidthPx = 300f;
+
+    internal static float ResolveReplacedElementWidth(ComputedStyle style, HtmlElement element, float fontSize, float defaultWidth) =>
+        ResolveImgDimension(style.Width, element.GetAttribute("width"), 0f, fontSize, defaultWidth);
+
     private static float ResolveImgDimension(string? cssValue, string? htmlAttr, float containingSize, float fontSize, float defaultValue)
     {
         // CSS takes priority

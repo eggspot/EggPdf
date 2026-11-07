@@ -48,6 +48,39 @@ public class FloatShrinkToFitTests
         f.Width.Should().BeGreaterThan(40f);
     }
 
+    [Theory]
+    [InlineData("<img src='logo.png' width='100' height='40'>", 100f)]
+    [InlineData("<img src='logo.png' style='width:120px'>", 120f)]
+    [InlineData("<img src='logo.png'>", 150f)]
+    [InlineData("<svg width='80' height='20'></svg>", 80f)]
+    public void FloatRightContainingOnlyAnImage_ShrinksToTheImage(string image, float imageWidth)
+    {
+        var root = Layout("<div id='f' style='float:right'>" + image + "</div>");
+
+        var f = root.FindById("f")!;
+        f.Width.Should().BeApproximately(imageWidth, 1.5f);
+        (f.X + f.Width).Should().BeApproximately(400f, 0.5f);
+    }
+
+    [Fact]
+    public void FloatWithBrBetweenLines_ShrinksToTheLongerLine()
+    {
+        var root = Layout("<div id='f' style='float:left'>Short<br>A somewhat longer line</div>");
+
+        var f = root.FindById("f")!;
+        f.Width.Should().BeLessThan(250f);
+        root.FindAll(b => b.Text != null && b.Text.Contains("longer")).Should().ContainSingle()
+            .Which.Text.Should().Contain("A somewhat longer line");
+    }
+
+    [Fact]
+    public void FloatAutoWidthWithMinWidth_IsAtLeastMinWidth()
+    {
+        var root = Layout("<div id='f' style='float:left;min-width:200px'>Hi</div>");
+
+        root.FindById("f")!.Width.Should().BeApproximately(200f, 1.5f);
+    }
+
     [Fact]
     public void FloatAutoWidthWithLongText_FillsAvailableWidth()
     {

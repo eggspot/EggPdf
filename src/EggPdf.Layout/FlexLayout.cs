@@ -1132,33 +1132,45 @@ public static class FlexLayout
                 var childStyle = resolver(childElem, style);
                 if (childStyle.Display == "none") continue;
 
+                if (childElem.TagName == "br")
+                {
+                    if (inlineRun > maxWidth) maxWidth = inlineRun;
+                    inlineRun = 0;
+                    continue;
+                }
+
                 float childWidth;
                 var explicitWidth = BlockLayout.ResolveOptionalLength(childStyle.Width, 0, fontSize);
                 if (explicitWidth.HasValue)
-                {
                     childWidth = explicitWidth.Value;
-                }
+                else if (childElem.TagName == "img")
+                    childWidth = BlockLayout.ResolveReplacedElementWidth(childStyle, childElem, fontSize, BlockLayout.DefaultImageWidthPx);
+                else if (childElem.TagName == "svg")
+                    childWidth = BlockLayout.ResolveReplacedElementWidth(childStyle, childElem, fontSize, BlockLayout.DefaultSvgWidthPx);
                 else
                 {
                     float childFontSize = BlockLayout.ResolveFontSize(childStyle.FontSize, fontSize);
                     childWidth = MeasureMaxContentWidth(childElem, childStyle, resolver, childFontSize);
                 }
+                childWidth += BlockLayout.ResolveLength(childStyle.Get("padding-left"), 0, fontSize)
+                              + BlockLayout.ResolveLength(childStyle.Get("padding-right"), 0, fontSize);
+                float childMargins = BlockLayout.ResolveLength(childStyle.Get("margin-left"), 0, fontSize)
+                                     + BlockLayout.ResolveLength(childStyle.Get("margin-right"), 0, fontSize);
 
-                bool isInline = childStyle.Display == "inline" || childStyle.Display == "inline-block";
+                bool isInline = childStyle.Display == "inline" || childStyle.Display == "inline-block" ||
+                                ((childElem.TagName == "img" || childElem.TagName == "svg") && childStyle.Display != "block");
                 if (isInline)
                 {
                     if (inlineRun > 0)
                         inlineRun += TextMeasurer.MeasureWidth(" ", fontSize,
                             style.FontFamily, style.FontWeight, style.Get("font-style"), letterSpacing);
-                    inlineRun += childWidth
-                        + BlockLayout.ResolveLength(childStyle.Get("margin-left"), 0, fontSize)
-                        + BlockLayout.ResolveLength(childStyle.Get("margin-right"), 0, fontSize);
+                    inlineRun += childWidth + childMargins;
                 }
                 else
                 {
                     if (inlineRun > maxWidth) maxWidth = inlineRun;
                     inlineRun = 0;
-                    if (childWidth > maxWidth) maxWidth = childWidth;
+                    if (childWidth + childMargins > maxWidth) maxWidth = childWidth + childMargins;
                 }
             }
         }
