@@ -238,12 +238,12 @@ internal sealed class MediaQueryEvaluator
         {
             char c = query[i];
             if (c == '(') depth++;
-            else if (c == ')') depth--;
+            else if (c == ')') depth = Math.Max(0, depth - 1);
             else if (depth == 0 && IsAndKeywordAt(query, i))
             {
                 parts.Add(query.Substring(start, i - start).Trim());
-                i += 3;
-                start = i;
+                start = i + 3;
+                i += 2;
             }
         }
         parts.Add(query.Substring(start).Trim());
@@ -265,7 +265,7 @@ internal sealed class MediaQueryEvaluator
         {
             char c = text[i];
             if (c == '(') depth++;
-            else if (c == ')') depth--;
+            else if (c == ')') depth = Math.Max(0, depth - 1);
             else if (c == separator && depth == 0)
             {
                 parts.Add(text.Substring(start, i - start));

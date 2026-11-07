@@ -50,6 +50,10 @@ public class MediaQueryEvaluatorTests
     [InlineData("(color)", true)]
     [InlineData("(unknown-feature: 1)", false)]
     [InlineData("(max-width: 600px), print", true)]
+    [InlineData("print and(min-width:1px) and (max-width:9999px)", true)]
+    [InlineData("print and(min-width:1px)and(max-width:9999px)", true)]
+    [InlineData("print and (min-width:9999px) and(max-width:9999px)", false)]
+    [InlineData(") , print", true)]
     public void Features_EvaluatedAgainstPage(string query, bool expected)
     {
         PortraitA4Print.Matches(query).Should().Be(expected);
