@@ -87,8 +87,8 @@ reviewable, and don't fold it into an unrelated change.
 - A bug in code another session is working on (its open PR or its project lock) is reported to that
   work (a comment on its PR) instead of fixed in parallel, and fixed after that work merges if it is
   still there ("Stay in your lane").
-- The decisions the global rules leave to the owner (money, licenses, deleting shared data) are
-  reported, not acted on.
+- The decisions the global rules leave to the owner (money, licenses, deleting or force-pushing shared
+  branches and data, deploys beyond the merges this repo allows) are reported, not acted on.
 
 ## Conventional Commits
 
