@@ -98,10 +98,7 @@ Implement a feature for EggPdf following the strict loop: write test -> write co
     - `test:` for test-only changes
     - `refactor:` for restructuring without behavior change
 
-13. **Push the branch** (but do NOT create PR -- use `/ship` for that):
-    ```bash
-    git push -u origin feat/{feature-name}
-    ```
+13. **Open the PR with `/pr`** -- it reviews, tests, pushes, opens and merges the PR.
 
 ## Key Reminders
 

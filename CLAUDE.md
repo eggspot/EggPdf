@@ -65,6 +65,14 @@ write ALL the code for the task first, then run the test suite and fix.
 - Write the whole batch of code first, THEN run tests once and fix failures — no test runs after every small edit.
 - No standalone `dotnet build` — `dotnet test` compiles everything it needs. Only build separately when diagnosing a build-system issue itself.
 
+**Every pull request goes through the `pr` skill.** Before creating a PR (`gh pr create` or any other
+way) — whether the user asks for one or the coding task is done and a PR is the next step — invoke the
+`pr` skill (`.claude/skills/pr/SKILL.md`) and follow it, unless all of its steps have already been done
+in this session for the current commit. It reviews the plan, reviews the code in two rounds, fixes and
+commits, runs the tests (and benchmarks for hot paths), opens the PR to `main`, gets an independent
+MERGE verdict, waits for every CI job, squash-merges and checks the release the merge starts, then
+reports to the user. Running it is the go-ahead for its own fixes, commits, one test run and the merge.
+
 ## Conventional Commits
 
 - `feat:` -- new feature
@@ -297,7 +305,7 @@ file-size rule above) rather than inventing parallel builder types for the same 
 - `/test` -- run tests (all or filtered)
 - `/bench` -- run benchmarks and analyze
 - `/perf-check` -- verify no performance regression
-- `/ship` -- create PR with test + perf evidence
+- `/pr` -- review, fix, test, open the PR to `main`, merge once the independent review and every CI job pass, check the release
 - `/fix` -- fix a bug (reproduce with test first)
 - `/render-debug` -- trace a rendering issue through the pipeline
 - `/review` -- dual-perspective code review: Lead Dev (architecture/correctness) + Dev (implementation/tests), runs in main agent for easy follow-up
@@ -306,6 +314,6 @@ file-size rule above) rather than inventing parallel builder types for the same 
 
 - `BLUEPRINT.md` -- comprehensive project blueprint (3,400+ lines)
 - `CLAUDE.md` -- this file
-- `.claude/skills/` -- 7 skill definitions
+- `.claude/skills/` -- 11 skill definitions
 - `design/architecture/` -- 9 architecture docs
 - `design/specs/` -- 5 technical specs
