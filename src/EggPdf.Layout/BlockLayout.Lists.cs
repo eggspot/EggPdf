@@ -7,17 +7,21 @@ namespace EggPdf.Layout;
 
 public static partial class BlockLayout
 {
+    private static readonly string DiscMarker = ((char)0x2022).ToString();
+    private const string CircleMarkerWinAnsiSafe = "o";
+    private static readonly string SquareMarkerEnDashSubstitute = ((char)0x2013).ToString();
+
     private static string GetListMarkerText(string listStyleType, HtmlElement element,
         HtmlElement? parentElement, CssCounterContext? counterCtx = null)
     {
         switch (listStyleType)
         {
             case "disc":
-                return "\u2022"; // • (bullet, WinAnsi 0x95)
+                return DiscMarker;
             case "circle":
-                return "o"; // circle marker (WinAnsi-safe)
+                return CircleMarkerWinAnsiSafe;
             case "square":
-                return "\u2013"; // – as square substitute (WinAnsi 0x96)
+                return SquareMarkerEnDashSubstitute;
             case "none":
                 return "";
             case "decimal":
@@ -41,14 +45,13 @@ public static partial class BlockLayout
                 int ui = GetListItemIndex(element, parentElement);
                 return ToRoman(ui) + ".";
             default:
-                // Check custom @counter-style
                 if (counterCtx != null)
                 {
                     int itemIdx = GetListItemIndex(element, parentElement);
                     var custom = counterCtx.FormatCustomStyle(listStyleType, itemIdx);
                     if (custom != null) return custom;
                 }
-                return "\u2022"; // default to disc
+                return DiscMarker;
         }
     }
 
