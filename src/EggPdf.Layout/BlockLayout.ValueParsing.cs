@@ -67,7 +67,7 @@ public static partial class BlockLayout
         if (value == "smaller") return parentFontSize * 0.833f;
         if (value == "larger") return parentFontSize * 1.2f;
 
-        return ResolveLengthValue(value, 0, parentFontSize);
+        return ResolveLengthValue(value, parentFontSize, parentFontSize);
     }
 
     private static float ParseFloat(string s)

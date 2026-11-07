@@ -113,7 +113,7 @@ public static class CalcResolver
         }
         if (StartsWithIgnoreCase(value, "round(") && value[value.Length - 1] == ')')
         {
-            var ra =SplitArgs(value.Substring(6, value.Length - 7));
+            var ra = SplitArgs(value.Substring(6, value.Length - 7));
             int vi = 0;
             string strategy = "nearest";
             if (ra.Length >= 1 && !ra[0].Trim().EndsWith("px") && !char.IsDigit(ra[0].Trim()[0]))

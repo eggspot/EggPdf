@@ -63,6 +63,51 @@ public class LengthUnitTests
     }
 
     [Fact]
+    public void RemOnRootElement_DescendantInheritsComputedSizeNotRemAgain()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<html style='font-size:2rem'><body style='margin:0'><div id='d' style='width:10em'>A</div></body></html>",
+            600, 800);
+
+        root.FindById("d")!.Width.Should().BeApproximately(320f, 0.01f);
+    }
+
+    [Fact]
+    public void PercentRootFontSize_RemUsesComputedRoot()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<html style='font-size:62.5%'><body style='margin:0'><div id='d' style='width:10rem;padding-left:1.6rem'>A</div></body></html>",
+            600, 800);
+
+        var div = root.FindById("d")!;
+        div.PaddingLeft.Should().BeApproximately(16f, 0.01f);
+        div.Width.Should().BeApproximately(116f, 0.01f);
+    }
+
+    [Theory]
+    [InlineData("150%", 24f)]
+    [InlineData("80%", 12.8f)]
+    [InlineData("1.5em", 24f)]
+    public void FontSize_RelativeToParent_ResolvesAgainstParentSize(string fontSize, float expectedPx)
+    {
+        var root = LayoutTestHelper.Layout(
+            "<body style='margin:0;font-size:16px'><div id='d' style='font-size:" + fontSize + ";width:10em'>A</div></body>",
+            600, 800);
+
+        root.FindById("d")!.Width.Should().BeApproximately(expectedPx * 10f, 0.05f);
+    }
+
+    [Fact]
+    public void ResetRootFontSize_AfterLayout_RemFallsBackToInitialSize()
+    {
+        LayoutTestHelper.Layout("<html style='font-size:20px'><body>A</body></html>", 600, 800);
+
+        BlockLayout.ResetRootFontSize();
+
+        BlockLayout.ResolveLength("1rem", 0f, 10f).Should().BeApproximately(16f, 0.01f);
+    }
+
+    [Fact]
     public void Vmin_OnPortraitPage_UsesPageWidth()
     {
         var root = LayoutTestHelper.Layout(
