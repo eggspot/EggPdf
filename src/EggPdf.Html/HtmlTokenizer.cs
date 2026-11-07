@@ -34,7 +34,6 @@ public class HtmlTokenizer
         {
             if (_pos == _input.Length)
             {
-                // Emit any buffered text before EOF
                 if (_buffer.Length > 0 && _state == TokenizerState.Data)
                 {
                     var textToken = new HtmlToken { Type = HtmlTokenType.Character, Data = _buffer.ToString() };
@@ -92,9 +91,13 @@ public class HtmlTokenizer
                         _buffer.Clear();
                         _state = TokenizerState.TagName;
                     }
+                    else if (c == '?')
+                    {
+                        _buffer.Clear();
+                        _state = TokenizerState.BogusComment;
+                    }
                     else
                     {
-                        // Invalid: emit '<' as text
                         _buffer.Append('<');
                         _state = TokenizerState.Data;
                     }
@@ -367,7 +370,6 @@ public class HtmlTokenizer
                     }
                     else
                     {
-                        // Bogus comment
                         _buffer.Clear();
                         _state = TokenizerState.BogusComment;
                     }
@@ -381,7 +383,7 @@ public class HtmlTokenizer
                         {
                             _pos++;
                             _state = TokenizerState.Data;
-                            return new HtmlToken { Type = HtmlTokenType.Comment, Data = _buffer.ToString() };
+                            return TakeCommentToken();
                         }
                         _buffer.Append("--");
                     }
@@ -397,7 +399,7 @@ public class HtmlTokenizer
                     {
                         _pos++;
                         _state = TokenizerState.Data;
-                        return new HtmlToken { Type = HtmlTokenType.Comment, Data = _buffer.ToString() };
+                        return TakeCommentToken();
                     }
                     _buffer.Append(c);
                     _pos++;
@@ -436,9 +438,8 @@ public class HtmlTokenizer
                         else
                         {
                             _pos++;
-                            // Skip rest until >
                             while (_pos < _input.Length && _input[_pos] != '>') _pos++;
-                            if (_pos < _input.Length) _pos++; // skip >
+                            if (_pos < _input.Length) _pos++;
                             _state = TokenizerState.Data;
                         }
                         return new HtmlToken { Type = HtmlTokenType.Doctype, DoctypeName = name };
@@ -459,13 +460,16 @@ public class HtmlTokenizer
         return HtmlToken.Eof();
     }
 
-    /// <summary>
-    /// Consume a character reference (entity) starting after '&amp;'.
-    /// Returns the decoded character(s) as a string.
-    /// </summary>
+    private HtmlToken TakeCommentToken()
+    {
+        var token = new HtmlToken { Type = HtmlTokenType.Comment, Data = _buffer.ToString() };
+        _buffer.Clear();
+        return token;
+    }
+
     private string ConsumeCharacterReference()
     {
-        _pos++; // skip '&'
+        _pos++;
 
         if (_pos >= _input.Length)
             return "&";
@@ -476,7 +480,6 @@ public class HtmlTokenizer
             return ConsumeNumericReference();
         }
 
-        // Named reference - try common ones
         return ConsumeNamedReference();
     }
 
@@ -520,9 +523,8 @@ public class HtmlTokenizer
 
     private string ConsumeNamedReference()
     {
-        // Scan the maximal alphanumeric run after '&' (entity names are short)
         int nameEnd = _pos;
-        int maxEnd = Math.Min(_input.Length, _pos + 32);
+        int maxEnd = Math.Min(_input.Length, _pos + MaxEntityNameLength);
         while (nameEnd < maxEnd && IsAsciiAlphanumeric(_input[nameEnd]))
             nameEnd++;
 
@@ -531,50 +533,44 @@ public class HtmlTokenizer
             var name = _input.Substring(_pos, nameEnd - _pos);
             if (NamedEntities.TryGetValue(name, out var value))
             {
-                _pos = nameEnd + 1; // consume name and ';'
+                _pos = nameEnd + 1;
                 return value;
             }
         }
 
-        // Legacy semicolon-less forms (only the historically supported set)
-        for (int i = 0; i < LegacyEntities.Length; i++)
+        for (int i = 0; i < SemicolonlessLegacyEntities.Length; i++)
         {
-            var name = LegacyEntities[i];
+            var name = SemicolonlessLegacyEntities[i];
             if (_pos + name.Length <= _input.Length &&
                 string.Compare(_input, _pos, name, 0, name.Length, StringComparison.Ordinal) == 0)
             {
                 _pos += name.Length;
                 if (_pos < _input.Length && _input[_pos] == ';')
                     _pos++;
-                return LegacyValues[i];
+                return SemicolonlessLegacyValues[i];
             }
         }
 
-        // Unknown entity: emit '&' and continue
         return "&";
     }
 
     private static bool IsAsciiAlphanumeric(char c) =>
         (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
 
-    // Entities that historically worked without a trailing semicolon
-    private static readonly string[] LegacyEntities = { "amp", "lt", "gt", "quot", "apos", "nbsp" };
-    private static readonly string[] LegacyValues = { "&", "<", ">", "\"", "'", "\u00A0" };
+    private const int MaxEntityNameLength = 32;
 
-    /// <summary>Common HTML named character references (WHATWG subset, case-sensitive).</summary>
+    private static readonly string[] SemicolonlessLegacyEntities = { "amp", "lt", "gt", "quot", "apos", "nbsp" };
+    private static readonly string[] SemicolonlessLegacyValues = { "&", "<", ">", "\"", "'", "\u00A0" };
+
     private static readonly Dictionary<string, string> NamedEntities = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        // Core
         ["amp"] = "&", ["lt"] = "<", ["gt"] = ">", ["quot"] = "\"", ["apos"] = "'",
-        // Spaces and dashes
         ["nbsp"] = "\u00A0", ["ensp"] = "\u2002", ["emsp"] = "\u2003", ["thinsp"] = "\u2009",
         ["shy"] = "\u00AD", ["ndash"] = "\u2013", ["mdash"] = "\u2014", ["horbar"] = "\u2015",
-        // Quotes
         ["lsquo"] = "\u2018", ["rsquo"] = "\u2019", ["sbquo"] = "\u201A",
         ["ldquo"] = "\u201C", ["rdquo"] = "\u201D", ["bdquo"] = "\u201E",
         ["lsaquo"] = "\u2039", ["rsaquo"] = "\u203A", ["laquo"] = "\u00AB", ["raquo"] = "\u00BB",
         ["prime"] = "\u2032", ["Prime"] = "\u2033",
-        // Punctuation and symbols
         ["hellip"] = "\u2026", ["middot"] = "\u00B7", ["bull"] = "\u2022",
         ["dagger"] = "\u2020", ["Dagger"] = "\u2021", ["permil"] = "\u2030",
         ["sect"] = "\u00A7", ["para"] = "\u00B6", ["iexcl"] = "\u00A1", ["iquest"] = "\u00BF",
@@ -586,10 +582,8 @@ public class HtmlTokenizer
         ["frac14"] = "\u00BC", ["frac12"] = "\u00BD", ["frac34"] = "\u00BE",
         ["times"] = "\u00D7", ["divide"] = "\u00F7", ["minus"] = "\u2212",
         ["lowast"] = "\u2217", ["frasl"] = "\u2044",
-        // Currency
         ["euro"] = "\u20AC", ["pound"] = "\u00A3", ["yen"] = "\u00A5",
         ["cent"] = "\u00A2", ["curren"] = "\u00A4",
-        // Latin-1 letters (uppercase)
         ["Agrave"] = "\u00C0", ["Aacute"] = "\u00C1", ["Acirc"] = "\u00C2", ["Atilde"] = "\u00C3",
         ["Auml"] = "\u00C4", ["Aring"] = "\u00C5", ["AElig"] = "\u00C6", ["Ccedil"] = "\u00C7",
         ["Egrave"] = "\u00C8", ["Eacute"] = "\u00C9", ["Ecirc"] = "\u00CA", ["Euml"] = "\u00CB",
@@ -599,7 +593,6 @@ public class HtmlTokenizer
         ["Ouml"] = "\u00D6", ["Oslash"] = "\u00D8",
         ["Ugrave"] = "\u00D9", ["Uacute"] = "\u00DA", ["Ucirc"] = "\u00DB", ["Uuml"] = "\u00DC",
         ["Yacute"] = "\u00DD", ["THORN"] = "\u00DE",
-        // Latin-1 letters (lowercase)
         ["szlig"] = "\u00DF",
         ["agrave"] = "\u00E0", ["aacute"] = "\u00E1", ["acirc"] = "\u00E2", ["atilde"] = "\u00E3",
         ["auml"] = "\u00E4", ["aring"] = "\u00E5", ["aelig"] = "\u00E6", ["ccedil"] = "\u00E7",
@@ -610,14 +603,11 @@ public class HtmlTokenizer
         ["ouml"] = "\u00F6", ["oslash"] = "\u00F8",
         ["ugrave"] = "\u00F9", ["uacute"] = "\u00FA", ["ucirc"] = "\u00FB", ["uuml"] = "\u00FC",
         ["yacute"] = "\u00FD", ["thorn"] = "\u00FE", ["yuml"] = "\u00FF",
-        // Ligatures and accents
         ["OElig"] = "\u0152", ["oelig"] = "\u0153", ["Scaron"] = "\u0160", ["scaron"] = "\u0161",
         ["Yuml"] = "\u0178", ["fnof"] = "\u0192", ["circ"] = "\u02C6", ["tilde"] = "\u02DC",
-        // Arrows
         ["larr"] = "\u2190", ["uarr"] = "\u2191", ["rarr"] = "\u2192", ["darr"] = "\u2193",
         ["harr"] = "\u2194", ["crarr"] = "\u21B5",
         ["lArr"] = "\u21D0", ["uArr"] = "\u21D1", ["rArr"] = "\u21D2", ["dArr"] = "\u21D3", ["hArr"] = "\u21D4",
-        // Math
         ["infin"] = "\u221E", ["ne"] = "\u2260", ["equiv"] = "\u2261", ["le"] = "\u2264", ["ge"] = "\u2265",
         ["sum"] = "\u2211", ["prod"] = "\u220F", ["int"] = "\u222B", ["radic"] = "\u221A",
         ["asymp"] = "\u2248", ["prop"] = "\u221D", ["part"] = "\u2202", ["nabla"] = "\u2207",
@@ -627,14 +617,12 @@ public class HtmlTokenizer
         ["sube"] = "\u2286", ["supe"] = "\u2287", ["oplus"] = "\u2295", ["otimes"] = "\u2297",
         ["perp"] = "\u22A5", ["sdot"] = "\u22C5", ["not"] = "\u00AC", ["and"] = "\u2227", ["or"] = "\u2228",
         ["ang"] = "\u2220", ["there4"] = "\u2234", ["sim"] = "\u223C", ["cong"] = "\u2245",
-        // Greek (uppercase)
         ["Alpha"] = "\u0391", ["Beta"] = "\u0392", ["Gamma"] = "\u0393", ["Delta"] = "\u0394",
         ["Epsilon"] = "\u0395", ["Zeta"] = "\u0396", ["Eta"] = "\u0397", ["Theta"] = "\u0398",
         ["Iota"] = "\u0399", ["Kappa"] = "\u039A", ["Lambda"] = "\u039B", ["Mu"] = "\u039C",
         ["Nu"] = "\u039D", ["Xi"] = "\u039E", ["Omicron"] = "\u039F", ["Pi"] = "\u03A0",
         ["Rho"] = "\u03A1", ["Sigma"] = "\u03A3", ["Tau"] = "\u03A4", ["Upsilon"] = "\u03A5",
         ["Phi"] = "\u03A6", ["Chi"] = "\u03A7", ["Psi"] = "\u03A8", ["Omega"] = "\u03A9",
-        // Greek (lowercase)
         ["alpha"] = "\u03B1", ["beta"] = "\u03B2", ["gamma"] = "\u03B3", ["delta"] = "\u03B4",
         ["epsilon"] = "\u03B5", ["zeta"] = "\u03B6", ["eta"] = "\u03B7", ["theta"] = "\u03B8",
         ["iota"] = "\u03B9", ["kappa"] = "\u03BA", ["lambda"] = "\u03BB", ["mu"] = "\u03BC",
@@ -642,7 +630,6 @@ public class HtmlTokenizer
         ["rho"] = "\u03C1", ["sigmaf"] = "\u03C2", ["sigma"] = "\u03C3", ["tau"] = "\u03C4",
         ["upsilon"] = "\u03C5", ["phi"] = "\u03C6", ["chi"] = "\u03C7", ["psi"] = "\u03C8",
         ["omega"] = "\u03C9",
-        // Misc symbols
         ["spades"] = "\u2660", ["clubs"] = "\u2663", ["hearts"] = "\u2665", ["diams"] = "\u2666",
         ["loz"] = "\u25CA", ["oline"] = "\u203E", ["alefsym"] = "\u2135",
         ["weierp"] = "\u2118", ["image"] = "\u2111", ["real"] = "\u211C",
