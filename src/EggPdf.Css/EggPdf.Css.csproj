@@ -13,6 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="EggPdf" />
     <InternalsVisibleTo Include="EggPdf.Layout" />
     <InternalsVisibleTo Include="EggPdf.Tests.Unit" />
   </ItemGroup>
