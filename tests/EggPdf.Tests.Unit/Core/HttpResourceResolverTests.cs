@@ -10,11 +10,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Core;
 
-/// <summary>
-/// <see cref="HttpResourceResolver"/> is safe for untrusted HTML by default: it refuses loopback,
-/// private and link-local addresses (checked when connecting, so DNS can't smuggle them in), re-checks
-/// every redirect hop, and caps response size and time. Tests run against a real loopback server.
-/// </summary>
 public class HttpResourceResolverTests
 {
     private static readonly byte[] Payload = Encoding.ASCII.GetBytes("body { color: red; }");
@@ -156,7 +151,6 @@ public class HttpResourceResolverTests
         int checks = 0;
         var resolver = new HttpResourceResolver
         {
-            // Allow the first connection only: the redirect's new connection must be checked and refused
             AddressFilter = _ => Interlocked.Increment(ref checks) == 1,
         };
 
@@ -170,7 +164,6 @@ public class HttpResourceResolverTests
     [Fact]
     public async Task Resolve_CallerClientFollowsRedirectOutsideAllowList_Refused()
     {
-        // A caller-supplied HttpClient follows redirects itself; the final URL must still be checked
         LocalHttpServer? server = null;
         server = new LocalHttpServer(path => path == "/a.css"
             ? new LocalHttpServer.Response
@@ -192,12 +185,38 @@ public class HttpResourceResolverTests
     [Theory]
     [InlineData(-5)]
     [InlineData(0)]
-    [InlineData(int.MaxValue)]
-    public async Task Resolve_OutOfRangeTimeout_DoesNotThrow(int timeoutSeconds)
+    public async Task Resolve_NonPositiveTimeout_ClampsToMinimumWithoutThrowing(int timeoutSeconds)
+    {
+        using var server = Serve();
+        var resolver = AllowLoopback(new HttpResourceOptions { TimeoutSeconds = timeoutSeconds });
+
+        Func<Task> resolve = () => resolver.ResolveAsync(server.Url("/a.css"), ResourceType.StyleSheet);
+
+        await resolve.Should().NotThrowAsync();
+    }
+
+    [Theory]
+    [InlineData(-5)]
+    [InlineData(0)]
+    public async Task Resolve_NonPositiveTimeoutAgainstHangingServer_GivesUpAfterOneSecond(int timeoutSeconds)
+    {
+        using var server = new LocalHttpServer(_ => new LocalHttpServer.Response { Hang = true });
+        var resolver = AllowLoopback(new HttpResourceOptions { TimeoutSeconds = timeoutSeconds });
+        var clock = Stopwatch.StartNew();
+
+        var result = await resolver.ResolveAsync(server.Url("/slow.css"), ResourceType.StyleSheet);
+
+        result.Should().BeNull();
+        clock.Elapsed.Should().BeGreaterThan(TimeSpan.FromMilliseconds(900))
+            .And.BeLessThan(TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
+    public async Task Resolve_TimeoutAboveCancelAfterLimit_FetchesBody()
     {
         using var server = Serve();
 
-        var result = await AllowLoopback(new HttpResourceOptions { TimeoutSeconds = timeoutSeconds })
+        var result = await AllowLoopback(new HttpResourceOptions { TimeoutSeconds = int.MaxValue })
             .ResolveAsync(server.Url("/a.css"), ResourceType.StyleSheet);
 
         result!.Data.Should().Equal(Payload);
