@@ -176,6 +176,19 @@ public class HtmlTokenizerTests
         comments[0].Data.Should().Be(" hello ");
     }
 
+    [Theory]
+    [InlineData("<!-- Header -->Invoice", "Invoice")]
+    [InlineData("<!-- a -- b -->Invoice", "Invoice")]
+    [InlineData("<!bogus>Invoice", "Invoice")]
+    [InlineData("<?xml version=\"1.0\"?>Invoice", "Invoice")]
+    public void CommentFollowedByText_TextTokenExcludesCommentData(string html, string expectedText)
+    {
+        var tokens = Tokenize(html);
+
+        tokens.Where(t => t.Type == HtmlTokenType.Character).Select(t => t.Data)
+            .Should().ContainSingle().Which.Should().Be(expectedText);
+    }
+
     [Fact]
     public void Doctype_Parsed()
     {

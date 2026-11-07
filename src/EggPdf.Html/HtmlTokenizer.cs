@@ -92,6 +92,11 @@ public class HtmlTokenizer
                         _buffer.Clear();
                         _state = TokenizerState.TagName;
                     }
+                    else if (c == '?')
+                    {
+                        _buffer.Clear();
+                        _state = TokenizerState.BogusComment;
+                    }
                     else
                     {
                         // Invalid: emit '<' as text
@@ -381,7 +386,7 @@ public class HtmlTokenizer
                         {
                             _pos++;
                             _state = TokenizerState.Data;
-                            return new HtmlToken { Type = HtmlTokenType.Comment, Data = _buffer.ToString() };
+                            return TakeCommentToken();
                         }
                         _buffer.Append("--");
                     }
@@ -397,7 +402,7 @@ public class HtmlTokenizer
                     {
                         _pos++;
                         _state = TokenizerState.Data;
-                        return new HtmlToken { Type = HtmlTokenType.Comment, Data = _buffer.ToString() };
+                        return TakeCommentToken();
                     }
                     _buffer.Append(c);
                     _pos++;
@@ -457,6 +462,13 @@ public class HtmlTokenizer
         }
 
         return HtmlToken.Eof();
+    }
+
+    private HtmlToken TakeCommentToken()
+    {
+        var token = new HtmlToken { Type = HtmlTokenType.Comment, Data = _buffer.ToString() };
+        _buffer.Clear();
+        return token;
     }
 
     /// <summary>
