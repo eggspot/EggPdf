@@ -391,7 +391,7 @@ public static class FlexLayout
                     // also measure the unwrapped text width (flex-shrink recovers
                     // overflow when the sum exceeds the line).
                     baseSize = Math.Max(GetMaxLeafContentWidth(childBox),
-                        MeasureContentWidth(childElem, childStyle, resolver,
+                        MeasureMaxContentWidth(childElem, childStyle, resolver,
                             BlockLayout.ResolveFontSize(childStyle.FontSize, fontSize)));
                 }
                 else
@@ -1104,8 +1104,7 @@ public static class FlexLayout
         }
     }
 
-    /// <summary>Measure intrinsic content width for content-based sizing.</summary>
-    private static float MeasureContentWidth(HtmlElement element, ComputedStyle style,
+    internal static float MeasureMaxContentWidth(HtmlElement element, ComputedStyle style,
         Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, float fontSize)
     {
         float maxWidth = 0;
@@ -1142,7 +1141,7 @@ public static class FlexLayout
                 else
                 {
                     float childFontSize = BlockLayout.ResolveFontSize(childStyle.FontSize, fontSize);
-                    childWidth = MeasureContentWidth(childElem, childStyle, resolver, childFontSize);
+                    childWidth = MeasureMaxContentWidth(childElem, childStyle, resolver, childFontSize);
                 }
 
                 bool isInline = childStyle.Display == "inline" || childStyle.Display == "inline-block";
