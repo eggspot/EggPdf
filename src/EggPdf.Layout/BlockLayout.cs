@@ -310,9 +310,8 @@ public static partial class BlockLayout
         // Form element special rendering: inject value/content text for void/custom form elements
         childY = InjectFormElementContent(element, style, box, fontSize, childContainingWidth, childY);
 
-        // Tracks a collapsed boundary space owned by the preceding text node
-        // ("Căn cứ <strong>Luật</strong>": the space precedes the inline element).
         bool prevTextEndedWithSpace = false;
+        bool prevInlineElementEndedWithSpace = false;
 
         // Table-row column geometry, computed once per row on first cell —
         // the previous per-cell rescans were O(cells²) per row.
@@ -332,6 +331,7 @@ public static partial class BlockLayout
         {
             if (childNode is HtmlElement childElem)
             {
+                prevInlineElementEndedWithSpace = false;
                 var childStyle = resolver(childElem, style);
 
                 if (childStyle.Display == "none")
@@ -837,6 +837,7 @@ public static partial class BlockLayout
                     {
                         LayoutInlineRuns(runs, box, childElem, ref inlineX, ref childY, ref inlineLineHeight,
                             childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY);
+                        prevInlineElementEndedWithSpace = EndsWithCollapsibleWhitespace(runs[runs.Count - 1].Text);
                     }
                     else
                     {
@@ -893,12 +894,15 @@ public static partial class BlockLayout
                     bool[]? ilNoSpace = null;
                     if (EggPdf.Text.SpacelessLineBreaker.Contains(ilTextData))
                         words = ExpandSpacelessWords(words, out ilNoSpace);
+                    bool ilFirstWordHasLeadingSpace = StartsWithCollapsibleWhitespace(textNode.Data)
+                        || prevInlineElementEndedWithSpace || prevTextEndedWithSpace;
                     int ilWordIndex = -1;
                     foreach (var word in words)
                     {
                         ilWordIndex++;
                         bool ilJoin = ilNoSpace != null && ilNoSpace[ilWordIndex];
-                        var wordWithSpace = (inlineX > 0 && !ilJoin ? " " : "") + word;
+                        bool ilSpaceBefore = ilWordIndex > 0 ? !ilJoin : ilFirstWordHasLeadingSpace;
+                        var wordWithSpace = (inlineX > 0 && ilSpaceBefore ? " " : "") + word;
                         float wordWidth = TextMeasurer.MeasureWidth(wordWithSpace, fontSize, ilFontFamily, ilFontWeight, ilFontStyle, ilLetterSpacing);
 
                         // Wrap to next line if word doesn't fit
@@ -986,9 +990,13 @@ public static partial class BlockLayout
                     }
 
                     var fatWords = fatText.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    bool fatFirstWordHasLeadingSpace = StartsWithCollapsibleWhitespace(textNode.Data) || prevTextEndedWithSpace;
+                    int fatWordIndex = -1;
                     foreach (var word in fatWords)
                     {
-                        if (inlineX == 0)
+                        fatWordIndex++;
+                        bool fatAtLineStart = inlineX == 0;
+                        if (fatAtLineStart)
                         {
                             float absY = floatOriginY + box.PaddingTop + childY;
                             float startX = floatCtx.GetContentStartX(absY, fatLineHeight, absContainerLeft);
@@ -996,7 +1004,8 @@ public static partial class BlockLayout
                             if (inset > 0) inlineX = inset;
                         }
 
-                        var wordWithSpace = (inlineX > 0 ? " " : "") + word;
+                        bool fatSpaceBefore = !fatAtLineStart && (fatWordIndex > 0 || fatFirstWordHasLeadingSpace);
+                        var wordWithSpace = (fatSpaceBefore ? " " : "") + word;
                         float wordWidth = TextMeasurer.MeasureWidth(wordWithSpace, fontSize, fatFontFamily, fatFontWeight, fatFontStyle, fatLetterSpacing);
 
                         float absYForLimit = floatOriginY + box.PaddingTop + childY;

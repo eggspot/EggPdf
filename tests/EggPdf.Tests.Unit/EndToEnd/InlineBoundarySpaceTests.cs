@@ -47,4 +47,42 @@ public class InlineBoundarySpaceTests
         text.Should().Contain("( Value)",
             "a whitespace-only text node between sibling inline elements must still collapse to one boundary space");
     }
+
+    [Theory]
+    [InlineData("<p>See <a href=\"#t\">terms</a>. Call now</p>", "(.)", "( .)")]
+    [InlineData("<p><b>Total</b>: 100</p>", "(:)", "( :)")]
+    [InlineData("<p><i>(note</i>) here</p>", "(\\))", "( \\))")]
+    [InlineData("<p>H<sub>2</sub>O water</p>", "(O)", "( O)")]
+    [InlineData("<p><b>A</b>B</p>", "(B)", "( B)")]
+    public async Task TextDirectlyAfterInlineElement_NoSpaceInSource_GetsNoSpace(string body, string expected, string unexpected)
+    {
+        var text = await RenderAscii(body);
+
+        text.Should().Contain(expected + " Tj");
+        text.Should().NotContain(unexpected + " Tj");
+    }
+
+    [Fact]
+    public async Task InlineElementEndingWithSpace_FollowingTextGetsOneSpace()
+    {
+        var text = await RenderAscii("<p><b>Total </b>due</p>");
+
+        text.Should().Contain("( due) Tj");
+    }
+
+    [Fact]
+    public async Task TextAfterInlineImage_NoSpaceInSource_GetsNoSpace()
+    {
+        var text = await RenderAscii("<p><img src='x.png' width='10' height='10'>Label</p>");
+
+        text.Should().Contain("(Label) Tj");
+    }
+
+    [Fact]
+    public async Task TextNodesSplitByComment_KeepTheirSpace()
+    {
+        var text = await RenderAscii("<p>Total: <!-- amount -->10 <b>EUR</b></p>");
+
+        text.Should().Contain("( 10) Tj");
+    }
 }
