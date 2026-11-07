@@ -89,6 +89,14 @@ public class LinkAnnotationPositionTests
     }
 
     [Fact]
+    public async Task HrefWithSurroundingWhitespace_AnnotationUsesTrimmedUri()
+    {
+        var content = await RenderAscii("<p><a href=\"  https://example.com/x  \">Go</a></p>");
+
+        content.Should().Contain("/URI (https://example.com/x)");
+    }
+
+    [Fact]
     public async Task JavascriptHref_GetsNoAnnotation()
     {
         var content = await RenderAscii("<p><a href=\"javascript:alert(1)\">Click</a></p>");

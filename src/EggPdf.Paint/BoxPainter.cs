@@ -162,10 +162,9 @@ public static partial class BoxPainter
 
     private static bool IsExternalLinkTarget(string href)
     {
-        var trimmed = href.TrimStart();
         foreach (var scheme in ExternalLinkSchemes)
         {
-            if (trimmed.StartsWith(scheme, StringComparison.OrdinalIgnoreCase))
+            if (href.StartsWith(scheme, StringComparison.OrdinalIgnoreCase))
                 return true;
         }
         return false;
@@ -917,7 +916,7 @@ public static partial class BoxPainter
         var linkElement = box.InlineSpan?.Element ?? box.Element;
         if (linkElement?.TagName == "a")
         {
-            var href = linkElement.GetAttribute("href");
+            var href = linkElement.GetAttribute("href")?.Trim();
             bool isInternalLink = !string.IsNullOrEmpty(href) && href![0] == '#';
             if (!string.IsNullOrEmpty(href) && (IsExternalLinkTarget(href!) || isInternalLink))
             {
