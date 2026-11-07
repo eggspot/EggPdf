@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using EggPdf.Core;
+using EggPdf.Css;
 using EggPdf.Css.Cascade;
 using EggPdf.Css.Parser;
 using EggPdf.Html;
@@ -27,6 +28,10 @@ public static partial class HtmlToPdf
     private const float DefaultPageWidthPx = 595.28f;
     private const float DefaultPageHeightPx = 841.89f;
     private const int MaxImportDepth = 10;
+
+    private const float A4WidthPx = 793.7f;
+    private const float A4HeightPx = 1122.5f;
+    private static readonly MediaQueryEvaluator PrintMediaBeforePageSize = new("print", A4WidthPx, A4HeightPx);
 
     private static readonly Text.FontResolver SharedFontResolver = new Text.FontResolver();
 
@@ -366,7 +371,7 @@ public static partial class HtmlToPdf
         float contentWidthPx = pageSettings.ContentWidthPx;
         float contentHeightPx = pageSettings.ContentHeightPx;
 
-        var cascadeResolver = new CascadeResolver(stylesheets, mediaType: "print", pageWidth: pageWidthPx);
+        var cascadeResolver = new CascadeResolver(stylesheets, mediaType: "print", pageWidth: pageWidthPx, pageHeight: pageHeightPx);
 
         var fontFaces = BuildFontFaceMap(stylesheets);
         bool usesVariations = UsesFontVariations(document, stylesheets);
@@ -592,7 +597,7 @@ public static partial class HtmlToPdf
                         if (linkSheet != null)
                             sheets.Add(linkSheet);
                     }
-                    else if (elem.TagName == "style")
+                    else if (elem.TagName == "style" && PrintMediaBeforePageSize.Matches(elem.GetAttribute("media")))
                     {
                         var cssText = GetElementText(elem);
                         if (!string.IsNullOrWhiteSpace(cssText))
@@ -623,15 +628,8 @@ public static partial class HtmlToPdf
         if (string.IsNullOrWhiteSpace(href))
             return null;
 
-        var media = linkElement.GetAttribute("media");
-        if (media != null)
-        {
-            var mediaTrimmed = media.Trim().ToLowerInvariant();
-            if (mediaTrimmed.Length > 0 &&
-                mediaTrimmed != "all" &&
-                mediaTrimmed != "print")
-                return null;
-        }
+        if (!PrintMediaBeforePageSize.Matches(linkElement.GetAttribute("media")))
+            return null;
 
         var cssText = LoadCssText(href, basePath, resources);
         if (string.IsNullOrWhiteSpace(cssText))
@@ -660,12 +658,8 @@ public static partial class HtmlToPdf
             var url = importRule.Url;
             if (string.IsNullOrWhiteSpace(url)) continue;
 
-            if (importRule.MediaQuery != null)
-            {
-                var mq = importRule.MediaQuery.Trim().ToLowerInvariant();
-                if (mq.Length > 0 && mq != "all" && mq != "print")
-                    continue;
-            }
+            if (!PrintMediaBeforePageSize.Matches(importRule.MediaQuery))
+                continue;
 
             var resolvedUrl = ResolveUrl(url, basePath) ?? url;
             if (!visitedUrls.Add(resolvedUrl))
@@ -737,7 +731,7 @@ public static partial class HtmlToPdf
             if (child is HtmlElement elem && elem.TagName == "style")
             {
                 var cssText = GetElementText(elem);
-                if (!string.IsNullOrWhiteSpace(cssText))
+                if (!string.IsNullOrWhiteSpace(cssText) && PrintMediaBeforePageSize.Matches(elem.GetAttribute("media")))
                 {
                     var sheet = CssStyleSheetParser.Parse(cssText);
                     ResolveImports(sheet, sheets, basePath, visitedUrls, 0, resources);
