@@ -50,7 +50,7 @@ public class CascadeResolver
         public bool AlwaysCheck; // no cheap rejection possible
         public bool SkipAlways;  // '::' pseudo-element rule — Matches() is always false
     }
-    private readonly string _mediaType;
+    private const float DefaultPageAspectRatio = 1.4142f;
     private readonly float _pageWidth;
     /// <summary>@property initial-values keyed by custom property name.</summary>
     private readonly Dictionary<string, string> _propertyInitialValues =
@@ -60,10 +60,11 @@ public class CascadeResolver
     public List<CssCounterStyleRule> CounterStyleRules { get; } = new();
 
     public CascadeResolver(IEnumerable<CssStyleSheet> stylesheets, string mediaType = "print",
-        float pageWidth = 1240f)
+        float pageWidth = 1240f, float pageHeight = 0f)
     {
-        _mediaType = mediaType;
         _pageWidth = pageWidth;
+        var media = new MediaQueryEvaluator(mediaType, pageWidth,
+            pageHeight > 0f ? pageHeight : pageWidth * DefaultPageAspectRatio);
 
         foreach (var sheet in stylesheets)
         {
@@ -73,7 +74,7 @@ public class CascadeResolver
             // @media rules - include if media matches
             foreach (var mediaRule in sheet.MediaRules)
             {
-                if (MediaMatches(mediaRule.MediaQuery))
+                if (media.Matches(mediaRule.MediaQuery))
                     AddRules(mediaRule.Rules);
             }
 
@@ -394,34 +395,6 @@ public class CascadeResolver
             if (resolved != kv.Value)
                 style.Set(kv.Key, resolved);
         }
-    }
-
-    private bool MediaMatches(string mediaQuery)
-    {
-        var query = mediaQuery.Trim().ToLowerInvariant();
-
-        if (string.IsNullOrEmpty(query) || query == "all")
-            return true;
-
-        // Simple media type matching
-        if (query == _mediaType)
-            return true;
-
-        if (query == "screen" && _mediaType == "print")
-            return false;
-
-        if (query == "print" && _mediaType == "screen")
-            return false;
-
-        // "not print" etc.
-        if (query.StartsWith("not "))
-        {
-            var negated = query.Substring(4).Trim();
-            return negated != _mediaType;
-        }
-
-        // Unknown media query: include by default
-        return true;
     }
 
     private void AddRules(IEnumerable<CssStyleRule> rules)
