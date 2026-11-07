@@ -17,6 +17,7 @@ public class CascadeResolver
     private readonly List<int> _authorRuleSpecificities = new();
     private readonly List<RuleFilter> _authorRuleFilters = new();
     private readonly BasicStyleResolver _uaResolver = new();
+    private float _rootFontSizePx = ComputedFontMetrics.InitialFontSizePx;
 
     /// <summary>
     /// Pseudo-element rules indexed by pseudo name (before/after/marker/...),
@@ -248,6 +249,12 @@ public class CascadeResolver
         bool isVertical = style.Get("writing-mode")?.IndexOf("vertical", System.StringComparison.OrdinalIgnoreCase) >= 0;
         LogicalPropertyResolver.Resolve(style, isRTL, isVertical);
 
+        bool isRoot = parentStyle == null;
+        float fontSizePx = ComputedFontMetrics.ComputeFontSizeAndLineHeight(style, parentStyle,
+            isRoot ? ComputedFontMetrics.InitialFontSizePx : _rootFontSizePx);
+        if (isRoot)
+            _rootFontSizePx = fontSizePx;
+
         return style;
     }
 
@@ -303,6 +310,7 @@ public class CascadeResolver
         }
 
         ResolveCustomProperties(style);
+        ComputedFontMetrics.ComputeFontSizeAndLineHeight(style, parentStyle, _rootFontSizePx);
         return style;
     }
 

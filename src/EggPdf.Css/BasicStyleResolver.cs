@@ -222,8 +222,16 @@ public class BasicStyleResolver
         bool isVertical = style.Get("writing-mode")?.IndexOf("vertical", System.StringComparison.OrdinalIgnoreCase) >= 0;
         LogicalPropertyResolver.Resolve(style, isRTL, isVertical);
 
+        bool isRoot = parentStyle == null;
+        float fontSizePx = ComputedFontMetrics.ComputeFontSizeAndLineHeight(style, parentStyle,
+            isRoot ? ComputedFontMetrics.InitialFontSizePx : _rootFontSizePx);
+        if (isRoot)
+            _rootFontSizePx = fontSizePx;
+
         return style;
     }
+
+    private float _rootFontSizePx = ComputedFontMetrics.InitialFontSizePx;
 
     /// <summary>
     /// Resolve all var() references in non-custom property values.

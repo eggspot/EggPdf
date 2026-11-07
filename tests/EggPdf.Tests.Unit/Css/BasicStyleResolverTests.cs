@@ -34,7 +34,7 @@ public class BasicStyleResolverTests
         var style = _resolver.Resolve(elem, null);
 
         style.Display.Should().Be("block");
-        style.FontSize.Should().Be("2em");
+        style.FontSize.Should().Be("32px");
         style.FontWeight.Should().Be("bold");
     }
 
