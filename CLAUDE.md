@@ -309,6 +309,9 @@ file-size rule above) rather than inventing parallel builder types for the same 
 - `/fix` -- fix a bug (reproduce with test first)
 - `/render-debug` -- trace a rendering issue through the pipeline
 - `/review` -- dual-perspective code review: Lead Dev (architecture/correctness) + Dev (implementation/tests), runs in main agent for easy follow-up
+- `/docs` -- bring README, site/, llms.txt and CLAUDE.md in line with the implementation
+- `/render-compare` -- render HTML through EggPdf and analyze the PDF for visual issues
+- `/test-templates` -- render every WebUI template through the pipeline and verify the output
 
 ## Key Files
 

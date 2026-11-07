@@ -9,7 +9,7 @@ Take the current branch to a pull request into `main`: $ARGUMENTS
 
 **Runs end to end without stopping.** Invoking this skill (by `/pr`, by asking for a PR, or because the work is done and a PR is next) is the user's go-ahead to fix the clear review findings, commit this branch's work, run the tests, push, open the PR and merge it once the independent review says MERGE and every CI job is green. Don't pause for confirmation between steps; the user gets one report at the end (step 8). The only stops are the ones written below (nothing to PR, a blocker that can't be fixed safely, red tests or a benchmark regression that can't be fixed, a BLOCK verdict that can't be fixed).
 
-**Every merge into `main` is a release.** The Publish workflow derives the version from the merged commit's conventional prefix (`feat:` → minor, `fix:`/`perf:`/`chore:`/`docs:`/`refactor:`/`test:` → patch, `!:` or `BREAKING CHANGE` → major), commits the version bump, tags, pushes to NuGet and starts the binaries, Docker and Hugging Face deploys. Never bump `<Version>`, tag or run `gh release create` by hand.
+**Every merge into `main` is a release.** The Publish workflow derives the version from the merged commit's conventional prefix (`feat:` → minor, `fix:`/`perf:`/`chore:`/`docs:`/`refactor:`/`test:` → patch, `!:` or `BREAKING CHANGE` → major), pushes to NuGet, tags, creates the GitHub Release, starts the binaries, Docker, Hugging Face and Pages deploys, then commits the version bump. Never bump `<Version>`, tag or run `gh release create` by hand.
 
 **This repo is public.** Never mention Jira, tickets or internal systems in branch names, commits, the PR title or body. No secret values anywhere.
 
@@ -23,7 +23,7 @@ Take the current branch to a pull request into `main`: $ARGUMENTS
 
 1. `git status`, `git branch --show-current`, `git fetch origin`.
 2. Take the project lock unless this session already holds it: `project-lock status .`, then `project-lock acquire . "<session title>"` (script in `vibe-coding-playbook/scripts/project-lock`). If another session holds it, stop and say who.
-3. On `main`, or on a branch whose PR is already merged (`gh pr list --head {branch} --state merged`): create a new branch from `origin/main`, carrying the uncommitted changes (`git switch -c {type}/{kebab-slug} origin/main`). `{type}` is the conventional prefix of the work (`feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `chore`), as in the repo's history (`feat/pdf-stamper`, `perf/lazy-pdf-reader`).
+3. On `main`, or on a branch whose PR is already merged (`gh pr list --head {branch} --state merged`): create a new branch from `origin/main`, carrying the uncommitted changes (`git switch -c {type}/{kebab-slug} origin/main`). If `main` has local commits not on `origin/main` (`git log origin/main..HEAD`), branch from `HEAD` instead so they come along, then `git branch -f main origin/main`. `{type}` is the conventional prefix of the work (`feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `chore`), as in the repo's history (`feat/pdf-stamper`, `perf/lazy-pdf-reader`).
 4. **Uncommitted changes:** list them. They are part of the review scope; step 4 commits them.
 5. `git log origin/main..HEAD --oneline` plus the uncommitted changes are what the PR carries. If both are empty, stop and say so.
 6. `gh pr list --head {branch} --state open` — if this branch already has an open PR (a draft opened to claim the work counts), step 6 updates that PR instead of opening a new one.
@@ -80,7 +80,7 @@ Don't stop for the user.
 - **Fix** every CRITICAL, MODERATE and ISSUE finding, and every MINOR or SUGGESTION whose fix is clear and inside this change's scope, plus anything ❌ missing from the plan that the request clearly asks for. Re-read the exact lines before each fix and show each edit. Write all the fixes first; step 5 tests them once.
 - **Don't fix, research it instead:** a finding that needs a design decision, would change a public API name beyond this change, or that you're not sure about goes to a research subagent (global "Questions: research them" rule). Follow its recommendation and record it in the PR under **Decisions** and in the report under "Decided by research".
 - **Stop before the PR** if a CRITICAL finding can't be fixed safely (the plan itself is wrong, a requirement is missing or unclear): give the step 8 report without a PR link and say what blocks it. Never open a PR that is known to be broken.
-- **Commit** with a conventional prefix: the uncommitted work from step 1 as `{type}: {what changed}`; review fixes as `fix: {what changed}` or `refactor: {what changed}`; comment removals in their own commit `refactor: remove comments in {File}`. Stage the files by name (never `git add -A` blind — check `git status` for stray files like local settings, scratch output, `bin/`/`obj/` or rendered PDFs and leave those out; say so in the report).
+- **Commit** with a conventional prefix: the uncommitted work from step 1 as `{type}: {what changed}`; review fixes as `fix: {what changed}` or `refactor: {what changed}`; comment removals in their own commit `refactor: remove comments in {File}`. No `Co-Authored-By` or other AI attribution trailer — branch commits stay visible on this public repo. Stage the files by name (never `git add -A` blind — check `git status` for stray files like local settings, scratch output, `bin/`/`obj/` or rendered PDFs and leave those out; say so in the report).
 - Keep a list of what each fix changed — it goes in the PR's **Plan** section ("Changes during the code review rounds").
 
 ## 5. Test once
@@ -150,20 +150,21 @@ New/changed test classes and what each covers. Per suite: N passed, N failed, N 
 Benchmark table before/after for hot-path changes, or "No hot-path change".
 ````
 
-Rules for the body: no AI attribution line of any kind, no Jira or ticket mentions, no secret values, no `@` mentions. With `--skip-review`, the Plan section says the review was skipped.
+Rules for the body (and for any PR comment this skill posts): no AI attribution line of any kind, no Jira or ticket mentions, no secret values, no `@` mentions. With `--skip-review`, the Plan section says the review was skipped.
 
 With `--no-merge`: end here and go to step 8.
 
 ## 7. Independent review, CI, merge
 
 1. **Independent review.** Launch one review subagent (Agent tool) that only reads. Give it the PR number, `gh pr diff {n}`, the PR body and `CLAUDE.md`; ask for a verdict, MERGE or BLOCK, with each blocking issue's file, line and reason. It checks the same rules as step 3 with fresh eyes, not your conclusions. For each blocking issue: fix it, commit, re-test the affected suites, push, and ask again. If a blocker can't be fixed safely, leave the PR open, say why in a PR comment, and go to step 8.
-2. **Up to date.** If GitHub reports the branch behind or conflicting (`gh pr view {n} --json mergeStateStatus,mergeable`): `git merge origin/main`, resolve conflicts, re-run step 5's suites, push. Never rebase a pushed branch or force-push.
+2. **Up to date.** If GitHub reports the branch behind or conflicting (`gh pr view {n} --json mergeStateStatus,mergeable`): `git merge origin/main`, resolve conflicts, re-run step 5's suites, push. This replaces the global "rebase late" rule here: the PR is squash-merged, so a merge commit on the branch never reaches `main`, while rebasing a pushed branch would need a force-push. Never force-push.
 3. **CI, per job.** `gh pr checks {n} --watch`, then check every matrix job, because `gh pr checks` deduplicates by name and can say pass while one OS leg failed:
+   `gh run list --branch {branch} --workflow CI --limit 1 --json databaseId --jq '.[0].databaseId'` gives `{runId}`, then
    `gh run view {runId} --json jobs --jq '.jobs[] | .name + " => " + .conclusion'`
    Every job must be `success`. On a failure, read the log (`gh run view {runId} --log-failed`; `MSB4181` with `0 Error(s)` is a test failure, grep for `Failed EggPdf`), fix, commit, push and watch again.
 4. **Merge.** `gh pr merge {n} --squash --delete-branch --subject "{PR title} (#{n})" --body "{short summary}"` — write the subject and body yourself so branch commit trailers don't carry over.
-5. **After the merge.** Confirm it merged (`gh pr view {n} --json state,mergeCommit`). Then `gh run list --commit {merge sha}` and watch CI and Publish to the end; Publish pushes a `chore: bump version to X.Y.Z [skip ci]` commit and starts Release Binaries, Docker and the Hugging Face deploy (`gh run list --limit 10`). Every run must succeed. A failed release means that version never shipped: fixing it comes before any new work in this repo.
-6. **Clean up.** `git switch main && git pull --ff-only`, delete the local branch (`git branch -d {branch}`), delete `.git/progress-{branch}.md` if it exists (its exact path, in its own command), and `project-lock release . "<session title>"`.
+5. **After the merge.** Confirm it merged (`gh pr view {n} --json state,mergeCommit`). Then `gh run list --commit {merge sha}` and watch CI and Publish to the end; Publish pushes a `chore: bump version to X.Y.Z [skip ci]` commit and starts Release Binaries, Docker, Pages and the Hugging Face deploy (`gh run list --limit 10`); check the GitHub Release exists (`gh release view vX.Y.Z`). Every run must succeed. A failed release means that version never shipped: fixing it comes before any new work in this repo.
+6. **Clean up.** `git switch main && git pull --ff-only`; `gh pr merge --delete-branch` usually deletes the local branch too — if `git branch --list {branch}` still shows it, `git branch -D {branch}` (squash-merged branches look unmerged to `-d`); delete `.git/progress-{branch}.md` if it exists (its exact path, in its own command), and `project-lock release . "<session title>"`.
 
 ## 8. Report to the user
 
