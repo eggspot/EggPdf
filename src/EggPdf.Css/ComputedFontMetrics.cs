@@ -9,9 +9,9 @@ internal static class ComputedFontMetrics
 
     internal static float ComputeFontSizeAndLineHeight(ComputedStyle style, ComputedStyle? parentStyle, float rootFontSizePx)
     {
-        float parentFontSizePx = parentStyle != null && TryParsePx(parentStyle.FontSize, out float parentPx)
-            ? parentPx
-            : InitialFontSizePx;
+        float parentFontSizePx = InitialFontSizePx;
+        if (parentStyle != null && !string.IsNullOrEmpty(parentStyle.FontSize))
+            parentFontSizePx = TryParsePx(parentStyle.FontSize, out float parentPx) ? parentPx : float.NaN;
 
         float fontSizePx = parentFontSizePx;
         var specifiedFontSize = style.FontSize;
@@ -19,11 +19,17 @@ internal static class ComputedFontMetrics
         {
             fontSizePx = alreadyPx;
         }
-        else if (!string.IsNullOrEmpty(specifiedFontSize) &&
-                 TryResolveFontSize(specifiedFontSize!.Trim(), parentFontSizePx, rootFontSizePx, out float resolved))
+        else if (!string.IsNullOrEmpty(specifiedFontSize))
         {
-            fontSizePx = resolved;
-            style.Set("font-size", FormatPx(resolved));
+            if (TryResolveFontSize(specifiedFontSize!.Trim(), parentFontSizePx, rootFontSizePx, out float resolved))
+            {
+                fontSizePx = resolved;
+                style.Set("font-size", FormatPx(resolved));
+            }
+            else
+            {
+                fontSizePx = float.NaN;
+            }
         }
 
         var lineHeight = style.Get("line-height");
@@ -50,12 +56,12 @@ internal static class ComputedFontMetrics
         if (string.Equals(value, "smaller", System.StringComparison.OrdinalIgnoreCase))
         {
             px = parentPx / FontSizeStepRatio;
-            return true;
+            return !float.IsNaN(px);
         }
         if (string.Equals(value, "larger", System.StringComparison.OrdinalIgnoreCase))
         {
             px = parentPx * FontSizeStepRatio;
-            return true;
+            return !float.IsNaN(px);
         }
         return TryResolveLength(value, parentPx, parentPx, rootPx, out px) && px >= 0f;
     }
@@ -76,7 +82,7 @@ internal static class ComputedFontMetrics
         {
             if (!CssLengthUnits.TryParseNumber(value, value.Length - 1, out float percent)) return false;
             px = percent / 100f * percentBasis;
-            return true;
+            return !float.IsNaN(px);
         }
 
         int unitStart = CssLengthUnits.UnitStart(value);
@@ -84,7 +90,7 @@ internal static class ComputedFontMetrics
             return false;
         if (!CssLengthUnits.TryParseNumber(value, unitStart, out float number)) return false;
         var context = new CssLengthContext(percentBasis, emBasis, rootPx, 0f, 0f);
-        return CssLengthUnits.TryToPx(number, value, unitStart, context, out px);
+        return CssLengthUnits.TryToPx(number, value, unitStart, context, out px) && !float.IsNaN(px);
     }
 
     private static bool TryAbsoluteSizeKeyword(string value, out float px)
