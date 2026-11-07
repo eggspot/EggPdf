@@ -107,6 +107,7 @@ public static partial class BlockLayout
                 {
                     Element = null,
                     Style = rtStyle ?? rubyStyle,
+                    InlineLineTop = childY,
                     X = rtX,
                     Y = startY,
                     Width = rtWidth,
@@ -126,6 +127,7 @@ public static partial class BlockLayout
                 {
                     Element = rubyElem,
                     Style = rubyStyle,
+                    InlineLineTop = childY,
                     X = baseX,
                     Y = startY + baseOffsetYOver,
                     Width = baseWidth,
@@ -151,6 +153,7 @@ public static partial class BlockLayout
             {
                 Element = rubyElem,
                 Style = rubyStyle,
+                InlineLineTop = childY,
                 X = baseX,
                 Y = startY,
                 Width = baseWidth,
@@ -169,6 +172,7 @@ public static partial class BlockLayout
             {
                 Element = null,
                 Style = rtStyle ?? rubyStyle,
+                InlineLineTop = childY,
                 X = rtX,
                 Y = startY + baseLineHeight,
                 Width = rtWidth,
