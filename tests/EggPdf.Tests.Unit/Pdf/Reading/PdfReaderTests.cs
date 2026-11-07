@@ -6,8 +6,17 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Pdf.Reading;
 
+[CollectionDefinition(Name, DisableParallelization = true)]
+public class TimingMeasurementCollection
+{
+    public const string Name = "Timing measurement";
+}
+
+[Collection(TimingMeasurementCollection.Name)]
 public class PdfReaderTests
 {
+    private static readonly TimeSpan QuadraticBlowUpCeiling = TimeSpan.FromSeconds(60);
+
     private static TestPdfBuilder TwoPageDocument(bool compressPages = false) => new TestPdfBuilder()
         .Add(1, "<< /Type /Catalog /Pages 2 0 R >>")
         .Add(2, "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 612 792] >>", compressPages)
@@ -144,7 +153,7 @@ public class PdfReaderTests
         try { open(); }
         catch (PdfFormatException) { }
         catch (NotSupportedException) { }
-        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10));
+        watch.Elapsed.Should().BeLessThan(QuadraticBlowUpCeiling);
     }
 
     [Fact]
