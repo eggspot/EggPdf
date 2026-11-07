@@ -62,18 +62,11 @@ public static partial class BlockLayout
 
     private static void OffsetLineItems(LayoutBox box, int lineStart, int lineEnd, float dx)
     {
-        InlineElementSpan? lastOffsetSpan = null;
         for (int i = lineStart; i < lineEnd; i++)
         {
             var item = box.Children[i];
             item.X += dx;
             FlexLayout.OffsetChildren(item, dx, 0f);
-            var span = item.InlineSpan;
-            if (span != null && span != lastOffsetSpan)
-            {
-                span.OffsetX(dx);
-                lastOffsetSpan = span;
-            }
         }
     }
 }

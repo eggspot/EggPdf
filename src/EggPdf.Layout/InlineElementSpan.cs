@@ -1,52 +1,98 @@
+using System.Collections.Generic;
 using EggPdf.Html.Dom;
 
 namespace EggPdf.Layout;
 
 /// <summary>
-/// Shared by every per-word <see cref="LayoutBox"/> fragment that one line of an inline element's
-/// text content splits into (see <c>BlockLayout.InlineRuns.cs</c>'s <c>LayoutInlineRuns</c>) --
-/// multi-word inline elements (<c>&lt;a&gt;</c>, <c>&lt;strong&gt;</c>, etc.) produce one
-/// <see cref="LayoutBox"/> per word for line-breaking, and only the first fragment keeps a direct
-/// <see cref="LayoutBox.Element"/> reference (background/border painting stays first-fragment-only,
-/// unchanged by this type). A consumer that needs the full extent of one line of the element --
-/// a multi-word <c>&lt;a&gt;</c> link annotation, PDF/UA-1 structure tagging -- reads
-/// <see cref="LayoutBox.InlineSpan"/> instead of a single fragment's own bounds. Wrapping resets to
-/// a new span (see the width/height union in <see cref="Union"/> vs. starting fresh), so one
-/// inline element that spans multiple lines gets one span per line, matching how a PDF link
-/// annotation's rectangle can't itself wrap.
+/// One line of an inline element whose text was split into per-word <see cref="LayoutBox"/>
+/// fragments. Every fragment on that line references the same span through
+/// <see cref="LayoutBox.InlineSpan"/>, so a consumer that needs the line's full extent (a link
+/// annotation, a structure-tree element) reads the span instead of one fragment. An element that
+/// wraps gets one span per line.
 /// </summary>
 public class InlineElementSpan
 {
+    private float _x;
+    private float _y;
+    private float _width;
+    private float _height;
+    private List<LayoutBox>? _fragments;
+
+    /// <summary>The inline element this line belongs to.</summary>
     public HtmlElement Element { get; }
-    public float X { get; private set; }
-    public float Y { get; private set; }
-    public float Width { get; private set; }
-    public float Height { get; private set; }
+
+    /// <summary>Left edge of the line's fragments, in the same coordinates as their boxes.</summary>
+    public float X => _fragments == null ? _x : Bounds().left;
+
+    /// <summary>Top edge of the line's fragments, in the same coordinates as their boxes.</summary>
+    public float Y => _fragments == null ? _y : Bounds().top;
+
+    /// <summary>Width covered by the line's fragments.</summary>
+    public float Width
+    {
+        get
+        {
+            if (_fragments == null) return _width;
+            var b = Bounds();
+            return b.right - b.left;
+        }
+    }
+
+    /// <summary>Height covered by the line's fragments.</summary>
+    public float Height
+    {
+        get
+        {
+            if (_fragments == null) return _height;
+            var b = Bounds();
+            return b.bottom - b.top;
+        }
+    }
 
     /// <summary>
-    /// Opaque slot for a consumer (the paint layer) to cache state keyed to "have I already
-    /// handled this span" -- e.g. the <c>PdfLinkAnnotation</c> already created for it, so a second
-    /// word-fragment on the same line doesn't create a second, overlapping annotation. Untyped so
-    /// this layout-layer type doesn't need to reference the PDF writer's types.
+    /// Opaque slot for a consumer (the paint layer) to remember that it already handled this span,
+    /// e.g. the link annotation created for it, so a later fragment doesn't create a second one.
     /// </summary>
     public object? PaintTag { get; set; }
 
+    /// <summary>Create a span with a fixed rectangle.</summary>
     public InlineElementSpan(HtmlElement element, float x, float y, float width, float height)
     {
         Element = element;
-        X = x; Y = y; Width = width; Height = height;
+        _x = x; _y = y; _width = width; _height = height;
     }
 
-    internal void OffsetX(float dx) => X += dx;
+    internal InlineElementSpan(HtmlElement element, LayoutBox firstFragment)
+    {
+        Element = element;
+        _fragments = new List<LayoutBox> { firstFragment };
+    }
 
-    /// <summary>Extend this span's rect to also cover another fragment's bounds on the same line.</summary>
+    internal void AddFragment(LayoutBox fragment) => _fragments?.Add(fragment);
+
+    /// <summary>Extend a fixed-rectangle span to also cover another rectangle on the same line.</summary>
     public void Union(float x, float y, float width, float height)
     {
-        float right = System.Math.Max(X + Width, x + width);
-        float bottom = System.Math.Max(Y + Height, y + height);
-        X = System.Math.Min(X, x);
-        Y = System.Math.Min(Y, y);
-        Width = right - X;
-        Height = bottom - Y;
+        float right = System.Math.Max(_x + _width, x + width);
+        float bottom = System.Math.Max(_y + _height, y + height);
+        _x = System.Math.Min(_x, x);
+        _y = System.Math.Min(_y, y);
+        _width = right - _x;
+        _height = bottom - _y;
+    }
+
+    private (float left, float top, float right, float bottom) Bounds()
+    {
+        var fragments = _fragments!;
+        float left = float.MaxValue, top = float.MaxValue, right = float.MinValue, bottom = float.MinValue;
+        for (int i = 0; i < fragments.Count; i++)
+        {
+            var f = fragments[i];
+            if (f.X < left) left = f.X;
+            if (f.Y < top) top = f.Y;
+            if (f.X + f.Width > right) right = f.X + f.Width;
+            if (f.Y + f.Height > bottom) bottom = f.Y + f.Height;
+        }
+        return (left, top, right, bottom);
     }
 }
