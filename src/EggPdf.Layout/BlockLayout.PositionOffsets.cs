@@ -12,8 +12,9 @@ public static partial class BlockLayout
         box.Y += deltaY;
         for (int i = 0; i < box.Children.Count; i++)
         {
-            if (!box.Children[i].IsAbsolutelyPositioned)
-                OffsetBoxY(box.Children[i], deltaY);
+            var child = box.Children[i];
+            if (!IsPositionedAgainstPage(child, box))
+                OffsetBoxY(child, deltaY);
         }
     }
 
@@ -21,17 +22,20 @@ public static partial class BlockLayout
     {
         foreach (var child in box.Children)
         {
-            if (child.IsAbsolutelyPositioned)
-            {
-                ResolveAbsolutePositions(child, child.X, child.Y);
-                continue;
-            }
-
-            if (box.Y > 0)
+            if (!IsPositionedAgainstPage(child, box) && box.Y > 0)
                 child.Y += box.Y;
 
             ResolveAbsolutePositions(child, child.X, child.Y);
         }
     }
 
+    private static bool IsPositionedAgainstPage(LayoutBox child, LayoutBox parent)
+    {
+        if (!child.IsAbsolutelyPositioned) return false;
+        if (child.Style.Get("position") == "fixed") return true;
+        return !EstablishesContainingBlockForAbsolute(parent.Style.Get("position"));
+    }
+
+    private static bool EstablishesContainingBlockForAbsolute(string? position) =>
+        position == "relative" || position == "absolute" || position == "fixed" || position == "sticky";
 }
