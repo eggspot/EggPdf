@@ -195,6 +195,22 @@ public class HttpResourceResolverTests
         await resolve.Should().NotThrowAsync();
     }
 
+    [Theory]
+    [InlineData(-5)]
+    [InlineData(0)]
+    public async Task Resolve_NonPositiveTimeoutAgainstHangingServer_GivesUpAfterOneSecond(int timeoutSeconds)
+    {
+        using var server = new LocalHttpServer(_ => new LocalHttpServer.Response { Hang = true });
+        var resolver = AllowLoopback(new HttpResourceOptions { TimeoutSeconds = timeoutSeconds });
+        var clock = Stopwatch.StartNew();
+
+        var result = await resolver.ResolveAsync(server.Url("/slow.css"), ResourceType.StyleSheet);
+
+        result.Should().BeNull();
+        clock.Elapsed.Should().BeGreaterThan(TimeSpan.FromMilliseconds(900))
+            .And.BeLessThan(TimeSpan.FromSeconds(30));
+    }
+
     [Fact]
     public async Task Resolve_TimeoutAboveCancelAfterLimit_FetchesBody()
     {
