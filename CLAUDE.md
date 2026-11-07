@@ -78,8 +78,17 @@ review round, a test run, investigating something else) gets fixed, even a minor
 a failing test, fix it, and land it through the `pr` skill until it is merged. Noting it, leaving it
 for later or only opening an issue is not enough; an issue is fine as the tracker, but the fix still
 follows. Give each unrelated bug its own PR (bugs with one root cause share one) so each stays
-reviewable, and don't fold it into an unrelated change. The only exceptions are the decisions the
-user's global rules leave to the owner (money, licenses, deleting shared data): report those.
+reviewable, and don't fold it into an unrelated change.
+
+- When the right behaviour is a design question (a public API change, an ambiguous spec), settle it
+  with a research subagent first (the global "Questions: research them" rule), then fix it.
+- A bug that a deterministic test can't pin (a flaky or timing-dependent one) is still fixed: fix the
+  cause and say in the PR how the fix was verified.
+- A bug in code another session is working on (its open PR or its project lock) is reported to that
+  work (a comment on its PR) instead of fixed in parallel, and fixed after that work merges if it is
+  still there ("Stay in your lane").
+- The decisions the global rules leave to the owner (money, licenses, deleting shared data) are
+  reported, not acted on.
 
 ## Conventional Commits
 
