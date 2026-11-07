@@ -28,6 +28,14 @@ public class HtmlTokenizerTests
             .Which.Data.Should().Be("a" + char.ConvertFromUtf32(expectedCodepoint) + "b");
     }
 
+    [Theory]
+    [InlineData("a&#x;b", "a&#x;b")]
+    [InlineData("a&#;b", "a&#;b")]
+    public void NumericReference_NoDigits_KeepsSemicolon(string html, string expected)
+    {
+        Tokenize(html).Should().ContainSingle().Which.Data.Should().Be(expected);
+    }
+
     [Fact]
     public void NumericReference_NonAsciiDigit_IsLeftAsText()
     {
