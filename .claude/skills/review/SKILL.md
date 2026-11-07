@@ -90,7 +90,7 @@ Check for:
 - Is the logic easy to follow without comments?
 - Are variable names clear?
 - Is there dead code, unused imports, or orphaned helpers?
-- Are comments added only where logic is non-obvious?
+- No code comments outside the global no-comments rule's allowed list (XML doc comments on public API, tool directives, legal notices)?
 
 **Implementation details**
 - Does the fix address root cause or just symptom?
