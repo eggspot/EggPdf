@@ -5,45 +5,35 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// Whitespace at the boundary between a text node and an inline element must
-/// collapse to a single space, not disappear ("Căn cứ&lt;strong&gt;Luật" bug).
-/// </summary>
 public class InlineBoundarySpaceTests
 {
+    private static async Task<string> RenderAscii(string body) =>
+        Encoding.ASCII.GetString(await HtmlToPdf.RenderAsync("<html><body>" + body + "</body></html>"));
+
     [Fact]
     public async Task TextNode_TrailingSpaceBeforeStrong_IsPreserved()
     {
-        var pdf = await HtmlToPdf.RenderAsync("<html><body><p>foo <strong>bar</strong> baz</p></body></html>");
-        var text = Encoding.ASCII.GetString(pdf);
+        var text = await RenderAscii("<p>foo <strong>bar</strong> baz</p>");
 
-        // The strong run must start with the boundary space: "( bar)" not "(bar)"
-        text.Should().Contain("( bar)",
-            "the space between the text node and the inline element must be preserved");
-        text.Should().Contain("( baz)",
-            "the space after the inline element must be preserved");
+        text.Should().Contain("( bar)", "the space between the text node and the inline element must be preserved");
+        text.Should().Contain("( baz)", "the space after the inline element must be preserved");
     }
 
     [Fact]
     public async Task Nbsp_BeforeInlineElement_DoesNotDoubleSpace()
     {
-        // "Tax ID:&nbsp;<strong>value</strong>" — the NBSP is rendered content;
-        // no additional boundary space may be synthesized.
         var pdf = await HtmlToPdf.RenderAsync(
             "<html><body><p>Tax ID:&#160;<strong>VALUE</strong></p></body></html>");
 
         var text = Encoding.GetEncoding("ISO-8859-1").GetString(pdf);
-        text.Should().NotContain("( VALUE)",
-            "the NBSP already provides the gap — a synthesized space would double it");
+        text.Should().NotContain("( VALUE)", "the NBSP already provides the gap; a synthesized space would double it");
         text.Should().Contain("(VALUE)");
     }
 
     [Fact]
     public async Task StrongBetweenTextRuns_MidSentence_KeepsSpaces()
     {
-        var pdf = await HtmlToPdf.RenderAsync(
-            "<html><body><div>alpha beta <strong>gamma</strong> delta</div></body></html>");
-        var text = Encoding.ASCII.GetString(pdf);
+        var text = await RenderAscii("<div>alpha beta <strong>gamma</strong> delta</div>");
 
         text.Should().Contain("( gamma)");
         text.Should().Contain("( delta)");
@@ -52,21 +42,66 @@ public class InlineBoundarySpaceTests
     [Fact]
     public async Task WhitespaceOnlyTextNodeBetweenSiblingSpans_CollapsesToOneSpace()
     {
-        // Real-world case: a certificate template's field-list writes each <li> across
-        // multiple source lines for readability --
-        //   <span><span class="field-label">Label:</span>
-        //           <span class="field-value">Value</span></span>
-        // -- leaving only a newline + indentation (a whitespace-only text node, no literal
-        // space character) between the two sibling spans. CSS still collapses that into one
-        // boundary space; LayoutInlineRuns' word loop skips a run that normalizes to nothing
-        // (`if (text.Length == 0) continue;`) without recording that it was a boundary space,
-        // so the following run's "needSpace" check never sees it and the label glues directly
-        // onto the value with no space at all ("Label:Value" instead of "Label: Value").
-        var pdf = await HtmlToPdf.RenderAsync(
-            "<html><body><div><span><span>Label:</span>\n        <span>Value</span></span></div></body></html>");
-        var text = Encoding.ASCII.GetString(pdf);
+        var text = await RenderAscii("<div><span><span>Label:</span>\n        <span>Value</span></span></div>");
 
         text.Should().Contain("( Value)",
             "a whitespace-only text node between sibling inline elements must still collapse to one boundary space");
+    }
+
+    [Theory]
+    [InlineData("<p>See <a href=\"#t\">terms</a>. Call now</p>", "(.)", "( .)")]
+    [InlineData("<p><b>Total</b>: 100</p>", "(:)", "( :)")]
+    [InlineData("<p><i>(note</i>) here</p>", "(\\))", "( \\))")]
+    [InlineData("<p>H<sub>2</sub>O water</p>", "(O)", "( O)")]
+    [InlineData("<p><b>A</b>B</p>", "(B)", "( B)")]
+    public async Task TextDirectlyAfterInlineElement_NoSpaceInSource_GetsNoSpace(string body, string expected, string unexpected)
+    {
+        var text = await RenderAscii(body);
+
+        text.Should().Contain(expected + " Tj");
+        text.Should().NotContain(unexpected + " Tj");
+    }
+
+    [Fact]
+    public async Task InlineElementEndingWithSpace_FollowingTextGetsOneSpace()
+    {
+        var text = await RenderAscii("<p><b>Total </b>due</p>");
+
+        text.Should().Contain("( due) Tj");
+    }
+
+    [Fact]
+    public async Task TextAfterInlineImage_NoSpaceInSource_GetsNoSpace()
+    {
+        var text = await RenderAscii("<p><img src='x.png' width='10' height='10'>Label</p>");
+
+        text.Should().Contain("(Label) Tj");
+    }
+
+    [Theory]
+    [InlineData("<p><b>Alpha</b> <i>Beta</i></p>", "( Beta)")]
+    [InlineData("<p><b>Name:</b>\n    <span>John</span></p>", "( John)")]
+    [InlineData("<p>x <b>A</b> <!--c-->y</p>", "( y)")]
+    public async Task WhitespaceOnlyTextNodeBetweenInlineContent_CollapsesToOneSpace(string body, string expected)
+    {
+        var text = await RenderAscii(body);
+
+        text.Should().Contain(expected + " Tj");
+    }
+
+    [Fact]
+    public async Task InlineElementEndingWithSpace_ThenTextNodesSplitByComment_NoExtraSpace()
+    {
+        var text = await RenderAscii("<p><b>A </b>x<!--c-->y</p>");
+
+        text.Should().Contain("(y) Tj");
+    }
+
+    [Fact]
+    public async Task TextNodesSplitByComment_KeepTheirSpace()
+    {
+        var text = await RenderAscii("<p>Total: <!-- amount -->10 <b>EUR</b></p>");
+
+        text.Should().Contain("( 10) Tj");
     }
 }

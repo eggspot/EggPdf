@@ -111,6 +111,10 @@ public static partial class BlockLayout
         return true;
     }
 
+    private static bool StartsWithCollapsibleWhitespace(string s) => s.Length > 0 && IsCollapsibleWhitespace(s[0]);
+
+    private static bool EndsWithCollapsibleWhitespace(string s) => s.Length > 0 && IsCollapsibleWhitespace(s[s.Length - 1]);
+
     private static bool IsCollapsibleWhitespace(char c)
         => c == ' ' || c == '\t' || c == '\r' || c == '\n';
 
