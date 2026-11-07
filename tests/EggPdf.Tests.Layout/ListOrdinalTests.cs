@@ -51,9 +51,19 @@ public class ListOrdinalTests
     }
 
     [Fact]
-    public void UnorderedListWithDecimalStyle_IgnoresItemValue()
+    public void UnorderedListWithDecimalStyle_HonoursItemValueLikeChrome()
     {
-        Markers("<ul style='list-style-type:decimal'><li>a</li><li value='7'>b</li></ul>").Should().Equal("1.", "2.");
+        Markers("<ul style='list-style-type:decimal'><li>a</li><li value='7'>b</li><li>c</li></ul>").Should().Equal("1.", "7.", "8.");
+    }
+
+    [Theory]
+    [InlineData("3px", "3.")]
+    [InlineData("3.5", "3.")]
+    [InlineData(" +3 ", "3.")]
+    [InlineData("99999999999", "2147483647.")]
+    public void OrderedList_StartWithTrailingJunk_ParsesLeadingInteger(string start, string expectedFirst)
+    {
+        Markers("<ol start='" + start + "'><li>a</li></ol>").Should().Equal(expectedFirst);
     }
 
     [Fact]

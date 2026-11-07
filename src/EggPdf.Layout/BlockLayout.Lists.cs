@@ -18,7 +18,6 @@ public static partial class BlockLayout
         public int ChildIndex = -1;
         public int Ordinal;
         public int Step = 1;
-        public bool HonorsItemValues;
     }
 
     [ThreadStatic]
@@ -86,7 +85,7 @@ public static partial class BlockLayout
         int step = reversed ? -1 : 1;
         if (!isOrderedList || !TryParseHtmlInteger(list.GetAttribute("start"), out int start))
             start = reversed ? CountListItems(list) : 1;
-        return new ListOrdinalCursor { Ordinal = start - step, Step = step, HonorsItemValues = isOrderedList };
+        return new ListOrdinalCursor { Ordinal = start - step, Step = step };
     }
 
     private static bool AdvanceToListItem(HtmlElement list, HtmlElement li, ListOrdinalCursor cursor)
@@ -96,7 +95,7 @@ public static partial class BlockLayout
         {
             if (children[i] is HtmlElement item && item.TagName == "li")
             {
-                cursor.Ordinal = cursor.HonorsItemValues && TryParseHtmlInteger(item.GetAttribute("value"), out int value)
+                cursor.Ordinal = TryParseHtmlInteger(item.GetAttribute("value"), out int value)
                     ? value
                     : cursor.Ordinal + cursor.Step;
                 cursor.ChildIndex = i;
@@ -120,8 +119,27 @@ public static partial class BlockLayout
     private static bool TryParseHtmlInteger(string? value, out int result)
     {
         result = 0;
-        return !string.IsNullOrEmpty(value) &&
-               int.TryParse(value!.Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out result);
+        if (string.IsNullOrEmpty(value)) return false;
+        int pos = 0;
+        while (pos < value!.Length && IsCollapsibleWhitespace(value[pos])) pos++;
+        bool negative = false;
+        if (pos < value.Length && (value[pos] == '-' || value[pos] == '+'))
+        {
+            negative = value[pos] == '-';
+            pos++;
+        }
+        long magnitude = 0;
+        int digitStart = pos;
+        while (pos < value.Length && value[pos] >= '0' && value[pos] <= '9')
+        {
+            if (magnitude <= int.MaxValue)
+                magnitude = magnitude * 10 + (value[pos] - '0');
+            pos++;
+        }
+        if (pos == digitStart) return false;
+        long signed = negative ? -magnitude : magnitude;
+        result = (int)Math.Max(int.MinValue, Math.Min(int.MaxValue, signed));
+        return true;
     }
 
     private static string ToDecimal(int number) => number.ToString(CultureInfo.InvariantCulture);
