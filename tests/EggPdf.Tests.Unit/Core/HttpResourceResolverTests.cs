@@ -192,12 +192,22 @@ public class HttpResourceResolverTests
     [Theory]
     [InlineData(-5)]
     [InlineData(0)]
-    [InlineData(int.MaxValue)]
-    public async Task Resolve_OutOfRangeTimeout_DoesNotThrow(int timeoutSeconds)
+    public async Task Resolve_NonPositiveTimeout_ClampsToMinimumWithoutThrowing(int timeoutSeconds)
+    {
+        using var server = Serve();
+        var resolver = AllowLoopback(new HttpResourceOptions { TimeoutSeconds = timeoutSeconds });
+
+        Func<Task> resolve = () => resolver.ResolveAsync(server.Url("/a.css"), ResourceType.StyleSheet);
+
+        await resolve.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task Resolve_TimeoutAboveCancelAfterLimit_FetchesBody()
     {
         using var server = Serve();
 
-        var result = await AllowLoopback(new HttpResourceOptions { TimeoutSeconds = timeoutSeconds })
+        var result = await AllowLoopback(new HttpResourceOptions { TimeoutSeconds = int.MaxValue })
             .ResolveAsync(server.Url("/a.css"), ResourceType.StyleSheet);
 
         result!.Data.Should().Equal(Payload);
