@@ -94,10 +94,6 @@ public static partial class BlockLayout
         return spaceIdx >= 0 ? candidate.Substring(0, spaceIdx) : candidate;
     }
 
-    /// <summary>
-    /// Trim collapsible HTML whitespace (space, tab, CR, LF) from both ends of a string,
-    /// but preserve U+00A0 NON-BREAKING SPACE which must never be collapsed or trimmed.
-    /// </summary>
     private static string TrimHtmlText(string s)
     {
         if (string.IsNullOrEmpty(s)) return s;
@@ -107,10 +103,6 @@ public static partial class BlockLayout
         return start > end ? "" : s.Substring(start, end - start + 1);
     }
 
-    /// <summary>
-    /// Returns true only when every character in the string is collapsible whitespace.
-    /// U+00A0 (non-breaking space) is NOT collapsible and causes this to return false.
-    /// </summary>
     private static bool IsHtmlWhitespaceOnly(string s)
     {
         if (string.IsNullOrEmpty(s)) return true;
@@ -119,7 +111,6 @@ public static partial class BlockLayout
         return true;
     }
 
-    /// <summary>Collapsible whitespace: regular space, tab, CR, LF only — NOT U+00A0.</summary>
     private static bool IsCollapsibleWhitespace(char c)
         => c == ' ' || c == '\t' || c == '\r' || c == '\n';
 
