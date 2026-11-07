@@ -260,6 +260,9 @@ public static class TextMeasurer
             if (float.TryParse(lineHeight, System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out float multiplier))
                 return fontSize * multiplier;
+            float length = BlockLayout.ResolveLength(lineHeight, fontSize, fontSize);
+            if (length > 0f)
+                return length;
         }
         return fontSize * DefaultLineHeight;
     }

@@ -46,17 +46,24 @@ public static partial class BlockLayout
         }
 
         if (value[value.Length - 1] == '%')
-            return LengthUnits.ParseNumber(value, value.Length - 1) / 100f * containingSize;
+            return CssLengthUnits.ParseNumber(value, value.Length - 1) / 100f * containingSize;
 
-        int unitStart = LengthUnits.UnitStart(value);
-        if (unitStart < value.Length && unitStart > 0 &&
-            LengthUnits.TryToPx(LengthUnits.ParseNumber(value, unitStart), value, unitStart, containingSize, fontSize, out float px))
+        if (TryUnitLengthToPx(value, containingSize, fontSize, out float px))
             return px;
 
         if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float bare))
             return bare;
 
         return 0;
+    }
+
+    internal static bool TryUnitLengthToPx(string value, float containingSize, float fontSize, out float px)
+    {
+        px = 0f;
+        int unitStart = CssLengthUnits.UnitStart(value);
+        if (unitStart == value.Length || unitStart == 0) return false;
+        var context = new CssLengthContext(containingSize, fontSize, RootFontSize, _viewportWidth, _viewportHeight);
+        return CssLengthUnits.TryToPx(CssLengthUnits.ParseNumber(value, unitStart), value, unitStart, context, out px);
     }
 
     internal static float ResolveFontSize(string? value, float parentFontSize)

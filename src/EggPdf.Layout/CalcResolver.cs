@@ -352,9 +352,7 @@ public static class CalcResolver
         if (term[term.Length - 1] == '%')
             return ParseFloat(term.Substring(0, term.Length - 1)) / 100f * containingSize;
 
-        int unitStart = LengthUnits.UnitStart(term);
-        if (unitStart < term.Length && unitStart > 0 &&
-            LengthUnits.TryToPx(LengthUnits.ParseNumber(term, unitStart), term, unitStart, containingSize, fontSize, out float px))
+        if (BlockLayout.TryUnitLengthToPx(term, containingSize, fontSize, out float px))
             return px;
 
         if (term.EndsWith("deg", StringComparison.OrdinalIgnoreCase))

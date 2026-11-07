@@ -120,10 +120,7 @@ public static partial class BlockLayout
             htmlStyle = resolveStyle(document.DocumentElement, null);
         _rootFontSize = DefaultFontSize;
         if (htmlStyle != null && !string.IsNullOrEmpty(htmlStyle.FontSize))
-        {
             _rootFontSize = ResolveFontSize(htmlStyle.FontSize, DefaultFontSize);
-            htmlStyle.Set("font-size", _rootFontSize.ToString("0.####", CultureInfo.InvariantCulture) + "px");
-        }
 
         var bodyStyle = resolveStyle(document.Body, htmlStyle);
         var bodyBox = CreateBox(document.Body, bodyStyle, root, pageWidth, resolveStyle, htmlStyle);
