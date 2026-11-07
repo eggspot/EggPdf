@@ -130,7 +130,7 @@ public static partial class BlockLayout
 
     internal static LayoutBox CreateBox(HtmlElement element, ComputedStyle style,
         LayoutBox parent, float containingWidth, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle,
-        FloatContext? ambientFloats = null, float floatOriginY = 0f)
+        FloatContext? ambientFloats = null, float floatOriginY = 0f, bool deferInlineAlignment = false)
     {
         var box = new LayoutBox { Element = element, Style = style };
 
@@ -204,7 +204,7 @@ public static partial class BlockLayout
                 position, fontSize, borderBox);
         }
 
-        return LayoutNormalFlowChildren(box, element, style, parent, containingWidth, resolver, parentStyle, fontSize, borderBox, position, ambientFloats, floatOriginY);
+        return LayoutNormalFlowChildren(box, element, style, parent, containingWidth, resolver, parentStyle, fontSize, borderBox, position, ambientFloats, floatOriginY, deferInlineAlignment);
     }
 
     /// <summary>
@@ -222,7 +222,7 @@ public static partial class BlockLayout
     private static LayoutBox LayoutNormalFlowChildren(LayoutBox box, HtmlElement element, ComputedStyle style,
         LayoutBox parent, float containingWidth, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver,
         ComputedStyle? parentStyle, float fontSize, bool borderBox, string? position, FloatContext? ambientFloats = null,
-        float floatOriginY = 0f)
+        float floatOriginY = 0f, bool deferInlineAlignment = false)
     {
         // Check for multi-column layout
         bool isMultiColumn = MultiColumnLayout.IsMultiColumn(style);
@@ -652,6 +652,7 @@ public static partial class BlockLayout
                     {
                         Element = childElem,
                         Style = childStyle,
+                        InlineLineTop = imgIsBlock ? float.NaN : childY,
                         X = box.X + box.PaddingLeft + inlineX,
                         Y = box.Y + box.PaddingTop + childY,
                         Width = imgWidth,
@@ -697,6 +698,7 @@ public static partial class BlockLayout
                         {
                             Element = picElem,
                             Style = picStyle,
+                            InlineLineTop = childY,
                             X = box.X + box.PaddingLeft + inlineX,
                             Y = box.Y + box.PaddingTop + childY,
                             Width = imgWidth,
@@ -734,6 +736,7 @@ public static partial class BlockLayout
                     {
                         Element = childElem,
                         Style = childStyle,
+                        InlineLineTop = svgIsBlock ? float.NaN : childY,
                         X = box.X + box.PaddingLeft + inlineX,
                         Y = box.Y + box.PaddingTop + childY,
                         Width = svgWidth,
@@ -759,12 +762,11 @@ public static partial class BlockLayout
                 }
                 else if (childStyle.Display == "inline-block")
                 {
-                    // Inline-block: create a box that flows inline but has block internals
-                    var childBox = CreateBox(childElem, childStyle, box, childContainingWidth, resolver, style);
+                    bool ibShrinkToFit = string.IsNullOrEmpty(childStyle.Width) || childStyle.Width == "auto";
+                    var childBox = CreateBox(childElem, childStyle, box, childContainingWidth, resolver, style,
+                        deferInlineAlignment: ibShrinkToFit);
 
-                    // Shrink-to-fit: an auto-width inline-block wraps its content
-                    // (CSS 2.1 §10.3.9) instead of filling the containing block.
-                    if (string.IsNullOrEmpty(childStyle.Width) || childStyle.Width == "auto")
+                    if (ibShrinkToFit)
                     {
                         float contentRight = childBox.X + childBox.PaddingLeft;
                         for (int ci = 0; ci < childBox.Children.Count; ci++)
@@ -779,6 +781,7 @@ public static partial class BlockLayout
                             childBox.ContentWidth = shrunk - childBox.PaddingLeft - childBox.PaddingRight;
                             if (childBox.ContentWidth < 0) childBox.ContentWidth = 0;
                         }
+                        AlignInlineLines(childBox, childBox.ContentWidth, null, 0f);
                     }
 
                     float ibWidth = childBox.Width;
@@ -789,22 +792,10 @@ public static partial class BlockLayout
                         inlineLineHeight = 0;
                     }
 
-                    // text-align on the parent positions the inline-block within the line
-                    float ibAlignOffset = 0;
-                    if (inlineX == 0 && ibWidth < childContainingWidth)
-                    {
-                        var parentTextAlign = LogicalPropertyResolver.PhysicalTextAlign(style);
-                        if (parentTextAlign == "center")
-                            ibAlignOffset = (childContainingWidth - ibWidth) / 2;
-                        else if (parentTextAlign == "right")
-                            ibAlignOffset = childContainingWidth - ibWidth;
-                    }
-
-                    // X is absolute (shift descendants); Y is parent-relative and
-                    // resolved in the post-layout pass.
-                    float ibDeltaX = box.X + box.PaddingLeft + inlineX + ibAlignOffset - childBox.X;
+                    float ibDeltaX = box.X + box.PaddingLeft + inlineX - childBox.X;
                     childBox.X += ibDeltaX;
                     childBox.Y = box.Y + box.PaddingTop + childY;
+                    childBox.InlineLineTop = childY;
                     if (Math.Abs(ibDeltaX) > 0.01f)
                         FlexLayout.OffsetChildren(childBox, ibDeltaX, 0);
                     box.Children.Add(childBox);
@@ -836,11 +827,11 @@ public static partial class BlockLayout
                     }
                     else
                     {
-                        // Empty inline element: still create a box for FindByTag
                         var childBox = new LayoutBox
                         {
                             Element = childElem,
                             Style = childStyle,
+                            InlineLineTop = childY,
                             X = box.X + box.PaddingLeft + inlineX,
                             Y = box.Y + box.PaddingTop + childY,
                             Width = 0, Height = 0
@@ -910,6 +901,7 @@ public static partial class BlockLayout
                         var textBox = new LayoutBox
                         {
                             Style = style,
+                            InlineLineTop = childY,
                             X = box.X + box.PaddingLeft + inlineX,
                             Y = box.Y + box.PaddingTop + childY,
                             Width = wordWidth,
@@ -967,6 +959,7 @@ public static partial class BlockLayout
                         box.Children.Add(new LayoutBox
                         {
                             Style = style,
+                            InlineLineTop = childY,
                             X = fatLineBoxX,
                             Y = fatLineBoxY,
                             Width = lineWidth,
@@ -1253,11 +1246,13 @@ public static partial class BlockLayout
             }
         }
 
-        // Flush any remaining inline content
         if (inlineX > 0)
         {
             childY += inlineLineHeight;
         }
+
+        if (!deferInlineAlignment)
+            AlignInlineLines(box, childContainingWidth, floatCtx.HasFloats ? floatCtx : null, floatOriginY);
 
         // ::after pseudo-element content
         if (TryResolvePseudoContent(element, "after", style, out var afterStyle, out var afterContent))

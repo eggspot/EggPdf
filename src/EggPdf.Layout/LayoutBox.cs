@@ -37,6 +37,10 @@ public class LayoutBox
     /// </summary>
     public InlineElementSpan? InlineSpan { get; set; }
 
+    internal float InlineLineTop { get; set; } = float.NaN;
+
+    internal bool IsInlineFlowItem => !float.IsNaN(InlineLineTop);
+
     public ComputedStyle Style { get; set; } = new();
     public string? Text { get; set; }
     public bool IsListMarker { get; set; }

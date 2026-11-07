@@ -37,6 +37,8 @@ public class InlineElementSpan
         X = x; Y = y; Width = width; Height = height;
     }
 
+    internal void OffsetX(float dx) => X += dx;
+
     /// <summary>Extend this span's rect to also cover another fragment's bounds on the same line.</summary>
     public void Union(float x, float y, float width, float height)
     {

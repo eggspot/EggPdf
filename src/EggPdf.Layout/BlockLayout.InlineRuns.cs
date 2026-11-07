@@ -283,6 +283,7 @@ public static partial class BlockLayout
                         {
                             Element = (!elementAssigned && wrapperElement != null) ? wrapperElement : null,
                             Style = run.Style,
+                            InlineLineTop = childY,
                             X = box.X + box.PaddingLeft + inlineX,
                             // box.Y here is often still provisional (0) -- a block's final page
                             // position is applied by its parent after this recursion returns, so
@@ -335,6 +336,7 @@ public static partial class BlockLayout
                 {
                     Element = (!elementAssigned && wrapperElement != null) ? wrapperElement : null,
                     Style = run.Style,
+                    InlineLineTop = childY,
                     X = box.X + box.PaddingLeft + inlineX,
                     // See the chunkBox comment above about box.Y being provisional here.
                     Y = box.Y + box.PaddingTop + childY + baselineShift,
