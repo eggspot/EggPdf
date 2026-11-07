@@ -66,6 +66,29 @@ public class ComputedFontSizeTests
         root.FindById("d")!.Style.FontSize.Should().Be("16px");
     }
 
+    [Theory]
+    [InlineData("inherit", 12f)]
+    [InlineData("initial", 16f)]
+    [InlineData("unset", 12f)]
+    public void FontSizeCssWideKeyword_ComputesToPx(string keyword, float expectedPx)
+    {
+        var root = Layout("<div id='d' style='font-size:" + keyword + "'>Text</div>");
+
+        FontSizePx(root, "d").Should().BeApproximately(expectedPx, 0.01f);
+    }
+
+    [Fact]
+    public void PseudoElementEmFontSize_IsRelativeToElement()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<html><head><style>#d::before{content:'X';font-size:2em}</style></head>" +
+            "<body style='margin:0;font-size:12px'><div id='d' style='font-size:10px'>Text</div></body></html>", 600, 800);
+
+        var generated = root.FindById("d")!.FindAll(b => b.Text == "X");
+        generated.Should().NotBeEmpty();
+        BlockLayout.ResolveLength(generated[0].Style.FontSize, 0f, 0f).Should().BeApproximately(20f, 0.01f);
+    }
+
     [Fact]
     public void FontSizePercent_TextHasNonZeroLineBox()
     {
