@@ -10,11 +10,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Core;
 
-/// <summary>
-/// <see cref="HttpResourceResolver"/> is safe for untrusted HTML by default: it refuses loopback,
-/// private and link-local addresses (checked when connecting, so DNS can't smuggle them in), re-checks
-/// every redirect hop, and caps response size and time. Tests run against a real loopback server.
-/// </summary>
 public class HttpResourceResolverTests
 {
     private static readonly byte[] Payload = Encoding.ASCII.GetBytes("body { color: red; }");
@@ -156,7 +151,6 @@ public class HttpResourceResolverTests
         int checks = 0;
         var resolver = new HttpResourceResolver
         {
-            // Allow the first connection only: the redirect's new connection must be checked and refused
             AddressFilter = _ => Interlocked.Increment(ref checks) == 1,
         };
 
@@ -170,7 +164,6 @@ public class HttpResourceResolverTests
     [Fact]
     public async Task Resolve_CallerClientFollowsRedirectOutsideAllowList_Refused()
     {
-        // A caller-supplied HttpClient follows redirects itself; the final URL must still be checked
         LocalHttpServer? server = null;
         server = new LocalHttpServer(path => path == "/a.css"
             ? new LocalHttpServer.Response
