@@ -73,6 +73,14 @@ commits, runs the tests (and benchmarks for hot paths), opens the PR to `main`, 
 MERGE verdict, waits for every CI job, squash-merges and checks the release the merge starts, then
 reports to the user. Running it is the go-ahead for its own fixes, commits, one test run and the merge.
 
+**Fix every bug you find, and merge the fix.** A bug that turns up during any task (writing code, a
+review round, a test run, investigating something else) gets fixed, even a minor one: reproduce it with
+a failing test, fix it, and land it through the `pr` skill until it is merged. Noting it, leaving it
+for later or only opening an issue is not enough; an issue is fine as the tracker, but the fix still
+follows. Give each unrelated bug its own PR (bugs with one root cause share one) so each stays
+reviewable, and don't fold it into an unrelated change. The only exceptions are the decisions the
+user's global rules leave to the owner (money, licenses, deleting shared data): report those.
+
 ## Conventional Commits
 
 - `feat:` -- new feature
