@@ -23,85 +23,36 @@ public static partial class BlockLayout
         return ResolveLengthValue(value, containingSize, fontSize);
     }
 
+    private const float MinContentEmsApproximation = 10f;
+
     private static float ResolveLengthValue(string value, float containingSize, float fontSize)
     {
-        // Check for calc(), min(), max(), clamp() expressions
         if (CalcResolver.IsMathFunction(value))
             return CalcResolver.Resolve(value, containingSize, fontSize);
 
-        // Intrinsic sizing keywords
-        var lower = value.Trim().ToLowerInvariant();
-        if (lower == "max-content")
-            return containingSize; // approximation: use all available space
-        if (lower == "min-content")
-            return fontSize * 10f; // approximation: ~10 chars wide (single word)
-        if (lower.StartsWith("fit-content(", StringComparison.Ordinal) && lower[lower.Length - 1] == ')')
+        value = value.Trim();
+        if (value.Length == 0)
+            return 0;
+
+        if (string.Equals(value, "max-content", StringComparison.OrdinalIgnoreCase))
+            return containingSize;
+        if (string.Equals(value, "min-content", StringComparison.OrdinalIgnoreCase))
+            return fontSize * MinContentEmsApproximation;
+        if (value.StartsWith("fit-content(", StringComparison.OrdinalIgnoreCase) && value[value.Length - 1] == ')')
         {
             var inner = value.Substring(12, value.Length - 13).Trim();
             float maxArg = ResolveLengthValue(inner, containingSize, fontSize);
             return System.Math.Min(containingSize, System.Math.Max(0f, maxArg));
         }
 
-        if (value.EndsWith("px"))
-            return ParseFloatN(value, value.Length - 2);
+        if (value[value.Length - 1] == '%')
+            return LengthUnits.ParseNumber(value, value.Length - 1) / 100f * containingSize;
 
-        if (value.EndsWith("em"))
-            return ParseFloatN(value, value.Length - 2) * fontSize;
+        int unitStart = LengthUnits.UnitStart(value);
+        if (unitStart < value.Length && unitStart > 0 &&
+            LengthUnits.TryToPx(LengthUnits.ParseNumber(value, unitStart), value, unitStart, containingSize, fontSize, out float px))
+            return px;
 
-        if (value.EndsWith("rem"))
-            return ParseFloatN(value, value.Length - 3) * DefaultFontSize;
-
-        if (value.EndsWith("%"))
-            return ParseFloatN(value, value.Length - 1) / 100f * containingSize;
-
-        if (value.EndsWith("pt"))
-            return ParseFloatN(value, value.Length - 2) * 96f / 72f;
-
-        if (value.EndsWith("pc"))
-            return ParseFloatN(value, value.Length - 2) * 96f / 6f; // 1pc = 12pt = 16px
-
-        if (value.EndsWith("cm"))
-            return ParseFloatN(value, value.Length - 2) * 96f / 2.54f;
-
-        if (value.EndsWith("mm"))
-            return ParseFloatN(value, value.Length - 2) * 96f / 25.4f;
-
-        if (value.EndsWith("in"))
-            return ParseFloatN(value, value.Length - 2) * 96f;
-
-        // Viewport-relative units
-        if (value.EndsWith("vw"))
-        {
-            float vw = _viewportWidth > 0 ? _viewportWidth : containingSize;
-            return ParseFloatN(value, value.Length - 2) / 100f * vw;
-        }
-        if (value.EndsWith("vh"))
-        {
-            float vh = _viewportHeight > 0 ? _viewportHeight : containingSize;
-            return ParseFloatN(value, value.Length - 2) / 100f * vh;
-        }
-        if (value.EndsWith("vmin"))
-        {
-            float vmin = _viewportWidth > 0 && _viewportHeight > 0
-                ? System.Math.Min(_viewportWidth, _viewportHeight) : containingSize;
-            return ParseFloatN(value, value.Length - 4) / 100f * vmin;
-        }
-        if (value.EndsWith("vmax"))
-        {
-            float vmax = _viewportWidth > 0 && _viewportHeight > 0
-                ? System.Math.Max(_viewportWidth, _viewportHeight) : containingSize;
-            return ParseFloatN(value, value.Length - 4) / 100f * vmax;
-        }
-
-        // ch: width of the '0' glyph (approximated as 0.5em)
-        if (value.EndsWith("ch"))
-            return ParseFloatN(value, value.Length - 2) * fontSize * 0.5f;
-
-        // lh: line height relative unit (1lh = line-height of the element, approximated as 1.2em)
-        if (value.EndsWith("lh"))
-            return ParseFloatN(value, value.Length - 2) * fontSize * 1.2f;
-
-        // Try bare number (treat as px)
         if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float bare))
             return bare;
 
@@ -124,20 +75,6 @@ public static partial class BlockLayout
         if (float.TryParse(s.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float result))
             return result;
         return 0;
-    }
-
-    // Parse the first `length` characters of `s` as a float without allocating a Substring.
-    private static float ParseFloatN(string s, int length)
-    {
-#if NETSTANDARD2_0
-        if (float.TryParse(s.Substring(0, length), NumberStyles.Float, CultureInfo.InvariantCulture, out float r))
-            return r;
-        return 0;
-#else
-        if (float.TryParse(s.AsSpan(0, length), NumberStyles.Float, CultureInfo.InvariantCulture, out float r))
-            return r;
-        return 0;
-#endif
     }
 
     private static bool TryParseFirstToken(string s, out float value)

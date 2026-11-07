@@ -10,12 +10,6 @@ namespace EggPdf.Layout;
 /// </summary>
 public static class CalcResolver
 {
-    private const float DefaultFontSize = 16f;
-
-    /// <summary>
-    /// Check if a CSS value contains a math function (calc, min, max, clamp).
-    /// </summary>
-    // Known math function names (for IsMathFunction detection)
     private static readonly string[] _mathFunctions = {
         "calc(", "min(", "max(", "clamp(",
         "sin(", "cos(", "tan(", "asin(", "acos(", "atan(", "atan2(",
@@ -23,6 +17,9 @@ public static class CalcResolver
         "round(", "mod(", "rem(", "log(", "exp("
     };
 
+    /// <summary>
+    /// Check if a CSS value contains a math function (calc, min, max, clamp).
+    /// </summary>
     public static bool IsMathFunction(string value)
     {
         if (string.IsNullOrEmpty(value)) return false;
@@ -381,59 +378,13 @@ public static class CalcResolver
             return Resolve(term, containingSize, fontSize);
         }
 
-        if (term.EndsWith("px", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2));
-
-        // Check rem before em since "rem" also EndsWith("em")
-        if (term.EndsWith("rem", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 3)) * DefaultFontSize;
-
-        if (term.EndsWith("em", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * fontSize;
-
-        if (term.EndsWith("%"))
+        if (term[term.Length - 1] == '%')
             return ParseFloat(term.Substring(0, term.Length - 1)) / 100f * containingSize;
 
-        if (term.EndsWith("pt", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * 96f / 72f;
-
-        if (term.EndsWith("cm", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * 96f / 2.54f;
-
-        if (term.EndsWith("mm", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * 96f / 25.4f;
-
-        if (term.EndsWith("in", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * 96f;
-
-        if (term.EndsWith("pc", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * 96f / 6f; // 1pc = 12pt = 16px
-
-        if (term.EndsWith("vw", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) / 100f * BlockLayout.ViewportWidth;
-
-        if (term.EndsWith("vh", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) / 100f * BlockLayout.ViewportHeight;
-
-        if (term.EndsWith("vmin", StringComparison.OrdinalIgnoreCase))
-        {
-            float vmin = BlockLayout.ViewportWidth > 0 && BlockLayout.ViewportHeight > 0
-                ? System.Math.Min(BlockLayout.ViewportWidth, BlockLayout.ViewportHeight) : containingSize;
-            return ParseFloat(term.Substring(0, term.Length - 4)) / 100f * vmin;
-        }
-
-        if (term.EndsWith("vmax", StringComparison.OrdinalIgnoreCase))
-        {
-            float vmax = BlockLayout.ViewportWidth > 0 && BlockLayout.ViewportHeight > 0
-                ? System.Math.Max(BlockLayout.ViewportWidth, BlockLayout.ViewportHeight) : containingSize;
-            return ParseFloat(term.Substring(0, term.Length - 4)) / 100f * vmax;
-        }
-
-        if (term.EndsWith("ch", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * fontSize * 0.5f;
-
-        if (term.EndsWith("lh", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 2)) * fontSize * 1.2f;
+        int unitStart = LengthUnits.UnitStart(term);
+        if (unitStart < term.Length && unitStart > 0 &&
+            LengthUnits.TryToPx(LengthUnits.ParseNumber(term, unitStart), term, unitStart, containingSize, fontSize, out float px))
+            return px;
 
         if (term.EndsWith("deg", StringComparison.OrdinalIgnoreCase))
             return ParseFloat(term.Substring(0, term.Length - 3)); // return degrees as-is for trig
