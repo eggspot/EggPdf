@@ -122,6 +122,39 @@ public class InlineTextAlignTests
         img.X.Should().BeApproximately(150f, 1f);
     }
 
+    [Theory]
+    [InlineData("left")]
+    [InlineData("center")]
+    [InlineData("right")]
+    public void ImageFollowedByText_AnyAlignment_TextFlowsAfterImageOnSameLine(string textAlign)
+    {
+        var root = Layout("<div style='width:400px;text-align:" + textAlign + "'>" +
+                          "<img src='logo.png' width='40' height='40'> Hello world</div>");
+
+        var img = root.FindByTag("img")!;
+        var (left, right) = Extent(WordBoxes(root));
+
+        left.Should().BeGreaterThanOrEqualTo(img.X + img.Width - 0.5f, "the text must follow the image, not overlap it");
+        float lineLeft = img.X, lineRight = right;
+        float expectedLeft = textAlign == "left" ? 0f
+            : textAlign == "center" ? (ContainerWidth - (lineRight - lineLeft)) / 2
+            : ContainerWidth - (lineRight - lineLeft);
+        lineLeft.Should().BeApproximately(expectedLeft, 1f);
+    }
+
+    [Fact]
+    public void FloatedImageFollowedByText_TextStillWrapsBesideFloat()
+    {
+        var root = Layout("<div style='width:400px'>" +
+                          "<img src='logo.png' width='40' height='40' style='float:left'>Hello world</div>");
+
+        var img = root.FindByTag("img")!;
+        var (left, _) = Extent(WordBoxes(root));
+
+        img.X.Should().BeApproximately(0f, 0.01f);
+        left.Should().BeGreaterThanOrEqualTo(40f);
+    }
+
     [Fact]
     public void TextAlignCenter_LinkInMixedLine_SpanMovesWithWords()
     {

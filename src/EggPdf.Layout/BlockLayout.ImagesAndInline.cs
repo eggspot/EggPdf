@@ -8,21 +8,21 @@ namespace EggPdf.Layout;
 public static partial class BlockLayout
 {
     /// <summary>
-    /// Check if an element has any inline element children (not just text nodes or br).
+    /// Check if an element has any inline element children (not just text nodes or br),
+    /// including inline images, so text flows after them on the same line.
     /// A sibling explicitly styled as block-level (e.g. a &lt;span&gt; with CSS
-    /// <c>display: block</c>) is excluded even though its tag name defaults to inline:
-    /// it belongs on its own line, so the text takes the regular line-wrapping path
-    /// instead of the word-by-word inline flow (which <see cref="AlignInlineLines"/> aligns).
+    /// <c>display: block</c>) or a floated image is excluded even though its tag name
+    /// defaults to inline: neither shares the text's line, so the text takes the regular
+    /// line-wrapping path instead of the word-by-word inline flow.
     /// </summary>
     private static bool HasInlineElementSiblings(HtmlElement parent, ComputedStyle parentStyle,
         Func<HtmlElement, ComputedStyle?, ComputedStyle>? resolver)
     {
         foreach (var child in parent.ChildNodes)
         {
-            if (child is HtmlElement e && e.TagName != "br" && e.TagName != "img")
+            if (child is HtmlElement e && e.TagName != "br")
             {
                 var tag = e.TagName;
-                // Only count true inline elements (not block-level)
                 if (tag != "div" && tag != "p" && tag != "h1" && tag != "h2" && tag != "h3" &&
                     tag != "h4" && tag != "h5" && tag != "h6" && tag != "ul" && tag != "ol" &&
                     tag != "li" && tag != "table" && tag != "blockquote" && tag != "pre" &&
@@ -33,7 +33,7 @@ public static partial class BlockLayout
                     if (resolver != null)
                     {
                         var childStyle = resolver(e, parentStyle);
-                        if (IsBlockLevel(childStyle.Display)) continue;
+                        if (IsBlockLevel(childStyle.Display) || (tag == "img" && IsFloated(childStyle))) continue;
                     }
                     return true;
                 }
@@ -56,6 +56,12 @@ public static partial class BlockLayout
         }
 
         return defaultValue;
+    }
+
+    private static bool IsFloated(ComputedStyle style)
+    {
+        var floatValue = style.Get("float");
+        return floatValue == "left" || floatValue == "right";
     }
 
     private static bool IsBlockLevel(string display)
