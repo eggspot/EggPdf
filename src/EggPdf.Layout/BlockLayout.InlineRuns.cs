@@ -304,12 +304,12 @@ public static partial class BlockLayout
                         {
                             if (currentSpan == null || childY != currentSpanLineY)
                             {
-                                currentSpan = new InlineElementSpan(wrapperElement, chunkBox.X, chunkBox.Y, chunkBox.Width, chunkBox.Height);
+                                currentSpan = new InlineElementSpan(wrapperElement, chunkBox);
                                 currentSpanLineY = childY;
                             }
                             else
                             {
-                                currentSpan.Union(chunkBox.X, chunkBox.Y, chunkBox.Width, chunkBox.Height);
+                                currentSpan.AddFragment(chunkBox);
                             }
                             chunkBox.InlineSpan = currentSpan;
                         }
@@ -354,12 +354,12 @@ public static partial class BlockLayout
                 {
                     if (currentSpan == null || childY != currentSpanLineY)
                     {
-                        currentSpan = new InlineElementSpan(wrapperElement, textBox.X, textBox.Y, textBox.Width, textBox.Height);
+                        currentSpan = new InlineElementSpan(wrapperElement, textBox);
                         currentSpanLineY = childY;
                     }
                     else
                     {
-                        currentSpan.Union(textBox.X, textBox.Y, textBox.Width, textBox.Height);
+                        currentSpan.AddFragment(textBox);
                     }
                     textBox.InlineSpan = currentSpan;
                 }

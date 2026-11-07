@@ -158,6 +158,19 @@ public static partial class BoxPainter
         catch (UriFormatException) { return fragment; }
     }
 
+    private static readonly string[] ExternalLinkSchemes = { "http://", "https://", "mailto:", "tel:" };
+
+    private static bool IsExternalLinkTarget(string href)
+    {
+        var trimmed = href.TrimStart();
+        foreach (var scheme in ExternalLinkSchemes)
+        {
+            if (trimmed.StartsWith(scheme, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
     public static void PaintBox(PdfPage page, LayoutBox box,
         float pageHeightPt, float pageHeightPx, float adjustedY)
     {
@@ -901,26 +914,18 @@ public static partial class BoxPainter
             }
         }
 
-        // Paint links. A multi-word <a> splits into one LayoutBox per word for line-breaking
-        // (box.InlineSpan is set on every such fragment -- see InlineElementSpan); using the
-        // span's unioned rect instead of this one fragment's own bounds is what makes the
-        // annotation cover the whole line of link text, not just its first word.
         var linkElement = box.InlineSpan?.Element ?? box.Element;
         if (linkElement?.TagName == "a")
         {
             var href = linkElement.GetAttribute("href");
             bool isInternalLink = !string.IsNullOrEmpty(href) && href![0] == '#';
-            if (!string.IsNullOrEmpty(href) && (href.StartsWith("http") || isInternalLink))
+            if (!string.IsNullOrEmpty(href) && (IsExternalLinkTarget(href!) || isInternalLink))
             {
                 var span = box.InlineSpan;
                 if (span != null)
                 {
                     if (span.PaintTag is not PdfLinkAnnotation)
                     {
-                        // Fragments on the same line share one span: map its bounds into this
-                        // box's page-local space via the offset between them (both are in the
-                        // same pre-pagination coordinate space, and a span never crosses a page
-                        // since pagination only ever breaks between lines).
                         float spanEffectiveX = effectiveX + (span.X - box.X);
                         float spanAdjustedY = adjustedY + (span.Y - box.Y);
                         float pdfX = spanEffectiveX * PdfCoordinates.PxToPt;
