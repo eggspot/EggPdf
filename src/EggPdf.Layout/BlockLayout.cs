@@ -103,6 +103,7 @@ public static partial class BlockLayout
         // Per-render cache: without clearing, a pooled thread retains every
         // table element from every past render (unbounded growth).
         _tableColumnWidthCache?.Clear();
+        _listOrdinalCursors?.Clear();
 
         var root = new LayoutBox
         {
