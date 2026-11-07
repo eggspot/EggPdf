@@ -37,6 +37,13 @@ public static partial class BlockLayout
     [System.ThreadStatic]
     private static float _fullPageHeightPx;
 
+    [System.ThreadStatic]
+    private static float _rootFontSize;
+
+    internal static float RootFontSize => _rootFontSize > 0f ? _rootFontSize : DefaultFontSize;
+
+    internal static void ResetRootFontSize() => _rootFontSize = 0f;
+
     /// <summary>Current viewport width in pixels (for vw unit resolution). Set during layout.</summary>
     public static float ViewportWidth => _viewportWidth;
     /// <summary>Current viewport height in pixels (for vh unit resolution). Set during layout.</summary>
@@ -110,6 +117,12 @@ public static partial class BlockLayout
         ComputedStyle? htmlStyle = null;
         if (document.DocumentElement != null)
             htmlStyle = resolveStyle(document.DocumentElement, null);
+        _rootFontSize = DefaultFontSize;
+        if (htmlStyle != null && !string.IsNullOrEmpty(htmlStyle.FontSize))
+        {
+            _rootFontSize = ResolveFontSize(htmlStyle.FontSize, DefaultFontSize);
+            htmlStyle.Set("font-size", _rootFontSize.ToString("0.####", CultureInfo.InvariantCulture) + "px");
+        }
 
         var bodyStyle = resolveStyle(document.Body, htmlStyle);
         var bodyBox = CreateBox(document.Body, bodyStyle, root, pageWidth, resolveStyle, htmlStyle);
