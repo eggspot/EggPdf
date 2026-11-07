@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using EggPdf.Css;
 using EggPdf.Html.Dom;
@@ -7,69 +8,159 @@ namespace EggPdf.Layout;
 
 public static partial class BlockLayout
 {
+    private static readonly string DiscMarker = ((char)0x2022).ToString();
+    private const string CircleMarkerWinAnsiSafe = "o";
+    private static readonly string SquareMarkerEnDashSubstitute = ((char)0x2013).ToString();
+    private const int MaxRomanNumeral = 3999;
+
+    private sealed class ListOrdinalCursor
+    {
+        public int ChildIndex = -1;
+        public int Ordinal;
+        public int Step = 1;
+    }
+
+    [ThreadStatic]
+    private static Dictionary<HtmlElement, ListOrdinalCursor>? _listOrdinalCursors;
+
     private static string GetListMarkerText(string listStyleType, HtmlElement element,
         HtmlElement? parentElement, CssCounterContext? counterCtx = null)
     {
         switch (listStyleType)
         {
             case "disc":
-                return "\u2022"; // • (bullet, WinAnsi 0x95)
+                return DiscMarker;
             case "circle":
-                return "o"; // circle marker (WinAnsi-safe)
+                return CircleMarkerWinAnsiSafe;
             case "square":
-                return "\u2013"; // – as square substitute (WinAnsi 0x96)
+                return SquareMarkerEnDashSubstitute;
             case "none":
                 return "";
+        }
+
+        int ordinal = GetListItemOrdinal(element, parentElement);
+        switch (listStyleType)
+        {
             case "decimal":
-                int index = GetListItemIndex(element, parentElement);
-                return index.ToString(CultureInfo.InvariantCulture) + ".";
+                return ToDecimal(ordinal) + ".";
             case "decimal-leading-zero":
-                int idx = GetListItemIndex(element, parentElement);
-                return idx.ToString("D2", CultureInfo.InvariantCulture) + ".";
+                return ordinal.ToString("D2", CultureInfo.InvariantCulture) + ".";
             case "lower-alpha":
             case "lower-latin":
-                int ai = GetListItemIndex(element, parentElement);
-                return ai > 0 && ai <= 26 ? ((char)('a' + ai - 1)).ToString() + "." : ai.ToString(CultureInfo.InvariantCulture) + ".";
+                return ToAlphabetic(ordinal, 'a') + ".";
             case "upper-alpha":
             case "upper-latin":
-                int bi = GetListItemIndex(element, parentElement);
-                return bi > 0 && bi <= 26 ? ((char)('A' + bi - 1)).ToString() + "." : bi.ToString(CultureInfo.InvariantCulture) + ".";
+                return ToAlphabetic(ordinal, 'A') + ".";
             case "lower-roman":
-                int ri = GetListItemIndex(element, parentElement);
-                return ToRoman(ri).ToLowerInvariant() + ".";
+                return ToRoman(ordinal).ToLowerInvariant() + ".";
             case "upper-roman":
-                int ui = GetListItemIndex(element, parentElement);
-                return ToRoman(ui) + ".";
+                return ToRoman(ordinal) + ".";
             default:
-                // Check custom @counter-style
-                if (counterCtx != null)
-                {
-                    int itemIdx = GetListItemIndex(element, parentElement);
-                    var custom = counterCtx.FormatCustomStyle(listStyleType, itemIdx);
-                    if (custom != null) return custom;
-                }
-                return "\u2022"; // default to disc
+                var custom = counterCtx?.FormatCustomStyle(listStyleType, ordinal);
+                return custom ?? DiscMarker;
         }
     }
 
-    private static int GetListItemIndex(HtmlElement li, HtmlElement? parent)
+    private static int GetListItemOrdinal(HtmlElement li, HtmlElement? list)
     {
-        if (parent == null) return 1;
-        int index = 0;
-        foreach (var child in parent.ChildNodes)
+        if (list == null) return 1;
+        var cursors = _listOrdinalCursors ??= new Dictionary<HtmlElement, ListOrdinalCursor>();
+        if (!cursors.TryGetValue(list, out var cursor))
         {
-            if (child is HtmlElement e && e.TagName == "li")
+            cursor = StartListOrdinals(list);
+            cursors[list] = cursor;
+        }
+        if (AdvanceToListItem(list, li, cursor))
+            return cursor.Ordinal;
+
+        var restarted = StartListOrdinals(list);
+        cursors[list] = restarted;
+        return AdvanceToListItem(list, li, restarted) ? restarted.Ordinal : 1;
+    }
+
+    private static ListOrdinalCursor StartListOrdinals(HtmlElement list)
+    {
+        bool isOrderedList = list.TagName == "ol";
+        bool reversed = isOrderedList && list.HasAttribute("reversed");
+        int step = reversed ? -1 : 1;
+        if (!isOrderedList || !TryParseHtmlInteger(list.GetAttribute("start"), out int start))
+            start = reversed ? CountListItems(list) : 1;
+        return new ListOrdinalCursor { Ordinal = start - step, Step = step };
+    }
+
+    private static bool AdvanceToListItem(HtmlElement list, HtmlElement li, ListOrdinalCursor cursor)
+    {
+        var children = list.ChildNodes;
+        for (int i = cursor.ChildIndex + 1; i < children.Count; i++)
+        {
+            if (children[i] is HtmlElement item && item.TagName == "li")
             {
-                index++;
-                if (e == li) return index;
+                cursor.Ordinal = TryParseHtmlInteger(item.GetAttribute("value"), out int value)
+                    ? value
+                    : cursor.Ordinal + cursor.Step;
+                cursor.ChildIndex = i;
+                if (item == li) return true;
             }
         }
-        return 1;
+        return false;
+    }
+
+    private static int CountListItems(HtmlElement list)
+    {
+        int count = 0;
+        foreach (var child in list.ChildNodes)
+        {
+            if (child is HtmlElement e && e.TagName == "li")
+                count++;
+        }
+        return count;
+    }
+
+    private static bool TryParseHtmlInteger(string? value, out int result)
+    {
+        result = 0;
+        if (string.IsNullOrEmpty(value)) return false;
+        int pos = 0;
+        while (pos < value!.Length && IsCollapsibleWhitespace(value[pos])) pos++;
+        bool negative = false;
+        if (pos < value.Length && (value[pos] == '-' || value[pos] == '+'))
+        {
+            negative = value[pos] == '-';
+            pos++;
+        }
+        long magnitude = 0;
+        int digitStart = pos;
+        while (pos < value.Length && value[pos] >= '0' && value[pos] <= '9')
+        {
+            if (magnitude <= int.MaxValue)
+                magnitude = magnitude * 10 + (value[pos] - '0');
+            pos++;
+        }
+        if (pos == digitStart) return false;
+        long signed = negative ? -magnitude : magnitude;
+        result = (int)Math.Max(int.MinValue, Math.Min(int.MaxValue, signed));
+        return true;
+    }
+
+    private static string ToDecimal(int number) => number.ToString(CultureInfo.InvariantCulture);
+
+    private static string ToAlphabetic(int number, char firstLetter)
+    {
+        if (number <= 0) return ToDecimal(number);
+        var letters = new char[8];
+        int pos = letters.Length;
+        while (number > 0)
+        {
+            number--;
+            letters[--pos] = (char)(firstLetter + number % 26);
+            number /= 26;
+        }
+        return new string(letters, pos, letters.Length - pos);
     }
 
     private static string ToRoman(int number)
     {
-        if (number <= 0 || number > 3999) return number.ToString(CultureInfo.InvariantCulture);
+        if (number <= 0 || number > MaxRomanNumeral) return ToDecimal(number);
         string[] thousands = { "", "M", "MM", "MMM" };
         string[] hundreds = { "", "C", "CC", "CCC", "CD", "D", "DC", "DCC", "DCCC", "CM" };
         string[] tens = { "", "X", "XX", "XXX", "XL", "L", "LX", "LXX", "LXXX", "XC" };
@@ -77,5 +168,4 @@ public static partial class BlockLayout
         return thousands[number / 1000] + hundreds[(number % 1000) / 100] +
                tens[(number % 100) / 10] + ones[number % 10];
     }
-
 }
