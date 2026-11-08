@@ -26,7 +26,6 @@ public static partial class GridLayout
         float parentFontSize = parentStyle != null ? BlockLayout.ResolveFontSize(parentStyle.FontSize, DefaultFontSize) : DefaultFontSize;
         float fontSize = BlockLayout.ResolveFontSize(style.FontSize, parentFontSize);
 
-        // Parse grid container properties
         string? templateColumns = style.Get("grid-template-columns");
         string? templateRows = style.Get("grid-template-rows");
         string? templateAreas = style.Get("grid-template-areas");
@@ -34,18 +33,14 @@ public static partial class GridLayout
         bool flowColumn = autoFlow.IndexOf("column", StringComparison.OrdinalIgnoreCase) >= 0;
         bool isDense = autoFlow.IndexOf("dense", StringComparison.OrdinalIgnoreCase) >= 0;
 
-        // Resolve gap
         float columnGap = ResolveGap(style, true, container.ContentWidth, fontSize);
         float rowGap = ResolveGap(style, false, container.ContentWidth, fontSize);
 
-        // Collect grid items
         var items = CollectGridItems(element, style, container, containingWidth, resolver, fontSize);
         if (items.Count == 0) return;
 
-        // Parse template areas if specified
         var areaMap = ParseTemplateAreas(templateAreas);
 
-        // Expand auto-fill / auto-fit repeat() before full track parsing
         string? resolvedColumns = templateColumns;
         if (!string.IsNullOrEmpty(resolvedColumns) && HasAutoRepeat(resolvedColumns))
             resolvedColumns = ExpandAutoRepeat(resolvedColumns, container.ContentWidth, items.Count);
@@ -53,27 +48,17 @@ public static partial class GridLayout
         if (!string.IsNullOrEmpty(resolvedRows) && HasAutoRepeat(resolvedRows))
             resolvedRows = ExpandAutoRepeat(resolvedRows, container.ContentWidth, items.Count);
 
-        // Parse column and row track definitions
         var columnTracks = ParseTrackList(resolvedColumns, container.ContentWidth, fontSize);
         var rowTracks = ParseTrackList(resolvedRows, container.ContentWidth, fontSize);
 
-        // grid-auto-rows / grid-auto-columns size tracks the auto-placement algorithm creates
-        // implicitly (a row beyond grid-template-rows, or -- in grid-auto-flow:column -- a
-        // column beyond grid-template-columns). A list cycles: "50px 80px" alternates between
-        // implicit tracks. Absent, implicit tracks keep their previous defaults (auto rows,
-        // 1fr columns) via the empty-list fallback below.
         var autoRowTracks = ParseTrackList(style.Get("grid-auto-rows"), 0, fontSize);
         var autoColumnTracks = ParseTrackList(style.Get("grid-auto-columns"), container.ContentWidth, fontSize);
         bool columnsAreImplicit = string.IsNullOrEmpty(resolvedColumns);
 
-        // If no explicit columns defined, determine from items
         if (columnTracks.Count == 0)
         {
-            // Create implicit single column (all items in one column)
             if (flowColumn)
             {
-                // For column flow with no template, create as many columns as explicitly placed items need,
-                // default to 1
                 int maxCol = 1;
                 for (int i = 0; i < items.Count; i++)
                 {
@@ -91,19 +76,11 @@ public static partial class GridLayout
 
         int numColumns = columnTracks.Count;
 
-        // Resolve explicit placement from item properties and areas
         ResolveExplicitPlacement(items, areaMap, numColumns);
 
-        // Auto-place remaining items. grid-auto-flow:column with no explicit
-        // grid-template-columns may need to grow beyond the initial column count (a new
-        // implicit column per exhausted set of explicit rows) -- AutoPlaceItems returns the
-        // resolved column count, unchanged unless that growth path was taken.
         numColumns = AutoPlaceItems(items, numColumns, flowColumn, rowTracks.Count, isDense,
             allowColumnGrowth: flowColumn && columnsAreImplicit);
 
-        // Extend columnTracks to match any columns AutoPlaceItems grew into, sized from
-        // grid-auto-columns (cycling through a multi-value list) or 1fr if unspecified --
-        // the same default implicit columns already used before growth was supported.
         int newColumnIndex = 0;
         while (columnTracks.Count < numColumns)
         {
@@ -113,7 +90,6 @@ public static partial class GridLayout
             newColumnIndex++;
         }
 
-        // Determine number of rows needed
         int numRows = rowTracks.Count;
         for (int i = 0; i < items.Count; i++)
         {
@@ -121,8 +97,6 @@ public static partial class GridLayout
             if (neededRows > numRows) numRows = neededRows;
         }
 
-        // Add implicit row tracks if needed, sized from grid-auto-rows (cycling through a
-        // multi-value list) or the previous content-based "auto" default if unspecified.
         int newRowIndex = 0;
         while (rowTracks.Count < numRows)
         {
@@ -132,17 +106,14 @@ public static partial class GridLayout
             newRowIndex++;
         }
 
-        // Resolve track sizes
         var autoColumnWidths = AutoColumnContentWidths(columnTracks, items, resolver, fontSize);
         float[] columnSizes = ResolveTrackSizes(columnTracks, container.ContentWidth, columnGap, fontSize,
             autoColumnWidths?.MaxContent, autoColumnWidths?.MinContent);
         float[] rowSizes = ResolveTrackSizes(rowTracks, 0, rowGap, fontSize, null);
 
-        // Create child boxes and measure for auto rows
         for (int i = 0; i < items.Count; i++)
         {
             var item = items[i];
-            // Calculate available width for this item
             float itemWidth = 0;
             for (int c = item.ColumnStart; c < item.ColumnStart + item.ColumnSpan && c < numColumns; c++)
             {
@@ -150,8 +121,6 @@ public static partial class GridLayout
                 if (c > item.ColumnStart) itemWidth += columnGap;
             }
 
-            // subgrid: if child has display:grid and grid-template-columns:subgrid,
-            // override its column template with the parent's resolved column sizes for its span.
             var childStyle = item.Style;
             if (childStyle.Display == "grid" || childStyle.Display == "inline-grid")
             {
@@ -164,7 +133,6 @@ public static partial class GridLayout
 
                 if (colSubgrid)
                 {
-                    // Build explicit column widths from parent's resolved sizes for this item's span
                     var sb = new System.Text.StringBuilder();
                     for (int c = item.ColumnStart; c < item.ColumnStart + item.ColumnSpan && c < numColumns; c++)
                     {
@@ -172,14 +140,10 @@ public static partial class GridLayout
                         sb.Append(columnSizes[c].ToString("F2", CultureInfo.InvariantCulture));
                         sb.Append("px");
                     }
-                    // Clone style with overridden column template
                     var overriddenStyle = new ComputedStyle();
                     foreach (var kv in childStyle.All)
                         overriddenStyle.Set(kv.Key, kv.Value);
                     overriddenStyle.Set("grid-template-columns", sb.ToString());
-                    // Per spec, a subgrid inherits the parent's gutters for the subgridded
-                    // axis unless it declares its own -- without this, the child's own
-                    // (uninherited) column-gap/gap defaults to 0 and items lose their gap.
                     if (string.IsNullOrEmpty(childStyle.Get("column-gap")) && string.IsNullOrEmpty(childStyle.Get("gap")))
                         overriddenStyle.Set("column-gap", columnGap.ToString("F2", CultureInfo.InvariantCulture) + "px");
                     childStyle = overriddenStyle;
@@ -188,7 +152,6 @@ public static partial class GridLayout
 
                 if (rowSubgrid)
                 {
-                    // Build explicit row heights from parent's resolved row sizes for this item's span
                     var sb = new System.Text.StringBuilder();
                     for (int r = item.RowStart; r < item.RowStart + item.RowSpan && r < numRows; r++)
                     {
@@ -207,9 +170,6 @@ public static partial class GridLayout
                 }
             }
 
-            // Create child box with the calculated width. A synthesized ::before/::after
-            // item has no real HtmlElement to hand BlockLayout.CreateBox, so build its
-            // (text-only) box directly instead.
             LayoutBox childBox;
             if (item.PseudoContent != null)
             {
@@ -239,7 +199,6 @@ public static partial class GridLayout
 
             item.Box = childBox;
 
-            // Update auto row heights based on content
             float itemHeight = childBox.Height;
             int rowEnd = item.RowStart + item.RowSpan;
             if (item.RowSpan == 1 && item.RowStart < numRows)
@@ -252,7 +211,6 @@ public static partial class GridLayout
             }
             else
             {
-                // For spanning items, distribute height across auto rows if needed
                 float existingHeight = 0;
                 int autoRowCount = 0;
                 for (int r = item.RowStart; r < rowEnd && r < numRows; r++)
@@ -273,8 +231,6 @@ public static partial class GridLayout
             }
         }
 
-        // Position items
-        // Compute column start positions
         float[] columnPositions = new float[numColumns];
         float colPos = 0;
         for (int c = 0; c < numColumns; c++)
@@ -284,7 +240,6 @@ public static partial class GridLayout
             if (c < numColumns - 1) colPos += columnGap;
         }
 
-        // Compute row start positions
         float[] rowPositions = new float[numRows];
         float rowPos = 0;
         for (int r = 0; r < numRows; r++)
@@ -294,7 +249,6 @@ public static partial class GridLayout
             if (r < numRows - 1) rowPos += rowGap;
         }
 
-        // Place each item
         for (int i = 0; i < items.Count; i++)
         {
             var item = items[i];
@@ -308,7 +262,6 @@ public static partial class GridLayout
             if (item.RowStart < numRows)
                 cellY += rowPositions[item.RowStart];
 
-            // Calculate cell dimensions (spanning)
             float cellWidth = 0;
             for (int c = item.ColumnStart; c < item.ColumnStart + item.ColumnSpan && c < numColumns; c++)
             {
@@ -323,9 +276,6 @@ public static partial class GridLayout
                 if (r > item.RowStart) cellHeight += rowGap;
             }
 
-            // Move the item box to its cell. X coordinates are absolute, so the
-            // already-laid-out descendants shift with the box; Y coordinates are
-            // parent-relative and get resolved in BlockLayout's post-layout pass.
             float deltaX = cellX - item.Box.X;
             item.Box.X = cellX;
             item.Box.Y = cellY;
@@ -350,7 +300,6 @@ public static partial class GridLayout
         }
     }
 
-    /// <summary>Resolve gap value for column or row axis.</summary>
     private static float ResolveGap(ComputedStyle style, bool isColumn, float containingWidth, float fontSize)
     {
         string? gapValue = isColumn ? style.Get("column-gap") : style.Get("row-gap");
@@ -367,7 +316,6 @@ public static partial class GridLayout
                 }
                 else if (parts.Length >= 2)
                 {
-                    // gap: row-gap column-gap
                     gapValue = isColumn ? parts[1] : parts[0];
                 }
             }
@@ -376,18 +324,12 @@ public static partial class GridLayout
         return BlockLayout.ResolveLength(gapValue, containingWidth, fontSize);
     }
 
-    /// <summary>Collect grid items from child elements.</summary>
     private static List<GridItem> CollectGridItems(HtmlElement element, ComputedStyle containerStyle,
         LayoutBox container, float containingWidth, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver,
         float fontSize)
     {
         var items = new List<GridItem>();
 
-        // ::before generates a box that is itself a grid item when its parent is a grid
-        // container (CSS Display §3), placed before all of the container's real children —
-        // e.g. `li::before { content: "-" }` alongside `li { display:grid; grid-template-columns:
-        // 14px 1fr }` is a common custom-marker idiom. Without this, the marker column goes
-        // unfilled and the first real child (the item text) lands in the narrow marker track.
         var beforeItem = TryCreatePseudoItem(element, containerStyle, "before");
         if (beforeItem != null) items.Add(beforeItem);
 
@@ -401,7 +343,6 @@ public static partial class GridLayout
             if (childStyle.Display == "none")
                 continue;
 
-            // Absolutely/fixed positioned children are out-of-flow, not grid items.
             var childPosition = childStyle.Get("position");
             if (childPosition == "absolute" || childPosition == "fixed")
                 continue;
@@ -411,23 +352,20 @@ public static partial class GridLayout
                 Element = childElem,
                 Style = childStyle,
                 SourceIndex = i,
-                ColumnStart = -1,  // -1 = auto placement
-                RowStart = -1,
+                ColumnStart = AutoPlaced,
+                RowStart = AutoPlaced,
                 ColumnSpan = 1,
                 RowSpan = 1
             };
 
-            // Parse grid-column-start / grid-column-end
             ParseGridPlacement(childStyle.Get("grid-column-start"), childStyle.Get("grid-column-end"),
                 childStyle.Get("grid-column"),
                 out item.ColumnStart, out item.ColumnSpan);
 
-            // Parse grid-row-start / grid-row-end
             ParseGridPlacement(childStyle.Get("grid-row-start"), childStyle.Get("grid-row-end"),
                 childStyle.Get("grid-row"),
                 out item.RowStart, out item.RowSpan);
 
-            // Parse grid-area (maps to named area)
             var gridArea = childStyle.Get("grid-area");
             if (!string.IsNullOrEmpty(gridArea))
             {
@@ -443,11 +381,9 @@ public static partial class GridLayout
         return items;
     }
 
-    /// <summary>
-    /// Resolve a ::before/::after pseudo-element's `content` and, if non-null, wrap it as a
-    /// GridItem carrying no real HtmlElement (see GridItem.PseudoContent) — the box-creation
-    /// loop in LayoutGrid builds its LayoutBox directly instead of via BlockLayout.CreateBox.
-    /// </summary>
+    private const int AutoPlaced = -1;
+    private const string EmptyAreaCell = ".";
+
     private static GridItem? TryCreatePseudoItem(HtmlElement element, ComputedStyle containerStyle, string pseudo)
     {
         if (!BlockLayout.TryResolvePseudoContent(element, pseudo, containerStyle, out var pseudoStyle, out var content))
@@ -457,28 +393,25 @@ public static partial class GridLayout
         {
             Element = element,
             Style = pseudoStyle!,
-            ColumnStart = -1,
-            RowStart = -1,
+            ColumnStart = AutoPlaced,
+            RowStart = AutoPlaced,
             ColumnSpan = 1,
             RowSpan = 1,
             PseudoContent = content
         };
     }
 
-    /// <summary>Parse grid-column/row placement properties.</summary>
     private static void ParseGridPlacement(string? start, string? end, string? shorthand,
         out int startLine, out int span)
     {
-        startLine = -1; // auto
+        startLine = AutoPlaced;
         span = 1;
 
-        // Shorthand: grid-column: 1 / 3  or  grid-column: span 2
         if (!string.IsNullOrEmpty(shorthand))
         {
             var trimmed = shorthand.Trim();
             if (trimmed.StartsWith("span", StringComparison.OrdinalIgnoreCase))
             {
-                // grid-column: span N
                 span = ParseSpanValue(trimmed);
                 return;
             }
@@ -490,7 +423,7 @@ public static partial class GridLayout
                 var endPart = trimmed.Substring(slashIdx + 1).Trim();
 
                 if (int.TryParse(startPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out int s))
-                    startLine = s - 1; // Convert 1-based to 0-based
+                    startLine = s - 1;
 
                 if (endPart.StartsWith("span", StringComparison.OrdinalIgnoreCase))
                 {
@@ -505,7 +438,6 @@ public static partial class GridLayout
                 return;
             }
 
-            // Single number
             if (int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out int singleVal))
             {
                 startLine = singleVal - 1;
@@ -513,7 +445,6 @@ public static partial class GridLayout
             }
         }
 
-        // Individual properties
         if (!string.IsNullOrEmpty(start))
         {
             var trimmedStart = start.Trim();
@@ -545,30 +476,24 @@ public static partial class GridLayout
         }
     }
 
-    /// <summary>Parse "span N" value, returning N.</summary>
     private static int ParseSpanValue(string value)
     {
-        // "span 2" or "span2"
         var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length >= 2 && int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int n))
             return Math.Max(1, n);
         return 1;
     }
 
-    /// <summary>Parse grid-template-areas into a map of area-name to grid cell positions.</summary>
     private static Dictionary<string, GridArea> ParseTemplateAreas(string? templateAreas)
     {
         var areas = new Dictionary<string, GridArea>(StringComparer.OrdinalIgnoreCase);
         if (string.IsNullOrEmpty(templateAreas))
             return areas;
 
-        // Template areas: "'header header' 'sidebar main' 'footer footer'"
-        // Each quoted string is a row
         var rows = new List<string[]>();
         int pos = 0;
         while (pos < templateAreas.Length)
         {
-            // Find next quoted string
             int quoteStart = templateAreas.IndexOf('"', pos);
             if (quoteStart < 0)
             {
@@ -586,18 +511,16 @@ public static partial class GridLayout
             pos = quoteEnd + 1;
         }
 
-        // Build area map
         for (int r = 0; r < rows.Count; r++)
         {
             var cells = rows[r];
             for (int c = 0; c < cells.Length; c++)
             {
                 var name = cells[c];
-                if (name == ".") continue; // empty cell
+                if (name == EmptyAreaCell) continue;
 
                 if (areas.TryGetValue(name, out var existing))
                 {
-                    // Expand existing area
                     if (c < existing.ColumnStart) existing.ColumnStart = c;
                     if (r < existing.RowStart) existing.RowStart = r;
                     int colEnd = c + 1;
@@ -624,14 +547,12 @@ public static partial class GridLayout
         return areas;
     }
 
-    /// <summary>Resolve explicit placement from grid-area names.</summary>
     private static void ResolveExplicitPlacement(List<GridItem> items, Dictionary<string, GridArea> areaMap, int numColumns)
     {
         for (int i = 0; i < items.Count; i++)
         {
             var item = items[i];
 
-            // If item has an area name, resolve from area map
             if (!string.IsNullOrEmpty(item.AreaName) && areaMap.TryGetValue(item.AreaName, out var area))
             {
                 item.ColumnStart = area.ColumnStart;
@@ -640,7 +561,6 @@ public static partial class GridLayout
                 item.RowSpan = area.RowSpan;
             }
 
-            // Clamp column placement to grid bounds
             if (item.ColumnStart >= numColumns)
                 item.ColumnStart = numColumns - 1;
             if (item.ColumnStart >= 0 && item.ColumnStart + item.ColumnSpan > numColumns)
@@ -648,7 +568,6 @@ public static partial class GridLayout
         }
     }
 
-    /// <summary>Parse a track list like "200px 1fr 1fr" or "repeat(3, 1fr)" into track definitions.</summary>
     private static List<TrackDefinition> ParseTrackList(string? trackList, float containingSize, float fontSize)
     {
         var tracks = new List<TrackDefinition>();
@@ -657,17 +576,14 @@ public static partial class GridLayout
 
         var input = trackList.Trim();
 
-        // Handle repeat() function
         int repeatIdx = input.IndexOf("repeat(", StringComparison.OrdinalIgnoreCase);
         if (repeatIdx >= 0)
         {
             input = ExpandRepeat(input);
         }
 
-        // Handle minmax() - we need to handle this before splitting
         input = ExpandMinmax(input);
 
-        // Split on whitespace
         var parts = input.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
         for (int i = 0; i < parts.Length; i++)
@@ -681,18 +597,12 @@ public static partial class GridLayout
         return tracks;
     }
 
-    /// <summary>Returns true if the track list contains an auto-fill or auto-fit repeat.</summary>
     private static bool HasAutoRepeat(string input)
     {
         return input.IndexOf("auto-fill", StringComparison.OrdinalIgnoreCase) >= 0 ||
                input.IndexOf("auto-fit", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
-    /// <summary>
-    /// Expand repeat(auto-fill, ...) and repeat(auto-fit, ...) into concrete track lists.
-    /// auto-fill: creates as many tracks as fit (floor(containerWidth / minTrackSize)).
-    /// auto-fit: same count but capped to itemCount so empty tracks collapse.
-    /// </summary>
     private static string ExpandAutoRepeat(string input, float containingSize, int itemCount)
     {
         int idx = 0;
@@ -701,7 +611,6 @@ public static partial class GridLayout
             int repeatStart = input.IndexOf("repeat(", idx, StringComparison.OrdinalIgnoreCase);
             if (repeatStart < 0) break;
 
-            // Find matching close paren
             int parenDepth = 0;
             int closeIdx = -1;
             for (int i = repeatStart + 7; i < input.Length; i++)
@@ -727,18 +636,15 @@ public static partial class GridLayout
 
             string trackStr = inner.Substring(commaIdx + 1).Trim();
 
-            // Extract minimum size from minmax(min, max) to compute how many columns fit
             float minSize = ExtractMinSizeFromTrack(trackStr);
             if (minSize <= 0) minSize = 1;
 
             int count = (int)(containingSize / minSize);
             if (count < 1) count = 1;
 
-            // auto-fit: collapse empty tracks — only create tracks for actual items
             if (isAutoFit)
                 count = Math.Min(count, Math.Max(1, itemCount));
 
-            // Use the max value (or full track) for the expanded track definition
             string expandedTrack = ExtractMaxTrackValue(trackStr);
 
             var sb = new System.Text.StringBuilder();
@@ -756,7 +662,6 @@ public static partial class GridLayout
         return input;
     }
 
-    /// <summary>Extracts the minimum (first) size value from a minmax() track or returns the raw value.</summary>
     private static float ExtractMinSizeFromTrack(string trackStr)
     {
         if (trackStr.StartsWith("minmax(", StringComparison.OrdinalIgnoreCase))
@@ -773,7 +678,6 @@ public static partial class GridLayout
         return ParseSimpleLength(trackStr);
     }
 
-    /// <summary>Extracts the maximum (second) value from a minmax() track, or returns the raw value.</summary>
     private static string ExtractMaxTrackValue(string trackStr)
     {
         if (trackStr.StartsWith("minmax(", StringComparison.OrdinalIgnoreCase))
@@ -790,7 +694,6 @@ public static partial class GridLayout
         return trackStr;
     }
 
-    /// <summary>Parse a simple CSS length value (px only) for auto-repeat minimum size calculation.</summary>
     private static float ParseSimpleLength(string value)
     {
         if (string.IsNullOrEmpty(value)) return 0;
@@ -803,17 +706,14 @@ public static partial class GridLayout
         return 0;
     }
 
-    /// <summary>Expand repeat(N, track) into N copies of track.</summary>
     private static string ExpandRepeat(string input)
     {
-        // Simple repeat expansion: repeat(3, 1fr) -> 1fr 1fr 1fr
         int idx = 0;
         while (idx < input.Length)
         {
             int repeatStart = input.IndexOf("repeat(", idx, StringComparison.OrdinalIgnoreCase);
             if (repeatStart < 0) break;
 
-            // Find the matching closing paren
             int parenDepth = 0;
             int closeIdx = -1;
             for (int i = repeatStart + 7; i < input.Length; i++)
@@ -845,7 +745,6 @@ public static partial class GridLayout
                 continue;
             }
 
-            // Build expansion
             var expanded = new System.Text.StringBuilder();
             for (int i = 0; i < count; i++)
             {
@@ -860,7 +759,6 @@ public static partial class GridLayout
         return input;
     }
 
-    /// <summary>Simplify minmax(min, max) to just the max value for layout purposes.</summary>
     private static string ExpandMinmax(string input)
     {
         int idx = 0;
@@ -891,9 +789,7 @@ public static partial class GridLayout
             int commaIdx = inner.IndexOf(',');
             if (commaIdx < 0) { idx = closeIdx + 1; continue; }
 
-            // Use the max value for track sizing
             string maxValue = inner.Substring(commaIdx + 1).Trim();
-            // If max is "1fr", use it; otherwise use the max
             input = input.Substring(0, minmaxStart) + maxValue + input.Substring(closeIdx + 1);
             idx = minmaxStart + maxValue.Length;
         }
@@ -901,7 +797,6 @@ public static partial class GridLayout
         return input;
     }
 
-    /// <summary>Parse a single track definition (e.g., "200px", "1fr", "auto").</summary>
     private static TrackDefinition ParseSingleTrack(string value, float containingSize, float fontSize)
     {
         if (value == "auto")
@@ -919,7 +814,6 @@ public static partial class GridLayout
             return new TrackDefinition { Type = TrackType.Fr, Value = 1 };
         }
 
-        // Fixed unit (px, %, em, etc.)
         float resolved = BlockLayout.ResolveLength(value, containingSize, fontSize);
         return new TrackDefinition { Type = TrackType.Fixed, Value = resolved };
     }
@@ -967,7 +861,7 @@ public static partial class GridLayout
                     sizes[i] = frUnit * tracks[i].Value;
                 }
             }
-            remainingSpace = 0; // all space consumed
+            remainingSpace = 0;
         }
 
         if (autoCount > 0)
@@ -1075,7 +969,6 @@ public static partial class GridLayout
         public int RowSpan;
     }
 
-    /// <summary>A grid item with placement information.</summary>
     private sealed class GridItem
     {
         public HtmlElement Element = null!;
@@ -1087,8 +980,6 @@ public static partial class GridLayout
         public int ColumnSpan;
         public int RowSpan;
         public string? AreaName;
-        /// <summary>Set for a synthesized ::before/::after item — its resolved `content` text,
-        /// painted directly instead of via BlockLayout.CreateBox (which needs a real element).</summary>
         public string? PseudoContent;
     }
 }

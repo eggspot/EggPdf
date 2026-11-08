@@ -32,6 +32,24 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 - Checkbox and radio inputs get a fixed 13px native control size with no padding: they are painted
   as a vector square/circle (`BoxPainter.PaintCheckboxOrRadio`), not sized by glyph text.
 
+## EggPdf.Layout/GridLayout.cs
+
+- `grid-auto-rows` / `grid-auto-columns` size the implicit tracks auto-placement creates; a list
+  cycles ("50px 80px" alternates). Without them, implicit rows are `auto` and implicit columns `1fr`.
+- With no column template, row flow gets one column; column flow gets as many columns as the
+  explicitly placed items need, and `AutoPlaceItems` may grow more (it returns the final count).
+- A subgrid gets the parent's resolved track sizes for its span, and the parent's gap on that axis
+  unless it declares its own.
+- `::before` and `::after` with content are grid items themselves (CSS Display §3), placed before and
+  after the real children: `li::before { content: "-" }` in a `14px 1fr` grid is a common custom
+  marker. Their box is built directly, since `BlockLayout.CreateBox` needs a real element.
+- A spanning item that is taller than its rows shares the extra height equally across its `auto` rows.
+- `gap` with two values is `row-gap column-gap`. Absolutely and fixed positioned children are not
+  grid items.
+- `minmax(min, max)` sizes the track by its max; `repeat(auto-fill | auto-fit, …)` fits as many
+  tracks as the container width allows at the min size, and auto-fit caps the count at the number
+  of items.
+
 ## EggPdf.Layout/StandardFontMetrics.cs
 
 - Widths are the PDF standard 14 AFM advances in 1/1000 em for WinAnsi 32–126; a no-break space
