@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using EggPdf.Css;
 using EggPdf.Css.Parser;
 
 namespace EggPdf.Layout;
@@ -191,12 +192,9 @@ public class CssCounterContext
 
             if (remaining[0] == '"' || remaining[0] == '\'')
             {
-                // Quoted string
-                char quote = remaining[0];
-                int end = remaining.IndexOf(quote, 1);
-                if (end < 0) end = remaining.Length - 1;
-                result.Append(remaining.Substring(1, end - 1));
-                remaining = remaining.Substring(end + 1);
+                int pos = 0;
+                result.Append(CssStringEscapes.ReadQuoted(remaining, ref pos));
+                remaining = remaining.Substring(pos);
             }
             else if (remaining.StartsWith("counter(", StringComparison.OrdinalIgnoreCase))
             {
