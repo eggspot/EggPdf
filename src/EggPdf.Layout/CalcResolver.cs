@@ -60,6 +60,9 @@ public static class CalcResolver
 
     private static float ResolveFunctionOrTerm(string value, float containingSize, float fontSize)
     {
+        if (!IsSingleFunctionCall(value))
+            return EvaluateExpression(value, containingSize, fontSize);
+
         if (StartsWithIgnoreCase(value, "calc(") && value[value.Length - 1] == ')')
         {
             string inner = value.Substring(5, value.Length - 6);
@@ -185,8 +188,11 @@ public static class CalcResolver
         if (StartsWithIgnoreCase(value, "exp(") && value[value.Length - 1] == ')')
             return (float)Math.Exp(Resolve(value.Substring(4, value.Length - 5), containingSize, fontSize));
 
-        return EvaluateExpression(value, containingSize, fontSize);
+        return 0;
     }
+
+    private static bool IsSingleFunctionCall(string value) =>
+        IsNestedFunction(value, 0) && FindFunctionEnd(value, 0) == value.Length - 1;
 
     private static float EvaluateExpression(string expr, float containingSize, float fontSize)
     {
@@ -353,16 +359,16 @@ public static class CalcResolver
         Angle,
     }
 
-    private static readonly string[] NumberResultFunctions = { "sin", "cos", "tan", "sqrt", "pow", "log", "exp", "sign" };
+    private static readonly string[] _numberResultFunctions = { "sin", "cos", "tan", "sqrt", "pow", "log", "exp", "sign" };
 
-    private static readonly string[] AngleResultFunctions = { "asin", "acos", "atan", "atan2" };
+    private static readonly string[] _angleResultFunctions = { "asin", "acos", "atan", "atan2" };
 
     private static MathResultType MathFunctionResultType(string expr, int start, int length)
     {
-        for (int f = 0; f < AngleResultFunctions.Length; f++)
-            if (NameEquals(expr, start, length, AngleResultFunctions[f])) return MathResultType.Angle;
-        for (int f = 0; f < NumberResultFunctions.Length; f++)
-            if (NameEquals(expr, start, length, NumberResultFunctions[f])) return MathResultType.Number;
+        for (int f = 0; f < _angleResultFunctions.Length; f++)
+            if (NameEquals(expr, start, length, _angleResultFunctions[f])) return MathResultType.Angle;
+        for (int f = 0; f < _numberResultFunctions.Length; f++)
+            if (NameEquals(expr, start, length, _numberResultFunctions[f])) return MathResultType.Number;
         return MathResultType.SameAsArguments;
     }
 
