@@ -1143,10 +1143,8 @@ public static class FlexLayout
                 var explicitWidth = BlockLayout.ResolveOptionalLength(childStyle.Width, 0, fontSize);
                 if (explicitWidth.HasValue)
                     childWidth = explicitWidth.Value;
-                else if (childElem.TagName == "img")
-                    childWidth = BlockLayout.ResolveReplacedElementWidth(childStyle, childElem, fontSize, BlockLayout.DefaultImageWidthPx);
-                else if (childElem.TagName == "svg")
-                    childWidth = BlockLayout.ResolveReplacedElementWidth(childStyle, childElem, fontSize, BlockLayout.DefaultSvgWidthPx);
+                else if (childElem.TagName == "img" || childElem.TagName == "svg")
+                    childWidth = BlockLayout.ResolveReplacedElementWidth(childStyle, childElem, fontSize);
                 else
                 {
                     float childFontSize = BlockLayout.ResolveFontSize(childStyle.FontSize, fontSize);

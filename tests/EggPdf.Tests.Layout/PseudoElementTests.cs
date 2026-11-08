@@ -454,4 +454,14 @@ public class PseudoElementTests
 
         root.FindById("h")!.Children.Should().Contain(c => c.Text == null && c.Width > 39.5f && c.Width < 40.5f);
     }
+
+    [Theory]
+    [InlineData("p::before{content:'Hidden';display:none}")]
+    [InlineData("p::after{content:'Hidden';display:none}")]
+    public void PseudoElement_DisplayNone_IsNotRendered(string css)
+    {
+        var root = LayoutWithStyle(css, "<p id='p'>Visible</p>");
+
+        root.FindById("p")!.FindAll(b => b.Text != null && b.Text.Contains("Hidden")).Should().BeEmpty();
+    }
 }

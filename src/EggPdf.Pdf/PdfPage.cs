@@ -434,16 +434,45 @@ public partial class PdfPage
 
     /// <summary>Add an image at a position with specified dimensions (PDF coordinates).</summary>
     public void AddImage(string imageName, float x, float y, float width, float height)
+        => AddImage(imageName, x, y, width, height, 1);
+
+    /// <summary>
+    /// Draw a registered image into the box (<paramref name="x"/>, <paramref name="y"/>,
+    /// <paramref name="width"/>, <paramref name="height"/>) in PDF points, rotated and mirrored as the
+    /// EXIF <paramref name="exifOrientation"/> (1-8) says so the stored pixels show upright. Values
+    /// outside 1-8 draw the image as stored.
+    /// </summary>
+    public void AddImage(string imageName, float x, float y, float width, float height, int exifOrientation)
     {
-        if (_usedImageSet.Add(imageName)) // O(1) de-dup; list keeps insertion order
+        if (_usedImageSet.Add(imageName))
             UsedImages.Add(imageName);
 
-        // Save graphics state, apply transformation matrix, draw image, restore
         ContentStream.AppendOpLine("q");
-        ContentStream.AppendOpLine($"{F(width)} 0 0 {F(height)} {F(x)} {F(y)} cm");
+        if (exifOrientation >= 2 && exifOrientation <= 8)
+        {
+            var (a, b, c, d, e, f) = OrientationMatrix(exifOrientation, x, y, width, height);
+            ContentStream.AppendOpLine($"{F(a)} {F(b)} {F(c)} {F(d)} {F(e)} {F(f)} cm");
+        }
+        else
+        {
+            ContentStream.AppendOpLine($"{F(width)} 0 0 {F(height)} {F(x)} {F(y)} cm");
+        }
         ContentStream.AppendOpLine($"/{imageName} Do");
         ContentStream.AppendOpLine("Q");
     }
+
+    private static (float A, float B, float C, float D, float E, float F) OrientationMatrix(
+        int exifOrientation, float x, float y, float width, float height) => exifOrientation switch
+    {
+        2 => (-width, 0f, 0f, height, x + width, y),
+        3 => (-width, 0f, 0f, -height, x + width, y + height),
+        4 => (width, 0f, 0f, -height, x, y + height),
+        5 => (0f, -height, -width, 0f, x + width, y + height),
+        6 => (0f, -height, width, 0f, x, y + height),
+        7 => (0f, height, width, 0f, x, y),
+        8 => (0f, height, -width, 0f, x + width, y),
+        _ => (width, 0f, 0f, height, x, y),
+    };
 
     /// <summary>
     /// Mark an image resource name as used on this page without emitting new content --

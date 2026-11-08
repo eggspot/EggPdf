@@ -133,8 +133,9 @@ public static partial class GridLayout
         }
 
         // Resolve track sizes
-        float[] columnSizes = ResolveTrackSizes(columnTracks, container.ContentWidth, columnGap, fontSize);
-        float[] rowSizes = ResolveTrackSizes(rowTracks, 0, rowGap, fontSize); // rows don't have a fixed containing size initially
+        float[] columnSizes = ResolveTrackSizes(columnTracks, container.ContentWidth, columnGap, fontSize,
+            AutoColumnContentWidths(columnTracks, items, resolver, fontSize));
+        float[] rowSizes = ResolveTrackSizes(rowTracks, 0, rowGap, fontSize, null);
 
         // Create child boxes and measure for auto rows
         for (int i = 0; i < items.Count; i++)
@@ -228,10 +229,12 @@ public static partial class GridLayout
                 childBox = BlockLayout.CreateBox(item.Element, item.Style, container, itemWidth, resolver, style);
             }
 
-            // Override width to match grid cell
-            childBox.Width = itemWidth;
-            childBox.ContentWidth = itemWidth - childBox.PaddingLeft - childBox.PaddingRight;
-            if (childBox.ContentWidth < 0) childBox.ContentWidth = 0;
+            if (!IsReplacedElement(item.Element))
+            {
+                childBox.Width = itemWidth;
+                childBox.ContentWidth = itemWidth - childBox.PaddingLeft - childBox.PaddingRight;
+                if (childBox.ContentWidth < 0) childBox.ContentWidth = 0;
+            }
 
             item.Box = childBox;
 
@@ -327,12 +330,15 @@ public static partial class GridLayout
             item.Box.Y = cellY;
             if (Math.Abs(deltaX) > 0.01f)
                 FlexLayout.OffsetChildren(item.Box, deltaX, 0);
-            item.Box.Width = cellWidth;
-            item.Box.ContentWidth = cellWidth - item.Box.PaddingLeft - item.Box.PaddingRight;
-            if (item.Box.ContentWidth < 0) item.Box.ContentWidth = 0;
+            bool replaced = IsReplacedElement(item.Element);
+            if (!replaced)
+            {
+                item.Box.Width = cellWidth;
+                item.Box.ContentWidth = cellWidth - item.Box.PaddingLeft - item.Box.PaddingRight;
+                if (item.Box.ContentWidth < 0) item.Box.ContentWidth = 0;
+            }
 
-            // Stretch height to fill cell if no explicit height
-            if (string.IsNullOrEmpty(item.Style.Height) || item.Style.Height == "auto")
+            if (!replaced && (string.IsNullOrEmpty(item.Style.Height) || item.Style.Height == "auto"))
             {
                 item.Box.Height = cellHeight;
                 item.Box.ContentHeight = cellHeight - item.Box.PaddingTop - item.Box.PaddingBottom;
@@ -918,7 +924,8 @@ public static partial class GridLayout
     }
 
     /// <summary>Resolve track sizes: fixed tracks get their size, fr tracks share remaining space.</summary>
-    private static float[] ResolveTrackSizes(List<TrackDefinition> tracks, float availableSize, float gap, float fontSize)
+    private static float[] ResolveTrackSizes(List<TrackDefinition> tracks, float availableSize, float gap, float fontSize,
+        float[]? autoContentSizes)
     {
         float[] sizes = new float[tracks.Count];
         float totalGap = tracks.Count > 1 ? gap * (tracks.Count - 1) : 0;
@@ -926,7 +933,6 @@ public static partial class GridLayout
         float totalFr = 0;
         int autoCount = 0;
 
-        // First pass: resolve fixed tracks
         for (int i = 0; i < tracks.Count; i++)
         {
             switch (tracks[i].Type)
@@ -940,6 +946,11 @@ public static partial class GridLayout
                     break;
                 case TrackType.Auto:
                     autoCount++;
+                    if (autoContentSizes != null)
+                    {
+                        sizes[i] = autoContentSizes[i];
+                        usedSpace += sizes[i];
+                    }
                     break;
             }
         }
@@ -961,20 +972,39 @@ public static partial class GridLayout
             remainingSpace = 0; // all space consumed
         }
 
-        // Third pass: auto tracks get equal share of what's left (or a minimum)
         if (autoCount > 0)
         {
-            float autoSize = remainingSpace > 0 ? remainingSpace / autoCount : 0;
+            float autoShare = remainingSpace > 0 ? remainingSpace / autoCount : 0;
             for (int i = 0; i < tracks.Count; i++)
             {
                 if (tracks[i].Type == TrackType.Auto)
-                {
-                    sizes[i] = autoSize;
-                }
+                    sizes[i] += autoShare;
             }
         }
 
         return sizes;
+    }
+
+    private static bool IsReplacedElement(HtmlElement? element) =>
+        element != null && (element.TagName == "img" || element.TagName == "svg");
+
+    private static float[]? AutoColumnContentWidths(List<TrackDefinition> tracks, List<GridItem> items,
+        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, float fontSize)
+    {
+        float[]? widths = null;
+        for (int i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
+            if (item.ColumnSpan != 1 || item.ColumnStart >= tracks.Count || tracks[item.ColumnStart].Type != TrackType.Auto)
+                continue;
+
+            float itemFontSize = BlockLayout.ResolveFontSize(item.Style.FontSize, fontSize);
+            float contentWidth = BlockLayout.ResolveOptionalLength(item.Style.Width, 0, itemFontSize)
+                ?? FlexLayout.MeasureMaxContentWidth(item.Element, item.Style, resolver, itemFontSize);
+            widths ??= new float[tracks.Count];
+            if (contentWidth > widths[item.ColumnStart]) widths[item.ColumnStart] = contentWidth;
+        }
+        return widths;
     }
 
     private enum TrackType

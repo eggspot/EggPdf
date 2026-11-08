@@ -201,7 +201,9 @@ public static partial class BlockLayout
             return box;
         }
 
-        // Flex layout: delegate to FlexLayout when display is flex
+        if (element.TagName == "img" || element.TagName == "svg")
+            return SizeReplacedElementBox(box, element, style, containingWidth, fontSize);
+
         if (style.Display == "flex")
         {
             return LayoutFlexContainer(box, element, style, parent, containingWidth, resolver, parentStyle,
@@ -289,7 +291,13 @@ public static partial class BlockLayout
 
         bool? childrenFlowInline = null;
         var afterPseudoStyle = ResolvePseudoElementStyle(element, "after", style);
+        if (afterPseudoStyle?.Display == "none") afterPseudoStyle = null;
         bool hasBefore = TryResolvePseudoContent(element, "before", style, out var beforeStyle, out var beforeContent);
+        if (beforeStyle?.Display == "none")
+        {
+            hasBefore = false;
+            beforeStyle = null;
+        }
         bool pseudoElementsCanFlowInline = false;
         if ((hasBefore && GeneratesInlineBox(beforeStyle)) || GeneratesInlineBox(afterPseudoStyle))
         {
@@ -654,9 +662,10 @@ public static partial class BlockLayout
                 }
                 else if (childElem.TagName == "img")
                 {
-                    // Image element: use width/height attributes or CSS
-                    float imgWidth = ResolveImgDimension(childStyle.Width, childElem.GetAttribute("width"), childContainingWidth, fontSize, 150);
-                    float imgHeight = ResolveImgDimension(childStyle.Height, childElem.GetAttribute("height"), 0, fontSize, 150);
+                    string? imgSrc = ResolveSrcset(childElem.GetAttribute("srcset"),
+                            ExplicitImageWidth(childStyle, childElem, childContainingWidth, fontSize) ?? DefaultImageWidthPx)
+                        ?? childElem.GetAttribute("src");
+                    var (imgWidth, imgHeight) = ResolveImageBoxSize(childStyle, childElem, imgSrc, childContainingWidth, fontSize);
 
                     // A floated <img> leaves normal flow: pinned to the container edge, registered so
                     // following text wraps around it (also around its shape-outside)
@@ -670,8 +679,7 @@ public static partial class BlockLayout
                             inlineX = 0;
                             inlineLineHeight = 0;
                         }
-                        AddFloatedImage(box, childElem, childStyle, imgFloatSide, imgWidth, imgHeight,
-                            ResolveSrcset(childElem.GetAttribute("srcset"), imgWidth) ?? childElem.GetAttribute("src"),
+                        AddFloatedImage(box, childElem, childStyle, imgFloatSide, imgWidth, imgHeight, imgSrc,
                             childContainingWidth, fontSize, floatCtx, floatOriginY, ref childY,
                             ref leftFloatBottom, ref rightFloatBottom);
                         lastWasTextNode = false;
@@ -689,10 +697,6 @@ public static partial class BlockLayout
                         inlineX = 0;
                         inlineLineHeight = 0;
                     }
-
-                    // srcset: pick best URL (prefer 1x descriptor or smallest width; fallback to src)
-                    string? imgSrc = ResolveSrcset(childElem.GetAttribute("srcset"), imgWidth)
-                        ?? childElem.GetAttribute("src");
 
                     var childBox = new LayoutBox
                     {
@@ -731,8 +735,7 @@ public static partial class BlockLayout
                     if (picSrc != null && picElem != null)
                     {
                         var picStyle = resolver != null ? resolver(picElem, childStyle) : childStyle;
-                        float imgWidth = ResolveImgDimension(picStyle.Width, picElem.GetAttribute("width"), childContainingWidth, fontSize, 150);
-                        float imgHeight = ResolveImgDimension(picStyle.Height, picElem.GetAttribute("height"), 0, fontSize, 150);
+                        var (imgWidth, imgHeight) = ResolveImageBoxSize(picStyle, picElem, picSrc, childContainingWidth, fontSize);
 
                         if (inlineX > 0 && inlineX + imgWidth > childContainingWidth)
                         {
@@ -767,8 +770,7 @@ public static partial class BlockLayout
                     // entry in BasicStyleResolver), and its "text content" (circle/rect/...)
                     // isn't HTML the generic inline-text path would ever find.
                     // SVG's own default viewport (no width/height given) is 300x150.
-                    float svgWidth = ResolveImgDimension(childStyle.Width, childElem.GetAttribute("width"), childContainingWidth, fontSize, 300);
-                    float svgHeight = ResolveImgDimension(childStyle.Height, childElem.GetAttribute("height"), 0, fontSize, 150);
+                    var (svgWidth, svgHeight) = ResolveSvgBoxSize(childStyle, childElem, childContainingWidth, fontSize);
 
                     bool svgIsBlock = IsBlockLevel(childStyle.Display);
 

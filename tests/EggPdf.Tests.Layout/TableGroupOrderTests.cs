@@ -27,6 +27,15 @@ public class TableGroupOrderTests
     }
 
     [Fact]
+    public void TfootBeforeTbody_ColumnWidthsComeFromTheFirstRenderedRow()
+    {
+        var root = Layout("<table style='table-layout:fixed;width:400px;border-spacing:0'><tfoot><tr><td style='width:300px'>T</td><td>U</td></tr></tfoot>" +
+                          "<tbody><tr><td id='b' style='width:120px'>A</td><td>B</td></tr></tbody></table>");
+
+        root.FindById("b")!.Width.Should().BeApproximately(120, 1f);
+    }
+
+    [Fact]
     public void GroupsInSourceOrder_KeepTheirOrder()
     {
         var root = Layout("<table><thead><tr><th id='h'>H</th></tr></thead><tbody><tr><td id='b'>B</td></tr></tbody><tfoot><tr><td id='f'>F</td></tr></tfoot></table>");
