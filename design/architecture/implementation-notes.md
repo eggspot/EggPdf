@@ -103,6 +103,35 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
   single-column cells; the remaining columns share the leftover width equally. Auto-layout widths
   are cached per table element for the whole layout run.
 
+## EggPdf/PdfRenderer.cs
+
+- Paint order is the z-index-sorted box list, not a tree walk, so a box's clipping ancestors
+  (`overflow: hidden | clip`, `contain: paint | strict`) are found through an ancestor map built
+  from the real tree. The map is only built when the tree has such a clip at all. Each ancestor's
+  clip is placed with the same page-Y shift and clamping as any painted box.
+- Fixed-position boxes and `@page` margin boxes are page-local, so they are kept out of the Y-band
+  pagination and painted once per page (with `counter(page)` / `counter(pages)` substituted).
+- The page band height subtracts the top and bottom `@page` margins separately: asymmetric
+  margins are common.
+- The body's bottom margin is a snap zone: content does not start inside it at a page bottom (it
+  is ignored when larger than half the band).
+- A forced break bounds a page's band: a section between forced breaks can be taller than a page
+  (a long table), and treating it as one page painted its overflow below the physical page, where
+  no viewer shows it.
+- `pageCapacityBottom` is where a page's content area really ends (a forced break, a full band or a
+  smart break), while the last page's bound is clamped to where the content stops.
+- Smart breaks move the page bottom up to the top of: an unsplittable box that would straddle it or
+  start inside the body's bottom-margin zone; a `<thead>` whose first body row would be cut off;
+  a `break-inside: avoid` box that would be split; and a text block with too few orphan lines (or
+  to the line that leaves enough widows).
+- `-eggpdf-pin-bottom: page` moves the marked box and everything after it on that page down to the
+  page's content bottom, when the marked box fits on one page. It is a paint-time offset: the tree's
+  Y values never change, so pagination is unaffected.
+- A `<thead>` is repainted at the top of every page its table's body continues onto; every other
+  box on such a page shifts down by the header's height (added to any pin-bottom shift).
+- Every page first gets a white canvas: viewers otherwise show the transparent page off-white,
+  unlike the browser's white canvas.
+
 ## EggPdf.Fragmentation/PageFragmenter.cs
 
 - A box with an `id` is collected as paintable even when it draws nothing: it is an internal-link
