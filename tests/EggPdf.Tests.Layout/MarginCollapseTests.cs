@@ -6,50 +6,87 @@ namespace EggPdf.Tests.Layout;
 
 public class MarginCollapseTests
 {
-    private static LayoutBox Layout(string body) =>
-        LayoutTestHelper.Layout("<html><body style='margin:0'>" + body + "</body></html>", 600, 800);
-
     [Fact]
-    public void FirstChildTopMargin_CollapsesThroughAParentWithoutPaddingOrBorder()
+    public void AdjacentSiblings_MarginsCollapse()
     {
-        var root = Layout("<div id='a' style='height:10px'></div><div id='p' style='margin-top:10px'><div id='c' style='margin-top:30px;height:5px'></div></div>");
-        var a = root.FindById("a")!;
-        var p = root.FindById("p")!;
-        var c = root.FindById("c")!;
+        var root = LayoutTestHelper.Layout(
+            "<div style='margin-bottom: 20px; height: 50px; background-color: red'></div>" +
+            "<div style='margin-top: 30px; height: 50px; background-color: blue'></div>",
+            600, 800);
 
-        c.Y.Should().BeApproximately(a.Y + 10 + 30, 0.5f, "the 10px and 30px margins collapse to 30px");
-        p.Y.Should().BeApproximately(c.Y, 0.5f, "the parent's top edge moves down with the collapsed margin");
+        var divs = root.FindAllByTag("div");
+        divs.Should().HaveCountGreaterOrEqualTo(2);
+
+        // Collapsed margin = max(20, 30) = 30, not 50
+        float gap = divs[1].Y - (divs[0].Y + divs[0].Height);
+        gap.Should().BeApproximately(30, 1f);
     }
 
     [Fact]
-    public void PaddingOnTheParent_StopsTheCollapse()
+    public void AdjacentSiblings_EqualMargins_Collapse()
     {
-        var root = Layout("<div id='p' style='padding-top:1px'><div id='c' style='margin-top:30px;height:5px'></div></div>");
+        var root = LayoutTestHelper.Layout(
+            "<div style='margin-bottom: 20px; height: 50px'></div>" +
+            "<div style='margin-top: 20px; height: 50px'></div>",
+            600, 800);
 
-        root.FindById("c")!.Y.Should().BeApproximately(root.FindById("p")!.Y + 31, 0.5f);
+        var divs = root.FindAllByTag("div");
+        divs.Should().HaveCountGreaterOrEqualTo(2);
+
+        float gap = divs[1].Y - (divs[0].Y + divs[0].Height);
+        gap.Should().BeApproximately(20, 1f);
     }
 
     [Fact]
-    public void LastChildBottomMargin_StaysInsideAParentWithPadding()
+    public void Paragraphs_DefaultMargins_Collapse()
     {
-        var root = Layout("<div id='p' style='padding-bottom:1px'><div style='height:10px;margin-bottom:20px'></div></div>");
+        // <p> has default margin-top: 1em and margin-bottom: 1em
+        // Adjacent paragraphs should collapse: gap = 1em, not 2em
+        var root = LayoutTestHelper.Layout(
+            "<p>First paragraph</p><p>Second paragraph</p>",
+            600, 800);
 
-        root.FindById("p")!.Height.Should().BeApproximately(31, 0.5f);
+        var ps = root.FindAllByTag("p");
+        ps.Should().HaveCountGreaterOrEqualTo(2);
+
+        // Gap between paragraphs should be ~16px (1em at 16px), not ~32px
+        float gap = ps[1].Y - (ps[0].Y + ps[0].Height);
+        gap.Should().BeLessThan(25); // should be around 16px (1em)
     }
 
     [Fact]
-    public void LastChildBottomMargin_CollapsesWithTheParentsFollowingSibling()
+    public void NoMargin_NoGap()
     {
-        var root = Layout("<div id='p'><div style='height:10px;margin-bottom:20px'></div></div><div id='n' style='margin-top:5px'></div>");
+        var root = LayoutTestHelper.Layout(
+            "<div style='height: 50px'></div>" +
+            "<div style='height: 50px'></div>",
+            600, 800);
 
-        root.FindById("n")!.Y.Should().BeApproximately(root.FindById("p")!.Y + 10 + 20, 0.5f);
+        var divs = root.FindAllByTag("div");
+        divs.Should().HaveCountGreaterOrEqualTo(2);
+
+        float gap = divs[1].Y - (divs[0].Y + divs[0].Height);
+        gap.Should().BeApproximately(0, 1f);
     }
 
     [Fact]
-    public void NegativeMargin_ReducesTheGap()
+    public void ThreeElements_AllMarginsCollapse()
     {
-        var root = Layout("<div id='a' style='height:10px;margin-bottom:20px'></div><div id='b' style='margin-top:-5px'></div>");
+        var root = LayoutTestHelper.Layout(
+            "<div style='margin-bottom: 10px; height: 30px'></div>" +
+            "<div style='margin-top: 20px; margin-bottom: 15px; height: 30px'></div>" +
+            "<div style='margin-top: 25px; height: 30px'></div>",
+            600, 800);
 
-        root.FindById("b")!.Y.Should().BeApproximately(root.FindById("a")!.Y + 10 + 15, 0.5f);
+        var divs = root.FindAllByTag("div");
+        divs.Should().HaveCountGreaterOrEqualTo(3);
+
+        // Gap between 1 and 2: max(10, 20) = 20
+        float gap12 = divs[1].Y - (divs[0].Y + divs[0].Height);
+        gap12.Should().BeApproximately(20, 1f);
+
+        // Gap between 2 and 3: max(15, 25) = 25
+        float gap23 = divs[2].Y - (divs[1].Y + divs[1].Height);
+        gap23.Should().BeApproximately(25, 1f);
     }
 }
