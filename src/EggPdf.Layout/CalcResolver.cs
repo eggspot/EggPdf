@@ -143,7 +143,7 @@ public static class CalcResolver
                 float rounded = strategy == "up" ? (float)Math.Ceiling(n) :
                                 strategy == "down" ? (float)Math.Floor(n) :
                                 strategy == "to-zero" ? (float)Math.Truncate(n) :
-                                (float)Math.Floor(n + 0.5f);
+                                (float)Math.Floor((double)n + 0.5);
                 return rounded * step;
             }
         }
@@ -185,7 +185,7 @@ public static class CalcResolver
         if (StartsWithIgnoreCase(value, "exp(") && value[value.Length - 1] == ')')
             return (float)Math.Exp(Resolve(value.Substring(4, value.Length - 5), containingSize, fontSize));
 
-        return ResolveTerm(value, containingSize, fontSize);
+        return EvaluateExpression(value, containingSize, fontSize);
     }
 
     private static float EvaluateExpression(string expr, float containingSize, float fontSize)
@@ -314,18 +314,60 @@ public static class CalcResolver
 
     private static bool IsAngleExpression(string expr)
     {
-        for (int i = 1; i < expr.Length; i++)
+        int i = 0;
+        while (i < expr.Length)
         {
-            if (!IsAsciiLetter(expr[i]) || !(IsAsciiDigit(expr[i - 1]) || expr[i - 1] == '.')) continue;
-            int unitEnd = i;
-            while (unitEnd < expr.Length && IsAsciiLetter(expr[unitEnd])) unitEnd++;
-            if (IsAngleUnit(expr, i, unitEnd - i)) return true;
-            i = unitEnd;
+            if (!IsAsciiLetter(expr[i]))
+            {
+                i++;
+                continue;
+            }
+
+            bool isUnit = i > 0 && (IsAsciiDigit(expr[i - 1]) || expr[i - 1] == '.');
+            int start = i;
+            if (isUnit)
+            {
+                while (i < expr.Length && IsAsciiLetter(expr[i])) i++;
+                if (IsAngleUnit(expr, start, i - start)) return true;
+                continue;
+            }
+
+            while (i < expr.Length && (IsAsciiLetter(expr[i]) || IsAsciiDigit(expr[i]) || expr[i] == '-')) i++;
+            if (i >= expr.Length || expr[i] != '(') continue;
+
+            var resultType = MathFunctionResultType(expr, start, i - start);
+            if (resultType == MathResultType.Angle) return true;
+            if (resultType == MathResultType.Number)
+            {
+                int close = FindFunctionEnd(expr, start);
+                i = close < 0 ? expr.Length : close + 1;
+            }
         }
-        return expr.IndexOf("asin(", StringComparison.OrdinalIgnoreCase) >= 0 ||
-               expr.IndexOf("acos(", StringComparison.OrdinalIgnoreCase) >= 0 ||
-               expr.IndexOf("atan", StringComparison.OrdinalIgnoreCase) >= 0;
+        return false;
     }
+
+    private enum MathResultType
+    {
+        SameAsArguments,
+        Number,
+        Angle,
+    }
+
+    private static readonly string[] NumberResultFunctions = { "sin", "cos", "tan", "sqrt", "pow", "log", "exp", "sign" };
+
+    private static readonly string[] AngleResultFunctions = { "asin", "acos", "atan", "atan2" };
+
+    private static MathResultType MathFunctionResultType(string expr, int start, int length)
+    {
+        for (int f = 0; f < AngleResultFunctions.Length; f++)
+            if (NameEquals(expr, start, length, AngleResultFunctions[f])) return MathResultType.Angle;
+        for (int f = 0; f < NumberResultFunctions.Length; f++)
+            if (NameEquals(expr, start, length, NumberResultFunctions[f])) return MathResultType.Number;
+        return MathResultType.SameAsArguments;
+    }
+
+    private static bool NameEquals(string expr, int start, int length, string name) =>
+        length == name.Length && string.Compare(expr, start, name, 0, length, StringComparison.OrdinalIgnoreCase) == 0;
 
     private static bool IsAngleUnit(string expr, int start, int length) =>
         (length == 3 && (string.Compare(expr, start, "deg", 0, 3, StringComparison.OrdinalIgnoreCase) == 0 ||
