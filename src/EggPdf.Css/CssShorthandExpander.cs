@@ -340,67 +340,99 @@ public static class CssShorthandExpander
         return part;
     }
 
-    /// <summary>
-    /// Expand font shorthand: "bold 14px/1.5 Arial, sans-serif"
-    /// Format: [style] [variant] [weight] [stretch] size[/line-height] family
-    /// </summary>
+    private static readonly string[] FontShorthandLonghands =
+    {
+        "font-style", "font-variant", "font-weight", "font-stretch", "font-size", "line-height", "font-family"
+    };
+
+    private static readonly string[] FontStretchKeywords =
+    {
+        "ultra-condensed", "extra-condensed", "condensed", "semi-condensed",
+        "semi-expanded", "expanded", "extra-expanded", "ultra-expanded"
+    };
+
     private static void ExpandFontShorthand(string value, ComputedStyle style)
     {
-        var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0) return;
-
-        int i = 0;
-
-        // Parse optional style, variant, weight (before size)
-        while (i < parts.Length)
+        var trimmed = value.Trim();
+        if (IsCssWideKeyword(trimmed))
         {
-            var part = parts[i].ToLowerInvariant();
-            if (part == "italic" || part == "oblique")
-            {
-                style.Set("font-style", part);
-                i++;
-            }
-            else if (part == "small-caps")
-            {
-                style.Set("font-variant", part);
-                i++;
-            }
-            else if (part == "bold" || part == "bolder" || part == "lighter" || part == "normal" ||
-                     (part.Length <= 3 && int.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out int w) && w >= 100 && w <= 900))
-            {
-                style.Set("font-weight", part);
-                i++;
-            }
-            else
-            {
-                break; // must be size
-            }
+            foreach (var longhand in FontShorthandLonghands)
+                style.Set(longhand, trimmed.ToLowerInvariant());
+            return;
         }
 
-        // Parse size (required) and optional /line-height
-        if (i < parts.Length)
+        var parts = trimmed.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+        string fontStyle = "normal", fontVariant = "normal", fontWeight = "normal", fontStretch = "normal";
+        string lineHeight = "normal";
+        int i = 0;
+        while (i < parts.Length && TryReadFontPrefixKeyword(parts[i].ToLowerInvariant(),
+                   ref fontStyle, ref fontVariant, ref fontWeight, ref fontStretch))
         {
-            var sizePart = parts[i];
-            int slashIdx = sizePart.IndexOf('/');
-            if (slashIdx >= 0)
-            {
-                style.Set("font-size", sizePart.Substring(0, slashIdx));
-                style.Set("line-height", sizePart.Substring(slashIdx + 1));
-            }
-            else
-            {
-                style.Set("font-size", sizePart);
-            }
+            i++;
+            if (fontStyle == "oblique" && i < parts.Length && IsAngle(parts[i]))
+                fontStyle = "oblique " + parts[i++];
+        }
+
+        if (i >= parts.Length) return;
+        var sizePart = parts[i++];
+        string fontSize = sizePart;
+        int slash = sizePart.IndexOf('/');
+        if (slash >= 0)
+        {
+            fontSize = sizePart.Substring(0, slash);
+            var afterSlash = sizePart.Substring(slash + 1);
+            if (afterSlash.Length > 0)
+                lineHeight = afterSlash;
+            else if (i < parts.Length)
+                lineHeight = parts[i++];
+        }
+        else if (i < parts.Length && parts[i].StartsWith("/", StringComparison.Ordinal))
+        {
+            lineHeight = parts[i].Length > 1 ? parts[i].Substring(1) : (i + 1 < parts.Length ? parts[++i] : "");
             i++;
         }
 
-        // Remaining parts are font-family (may contain commas)
-        if (i < parts.Length)
-        {
-            var family = string.Join(" ", parts, i, parts.Length - i);
-            style.Set("font-family", family.Trim().Trim(','));
-        }
+        if (fontSize.Length == 0 || lineHeight.Length == 0 || i >= parts.Length) return;
+        var family = string.Join(" ", parts, i, parts.Length - i).Trim().Trim(',');
+        if (family.Length == 0) return;
+
+        style.Set("font-style", fontStyle);
+        style.Set("font-variant", fontVariant);
+        style.Set("font-weight", fontWeight);
+        style.Set("font-stretch", fontStretch);
+        style.Set("font-size", fontSize);
+        style.Set("line-height", lineHeight);
+        style.Set("font-family", family);
     }
+
+    private static bool TryReadFontPrefixKeyword(string part, ref string fontStyle, ref string fontVariant,
+        ref string fontWeight, ref string fontStretch)
+    {
+        if (part == "normal") return true;
+        if (part == "italic" || part == "oblique") { fontStyle = part; return true; }
+        if (part == "small-caps") { fontVariant = part; return true; }
+        if (part == "bold" || part == "bolder" || part == "lighter" ||
+            (part.Length <= 4 && int.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out int weight) &&
+             weight >= 1 && weight <= 1000))
+        {
+            fontWeight = part;
+            return true;
+        }
+        if (Array.IndexOf(FontStretchKeywords, part) >= 0) { fontStretch = part; return true; }
+        return false;
+    }
+
+    private static bool IsAngle(string value) =>
+        value.EndsWith("deg", StringComparison.OrdinalIgnoreCase) ||
+        value.EndsWith("grad", StringComparison.OrdinalIgnoreCase) ||
+        value.EndsWith("rad", StringComparison.OrdinalIgnoreCase) ||
+        value.EndsWith("turn", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsCssWideKeyword(string value) =>
+        value.Equals("inherit", StringComparison.OrdinalIgnoreCase) ||
+        value.Equals("initial", StringComparison.OrdinalIgnoreCase) ||
+        value.Equals("unset", StringComparison.OrdinalIgnoreCase) ||
+        value.Equals("revert", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Expand list-style shorthand: "disc outside" -> type + position.</summary>
     private static void ExpandListStyleShorthand(string value, ComputedStyle style)
