@@ -197,7 +197,7 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 ### HTML & CSS
 - Full HTML5 parsing (WHATWG spec-compliant)
 - CSS 2.1 complete + CSS3 (Flexbox with auto margins & baseline alignment, Grid incl.
-  `grid-auto-flow: dense` and `grid-auto-rows`/`grid-auto-columns`, Multi-column)
+  `grid-auto-flow: dense`, `grid-auto-rows`/`grid-auto-columns` and content-sized `auto` tracks, Multi-column)
 - `float: left`/`right` (on blocks and `<img>`) narrows sibling inline content per line (real text
   wrap-around, not just positioning), including `shape-outside: circle()`/`ellipse()`/`polygon()`/
   `inset()` (rounded corners included) and `url()` image shapes (the image's alpha above
@@ -235,7 +235,7 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   wiring. A filtered shape, `<text>` (glyph outlines from the installed font), `<use>` or `<g>` is
   rasterized (fills incl. linear/radial gradients, strokes), filtered and re-embedded as an image,
   since PDF has no vector filter primitive. Filtered `<image>` elements and pattern paints paint unfiltered
-- Images: JPEG, PNG (incl. 1-bit QR codes and Adam7-interlaced files), GIF, BMP, WebP (lossy VP8 incl. alpha, lossless VP8L, extended VP8X containers, first frame of animations) and SVG (an `<img>` pointing at an .svg file or `data:image/svg+xml` is painted as vectors), from files, URLs or Base64 data URIs. An image that can't be decoded is left out with an `IMAGE_LOAD_FAILED` warning, never a broken PDF. SVG as a CSS `background-image` is not painted yet
+- Images: JPEG, PNG (incl. 1-bit QR codes and Adam7-interlaced files), GIF, BMP, WebP (lossy VP8 incl. alpha, lossless VP8L, extended VP8X containers, first frame of animations) and SVG (an `<img>` pointing at an .svg file or `data:image/svg+xml` is painted as vectors), from files, URLs or Base64 data URIs. An `<img>` without both a width and a height takes its natural size and aspect ratio (also within `max-width`/`max-height`), including in flex and grid layouts, and a JPEG's EXIF orientation is applied unless `image-orientation: none`. An image that can't be decoded is left out with an `IMAGE_LOAD_FAILED` warning, never a broken PDF. SVG as a CSS `background-image` is not painted yet
 - Responsive images: `<img srcset>`/`<picture>` and CSS `image-set()` resolve to their best candidate (PDF is treated as a fixed 1x print context)
 - CSS Images Level 4 `image()`: resolves `ltr`/`rtl`-tagged candidates against the element's
   computed direction and paints a trailing `<color>` fallback when no image resolves. `paint()`
@@ -328,6 +328,8 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   those listed above are not shaped
 - Browser-parity metrics: text measured with the real font, baselines like Chrome
 - Automatic hyphenation
+- Line breaks after hyphens (`enterprise-grade`, not before digits as in `2026-11-08`), at zero-width
+  spaces, and at soft hyphens (`&shy;`, shown as `-` only when the line breaks there)
 - `font-feature-settings` (e.g. `"zero" 1`, `"smcp" 1`) applies single-glyph OpenType
   features (stylistic sets, small caps, oldstyle/tabular figures) from the font's GSUB
   table -- ligature/contextual substitution is not applied

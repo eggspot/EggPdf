@@ -484,7 +484,7 @@ public static class TextMeasurer
 
                 if (!hyphenUsed)
                 {
-                    lines.Add(currentEndsAtSoftHyphen ? currentLine + LineBreakOpportunities.VisibleHyphen : currentLine);
+                    lines.Add(currentEndsAtSoftHyphen && joinNoSpace ? currentLine + LineBreakOpportunities.VisibleHyphen : currentLine);
                     currentLine = word;
                     currentLineWidth = wordWidth;
                     currentEndsAtSoftHyphen = softHyphenAfter != null && softHyphenAfter[i];

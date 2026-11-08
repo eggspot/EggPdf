@@ -33,6 +33,18 @@ public class GridAutoTrackTests
     }
 
     [Fact]
+    public void AutoColumnsWithLongText_StayInsideTheContainer()
+    {
+        const string longText = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua";
+        var root = Layout("<div style='display:grid;grid-template-columns:auto auto;width:400px'>" +
+                          "<div id='a'>" + longText + "</div><div id='b'>" + longText + "</div></div>");
+
+        var b = root.FindById("b")!;
+        (b.X + b.Width).Should().BeLessThanOrEqualTo(400.5f);
+        root.FindById("a")!.Width.Should().BeLessThanOrEqualTo(200.5f);
+    }
+
+    [Fact]
     public void AutoColumnsOnly_ShareTheFreeSpaceOnTopOfTheirContent()
     {
         var root = Layout("<div style='display:grid;grid-template-columns:auto auto;width:400px'>" +

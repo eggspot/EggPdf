@@ -123,6 +123,14 @@ public class ImageIntrinsicSizeTests
         DrawMatrix(PdfAssert.ValidPdf(pdf)).Should().StartWith("3.00 0 0 1.50");
     }
 
+    [Fact]
+    public void Jpeg_ImageOrientationNoneWithoutSize_KeepsTheStoredSize()
+    {
+        var pdf = HtmlToPdf.Render($"<img style='image-orientation:none' src='{DataUri("image/jpeg", JpegHeaderWithOrientation(4, 2, 6))}'>");
+
+        DrawMatrix(PdfAssert.ValidPdf(pdf)).Should().StartWith("3.00 0 0 1.50", "the 4x2 stored image is neither rotated nor squeezed into 2x4");
+    }
+
     [Theory]
     [InlineData(2, "-3.00 0.00 0.00 1.50")]
     [InlineData(3, "-3.00 0.00 0.00 -1.50")]

@@ -78,6 +78,15 @@ public class LineBreakOpportunityTests
     }
 
     [Fact]
+    public void SoftHyphenBeforeASpace_LineBreakingAtTheSpaceShowsNoHyphen()
+    {
+        var lines = Lines("p{width:60px}", "<p id='p'>abcdef" + SoftHyphen + " ghijklmn</p>");
+
+        lines.Count.Should().BeGreaterThan(1);
+        lines[0].Should().Be("abcdef");
+    }
+
+    [Fact]
     public void NoWrapText_DoesNotPaintSoftHyphens()
     {
         var lines = Lines("p{white-space:nowrap}", "<p id='p'>Donau" + SoftHyphen + "dampf</p>");

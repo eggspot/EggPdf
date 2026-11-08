@@ -947,15 +947,13 @@ public static partial class GridLayout
                 case TrackType.Auto:
                     autoCount++;
                     if (autoContentSizes != null)
-                    {
                         sizes[i] = autoContentSizes[i];
-                        usedSpace += sizes[i];
-                    }
                     break;
             }
         }
 
-        // Second pass: distribute remaining space to fr tracks
+        usedSpace += FitAutoTracks(tracks, sizes, availableSize - usedSpace);
+
         float remainingSpace = availableSize - usedSpace;
         if (remainingSpace < 0) remainingSpace = 0;
 
@@ -985,6 +983,19 @@ public static partial class GridLayout
         return sizes;
     }
 
+    private static float FitAutoTracks(List<TrackDefinition> tracks, float[] sizes, float spaceForAutoTracks)
+    {
+        float total = 0f;
+        for (int i = 0; i < tracks.Count; i++)
+            if (tracks[i].Type == TrackType.Auto) total += sizes[i];
+        if (total <= 0f || spaceForAutoTracks <= 0f || total <= spaceForAutoTracks) return total;
+
+        float factor = spaceForAutoTracks / total;
+        for (int i = 0; i < tracks.Count; i++)
+            if (tracks[i].Type == TrackType.Auto) sizes[i] *= factor;
+        return spaceForAutoTracks;
+    }
+
     private static bool IsReplacedElement(HtmlElement? element) =>
         element != null && (element.TagName == "img" || element.TagName == "svg");
 
@@ -999,7 +1010,9 @@ public static partial class GridLayout
                 continue;
 
             float itemFontSize = BlockLayout.ResolveFontSize(item.Style.FontSize, fontSize);
-            float contentWidth = BlockLayout.ResolveOptionalLength(item.Style.Width, 0, itemFontSize)
+            var specifiedWidth = item.Style.Width;
+            bool definiteWidth = !string.IsNullOrEmpty(specifiedWidth) && !specifiedWidth!.EndsWith("%", StringComparison.Ordinal);
+            float contentWidth = (definiteWidth ? BlockLayout.ResolveOptionalLength(specifiedWidth, 0, itemFontSize) : null)
                 ?? FlexLayout.MeasureMaxContentWidth(item.Element, item.Style, resolver, itemFontSize);
             widths ??= new float[tracks.Count];
             if (contentWidth > widths[item.ColumnStart]) widths[item.ColumnStart] = contentWidth;

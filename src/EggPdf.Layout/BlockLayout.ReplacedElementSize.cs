@@ -10,10 +10,13 @@ public static partial class BlockLayout
     private const float DefaultObjectWidthPx = 300f;
     private const float DefaultObjectHeightPx = 150f;
 
-    [ThreadStatic]
-    private static Func<string, (float Width, float Height)?>? _threadImageSizeLoader;
+    private const int FirstTransposingExifOrientation = 5;
+    private const int LastExifOrientation = 8;
 
-    internal static Func<string, (float Width, float Height)?>? ImageSizeLoader
+    [ThreadStatic]
+    private static Func<string, (float Width, float Height, int ExifOrientation)?>? _threadImageSizeLoader;
+
+    internal static Func<string, (float Width, float Height, int ExifOrientation)?>? ImageSizeLoader
     {
         get => _threadImageSizeLoader;
         set => _threadImageSizeLoader = value;
@@ -23,8 +26,14 @@ public static partial class BlockLayout
         float containingWidth, float fontSize)
     {
         var loader = _threadImageSizeLoader;
+        bool honoursOrientation = !string.Equals(style.Get("image-orientation"), "none", StringComparison.OrdinalIgnoreCase);
         Func<(float Width, float Height)?> natural = () =>
-            string.IsNullOrEmpty(source) || loader == null ? null : loader(source!);
+        {
+            if (string.IsNullOrEmpty(source) || loader == null || loader(source!) is not { } stored) return null;
+            bool transposed = honoursOrientation &&
+                              stored.ExifOrientation >= FirstTransposingExifOrientation && stored.ExifOrientation <= LastExifOrientation;
+            return transposed ? (stored.Height, stored.Width) : (stored.Width, stored.Height);
+        };
         return ResolveReplacedBoxSize(style, element, natural, containingWidth, fontSize, DefaultImageWidthPx, DefaultImageWidthPx);
     }
 
