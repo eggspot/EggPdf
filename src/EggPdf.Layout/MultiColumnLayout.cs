@@ -32,7 +32,7 @@ public static class MultiColumnLayout
         var widthStr = style.Get("column-width");
         var gapStr = style.Get("column-gap") ?? style.Get("gap");
 
-        float columnGap = 16; // default 1em
+        float columnGap = 16;
         if (!string.IsNullOrEmpty(gapStr) && gapStr != "normal")
             columnGap = BlockLayout.ResolveLength(gapStr, containerWidth, fontSize);
 
@@ -50,7 +50,6 @@ public static class MultiColumnLayout
             float cw = BlockLayout.ResolveLength(widthStr, containerWidth, fontSize);
             if (cw > 0)
             {
-                // If both count and width specified, count wins but width constrains
                 int maxCols = (int)Math.Floor((containerWidth + columnGap) / (cw + columnGap));
                 if (maxCols < 1) maxCols = 1;
                 if (columnCount == 1 || maxCols < columnCount)
@@ -60,7 +59,6 @@ public static class MultiColumnLayout
 
         if (columnCount < 1) columnCount = 1;
 
-        // Calculate actual column width
         columnWidth = (containerWidth - (columnCount - 1) * columnGap) / columnCount;
         if (columnWidth < 0) columnWidth = containerWidth;
 
@@ -123,7 +121,6 @@ public static class MultiColumnLayout
                 ContentWidth = columnWidth,
             };
 
-            // Add children to this column until it's "full"
             while (childIdx < children.Count)
             {
                 var child = children[childIdx];

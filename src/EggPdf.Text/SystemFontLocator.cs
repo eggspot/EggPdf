@@ -46,15 +46,9 @@ public static class SystemFontLocator
         return dirs.Where(Directory.Exists).ToArray();
     }
 
-    /// <summary>
-    /// Process-wide cache of discovered font files — the directory walk is
-    /// expensive (hundreds of files on Linux with Noto installed) and font
-    /// installs during the process lifetime are not a supported scenario.
-    /// </summary>
     private static string[]? _cachedFontFiles;
     private static readonly object _fontFilesLock = new object();
 
-    /// <summary>Every .ttf/.otf/.ttc under the system font directories (discovered once per process).</summary>
     internal static string[] GetAllFontFiles()
     {
         var cached = _cachedFontFiles;
@@ -73,7 +67,6 @@ public static class SystemFontLocator
                 }
                 catch
                 {
-                    // Permission denied, etc.
                 }
             }
             _cachedFontFiles = files.ToArray();
@@ -117,7 +110,6 @@ public static class SystemFontLocator
     {
         if (string.IsNullOrEmpty(familyName)) return null;
 
-        // Resolve generic families first
         var resolved = ResolveGenericFamily(familyName);
         if (resolved != familyName)
             familyName = resolved;
@@ -125,19 +117,12 @@ public static class SystemFontLocator
         return FindFontIn(GetAllFontFiles(), familyName);
     }
 
-    /// <summary>
-    /// Pick the best-matching file for a family name among <paramref name="files"/>: exact (or space-less)
-    /// file-name matches beat substring matches, unrequested Bold/Italic variants are demoted, and
-    /// shorter names win ties. Returns null when nothing matches.
-    /// </summary>
     internal static string? FindFontIn(IReadOnlyList<string> files, string familyName)
     {
         if (string.IsNullOrEmpty(familyName)) return null;
 
         var spaceless = familyName.Replace(" ", "");
 
-        // Rank matches so exact names win over substrings ("Arial.ttf" over
-        // "Arial Black.ttf") and spaceless forms match ("Segoe UI" -> segoeui.ttf).
         string? best = null;
         int bestRank = int.MaxValue;
         int bestLength = int.MaxValue;
@@ -157,8 +142,6 @@ public static class SystemFontLocator
             else
                 continue;
 
-            // Demote variant files (Bold/Italic) the query didn't ask for,
-            // so "LiberationSans" finds Regular, not Bold.
             if (name.IndexOf("bold", StringComparison.OrdinalIgnoreCase) >= 0 &&
                 familyName.IndexOf("bold", StringComparison.OrdinalIgnoreCase) < 0 &&
                 familyName.IndexOf("bd", StringComparison.OrdinalIgnoreCase) < 0)

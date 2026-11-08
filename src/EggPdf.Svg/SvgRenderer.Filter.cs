@@ -17,7 +17,6 @@ namespace EggPdf.Svg;
 /// </summary>
 public static partial class SvgRenderer
 {
-    /// <summary>Document-wide lookups gathered once per SVG: usable filters, and every element by id.</summary>
     private sealed class SvgDefs
     {
         public readonly Dictionary<string, SvgFilter> Filters = new Dictionary<string, SvgFilter>();
@@ -61,13 +60,9 @@ public static partial class SvgRenderer
     }
 
     private const int MaxFilterCanvas = 2000;
+    private const float FilterPixelsPerPoint = 2f;
+    private const float CanvasSizeRoundingSlack = 0.001f;
 
-    /// <summary>
-    /// Rasterize <paramref name="el"/> (in its own local coordinate system -- its transform and
-    /// its ancestors' are already on the content stream's CTM), filter it, and emit the result
-    /// as an image. Returns false when the element can't be rasterized, so the caller paints
-    /// it normally.
-    /// </summary>
     private static bool RenderFilteredElement(SvgElement el, StringBuilder sb, PdfDocument pdfDoc,
         List<string> usedImages, SvgFilter filter, SvgDefs defs, Matrix2D matrix)
     {
@@ -78,7 +73,6 @@ public static partial class SvgRenderer
         float scale = matrix.UniformScale;
         if (scale <= 0f) return true;
 
-        // Bounding box of the geometry (fill area, no stroke) in local units
         float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
         foreach (var shape in shapes)
             foreach (var sub in shape.Subpaths)
@@ -92,15 +86,13 @@ public static partial class SvgRenderer
         if (minX > maxX) return false;
 
         var (rx, ry, rw, rh) = filter.ResolveRegion(minX, minY, maxX - minX, maxY - minY);
-        if (rw <= 0f || rh <= 0f) return true; // an empty filter region renders nothing
+        if (rw <= 0f || rh <= 0f) return true;
 
-        // ~2 pixels per PDF point, reduced when the region would overflow the canvas cap
-        float pxPerUnit = 2f * scale;
+        float pxPerUnit = FilterPixelsPerPoint * scale;
         float largest = Math.Max(rw, rh) * pxPerUnit;
         if (largest > MaxFilterCanvas) pxPerUnit *= MaxFilterCanvas / largest;
-        // The small epsilon keeps float noise (1.2f * 20 = 24.0000005) from adding a whole extra pixel
-        int canvasW = Math.Max(1, (int)Math.Ceiling(rw * pxPerUnit - 0.001f));
-        int canvasH = Math.Max(1, (int)Math.Ceiling(rh * pxPerUnit - 0.001f));
+        int canvasW = Math.Max(1, (int)Math.Ceiling(rw * pxPerUnit - CanvasSizeRoundingSlack));
+        int canvasH = Math.Max(1, (int)Math.Ceiling(rh * pxPerUnit - CanvasSizeRoundingSlack));
 
         var source = new FilterImage(canvasW, canvasH);
         foreach (var shape in shapes)
@@ -128,7 +120,6 @@ public static partial class SvgRenderer
         pdfDoc.AddImage(PdfImage.FromRgba(imgName, canvasW, canvasH, pixels));
         usedImages.Add(imgName);
 
-        // The image's unit square has y up while local SVG space has y down: flip it back
         float drawW = canvasW / pxPerUnit, drawH = canvasH / pxPerUnit;
         sb.AppendOpLine("q");
         sb.AppendOpLine($"{F(drawW)} 0 0 {F(-drawH)} {F(rx)} {F(ry + drawH)} cm");
@@ -137,7 +128,6 @@ public static partial class SvgRenderer
         return true;
     }
 
-    /// <summary>feImage href="#id": rasterize that element in the filtered element's user space.</summary>
     private static FilterImage? RenderReferencedElement(string id, SvgDefs defs, int width, int height,
         float originX, float originY, float pxPerUnit)
     {
@@ -151,7 +141,6 @@ public static partial class SvgRenderer
         return image;
     }
 
-    /// <summary>Decode a data: URI holding a PNG, GIF, BMP or WebP into a premultiplied bitmap; null for anything else.</summary>
     private static FilterImage? LoadFilterBitmap(string href)
     {
         int comma = href.IndexOf(',');
@@ -175,7 +164,7 @@ public static partial class SvgRenderer
         else if (bytes.Length > 6 && bytes[0] == 'G' && bytes[1] == 'I') decoded = PdfImage.FromGif("fe", bytes);
         else if (bytes.Length > 2 && bytes[0] == 'B' && bytes[1] == 'M') decoded = PdfImage.FromBmp("fe", bytes);
         else if (bytes.Length > 12 && bytes[0] == 'R' && bytes[1] == 'I') decoded = PdfImage.FromWebP("fe", bytes);
-        if (decoded == null || decoded.Format != PdfImageFormat.Raw) return null; // JPEG stays DCT-compressed here
+        if (decoded == null || decoded.Format != PdfImageFormat.Raw) return null;
 
         var image = new FilterImage(decoded.Width, decoded.Height);
         for (int i = 0; i < decoded.Width * decoded.Height; i++)
@@ -187,7 +176,6 @@ public static partial class SvgRenderer
         return image;
     }
 
-    /// <summary>Source-over a straight-alpha raster layer, scaled by <paramref name="opacity"/>, onto a premultiplied float image.</summary>
     private static void CompositeLayer(FilterImage dst, RasterCanvas layer, float opacity)
     {
         var src = layer.Pixels;
