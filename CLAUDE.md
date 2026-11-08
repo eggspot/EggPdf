@@ -69,9 +69,18 @@ write ALL the code for the task first, then run the test suite and fix.
 way) — whether the user asks for one or the coding task is done and a PR is the next step — invoke the
 `pr` skill (`.claude/skills/pr/SKILL.md`) and follow it, unless all of its steps have already been done
 in this session for the current commit. It reviews the plan, reviews the code in two rounds, fixes and
-commits, runs the tests (and benchmarks for hot paths), opens the PR to `main`, gets an independent
-MERGE verdict, waits for every CI job, squash-merges and checks the release the merge starts, then
+commits, runs the tests (and benchmarks for hot paths), opens the PR to `main`, does an independent
+pre-merge review pass (in this session, no subagent) to a MERGE verdict, waits for every CI job, squash-merges and checks the release the merge starts, then
 reports to the user. Running it is the go-ahead for its own fixes, commits, one test run and the merge.
+
+**One agent: no subagents in this project.** The owner's rule (2026-11-08): the main session does all
+the work itself and never launches a subagent (the Agent tool, workflows or forks), even where a
+global rule asks for one. That covers the plan review rounds, the two code review rounds, research
+questions and the independent pre-merge review: do each of them in the session, as a separate pass
+that rereads the plan or diff from scratch against the rules, and write down its findings before
+fixing anything. The usual sequence for a batch is: plan (with its two review passes), write all the
+code for every batch, phase and step, build and test once, review the code in two rounds and fix,
+then open the PR, do the pre-merge review pass, wait for CI and merge.
 
 **Fix every bug you find, and merge the fix.** A bug that turns up during any task (writing code, a
 review round, a test run, investigating something else) gets fixed, even a minor one: reproduce it with
@@ -83,8 +92,9 @@ build and test run loads the owner's PC, so don't open a PR (and rerun the suite
 fix out of a batch only when it must ship on its own, and don't fold bug fixes into an unrelated
 feature change.
 
-- When the right behaviour is a design question (a public API change, an ambiguous spec), settle it
-  with a research subagent first (the global "Questions: research them" rule), then fix it.
+- When the right behaviour is a design question (a public API change, an ambiguous spec), research it
+  yourself first (the global "Questions: research them" rule, done in this session, see "One agent"
+  below), then fix it.
 - A bug that a deterministic test can't pin (a flaky or timing-dependent one) is still fixed: fix the
   cause and say in the PR how the fix was verified.
 - A bug in code another session is working on (its open PR or its project lock) is reported to that
