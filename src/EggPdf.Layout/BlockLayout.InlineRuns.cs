@@ -55,7 +55,7 @@ public static partial class BlockLayout
             if (TryResolvePseudoContent(elem, "before", style, out var beforeStyle, out var beforeContent))
             {
                 float bfs = ResolveFontSize(beforeStyle!.FontSize, fontSize);
-                runs.Add(new InlineRun { Text = beforeContent!, Style = beforeStyle, Element = elem, FontSize = bfs, HasLeadingSpace = false });
+                runs.Add(new InlineRun { Text = beforeContent!, Style = beforeStyle, Element = elem, FontSize = bfs, HasLeadingSpace = StartsWithCollapsibleWhitespace(beforeContent!) });
             }
 
             foreach (var child in elem.ChildNodes)
@@ -65,7 +65,7 @@ public static partial class BlockLayout
             if (TryResolvePseudoContent(elem, "after", style, out var afterStyle, out var afterContent))
             {
                 float afs = ResolveFontSize(afterStyle!.FontSize, fontSize);
-                runs.Add(new InlineRun { Text = afterContent!, Style = afterStyle, Element = null, FontSize = afs, HasLeadingSpace = false });
+                runs.Add(new InlineRun { Text = afterContent!, Style = afterStyle, Element = null, FontSize = afs, HasLeadingSpace = StartsWithCollapsibleWhitespace(afterContent!) });
             }
         }
     }

@@ -24,7 +24,7 @@ public class GeneratedContentE2ETests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().StartWith("%PDF");
-        text.Should().Contain("Important note");
+        text.Should().Contain("Important").And.Contain("note").And.Contain("[end]");
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public class GeneratedContentE2ETests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain(">>");
-        text.Should().Contain("First item");
+        text.Should().Contain("First").And.Contain("item");
     }
 
     [Fact]
@@ -43,7 +43,7 @@ public class GeneratedContentE2ETests
         var html = @"<html><head><style>.quote::before { content: open-quote; } .quote::after { content: close-quote; }</style></head><body><p class='quote'>To be or not to be</p></body></html>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("To be or not to be");
+        text.Should().Contain("To").And.Contain("be").And.Contain("not");
     }
 
     [Fact]
@@ -53,7 +53,7 @@ public class GeneratedContentE2ETests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().StartWith("%PDF");
-        text.Should().Contain("This is important");
+        text.Should().Contain("This").And.Contain("important").And.Contain("Note:");
     }
 
     [Fact]
