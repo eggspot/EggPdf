@@ -271,7 +271,10 @@ public static partial class BlockLayout
         // Layout children using inline formatting context awareness
         float childY = 0;
         float childContainingWidth = isMultiColumn ? multiColWidth : box.ContentWidth;
-        float prevMarginBottom = 0; // for margin collapsing
+        float prevMarginBottom = 0;
+        float childYAfterLastBlock = float.NaN;
+        float marginCollapsedThroughTop = 0f;
+        bool collapsesWithChildren = !isMultiColumn && CollapsesMarginsWithChildren(element, style, parentStyle);
         float inlineX = 0; // current X offset within the inline line
         float inlineLineHeight = 0; // max height of current inline line
         bool lastWasTextNode = false; // track if previous child was a text node (for <br> handling)
@@ -548,7 +551,8 @@ public static partial class BlockLayout
                             float predictedFontSize = ResolveFontSize(childStyle.FontSize, fontSize);
                             predictedTopMargin = ResolveLength(childStyle.MarginTop ?? childStyle.Get("margin"),
                                 childContainingWidth, predictedFontSize);
-                            if (hasBlockChild) predictedTopMargin = Math.Max(prevMarginBottom, predictedTopMargin);
+                            if (hasBlockChild) predictedTopMargin = CollapseMargins(prevMarginBottom, predictedTopMargin);
+                            else if (childY == 0f && collapsesWithChildren && box.PaddingTop == 0f) predictedTopMargin = 0f;
                         }
                         float childFloatOriginY = floatOriginY + box.PaddingTop + childY + predictedTopMargin;
                         float childBoxContainingWidth = isFloatChild
@@ -608,10 +612,14 @@ public static partial class BlockLayout
                             // clear was already resolved above (before CreateBox recursed into
                             // this child), so childY here is already post-clear.
 
-                            // Margin collapsing between adjacent block siblings
                             float effectiveTopMargin = hasBlockChild
-                                ? Math.Max(prevMarginBottom, childBox.MarginTop)
+                                ? CollapseMargins(prevMarginBottom, childBox.MarginTop)
                                 : childBox.MarginTop;
+                            if (!hasBlockChild && childY == 0f && collapsesWithChildren && box.PaddingTop == 0f)
+                            {
+                                marginCollapsedThroughTop = childBox.MarginTop;
+                                effectiveTopMargin = 0f;
+                            }
 
                             childBox.Y = box.Y + box.PaddingTop + childY + effectiveTopMargin;
                             childBox.X = box.X + box.PaddingLeft + childBox.MarginLeft;
@@ -641,6 +649,7 @@ public static partial class BlockLayout
                             {
                                 childY += effectiveTopMargin + childBox.Height;
                                 prevMarginBottom = childBox.MarginBottom;
+                                childYAfterLastBlock = childY;
                             }
                         }
                         lastWasTextNode = false;
@@ -1495,9 +1504,20 @@ public static partial class BlockLayout
                 }
             }
 
+            if (!isMultiColumn && hasBlockChild && childY == childYAfterLastBlock && prevMarginBottom != 0f)
+            {
+                bool collapsesThroughBottom = collapsesWithChildren && box.PaddingBottom == 0f &&
+                                              string.IsNullOrEmpty(style.Get("min-height"));
+                if (collapsesThroughBottom)
+                    box.MarginBottom = CollapseMargins(box.MarginBottom, prevMarginBottom);
+                else
+                    childY += prevMarginBottom;
+            }
             box.ContentHeight = childY;
             box.Height = childY + box.PaddingTop + box.PaddingBottom;
         }
+        if (marginCollapsedThroughTop != 0f)
+            box.MarginTop = CollapseMargins(box.MarginTop, marginCollapsedThroughTop);
 
         // aspect-ratio: when height is auto (no explicit height), derive it from width and ratio
         if (!specifiedHeight.HasValue)
