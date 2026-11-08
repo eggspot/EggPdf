@@ -902,6 +902,7 @@ public static partial class BlockLayout
                         words = ExpandSpacelessWords(words, out ilNoSpace);
                     bool ilFirstWordHasLeadingSpace = StartsWithCollapsibleWhitespace(textNode.Data)
                         || prevInlineElementEndedWithSpace || prevTextEndedWithSpace;
+                    bool ilNoWrap = SuppressesLineWrap(style);
                     int ilWordIndex = -1;
                     foreach (var word in words)
                     {
@@ -911,8 +912,7 @@ public static partial class BlockLayout
                         var wordWithSpace = (inlineX > 0 && ilSpaceBefore ? " " : "") + word;
                         float wordWidth = TextMeasurer.MeasureWidth(wordWithSpace, fontSize, ilFontFamily, ilFontWeight, ilFontStyle, ilLetterSpacing);
 
-                        // Wrap to next line if word doesn't fit
-                        if (inlineX > 0 && inlineX + wordWidth > childContainingWidth)
+                        if (!ilNoWrap && inlineX > 0 && inlineX + wordWidth > childContainingWidth)
                         {
                             childY += inlineLineHeight;
                             inlineX = 0;
