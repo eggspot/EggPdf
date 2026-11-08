@@ -818,8 +818,7 @@ public static partial class HtmlToPdf
 
     private static PdfImage? DecodeImage(string source, byte[] data)
     {
-        string imgName = "Img" + source.GetHashCode().ToString("X8", CultureInfo.InvariantCulture);
-        return PdfImage.FromEncodedImage(imgName, data);
+        return PdfImage.FromEncodedImage(Paint.BoxPainter.ImageResourceName(source), data);
     }
 
     private static void SubsetAndEmbedFonts(IReadOnlyList<LayoutBox> roots, PdfDocument pdfDoc,

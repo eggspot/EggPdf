@@ -40,7 +40,7 @@ public class SvgTextTests
         commands.Should().Contain("1 0 0 -1 20.00 20.00 Tm (B) Tj");
         commands.Should().Contain("1 0 0 -1 30.00 20.00 Tm (C) Tj");
         int b = commands.IndexOf("(B) Tj", StringComparison.Ordinal);
-        commands.Substring(0, b).Should().EndWith("1.00 0.00 0.00 rg\nBT /Helvetica 16.00 Tf 1 0 0 -1 20.00 20.00 Tm ");
+        commands.Substring(0, b).Should().EndWith("1.00 0.00 0.00 rg\nBT /Std-Helvetica 16.00 Tf 1 0 0 -1 20.00 20.00 Tm ");
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public class SvgTextTests
     {
         var commands = Render("<text x='0' y='10' font-family=\"Georgia, 'Helvetica Neue', sans-serif\">X</text>");
 
-        commands.Should().Contain("/Times-Roman");
+        commands.Should().Contain("/Std-Times-Roman");
     }
 
     [Fact]
@@ -104,6 +104,8 @@ public class SvgTextTests
     {
         var pdf = EggPdf.HtmlToPdf.Render("<div style='font-size:20px'><svg width='100' height='40' viewBox='0 0 100 40'><text x='5' y='20'>Label</text></svg></div>");
 
-        PdfAssert.ValidPdf(pdf, "(Label) Tj").Should().Contain("/Helvetica 20.00 Tf");
+        var text = PdfAssert.ValidPdf(pdf, "(Label) Tj");
+        text.Should().Contain("/Std-Helvetica 20.00 Tf");
+        text.Should().Contain("/BaseFont /Helvetica ", "the resource is written as the standard Helvetica font");
     }
 }

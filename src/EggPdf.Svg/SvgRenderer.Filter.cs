@@ -124,7 +124,7 @@ public static partial class SvgRenderer
             pixels[i * 4 + 3] = (byte)Math.Round(Math.Min(1f, a) * 255f);
         }
 
-        string imgName = "SvgFx" + ((uint)(el.GetHashCode() ^ (canvasW << 16) ^ canvasH)).ToString("X8", CultureInfo.InvariantCulture);
+        string imgName = "SvgFx" + StableHash.Hex(pixels) + "x" + canvasW.ToString(CultureInfo.InvariantCulture) + "x" + canvasH.ToString(CultureInfo.InvariantCulture);
         pdfDoc.AddImage(PdfImage.FromRgba(imgName, canvasW, canvasH, pixels));
         usedImages.Add(imgName);
 

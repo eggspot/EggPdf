@@ -118,9 +118,9 @@ public class SvgPresentationTests
     {
         var result = Render("<svg viewBox='0 0 100 100'><text x='10' y='20' font-family='serif' font-weight='bold'>Hi</text></svg>");
 
-        result.Commands.Should().Contain("/Times-Bold");
+        result.Commands.Should().Contain("/Std-Times-Bold");
         result.Commands.Should().Contain("1 0 0 -1 10.00 20.00 Tm");
-        result.UsedFonts.Should().Contain("Times-Bold");
+        result.UsedFonts.Should().Contain("Std-Times-Bold");
     }
 
     [Fact]

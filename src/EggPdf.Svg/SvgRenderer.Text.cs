@@ -222,7 +222,7 @@ public static partial class SvgRenderer
 
     private static string StandardFontFor(SvgElement text)
     {
-        var font = StandardFontName(text);
+        var font = PdfPage.StandardFontResourceName(StandardFontName(text));
         if (_usedFonts != null && !_usedFonts.Contains(font)) _usedFonts.Add(font);
         return font;
     }
