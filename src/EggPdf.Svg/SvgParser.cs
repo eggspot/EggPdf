@@ -20,11 +20,9 @@ public static class SvgParser
     {
         var svg = new SvgElement { TagName = elem.TagName };
 
-        // Copy attributes
         foreach (var attr in elem.Attributes)
             svg.Attributes[attr.Key] = attr.Value;
 
-        // Convert children
         foreach (var child in elem.ChildNodes)
         {
             if (child is Html.Dom.HtmlElement childElem)
