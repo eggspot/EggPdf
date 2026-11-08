@@ -505,9 +505,9 @@ internal static partial class PngDecoder
         }
     }
 
-    private static bool UnfilterScanlines(byte[] raw, byte[] output, int height, int stride, int bytesPerPixel)
+    private static bool UnfilterScanlines(byte[] raw, byte[] output, int height, int stride, int bytesPerPixel, int sourceOffset = 0)
     {
-        int srcPos = 0;
+        int srcPos = sourceOffset;
         for (int y = 0; y < height; y++)
         {
             if (srcPos >= raw.Length)

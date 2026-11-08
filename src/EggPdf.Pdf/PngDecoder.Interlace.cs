@@ -14,25 +14,30 @@ internal static partial class PngDecoder
     private static byte[]? DeinterlaceAdam7(byte[] rawScanlines, int width, int height,
         int bitsPerPixel, int bytesPerPixel, int stride)
     {
-        var image = new byte[(long)height * stride];
-        long offset = 0;
+        long requiredBytes = 0;
         for (int pass = 0; pass < Adam7XStart.Length; pass++)
         {
-            int passWidth = (width - Adam7XStart[pass] + Adam7XStep[pass] - 1) / Adam7XStep[pass];
-            int passHeight = (height - Adam7YStart[pass] + Adam7YStep[pass] - 1) / Adam7YStep[pass];
+            int passWidth = PassWidth(pass, width);
+            int passHeight = PassHeight(pass, height);
+            if (passWidth > 0 && passHeight > 0)
+                requiredBytes += (long)passHeight * (PassStride(passWidth, bitsPerPixel) + 1);
+        }
+        if (requiredBytes > rawScanlines.Length)
+            return null;
+
+        var image = new byte[(long)height * stride];
+        int offset = 0;
+        for (int pass = 0; pass < Adam7XStart.Length; pass++)
+        {
+            int passWidth = PassWidth(pass, width);
+            int passHeight = PassHeight(pass, height);
             if (passWidth <= 0 || passHeight <= 0) continue;
 
-            int passStride = (passWidth * bitsPerPixel + 7) / 8;
-            long passBytes = (long)passHeight * (passStride + 1);
-            if (offset + passBytes > rawScanlines.Length) return null;
-
-            var passScanlines = new byte[passBytes];
-            Array.Copy(rawScanlines, offset, passScanlines, 0, passBytes);
-            offset += passBytes;
-
+            int passStride = PassStride(passWidth, bitsPerPixel);
             var passPixels = new byte[(long)passHeight * passStride];
-            if (!UnfilterScanlines(passScanlines, passPixels, passHeight, passStride, bytesPerPixel))
+            if (!UnfilterScanlines(rawScanlines, passPixels, passHeight, passStride, bytesPerPixel, offset))
                 return null;
+            offset += passHeight * (passStride + 1);
 
             for (int y = 0; y < passHeight; y++)
             {
@@ -44,6 +49,12 @@ internal static partial class PngDecoder
         }
         return image;
     }
+
+    private static int PassWidth(int pass, int width) => (width - Adam7XStart[pass] + Adam7XStep[pass] - 1) / Adam7XStep[pass];
+
+    private static int PassHeight(int pass, int height) => (height - Adam7YStart[pass] + Adam7YStep[pass] - 1) / Adam7YStep[pass];
+
+    private static int PassStride(int passWidth, int bitsPerPixel) => (passWidth * bitsPerPixel + 7) / 8;
 
     private static void CopyPixel(byte[] source, int sourceRow, int sourceX, byte[] target, int targetRow, int targetX, int bitsPerPixel)
     {

@@ -308,19 +308,21 @@ public static class CssStyleSheetParser
                     SkipWhitespace(tokens, ref pos);
                     var valueParts = new StringBuilder();
                     bool important = false;
+                    bool hasControlCharacter = false;
                     while (pos < tokens.Count &&
                            tokens[pos].Type != CssTokenType.Semicolon &&
                            tokens[pos].Type != CssTokenType.RightCurly &&
                            tokens[pos].Type != CssTokenType.AtKeyword)
                     {
                         var t = tokens[pos];
+                        hasControlCharacter |= DecodesToControlCharacter(t);
                         if (t.Type == CssTokenType.Whitespace) valueParts.Append(' ');
                         else if (t.Type == CssTokenType.Function) valueParts.Append(t.Value ?? "").Append('(');
                         else if (t.Type == CssTokenType.String) valueParts.Append(CssStringEscapes.Quote(t.Value ?? ""));
                         else valueParts.Append(t.Value ?? "");
                         pos++;
                     }
-                    var value = valueParts.ToString().Trim();
+                    var value = hasControlCharacter ? "" : valueParts.ToString().Trim();
                     if (value.EndsWith("!important", StringComparison.OrdinalIgnoreCase))
                     {
                         important = true;
@@ -424,9 +426,11 @@ public static class CssStyleSheetParser
             // Value: everything until ; or }
             var valueParts = new StringBuilder();
             bool important = false;
+            bool hasControlCharacter = false;
             while (pos < tokens.Count && tokens[pos].Type != CssTokenType.Semicolon && tokens[pos].Type != CssTokenType.RightCurly)
             {
                 var t = tokens[pos];
+                hasControlCharacter |= DecodesToControlCharacter(t);
                 if (t.Type == CssTokenType.Whitespace)
                     valueParts.Append(' ');
                 else if (t.Type == CssTokenType.Hash)
@@ -442,7 +446,7 @@ public static class CssStyleSheetParser
                 pos++;
             }
 
-            var value = valueParts.ToString().Trim();
+            var value = hasControlCharacter ? "" : valueParts.ToString().Trim();
 
             // Check !important
             if (value.EndsWith("!important", StringComparison.OrdinalIgnoreCase))
@@ -609,23 +613,8 @@ public static class CssStyleSheetParser
                 symbols.Add(CssStringEscapes.ReadQuoted(remaining, ref afterString));
                 remaining = remaining.Substring(afterString).TrimStart(',').TrimStart();
             }
-            else if (remaining[0] == '\\')
-            {
-                // Unicode escape like \1F44D
-                int end = 1;
-                while (end < remaining.Length && end < 7 &&
-                       IsHexDigit(remaining[end])) end++;
-                var hex = remaining.Substring(1, end - 1);
-                if (hex.Length > 0 && int.TryParse(hex, System.Globalization.NumberStyles.HexNumber,
-                    System.Globalization.CultureInfo.InvariantCulture, out int cp))
-                {
-                    symbols.Add(char.ConvertFromUtf32(cp));
-                }
-                remaining = remaining.Substring(end).TrimStart(',').TrimStart();
-            }
             else
             {
-                // Identifier token
                 int end = 0;
                 while (end < remaining.Length && remaining[end] != ' ' &&
                        remaining[end] != ',' && remaining[end] != '\t') end++;
@@ -634,9 +623,6 @@ public static class CssStyleSheetParser
             }
         }
     }
-
-    private static bool IsHexDigit(char c)
-        => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 
     private static string UnquoteString(string value)
     {
@@ -851,6 +837,14 @@ public static class CssStyleSheetParser
             if (tokens[pos].Type == CssTokenType.RightCurly) depth--;
             pos++;
         }
+    }
+
+    private static bool DecodesToControlCharacter(CssToken token)
+    {
+        if (token.Type == CssTokenType.String || token.Type == CssTokenType.Whitespace || token.Value == null) return false;
+        foreach (char c in token.Value)
+            if (c < ' ' || c == (char)0x7F) return true;
+        return false;
     }
 
     private static void SkipWhitespace(List<CssToken> tokens, ref int pos)

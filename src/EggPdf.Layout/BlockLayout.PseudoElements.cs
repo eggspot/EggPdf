@@ -61,11 +61,15 @@ public static partial class BlockLayout
         var display = pseudoStyle.Display;
         if (display == "none" || (display != null && IsBlockLevel(display))) return false;
 
-        var position = pseudoStyle.Get("position");
-        if (position == "absolute" || position == "fixed") return false;
+        return !IsOutOfFlow(pseudoStyle);
+    }
 
+    private static bool IsOutOfFlow(ComputedStyle pseudoStyle)
+    {
+        var position = pseudoStyle.Get("position");
+        if (position == "absolute" || position == "fixed") return true;
         var floatValue = pseudoStyle.Get("float");
-        return floatValue != "left" && floatValue != "right";
+        return floatValue == "left" || floatValue == "right";
     }
 
     private static void LayoutInlinePseudoElement(string content, ComputedStyle pseudoStyle, bool hasLeadingSpace,
@@ -133,14 +137,21 @@ public static partial class BlockLayout
             PaddingTop = paddingTop,
             PaddingBottom = paddingBottom,
         });
-        return childY + marginTop + boxHeight + marginBottom;
+        float borders = VisibleBorderWidth(pseudoStyle, "top", fontSize) + VisibleBorderWidth(pseudoStyle, "bottom", fontSize);
+        return childY + marginTop + boxHeight + borders + marginBottom;
     }
+
+    private static float VisibleBorderWidth(ComputedStyle style, string side, float fontSize) =>
+        IsVisibleBorderStyle(style.Get("border-" + side + "-style"))
+            ? ResolveLength(style.Get("border-" + side + "-width"), 0, fontSize)
+            : 0f;
 
     private static bool IsBlockLevelEmptyStringPseudoElement(ComputedStyle? pseudoStyle)
     {
         if (pseudoStyle == null) return false;
         var display = pseudoStyle.Display;
         if (display == null || !IsBlockLevel(display)) return false;
+        if (IsOutOfFlow(pseudoStyle)) return false;
         var content = pseudoStyle.Get("content")?.Trim();
         return content == "''" || content == "\"\"";
     }

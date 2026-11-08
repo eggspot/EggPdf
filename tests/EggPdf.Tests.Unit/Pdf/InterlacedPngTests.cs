@@ -116,6 +116,30 @@ public class InterlacedPngTests
     }
 
     [Fact]
+    public void Decode_Adam7HugeClaimedSizeWithTinyData_ReturnsNullWithoutAllocatingTheImage()
+    {
+        var header = new byte[13];
+        WriteInt32BE(header, 0, 20000);
+        WriteInt32BE(header, 4, 20000);
+        header[8] = 8;
+        header[9] = 2;
+        header[12] = 1;
+        using var png = new MemoryStream();
+        png.Write(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
+        WriteChunk(png, "IHDR", header);
+        WriteChunk(png, "IDAT", Zlib(new byte[64]));
+        WriteChunk(png, "IEND", Array.Empty<byte>());
+        var bytes = png.ToArray();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var decoded = PngDecoder.Decode(bytes);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        decoded.Should().BeNull();
+        allocated.Should().BeLessThan(10 * 1024 * 1024, "a 1.2 GB image buffer must not be allocated before the data is checked");
+    }
+
+    [Fact]
     public void Render_InterlacedPngImg_IsEmbeddedAndDrawn()
     {
         var png = EncodeAdam7(9, 10, 8, 2, Rgb, (_, _) => 0);

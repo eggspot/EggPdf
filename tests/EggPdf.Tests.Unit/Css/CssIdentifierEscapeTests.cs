@@ -54,6 +54,17 @@ public class CssIdentifierEscapeTests
         token.Value.Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData("p { margin-top: 5px; } p { margin-top: 1px \\9; }", "margin-top", "5px")]
+    [InlineData("p { width: 50px; } p { width: 100px\\9; }", "width", "50px")]
+    public void Declaration_IeBackslashNineHack_IsIgnoredLikeChrome(string css, string property, string expected)
+    {
+        var doc = HtmlParser.Parse("<html><body><p>t</p></body></html>");
+        var sheet = CssStyleSheetParser.Parse(css);
+
+        new CascadeResolver(new[] { sheet }).Resolve(Find(doc.Body!, "p"), null).Get(property).Should().Be(expected);
+    }
+
     [Fact]
     public void Selector_HexEscapeFollowedByDescendantCombinator_KeepsTheCombinator()
     {

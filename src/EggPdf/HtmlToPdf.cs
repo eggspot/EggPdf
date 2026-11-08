@@ -753,8 +753,8 @@ public static partial class HtmlToPdf
         return null;
     }
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (byte[] raw, PdfImage? image)>
-        DataUriImageCache = new System.Collections.Concurrent.ConcurrentDictionary<string, (byte[], PdfImage?)>(StringComparer.Ordinal);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (byte[] raw, PdfImage? image, HtmlElement? svgRoot)>
+        DataUriImageCache = new System.Collections.Concurrent.ConcurrentDictionary<string, (byte[], PdfImage?, HtmlElement?)>(StringComparer.Ordinal);
     private const int DataUriImageCacheMaxEntries = 32;
 
     internal static int ImageCacheHits;
@@ -766,40 +766,36 @@ public static partial class HtmlToPdf
             bool cacheable = box.ImageSource.StartsWith("data:", StringComparison.OrdinalIgnoreCase);
             byte[]? data;
             PdfImage? pdfImage;
-            (byte[] raw, PdfImage? image) cached = default;
+            HtmlElement? svgRoot;
+            (byte[] raw, PdfImage? image, HtmlElement? svgRoot) cached = default;
             bool fromCache = cacheable && DataUriImageCache.TryGetValue(box.ImageSource, out cached);
 
             if (fromCache)
             {
                 System.Threading.Interlocked.Increment(ref ImageCacheHits);
-                data = cached.raw;
-                pdfImage = cached.image;
+                (data, pdfImage, svgRoot) = cached;
             }
             else
             {
                 data = resources.Load(box.ImageSource, Core.Resources.ResourceType.Image);
                 pdfImage = data == null ? null : DecodeImage(box.ImageSource, data);
+                svgRoot = data != null && pdfImage == null ? SvgImages.ParseRoot(data) : null;
                 if (data != null && cacheable)
                 {
                     if (DataUriImageCache.Count >= DataUriImageCacheMaxEntries)
                         DataUriImageCache.Clear();
-                    DataUriImageCache.TryAdd(box.ImageSource, (data, pdfImage));
+                    DataUriImageCache.TryAdd(box.ImageSource, (data, pdfImage, svgRoot));
                 }
             }
 
             if (data != null)
             {
                 box.ImageData = data;
+                box.ImageSvgRoot = svgRoot;
                 if (pdfImage != null)
-                {
                     pdfDoc.AddImage(pdfImage);
-                }
-                else
-                {
-                    box.ImageSvgRoot = SvgImages.ParseRoot(data);
-                    if (box.ImageSvgRoot == null)
-                        resources.WarnImageNotDecoded(box.ImageSource);
-                }
+                else if (svgRoot == null)
+                    resources.WarnImageNotDecoded(box.ImageSource);
             }
         }
 

@@ -150,7 +150,7 @@ internal sealed class ResourceLoader
 
     internal void WarnImageNotDecoded(string url) =>
         WarnOnce(url, WarningCodes.ImageLoadFailed,
-            $"Image '{ShortenDataUri(url)}' was loaded but is not a PNG, JPEG, GIF, BMP or WebP image this renderer can decode; it is left out");
+            $"Image '{ShortenDataUri(url)}' could not be decoded as a PNG, JPEG, GIF, BMP, WebP or SVG image (unsupported format or damaged data); it is left out");
 
     private const int MaxDataUriPrefixInMessage = 48;
 
