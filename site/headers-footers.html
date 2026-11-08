@@ -72,11 +72,11 @@
       <h2 id="status">Current status</h2>
       <div class="callout callout-info">
         <p>
-          Two ways to add headers/footers: CSS fixed positioning (<code>position: fixed</code>
-          content repeats on every page) and native <code>@page</code> margin boxes (see
+          Headers and footers go in native <code>@page</code> margin boxes (see
           <a href="#page-margin-boxes">below</a>), including <code>@page :first</code>/
-          <code>:left</code>/<code>:right</code> overrides — both support page numbers via
-          <code>counter(page)</code>. Tables spanning multiple pages continue correctly, and the
+          <code>:left</code>/<code>:right</code> overrides, with page numbers via
+          <code>counter(page)</code>. CSS fixed positioning (<code>position: fixed</code>) repeats
+          content on every page inside the page area, for overlays such as a corner badge. Tables spanning multiple pages continue correctly, and the
           <code>&lt;thead&gt;</code> row repeats at the top of every continuation page automatically.
         </p>
       </div>
@@ -84,64 +84,42 @@
       <h2 id="css-fixed">CSS fixed positioning</h2>
       <p>
         Use <code>position: fixed</code> to place content at a fixed position on every rendered
-        page. Its containing block is the full physical page, so <code>top: 0</code> /
-        <code>bottom: 0</code> reach the literal page edge and can sit inside the page margin.
+        page. As in Chrome (CSS 2.1 §10.1), its containing block is the page area inside the
+        <code>@page</code> margins: <code>top: 0</code> / <code>bottom: 0</code> sit on the content
+        area's edges, and anything outside the page area is clipped. To draw in the margins, use the
+        <code>@page</code> margin boxes (<code>@top-center</code>, <code>@bottom-right</code>, ...) or the
+        fluent <code>Header()</code>/<code>Footer()</code>, which are placed against the whole sheet.
+        (Before 2.0, EggPdf placed author fixed boxes against the whole sheet.)
       </p>
       <div class="callout callout-warning">
         <span class="callout-icon">⚠️</span>
         <div>
-          Reserve room for a fixed header/footer with <code>@page margin-top</code>/
-          <code>margin-bottom</code> — <strong>not</strong> <code>body</code> margin or
-          <code>padding</code> on a content wrapper. Only <code>@page</code> margins are reapplied
-          on <em>every</em> physical page; a margin/padding on an ordinary flow element is applied
-          once to that element as a whole, so on a multi-page document your header/footer would
-          still collide with body text on every page but the one that element happens to start on.
-          If you're also bottom-pinning a signature/acceptance box (see
-          <a href="page-layout.html#pin-bottom">Page Layout</a>), size the margin to fit both it
-          and the fixed footer together.
+          A fixed box sits on top of the content flow inside the page area, so it doesn't reserve
+          any space. For a header or footer that needs its own band, use the <code>@page</code>
+          margin boxes below (sized by <code>@page margin-top</code>/<code>margin-bottom</code>) or the
+          fluent <code>Header()</code>/<code>Footer()</code>.
         </div>
       </div>
       <div class="code-block"><pre><code><span class="pun">&lt;</span><span class="typ">style</span><span class="pun">&gt;</span>
-<span class="kw">@page</span> <span class="pun">{</span>
-    <span class="kw">margin-top</span><span class="pun">:</span> <span class="str">50px</span><span class="pun">;</span>    <span class="cmt">/* leave room for header, on every page */</span>
-    <span class="kw">margin-bottom</span><span class="pun">:</span> <span class="str">40px</span><span class="pun">;</span> <span class="cmt">/* leave room for footer, on every page */</span>
-<span class="pun">}</span>
-<span class="typ">.page-header</span> <span class="pun">{</span>
+<span class="typ">.badge</span> <span class="pun">{</span>
     <span class="kw">position</span><span class="pun">:</span> <span class="str">fixed</span><span class="pun">;</span>
-    <span class="kw">top</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span> <span class="kw">left</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span> <span class="kw">right</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span>
-    <span class="kw">height</span><span class="pun">:</span> <span class="str">40px</span><span class="pun">;</span>  <span class="cmt">/* must be &lt;= @page margin-top */</span>
-    <span class="kw">font-size</span><span class="pun">:</span> <span class="str">10px</span><span class="pun">;</span>
-    <span class="kw">color</span><span class="pun">:</span> <span class="str">#666</span><span class="pun">;</span>
-    <span class="kw">border-bottom</span><span class="pun">:</span> <span class="str">1px solid #e5e7eb</span><span class="pun">;</span>
-    <span class="kw">display</span><span class="pun">:</span> <span class="str">flex</span><span class="pun">;</span>
-    <span class="kw">align-items</span><span class="pun">:</span> <span class="str">center</span><span class="pun">;</span>
-    <span class="kw">padding</span><span class="pun">:</span> <span class="str">0 20px</span><span class="pun">;</span>
-<span class="pun">}</span>
-<span class="typ">.page-footer</span> <span class="pun">{</span>
-    <span class="kw">position</span><span class="pun">:</span> <span class="str">fixed</span><span class="pun">;</span>
-    <span class="kw">bottom</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span> <span class="kw">left</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span> <span class="kw">right</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span>
-    <span class="kw">height</span><span class="pun">:</span> <span class="str">30px</span><span class="pun">;</span>  <span class="cmt">/* must be &lt;= @page margin-bottom */</span>
+    <span class="kw">top</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span> <span class="kw">right</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span>   <span class="cmt">/* top-right corner of the page area */</span>
     <span class="kw">font-size</span><span class="pun">:</span> <span class="str">9px</span><span class="pun">;</span>
-    <span class="kw">color</span><span class="pun">:</span> <span class="str">#999</span><span class="pun">;</span>
-    <span class="kw">border-top</span><span class="pun">:</span> <span class="str">1px solid #e5e7eb</span><span class="pun">;</span>
-    <span class="kw">text-align</span><span class="pun">:</span> <span class="str">center</span><span class="pun">;</span>
-    <span class="kw">line-height</span><span class="pun">:</span> <span class="str">30px</span><span class="pun">;</span>
+    <span class="kw">color</span><span class="pun">:</span> <span class="str">#b91c1c</span><span class="pun">;</span>
 <span class="pun">}</span>
-<span class="typ">body</span> <span class="pun">{</span> <span class="kw">margin</span><span class="pun">:</span> <span class="str">0</span><span class="pun">;</span> <span class="pun">}</span>
 <span class="pun">&lt;/</span><span class="typ">style</span><span class="pun">&gt;</span>
 
-<span class="pun">&lt;</span><span class="typ">div</span> <span class="kw">class</span><span class="pun">=</span><span class="str">"page-header"</span><span class="pun">&gt;</span>My Company — Confidential<span class="pun">&lt;/</span><span class="typ">div</span><span class="pun">&gt;</span>
-<span class="pun">&lt;</span><span class="typ">div</span> <span class="kw">class</span><span class="pun">=</span><span class="str">"page-footer"</span><span class="pun">&gt;</span>Document Title<span class="pun">&lt;/</span><span class="typ">div</span><span class="pun">&gt;</span></code></pre></div>
+<span class="pun">&lt;</span><span class="typ">div</span> <span class="kw">class</span><span class="pun">=</span><span class="str">"badge"</span><span class="pun">&gt;</span>CONFIDENTIAL<span class="pun">&lt;/</span><span class="typ">div</span><span class="pun">&gt;</span></code></pre></div>
 
       <h3 id="page-numbers">Page numbers with <code>counter(page)</code> (works today)</h3>
       <p>
         <code>counter(page)</code> and <code>counter(pages)</code> resolve per physical page inside a
-        <code>position: fixed</code> element's content — put them in a <code>::after</code> (or
+        <code>position: fixed</code> element's content and in margin boxes — put them in a <code>::after</code> (or
         <code>::before</code>) rule rather than as literal element text, since a real page number
         isn't known until the whole document is paginated:
       </p>
-      <div class="code-block"><pre><code><span class="typ">.page-footer</span><span class="pun">::after</span> <span class="pun">{</span>
-    <span class="kw">content</span><span class="pun">:</span> <span class="str">"Page " counter(page) " of " counter(pages)</span><span class="pun">;</span>
+      <div class="code-block"><pre><code><span class="typ">.badge</span><span class="pun">::after</span> <span class="pun">{</span>
+    <span class="kw">content</span><span class="pun">:</span> <span class="str">" · page " counter(page) " of " counter(pages)</span><span class="pun">;</span>
 <span class="pun">}</span></code></pre></div>
       <p>
         Each physical page gets its own resolved number — no manual per-page text needed.

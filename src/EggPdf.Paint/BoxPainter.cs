@@ -60,14 +60,24 @@ public static partial class BoxPainter
     public static Func<string, byte[]?>? ImageLoader;
 
     /// <summary>
-    /// Repaint every position:fixed box onto the given page, using its already page-local
-    /// Y/X directly (no page-offset adjustment — its containing block IS the page origin).
-    /// Any counter(page)/counter(pages) sentinel left in a box's text by
+    /// Repaint every position:fixed box onto the given page. A box placed against the sheet (margin boxes,
+    /// the fluent header/footer/watermark) uses its page-local X/Y directly; an author fixed box
+    /// (<see cref="LayoutBox.FixedToPageArea"/>) is offset into the page area by the page margins and clipped
+    /// to it. Any counter(page)/counter(pages) sentinel left in a box's text by
     /// <see cref="EggPdf.Layout.CssCounterContext.ResolveContent"/> is substituted with this
     /// page's real number before painting, then restored so the next page starts clean.
     /// </summary>
     public static void PaintFixedBoxes(PdfPage page, List<LayoutBox> fixedBoxes,
-        float pageHeightPt, float pageHeightPx, int pageIndex, int totalPages)
+        float pageHeightPt, float pageHeightPx, int pageIndex, int totalPages) =>
+        PaintFixedBoxes(page, fixedBoxes, pageHeightPt, pageHeightPx, pageIndex, totalPages, 0f, 0f, 0f);
+
+    /// <summary>
+    /// <see cref="PaintFixedBoxes(PdfPage, List{LayoutBox}, float, float, int, int)"/> with the page area:
+    /// its top margin and its width and height in CSS pixels, used for author fixed boxes.
+    /// </summary>
+    public static void PaintFixedBoxes(PdfPage page, List<LayoutBox> fixedBoxes,
+        float pageHeightPt, float pageHeightPx, int pageIndex, int totalPages,
+        float pageAreaTopPx, float pageAreaWidthPx, float pageAreaHeightPx)
     {
         var effectiveBoxes = SelectEffectiveMarginBoxes(fixedBoxes, pageIndex);
         for (int i = 0; i < effectiveBoxes.Count; i++)
@@ -88,17 +98,22 @@ public static partial class BoxPainter
                 textSubstituted = true;
             }
 
-            // PaintBox always adds MarginLeftPx to box.X (correct for document-flow content,
-            // whose X is measured from the content area's left edge). A fixed box's X is
-            // already measured from the full physical page's left edge (see BlockLayout's
-            // _fullPageWidthPx), so that add must be cancelled out here or "left: 0" would
-            // land marginLeftPx short of the true page edge.
-            float originalX = box.X;
-            box.X = originalX - MarginLeftPx;
-
-            PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY: box.Y);
-
-            box.X = originalX;
+            if (box.FixedToPageArea)
+            {
+                page.SaveState();
+                if (pageAreaWidthPx > 0f && pageAreaHeightPx > 0f)
+                    page.AddClipRect(MarginLeftPx * PdfCoordinates.PxToPt, (pageHeightPx - pageAreaTopPx - pageAreaHeightPx) * PdfCoordinates.PxToPt,
+                        pageAreaWidthPx * PdfCoordinates.PxToPt, pageAreaHeightPx * PdfCoordinates.PxToPt);
+                PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY: box.Y + pageAreaTopPx);
+                page.RestoreState();
+            }
+            else
+            {
+                float originalX = box.X;
+                box.X = originalX - MarginLeftPx;
+                PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY: box.Y);
+                box.X = originalX;
+            }
             if (textSubstituted)
                 box.Text = originalText;
         }

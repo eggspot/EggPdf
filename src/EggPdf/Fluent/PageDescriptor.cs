@@ -12,6 +12,8 @@ namespace EggPdf.Fluent;
 /// </summary>
 public sealed class PageDescriptor
 {
+    private const string FixedScopeSheet = "sheet";
+
     private readonly BuilderContext _ctx;
 
     internal PageSize SizeValue { get; private set; } = PageSize.A4;
@@ -66,6 +68,7 @@ public sealed class PageDescriptor
     {
         var header = _ctx.CreateElement("div");
         _ctx.SetStyle(header, CssProp.Position, PositionMode.Fixed.ToCss());
+        _ctx.SetStyle(header, CssProp.FixedScope, FixedScopeSheet);
         _ctx.SetStyle(header, CssProp.Top, Length.Zero.ToCss());
         _ctx.SetStyle(header, CssProp.Left, Length.Zero.ToCss());
         _ctx.SetStyle(header, CssProp.Right, Length.Zero.ToCss());
@@ -85,6 +88,7 @@ public sealed class PageDescriptor
     {
         var footer = _ctx.CreateElement("div");
         _ctx.SetStyle(footer, CssProp.Position, PositionMode.Fixed.ToCss());
+        _ctx.SetStyle(footer, CssProp.FixedScope, FixedScopeSheet);
         _ctx.SetStyle(footer, CssProp.Bottom, Length.Zero.ToCss());
         _ctx.SetStyle(footer, CssProp.Left, Length.Zero.ToCss());
         _ctx.SetStyle(footer, CssProp.Right, Length.Zero.ToCss());
@@ -105,6 +109,7 @@ public sealed class PageDescriptor
 
         var wm = _ctx.CreateElement("div");
         _ctx.SetStyle(wm, CssProp.Position, PositionMode.Fixed.ToCss());
+        _ctx.SetStyle(wm, CssProp.FixedScope, FixedScopeSheet);
         _ctx.SetStyle(wm, CssProp.Top, Length.Percent(50).ToCss());
         _ctx.SetStyle(wm, CssProp.Left, Length.Percent(50).ToCss());
         _ctx.SetStyle(wm, CssProp.Transform, CssTransform

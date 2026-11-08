@@ -215,14 +215,22 @@ public static class PageFragmenter
     /// block to page origin), so they must be excluded from normal document-flow pagination
     /// and repainted per page instead.
     /// </summary>
-    public static void CollectFixedPositionedBoxes(LayoutBox box, bool insideFixed, HashSet<LayoutBox> result)
+    public static void CollectFixedPositionedBoxes(LayoutBox box, bool insideFixed, HashSet<LayoutBox> result) =>
+        CollectFixedPositionedBoxes(box, insideFixed, false, result);
+
+    private static void CollectFixedPositionedBoxes(LayoutBox box, bool insideFixed, bool pageArea, HashSet<LayoutBox> result)
     {
-        bool nowInsideFixed = insideFixed || box.Style?.Get("position") == "fixed";
+        bool startsFixed = !insideFixed && box.Style?.Get("position") == "fixed";
+        if (startsFixed) pageArea = !BlockLayout.IsSheetScopedFixed(box.Style!);
+        bool nowInsideFixed = insideFixed || startsFixed;
         if (nowInsideFixed)
+        {
+            box.FixedToPageArea = pageArea;
             result.Add(box);
+        }
 
         foreach (var child in box.Children)
-            CollectFixedPositionedBoxes(child, nowInsideFixed, result);
+            CollectFixedPositionedBoxes(child, nowInsideFixed, pageArea, result);
     }
 
 

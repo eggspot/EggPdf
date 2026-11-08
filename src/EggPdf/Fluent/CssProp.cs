@@ -43,6 +43,7 @@ internal static class CssProp
     public const string Padding = "padding";
     public const string Page = "page";
     public const string PinBottom = "-eggpdf-pin-bottom";
+    public const string FixedScope = "-eggpdf-fixed-scope";
     public const string Position = "position";
     public const string Right = "right";
     public const string TextAlign = "text-align";

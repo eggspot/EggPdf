@@ -639,13 +639,8 @@ public class PageRulesE2ETests
     }
 
     [Fact]
-    public async Task PositionFixed_BottomZero_ReachesPhysicalPageBottomEdge()
+    public async Task PositionFixed_BottomZero_SitsOnThePageAreaBottomEdge()
     {
-        // position:fixed's containing block must be the full physical page, not the content
-        // area (which is already shrunk by @page margin-bottom) — otherwise "bottom: 0" lands
-        // short of the true page edge, inside the content area instead of the margin area
-        // reserved for it, and collides with ordinary flowing body text placed near the bottom
-        // of the page.
         var html = @"
             <html><head><style>
                 @page { size: 400px 800px; margin-bottom: 100px; }
@@ -661,15 +656,38 @@ public class PageRulesE2ETests
         pageContents.Count.Should().Be(1);
 
         const float expectedFooterHeightPt = 50f * 0.75f;
-        bool foundFooterAtPhysicalBottom = false;
+        const float pageAreaBottomPt = 100f * 0.75f;
+        bool foundFooterOnPageAreaBottom = false;
         foreach (Match m in Regex.Matches(pageContents[0], @"([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) re f"))
         {
             float y = float.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
             float h = float.Parse(m.Groups[4].Value, CultureInfo.InvariantCulture);
-            if (Math.Abs(y) < 0.5f && Math.Abs(h - expectedFooterHeightPt) < 0.5f)
-                foundFooterAtPhysicalBottom = true;
+            if (Math.Abs(y - pageAreaBottomPt) < 0.5f && Math.Abs(h - expectedFooterHeightPt) < 0.5f)
+                foundFooterOnPageAreaBottom = true;
         }
-        foundFooterAtPhysicalBottom.Should().BeTrue(
-            "a position:fixed footer with bottom:0 must reach the literal physical page bottom edge (y=0), not stop at the content area's own bottom edge");
+        foundFooterOnPageAreaBottom.Should().BeTrue(
+            "like Chrome, a position:fixed box's containing block is the page area inside the @page margins (CSS 2.1 §10.1)");
+    }
+
+    [Fact]
+    public async Task FluentFooter_StaysInThePageMargin()
+    {
+        var pdf = await Fluent.Document.Create(doc =>
+        {
+            var page = doc.AddPage();
+            page.Margin(Fluent.Length.Px(100));
+            page.Footer(f => f.RawStyle("height", "50px").Background(Fluent.Colors.Red));
+            page.Content(c => c.Item().Text("Hello"));
+        }).RenderAsync();
+        var pageContents = ExtractPageContentStreams(pdf);
+
+        bool footerAtSheetBottom = false;
+        foreach (Match m in Regex.Matches(pageContents[0], @"([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) re f"))
+        {
+            float y = float.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+            float h = float.Parse(m.Groups[4].Value, CultureInfo.InvariantCulture);
+            if (Math.Abs(y) < 0.5f && Math.Abs(h - 50f * 0.75f) < 0.5f) footerAtSheetBottom = true;
+        }
+        footerAtSheetBottom.Should().BeTrue("the fluent footer is drawn in the page margin, against the whole sheet");
     }
 }

@@ -148,8 +148,8 @@
         translated into an injected <code>@page</code> rule (and a &lt;title&gt;/&lt;meta
         name="author"&gt; tag for those two fields) internally, so it wins the CSS cascade over
         anything conflicting already in <code>html</code>. Running headers/footers still need
-        CSS directly in the HTML — <code>position: fixed</code> with <code>counter(page)</code>/
-        <code>counter(pages)</code> for page numbers; see
+        CSS directly in the HTML — <code>@page</code> margin boxes such as <code>@bottom-center</code>
+        with <code>counter(page)</code>/<code>counter(pages)</code> for page numbers; see
         <a href="headers-footers.html">Headers &amp; Footers</a>.
       </p>
       <h3>Example: page size, margins, and title via options</h3>
@@ -166,7 +166,7 @@
       <h3>Example: page size, margins, and a page-number footer via CSS</h3>
       <div class="code-header">JSON Request Body</div>
       <div class="code-block"><pre><code><span class="pun">{</span>
-  <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;html&gt;&lt;head&gt;&lt;style&gt;@page{size:A4;margin:60px 50px}.footer{position:fixed;bottom:0;left:0;right:0;text-align:center}.footer::after{content:'Page ' counter(page) ' of ' counter(pages)}&lt;/style&gt;&lt;/head&gt;&lt;body&gt;&lt;div class='footer'&gt;&lt;/div&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"</span>
+  <span class="str">"html"</span><span class="pun">:</span> <span class="str">"&lt;html&gt;&lt;head&gt;&lt;style&gt;@page{size:A4;margin:60px 50px;@bottom-center{content:'Page ' counter(page) ' of ' counter(pages)}}&lt;/style&gt;&lt;/head&gt;&lt;body&gt;&lt;h1&gt;Report&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"</span>
 <span class="pun">}</span></code></pre></div>
 
       <h3>Example: PDF/A conformance and a Factur-X invoice attachment (MINIMUM profile)</h3>
@@ -308,7 +308,7 @@
       <div class="code-block"><pre><code>curl -X POST http://localhost:8080/api/render \
   -H "Content-Type: application/json" \
   -d '{
-    "html": "&lt;html&gt;&lt;head&gt;&lt;style&gt;@page{size:Letter;margin:60px 50px}.footer{position:fixed;bottom:0;left:0;right:0;text-align:center}.footer::after{content:\"Page \" counter(page) \" of \" counter(pages)}&lt;/style&gt;&lt;/head&gt;&lt;body&gt;&lt;div class=\"footer\"&gt;&lt;/div&gt;&lt;h1&gt;Invoice #42&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
+    "html": "&lt;html&gt;&lt;head&gt;&lt;style&gt;@page{size:Letter;margin:60px 50px;@bottom-center{content:\"Page \" counter(page) \" of \" counter(pages)}}&lt;/style&gt;&lt;/head&gt;&lt;body&gt;&lt;h1&gt;Invoice #42&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"
   }' \
   --output invoice-42.pdf</code></pre></div>
 

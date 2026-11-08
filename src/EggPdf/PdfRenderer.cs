@@ -116,7 +116,8 @@ internal static class PdfRenderer
         {
             var blankPage = pdfDoc.AddPage(pageWidthPt, pageHeightPt);
             blankPage.AddRectangle(0, 0, pageWidthPt, pageHeightPt, 1f, 1f, 1f);
-            BoxPainter.PaintFixedBoxes(blankPage, fixedBoxes, pageHeightPt, pageHeightPx, pageIndex: pageNumberOffset + 1, totalPages: totalPagesOverride ?? 1);
+            BoxPainter.PaintFixedBoxes(blankPage, fixedBoxes, pageHeightPt, pageHeightPx, pageNumberOffset + 1, totalPagesOverride ?? 1,
+                _marginTopPx, layoutRoot.Width, pageHeightPx - _marginTopPx - _marginBottomPx);
             return;
         }
 
@@ -512,7 +513,8 @@ internal static class PdfRenderer
             }
 
             BoxPainter.PaintFixedBoxes(page, fixedBoxes, pageHeightPt, pageHeightPx,
-                pageIndex: pageNumberOffset + renderPageIndex + 1, totalPages: totalPagesOverride ?? pageBounds.Count);
+                pageNumberOffset + renderPageIndex + 1, totalPagesOverride ?? pageBounds.Count,
+                _marginTopPx, layoutRoot.Width, pageHeightPx - _marginTopPx - _marginBottomPx);
 
             renderPageIndex++;
         }

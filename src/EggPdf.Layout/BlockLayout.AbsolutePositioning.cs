@@ -63,15 +63,19 @@ public static partial class BlockLayout
             // - position:absolute -> nearest positioned ancestor (position != static) or root
             float cbX, cbY, cbWidth, cbHeight;
 
-            if (absPos == "fixed")
+            if (absPos == "fixed" && IsSheetScopedFixed(absStyle))
             {
-                // Fixed: relative to the full physical page (not the content area), so
-                // "bottom: 0" / "right: 0" can reach the literal page edge and occupy the
-                // @page margin area reserved for it, matching how print CSS is normally used.
                 cbX = 0;
                 cbY = 0;
                 cbWidth = _fullPageWidthPx > 0 ? _fullPageWidthPx : containingWidth;
                 cbHeight = _fullPageHeightPx > 0 ? _fullPageHeightPx : FindPageHeight(parent);
+            }
+            else if (absPos == "fixed")
+            {
+                cbX = 0;
+                cbY = 0;
+                cbWidth = _viewportWidth > 0 ? _viewportWidth : containingWidth;
+                cbHeight = _viewportHeight > 0 ? _viewportHeight : FindPageHeight(parent);
             }
             else
             {
@@ -161,4 +165,14 @@ public static partial class BlockLayout
         }
     }
 
+    private const string FixedScopeProperty = "-eggpdf-fixed-scope";
+    private const string FixedScopeSheet = "sheet";
+
+    /// <summary>
+    /// True when a <c>position: fixed</c> box is placed against the whole physical sheet: an <c>@page</c>
+    /// margin box, or a box marked <c>-eggpdf-fixed-scope: sheet</c> (the fluent builder's header, footer and
+    /// watermark). Every other fixed box is placed against the page area inside the <c>@page</c> margins.
+    /// </summary>
+    public static bool IsSheetScopedFixed(ComputedStyle style) =>
+        style.Get(FixedScopeProperty) == FixedScopeSheet || style.Get("-eggpdf-margin-box-position") != null;
 }
