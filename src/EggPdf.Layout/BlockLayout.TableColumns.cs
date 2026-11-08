@@ -111,53 +111,10 @@ public static partial class BlockLayout
             return fixedWidths;
         }
 
-        // Scan all rows in the table to find max content width per column
-        var maxContentWidths = new float[totalColumns];
-        var hasExplicitWidth = new bool[totalColumns];
-        var explicitWidths = new float[totalColumns];
-
-        ScanTableForColumnWidths(tableElement, totalColumns, maxContentWidths, hasExplicitWidth, explicitWidths,
-            fontSize, availableWidth, resolver, parentStyle);
-
-        // Distribute available width proportionally based on content
-        float totalContentWidth = 0;
-        float totalExplicitWidth = 0;
-        int flexColumns = 0;
-
-        for (int i = 0; i < totalColumns; i++)
-        {
-            if (hasExplicitWidth[i])
-            {
-                totalExplicitWidth += explicitWidths[i];
-            }
-            else
-            {
-                totalContentWidth += Math.Max(maxContentWidths[i], 20); // minimum 20px per column
-                flexColumns++;
-            }
-        }
-
-        float remainingWidth = availableWidth - totalExplicitWidth;
-        if (remainingWidth < 0) remainingWidth = availableWidth;
-
-        var result = new float[totalColumns];
-        for (int i = 0; i < totalColumns; i++)
-        {
-            if (hasExplicitWidth[i])
-            {
-                result[i] = explicitWidths[i];
-            }
-            else if (totalContentWidth > 0)
-            {
-                float contentW = Math.Max(maxContentWidths[i], 20);
-                result[i] = remainingWidth * contentW / totalContentWidth;
-            }
-            else
-            {
-                result[i] = remainingWidth / Math.Max(flexColumns, 1);
-            }
-        }
-
+        var measure = MeasureTableColumns(tableElement, totalColumns, availableWidth, fontSize, resolver, parentStyle);
+        var tableWidth = tableStyle.Width;
+        bool tableHasWidth = !string.IsNullOrEmpty(tableWidth) && tableWidth != "auto";
+        var result = DistributeColumnWidths(measure, availableWidth, tableHasWidth);
         _tableColumnWidthCache[tableElement] = result;
         return result;
     }
@@ -216,12 +173,13 @@ public static partial class BlockLayout
 
         if (firstRow != null)
         {
-            int colIdx = 0;
+            var grid = GridFor(tableElement);
             foreach (var cellNode in firstRow.ChildNodes)
             {
                 var cell = cellNode as HtmlElement;
                 if (cell == null || (cell.TagName != "td" && cell.TagName != "th")) continue;
-                if (colIdx >= totalColumns) break;
+                if (!grid.Cells.TryGetValue(cell, out var slot) || slot.ColSpan != 1 || slot.Column >= totalColumns) continue;
+                int colIdx = slot.Column;
                 if (!hasExplicit[colIdx])
                 {
                     var cellStyle = resolver(cell, parentStyle);
@@ -232,7 +190,6 @@ public static partial class BlockLayout
                         if (w > 0) { explicitWidths[colIdx] = w; hasExplicit[colIdx] = true; }
                     }
                 }
-                colIdx++;
             }
         }
 
@@ -256,177 +213,6 @@ public static partial class BlockLayout
         return result;
     }
 
-    private static void ScanTableForColumnWidths(HtmlElement tableElement, int totalColumns,
-        float[] maxContentWidths, bool[] hasExplicitWidth, float[] explicitWidths,
-        float fontSize, float availableWidth,
-        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
-    {
-        // Walk: table -> thead/tbody/tfoot -> tr -> td/th
-        // Also process <colgroup>/<col> elements which define explicit column widths.
-        foreach (var child in tableElement.ChildNodes)
-        {
-            var group = child as HtmlElement;
-            if (group == null) continue;
-
-            // <colgroup> may contain <col> children or carry a span attribute itself
-            if (group.TagName == "colgroup")
-            {
-                int colIdx = 0;
-                bool hasColChildren = false;
-                foreach (var colNode in group.ChildNodes)
-                {
-                    var col = colNode as HtmlElement;
-                    if (col == null || col.TagName != "col") continue;
-                    hasColChildren = true;
-
-                    int span = 1;
-                    var spanAttr = col.GetAttribute("span");
-                    if (!string.IsNullOrEmpty(spanAttr) && int.TryParse(spanAttr,
-                            System.Globalization.NumberStyles.Integer,
-                            System.Globalization.CultureInfo.InvariantCulture, out int spanVal) && spanVal > 0)
-                        span = spanVal;
-
-                    // Resolve width from style or attribute
-                    var colStyle = resolver(col, parentStyle);
-                    var widthStr = colStyle?.Width ?? col.GetAttribute("width");
-                    if (!string.IsNullOrEmpty(widthStr) && widthStr != "auto")
-                    {
-                        float? w = ResolveOptionalLength(widthStr, availableWidth, fontSize);
-                        if (w.HasValue)
-                        {
-                            for (int s = 0; s < span && colIdx + s < totalColumns; s++)
-                            {
-                                hasExplicitWidth[colIdx + s] = true;
-                                explicitWidths[colIdx + s] = w.Value;
-                            }
-                        }
-                    }
-                    colIdx += span;
-                    if (colIdx >= totalColumns) break;
-                }
-
-                // Colgroup without <col> children: apply its own width to spanned columns
-                if (!hasColChildren)
-                {
-                    int span = 1;
-                    var spanAttr = group.GetAttribute("span");
-                    if (!string.IsNullOrEmpty(spanAttr) && int.TryParse(spanAttr,
-                            System.Globalization.NumberStyles.Integer,
-                            System.Globalization.CultureInfo.InvariantCulture, out int spanVal) && spanVal > 0)
-                        span = spanVal;
-
-                    var cgStyle = resolver(group, parentStyle);
-                    var widthStr = cgStyle?.Width ?? group.GetAttribute("width");
-                    if (!string.IsNullOrEmpty(widthStr) && widthStr != "auto")
-                    {
-                        float? w = ResolveOptionalLength(widthStr, availableWidth, fontSize);
-                        if (w.HasValue)
-                        {
-                            for (int s = 0; s < span && s < totalColumns; s++)
-                            {
-                                if (!hasExplicitWidth[s])
-                                {
-                                    hasExplicitWidth[s] = true;
-                                    explicitWidths[s] = w.Value;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // Direct <tr> children of <table>
-            else if (group.TagName == "tr")
-            {
-                ScanRowForColumnWidths(group, totalColumns, maxContentWidths, hasExplicitWidth, explicitWidths,
-                    fontSize, availableWidth, resolver, parentStyle);
-            }
-            // <thead>, <tbody>, <tfoot> contain <tr>
-            else if (group.TagName == "thead" || group.TagName == "tbody" || group.TagName == "tfoot")
-            {
-                foreach (var trNode in group.ChildNodes)
-                {
-                    var tr = trNode as HtmlElement;
-                    if (tr != null && tr.TagName == "tr")
-                    {
-                        ScanRowForColumnWidths(tr, totalColumns, maxContentWidths, hasExplicitWidth, explicitWidths,
-                            fontSize, availableWidth, resolver, parentStyle);
-                    }
-                }
-            }
-        }
-    }
-
-    private static void ScanRowForColumnWidths(HtmlElement row, int totalColumns,
-        float[] maxContentWidths, bool[] hasExplicitWidth, float[] explicitWidths,
-        float fontSize, float availableWidth,
-        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
-    {
-        int colIdx = 0;
-        foreach (var cellNode in row.ChildNodes)
-        {
-            var cell = cellNode as HtmlElement;
-            if (cell == null || (cell.TagName != "td" && cell.TagName != "th"))
-                continue;
-
-            if (colIdx >= totalColumns) break;
-            int colspan = GetColspan(cell);
-
-            // Check for explicit width on cell
-            var cellStyle = resolver(cell, parentStyle);
-            var widthStr = cellStyle?.Width;
-            if (!string.IsNullOrEmpty(widthStr) && widthStr != "auto")
-            {
-                float? w = ResolveOptionalLength(widthStr, availableWidth, fontSize);
-                if (w.HasValue && colspan == 1)
-                {
-                    hasExplicitWidth[colIdx] = true;
-                    explicitWidths[colIdx] = Math.Max(explicitWidths[colIdx], w.Value);
-                }
-            }
-
-            // Measure text content width
-            if (colspan == 1)
-            {
-                float textWidth = MeasureElementTextWidth(cell, fontSize);
-                // Add padding estimate (10px each side default for cells with padding:10px)
-                float padding = 0;
-                if (cellStyle != null)
-                {
-                    padding += ResolveLength(cellStyle.PaddingLeft ?? "0", 0, fontSize);
-                    padding += ResolveLength(cellStyle.PaddingRight ?? "0", 0, fontSize);
-                }
-                textWidth += padding;
-
-                if (textWidth > maxContentWidths[colIdx])
-                    maxContentWidths[colIdx] = textWidth;
-            }
-
-            colIdx += colspan;
-        }
-    }
-
-    /// <summary>Measure the total text width of an element and its children.</summary>
-    private static float MeasureElementTextWidth(HtmlElement element, float fontSize)
-    {
-        float totalWidth = 0;
-        foreach (var node in element.ChildNodes)
-        {
-            if (node is Html.Dom.HtmlTextNode textNode)
-            {
-                var text = TrimHtmlText(textNode.Data ?? "");
-                if (!string.IsNullOrEmpty(text))
-                    totalWidth += TextMeasurer.MeasureWidth(text, fontSize, "Helvetica");
-            }
-            else if (node is HtmlElement child)
-            {
-                totalWidth += MeasureElementTextWidth(child, fontSize);
-            }
-        }
-        return totalWidth;
-    }
-
-    /// <summary>Count total column slots in a row (respecting colspan).</summary>
-    /// <summary>Get colspan attribute value (default 1).</summary>
     private static int GetColspan(HtmlElement cell)
     {
         var attr = cell.GetAttribute("colspan");

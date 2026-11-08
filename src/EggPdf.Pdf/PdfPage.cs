@@ -518,10 +518,20 @@ public partial class PdfPage
     /// </summary>
     public static string StandardFontResourceName(string baseFont) => StandardFontResourcePrefix + baseFont;
 
-    internal static string StandardFontBaseName(string resourceName) =>
-        resourceName.StartsWith(StandardFontResourcePrefix, StringComparison.Ordinal)
+    internal static string StandardFontBaseName(string resourceName)
+    {
+        var name = resourceName.StartsWith(StandardFontResourcePrefix, StringComparison.Ordinal)
             ? resourceName.Substring(StandardFontResourcePrefix.Length)
             : resourceName;
+        switch (name)
+        {
+            case "Arial": return "Helvetica";
+            case "Arial-Bold": return "Helvetica-Bold";
+            case "Arial-Italic": return "Helvetica-Oblique";
+            case "Arial-BoldItalic": return "Helvetica-BoldOblique";
+            default: return name;
+        }
+    }
 
     /// <summary>
     /// Mark a graphics state as used on this page without emitting it, for content assembled externally

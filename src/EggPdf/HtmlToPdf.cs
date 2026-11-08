@@ -375,7 +375,11 @@ public static partial class HtmlToPdf
 
         var fontFaces = BuildFontFaceMap(stylesheets);
         bool usesVariations = UsesFontVariations(document, stylesheets);
-        if (fontFaces.Count > 0 || usesVariations)
+        var installedFamily = UsesInstalledSystemFamilies(document, stylesheets, IsInstalledSystemFamily)
+            ? CreateInstalledFamilyResolver(IsInstalledSystemFamily)
+            : null;
+        TextMeasurer.InstalledFamilyResolver = installedFamily;
+        if (fontFaces.Count > 0 || usesVariations || installedFamily != null)
         {
             PrefetchWebFonts(fontFaces, resources);
             var measureResolver = SharedFontResolver;
@@ -395,6 +399,8 @@ public static partial class HtmlToPdf
                     var system = TryResolveSystemFont(cleanFamily, measureResolver, numericWeight >= 600, italic);
                     if (system != null) data = Text.TrueType.VariableFontInstancer.InstanceFor(system, numericWeight, axes);
                 }
+                if (data == null && installedFamily?.Invoke(family) is string systemFamily)
+                    data = measureResolver.Resolve(systemFamily, numericWeight >= 600, italic);
                 measureCache[key] = data;
                 return data;
             };
@@ -462,6 +468,7 @@ public static partial class HtmlToPdf
         finally
         {
             TextMeasurer.FontDataProvider = null;
+            TextMeasurer.InstalledFamilyResolver = null;
             TextMeasurer.ComplexFontProvider = null;
             TextMeasurer.GlyphAdvanceProvider = null;
             BlockLayout.ShapeImageLoader = null;

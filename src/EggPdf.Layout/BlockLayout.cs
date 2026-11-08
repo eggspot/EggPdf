@@ -108,6 +108,8 @@ public static partial class BlockLayout
         // Per-render cache: without clearing, a pooled thread retains every
         // table element from every past render (unbounded growth).
         _tableColumnWidthCache?.Clear();
+        _tableGridCache?.Clear();
+        _tableColumnMeasureCache?.Clear();
         _listOrdinalCursors?.Clear();
 
         var root = new LayoutBox
@@ -160,6 +162,8 @@ public static partial class BlockLayout
         // needed to resolve every other length property on this element, not
         // just the box model, so it flows out too).
         var (fontSize, borderBox, position) = ResolveBoxModel(box, element, style, parent, containingWidth, parentStyle);
+        if (element.TagName == "table")
+            ShrinkTableToContent(box, element, style, fontSize, resolver, parentStyle);
 
         // content-visibility: hidden -- unlike display:none, the element's own box (size,
         // background, border) still exists and is already resolved above; only its
@@ -408,7 +412,8 @@ public static partial class BlockLayout
                     if ((IsTableRow(style.Display) && IsTableCell(childStyle.Display)) || isImplicitRow)
                     {
                         if (isImplicitRow) actsAsImplicitTableRow = true;
-                        if (rowCellColOffsets == null)
+                        var gridSlot = isImplicitRow ? null : CellSlot(element, childElem, out int gridColumnCount);
+                        if (gridSlot == null && rowCellColOffsets == null)
                         {
                             rowCellColOffsets = new Dictionary<HtmlElement, int>();
                             int running = 0;
@@ -435,10 +440,21 @@ public static partial class BlockLayout
                             }
                             rowTotalColumns = running;
                         }
-                        int totalColumns = rowTotalColumns;
-                        int colOffset = rowCellColOffsets.TryGetValue(childElem, out var cachedOffset)
-                            ? cachedOffset : 0;
-                        int colspan = GetColspan(childElem);
+                        int totalColumns, colOffset, colspan, rowspan;
+                        if (gridSlot != null)
+                        {
+                            totalColumns = gridColumnCount;
+                            colOffset = gridSlot.Column;
+                            colspan = gridSlot.ColSpan;
+                            rowspan = gridSlot.RowSpan;
+                        }
+                        else
+                        {
+                            totalColumns = rowTotalColumns;
+                            colOffset = rowCellColOffsets!.TryGetValue(childElem, out var cachedOffset) ? cachedOffset : 0;
+                            colspan = GetColspan(childElem);
+                            rowspan = 1;
+                        }
 
                         // border-collapse inherits from <table> via CSS inheritance
                         var borderCollapse = style.Get("border-collapse") ?? parentStyle?.Get("border-collapse");
@@ -511,8 +527,7 @@ public static partial class BlockLayout
 
                         box.Children.Add(childBox);
 
-                        // Track max cell height for the row
-                        if (childBox.Height > childY)
+                        if (rowspan == 1 && childBox.Height > childY)
                             childY = childBox.Height;
                     }
                     else
@@ -1351,7 +1366,7 @@ public static partial class BlockLayout
             for (int ci = 0; ci < box.Children.Count; ci++)
             {
                 var cell = box.Children[ci];
-                if (cell.Element == null) continue;
+                if (cell.Element == null || RowSpanOf(cell.Element) > 1) continue;
 
                 float contentHeight = cell.ContentHeight;
                 // Equalize cell height to row height
@@ -1418,7 +1433,9 @@ public static partial class BlockLayout
             }
         }
 
-        // Height
+        if (element.TagName == "table")
+            childY += ApplyRowSpans(box);
+
         float? specifiedHeight = ResolveOptionalLength(style.Height, 0, fontSize);
         if (specifiedHeight.HasValue)
         {
@@ -1467,12 +1484,13 @@ public static partial class BlockLayout
                             if (segment.Count > 0)
                             {
                                 var columns = MultiColumnLayout.DistributeIntoColumns(
-                                    segment, colCount, colWidth, colGap, containerX, currentY);
+                                    segment, colCount, colWidth, colGap, containerX, currentY,
+                                    _viewportHeight > 0 ? _viewportHeight : float.PositiveInfinity);
                                 float segHeight = 0;
                                 foreach (var col in columns)
                                 {
                                     box.Children.Add(col);
-                                    if (col.Height > segHeight) segHeight = col.Height;
+                                    segHeight = Math.Max(segHeight, col.Y - currentY + col.Height);
                                 }
                                 currentY += segHeight;
                                 totalHeight += segHeight;

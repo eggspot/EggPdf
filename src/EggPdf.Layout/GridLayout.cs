@@ -133,8 +133,9 @@ public static partial class GridLayout
         }
 
         // Resolve track sizes
+        var autoColumnWidths = AutoColumnContentWidths(columnTracks, items, resolver, fontSize);
         float[] columnSizes = ResolveTrackSizes(columnTracks, container.ContentWidth, columnGap, fontSize,
-            AutoColumnContentWidths(columnTracks, items, resolver, fontSize));
+            autoColumnWidths?.MaxContent, autoColumnWidths?.MinContent);
         float[] rowSizes = ResolveTrackSizes(rowTracks, 0, rowGap, fontSize, null);
 
         // Create child boxes and measure for auto rows
@@ -923,9 +924,8 @@ public static partial class GridLayout
         return new TrackDefinition { Type = TrackType.Fixed, Value = resolved };
     }
 
-    /// <summary>Resolve track sizes: fixed tracks get their size, fr tracks share remaining space.</summary>
     private static float[] ResolveTrackSizes(List<TrackDefinition> tracks, float availableSize, float gap, float fontSize,
-        float[]? autoContentSizes)
+        float[]? autoContentSizes, float[]? autoMinContentSizes = null)
     {
         float[] sizes = new float[tracks.Count];
         float totalGap = tracks.Count > 1 ? gap * (tracks.Count - 1) : 0;
@@ -952,7 +952,7 @@ public static partial class GridLayout
             }
         }
 
-        usedSpace += FitAutoTracks(tracks, sizes, availableSize - usedSpace);
+        usedSpace += FitAutoTracks(tracks, sizes, autoMinContentSizes, availableSize - usedSpace);
 
         float remainingSpace = availableSize - usedSpace;
         if (remainingSpace < 0) remainingSpace = 0;
@@ -983,26 +983,57 @@ public static partial class GridLayout
         return sizes;
     }
 
-    private static float FitAutoTracks(List<TrackDefinition> tracks, float[] sizes, float spaceForAutoTracks)
+    private static float FitAutoTracks(List<TrackDefinition> tracks, float[] sizes, float[]? minContentSizes, float spaceForAutoTracks)
     {
-        float total = 0f;
+        float totalMax = 0f, totalMin = 0f;
         for (int i = 0; i < tracks.Count; i++)
-            if (tracks[i].Type == TrackType.Auto) total += sizes[i];
-        if (total <= 0f || spaceForAutoTracks <= 0f || total <= spaceForAutoTracks) return total;
+        {
+            if (tracks[i].Type != TrackType.Auto) continue;
+            totalMax += sizes[i];
+            totalMin += MinContentOf(minContentSizes, i, sizes[i]);
+        }
+        if (totalMax <= 0f || totalMax <= spaceForAutoTracks) return totalMax;
 
-        float factor = spaceForAutoTracks / total;
+        float space = Math.Max(0f, spaceForAutoTracks);
+        if (totalMin >= space)
+        {
+            for (int i = 0; i < tracks.Count; i++)
+                if (tracks[i].Type == TrackType.Auto) sizes[i] = MinContentOf(minContentSizes, i, sizes[i]);
+            return totalMin;
+        }
+
+        float share = (space - totalMin) / (totalMax - totalMin);
         for (int i = 0; i < tracks.Count; i++)
-            if (tracks[i].Type == TrackType.Auto) sizes[i] *= factor;
-        return spaceForAutoTracks;
+        {
+            if (tracks[i].Type != TrackType.Auto) continue;
+            float min = MinContentOf(minContentSizes, i, sizes[i]);
+            sizes[i] = min + (sizes[i] - min) * share;
+        }
+        return space;
+    }
+
+    private static float MinContentOf(float[]? minContentSizes, int track, float maxContent) =>
+        minContentSizes == null ? 0f : Math.Min(minContentSizes[track], maxContent);
+
+    private sealed class AutoTrackWidths
+    {
+        public AutoTrackWidths(int trackCount)
+        {
+            MaxContent = new float[trackCount];
+            MinContent = new float[trackCount];
+        }
+
+        public float[] MaxContent { get; }
+        public float[] MinContent { get; }
     }
 
     private static bool IsReplacedElement(HtmlElement? element) =>
         element != null && (element.TagName == "img" || element.TagName == "svg");
 
-    private static float[]? AutoColumnContentWidths(List<TrackDefinition> tracks, List<GridItem> items,
+    private static AutoTrackWidths? AutoColumnContentWidths(List<TrackDefinition> tracks, List<GridItem> items,
         Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, float fontSize)
     {
-        float[]? widths = null;
+        AutoTrackWidths? widths = null;
         for (int i = 0; i < items.Count; i++)
         {
             var item = items[i];
@@ -1012,10 +1043,13 @@ public static partial class GridLayout
             float itemFontSize = BlockLayout.ResolveFontSize(item.Style.FontSize, fontSize);
             var specifiedWidth = item.Style.Width;
             bool definiteWidth = !string.IsNullOrEmpty(specifiedWidth) && !specifiedWidth!.EndsWith("%", StringComparison.Ordinal);
-            float contentWidth = (definiteWidth ? BlockLayout.ResolveOptionalLength(specifiedWidth, 0, itemFontSize) : null)
-                ?? FlexLayout.MeasureMaxContentWidth(item.Element, item.Style, resolver, itemFontSize);
-            widths ??= new float[tracks.Count];
-            if (contentWidth > widths[item.ColumnStart]) widths[item.ColumnStart] = contentWidth;
+            float? definite = definiteWidth ? BlockLayout.ResolveOptionalLength(specifiedWidth, 0, itemFontSize) : null;
+            float maxContent = definite ?? FlexLayout.MeasureMaxContentWidth(item.Element, item.Style, resolver, itemFontSize);
+            float minContent = definite ?? FlexLayout.MeasureMinContentWidth(item.Element, item.Style, resolver, itemFontSize, 0);
+            widths ??= new AutoTrackWidths(tracks.Count);
+            int column = item.ColumnStart;
+            if (maxContent > widths.MaxContent[column]) widths.MaxContent[column] = maxContent;
+            if (minContent > widths.MinContent[column]) widths.MinContent[column] = minContent;
         }
         return widths;
     }

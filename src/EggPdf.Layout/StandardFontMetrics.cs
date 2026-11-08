@@ -182,6 +182,9 @@ public static class StandardFontMetrics
 
     private static string ResolveBaseFontName(string? fontFamily, bool bold, bool italic)
     {
+        var installed = TextMeasurer.InstalledFontName(fontFamily, bold, italic);
+        if (installed != null) return installed;
+
         var key = (fontFamily ?? "", bold, italic);
         if (_baseNameCache.TryGetValue(key, out var cached)) return cached;
 

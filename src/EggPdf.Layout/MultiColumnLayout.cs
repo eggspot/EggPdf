@@ -73,26 +73,46 @@ public static class MultiColumnLayout
     /// </summary>
     public static List<LayoutBox> DistributeIntoColumns(
         List<LayoutBox> children, int columnCount, float columnWidth, float columnGap,
-        float containerX, float containerY)
+        float containerX, float containerY) =>
+        DistributeIntoColumns(children, columnCount, columnWidth, columnGap, containerX, containerY, float.PositiveInfinity);
+
+    /// <summary>
+    /// Distribute children across columns no taller than <paramref name="maxColumnHeight"/> (a page's content
+    /// height): when balanced columns would be taller, columns are filled to that height in sets stacked below each
+    /// other, and only the last set is balanced. A child taller than the limit stays whole in its column.
+    /// </summary>
+    public static List<LayoutBox> DistributeIntoColumns(
+        List<LayoutBox> children, int columnCount, float columnWidth, float columnGap,
+        float containerX, float containerY, float maxColumnHeight)
     {
         if (columnCount <= 1 || children.Count == 0)
             return children;
 
-        // Calculate total content height
-        float totalHeight = 0;
-        foreach (var child in children)
-            totalHeight += child.Height + child.MarginTop + child.MarginBottom;
-
-        // Target height per column (balanced distribution)
-        float targetHeight = totalHeight / columnCount;
-
         var columns = new List<LayoutBox>();
         int childIdx = 0;
+        float setY = containerY;
+        while (childIdx < children.Count)
+        {
+            float remaining = 0;
+            for (int i = childIdx; i < children.Count; i++)
+                remaining += children[i].Height + children[i].MarginTop + children[i].MarginBottom;
+            bool lastSet = remaining / columnCount <= maxColumnHeight;
+            float targetHeight = lastSet ? remaining / columnCount : maxColumnHeight;
+            float setHeight = FillColumnSet(children, ref childIdx, columns, columnCount, columnWidth, columnGap,
+                containerX, setY, targetHeight, lastSet);
+            setY += setHeight;
+        }
+        return columns;
+    }
 
+    private static float FillColumnSet(List<LayoutBox> children, ref int childIdx, List<LayoutBox> columns,
+        int columnCount, float columnWidth, float columnGap, float containerX, float setY, float targetHeight, bool lastSet)
+    {
+        float setHeight = 0;
         for (int col = 0; col < columnCount && childIdx < children.Count; col++)
         {
             float colX = containerX + col * (columnWidth + columnGap);
-            float colY = containerY;
+            float colY = setY;
             float currentHeight = 0;
 
             var columnBox = new LayoutBox
@@ -109,15 +129,10 @@ public static class MultiColumnLayout
                 var child = children[childIdx];
                 float childHeight = child.Height + child.MarginTop + child.MarginBottom;
 
-                // Always add at least one child per column
                 if (currentHeight > 0 && currentHeight + childHeight > targetHeight &&
-                    col < columnCount - 1) // last column gets everything remaining
+                    (col < columnCount - 1 || !lastSet))
                     break;
 
-                // Reposition child within this column. X is absolute in this engine, so the
-                // child's whole subtree must shift horizontally with it. Y is parent-relative
-                // (BlockLayout's post-layout pass adds each ancestor's Y), so only the child's
-                // own Y changes — and it is now relative to the column box it was moved into.
                 ShiftSubtreeX(child, colX + child.MarginLeft - child.X);
                 child.Y = currentHeight + child.MarginTop;
 
@@ -129,9 +144,10 @@ public static class MultiColumnLayout
             columnBox.Height = currentHeight;
             columnBox.ContentHeight = currentHeight;
             columns.Add(columnBox);
+            setHeight = Math.Max(setHeight, currentHeight);
         }
 
-        return columns;
+        return setHeight;
     }
 
     /// <summary>
