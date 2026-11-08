@@ -116,6 +116,19 @@ public class ResourceResolverRenderTests
     }
 
     [Fact]
+    public void TableCellBackgroundAttribute_PaintsTheImage()
+    {
+        var resolver = new RecordingResolver(new() { ["https://cdn.example/bg.png"] = Png });
+
+        var pdf = HtmlToPdf.Render(
+            "<html><body><table><tr><td background=\"https://cdn.example/bg.png\" width=\"50\" height=\"50\">x</td></tr></table></body></html>",
+            With(resolver));
+
+        Latin1(pdf).Should().Contain("/Subtype /Image");
+        resolver.Calls.Should().Contain(("https://cdn.example/bg.png", ResourceType.Image));
+    }
+
+    [Fact]
     public void FontFace_LoadedThroughResolver()
     {
         var fontPath = TestFonts.FindAny();

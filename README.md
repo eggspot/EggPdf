@@ -209,6 +209,11 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   mirrored physical values; table columns lay out right-to-left and list markers hang on the
   right, matching a browser
 - CSS Custom Properties (`var()`)
+- Legacy HTML presentational attributes, mapped as the HTML rendering spec does (author CSS wins):
+  `width`/`height` (`"200px"`, `"50%"`), table `border`/`cellpadding`/`cellspacing`/`align`
+  (`center` centers the table, `left`/`right` float it), cell `nowrap`/`valign`, `bgcolor`/`background`,
+  `<img align/hspace/vspace/border>`, `<ol type="a|A|i|I">`/`<ul type>`, `<font size/color/face>`,
+  and `<body text/leftmargin/topmargin/marginwidth/marginheight>` (common in email HTML)
 - `@media print` support
 - 2D and 3D CSS transforms (`translate`/`rotate`/`scale`/`matrix` and their `X`/`Y`/`Z`/`3d`
   variants, `perspective()`) -- PDF has no 3D rendering, so 3D functions are intentionally
