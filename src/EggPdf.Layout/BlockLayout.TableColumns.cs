@@ -19,26 +19,26 @@ public static partial class BlockLayout
         var parent = row.Parent as HtmlElement;
         if (parent == null) return true;
 
-        // If parent is thead/tbody/tfoot, check if this is the first row in it AND the group is first
         if (parent.TagName == "thead" || parent.TagName == "tbody" || parent.TagName == "tfoot")
         {
-            // Not the first row in this group
             for (int i = 0; i < parent.ChildNodes.Count; i++)
             {
                 if (parent.ChildNodes[i] is HtmlElement elem && elem.TagName == "tr")
-                    return elem == row;
+                {
+                    if (elem != row) return false;
+                    break;
+                }
             }
 
-            // Check if this group is the first group in the table
             var table = parent.Parent as HtmlElement;
             if (table == null) return true;
-            for (int i = 0; i < table.ChildNodes.Count; i++)
+            var groups = TableRowGroupsInRenderOrder(table);
+            for (int i = 0; i < groups.Count; i++)
             {
-                if (table.ChildNodes[i] is HtmlElement elem && (elem.TagName == "thead" || elem.TagName == "tbody" || elem.TagName == "tfoot" || elem.TagName == "tr"))
+                if (groups[i] is HtmlElement elem && (elem.TagName == "thead" || elem.TagName == "tbody" || elem.TagName == "tfoot" || elem.TagName == "tr"))
                 {
                     if (elem == parent) return true;
                     if (elem.TagName == "tr") return false;
-                    // Non-empty group before this one
                     for (int j = 0; j < elem.ChildNodes.Count; j++)
                         if (elem.ChildNodes[j] is HtmlElement) return false;
                 }
@@ -46,12 +46,12 @@ public static partial class BlockLayout
             return true;
         }
 
-        // Direct child of table
         if (parent.TagName == "table")
         {
-            for (int i = 0; i < parent.ChildNodes.Count; i++)
+            var children = TableRowGroupsInRenderOrder(parent);
+            for (int i = 0; i < children.Count; i++)
             {
-                if (parent.ChildNodes[i] is HtmlElement elem)
+                if (children[i] is HtmlElement elem)
                 {
                     if (elem == row) return true;
                     if (elem.TagName == "tr") return false;
@@ -197,7 +197,7 @@ public static partial class BlockLayout
 
         // 2. Scan only the first row for explicit cell widths
         HtmlElement? firstRow = null;
-        foreach (var child in tableElement.ChildNodes)
+        foreach (var child in TableRowGroupsInRenderOrder(tableElement))
         {
             var group = child as HtmlElement;
             if (group == null) continue;

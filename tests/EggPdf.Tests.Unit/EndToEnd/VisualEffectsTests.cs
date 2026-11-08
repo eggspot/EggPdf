@@ -42,7 +42,7 @@ public class VisualEffectsTests
     {
         var html = "<div style='opacity: 0.5; background-color: red; width: 100px; height: 100px'>Semi-transparent</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
-        var text = PdfAssert.ValidPdf(pdf, "Semi-transparent");
+        var text = PdfAssert.ValidPdf(pdf, "Semi-", "transparent");
 
         text.Should().Contain("/GS50 gs");
         text.IndexOf("/GS100 gs").Should().BeGreaterThan(text.IndexOf("/GS50 gs"), "alpha must be reset after painting");

@@ -6,10 +6,13 @@ namespace EggPdf.Layout;
 
 public static partial class BlockLayout
 {
-    private static List<HtmlNode> TableChildrenInRenderOrder(HtmlElement element, ComputedStyle style)
+    private static List<HtmlNode> TableChildrenInRenderOrder(HtmlElement element, ComputedStyle style) =>
+        style.Display == "table" ? TableRowGroupsInRenderOrder(element) : element.ChildNodes;
+
+    private static List<HtmlNode> TableRowGroupsInRenderOrder(HtmlElement table)
     {
-        var children = element.ChildNodes;
-        if (style.Display != "table" || !HasMisplacedHeaderOrFooter(children)) return children;
+        var children = table.ChildNodes;
+        if (!HasMisplacedHeaderOrFooter(children)) return children;
 
         var ordered = new List<HtmlNode>(children.Count);
         HtmlElement? header = null;

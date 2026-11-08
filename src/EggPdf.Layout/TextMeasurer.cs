@@ -341,7 +341,7 @@ public static class TextMeasurer
         }
         else if (!allowWrap)
         {
-            lines.Add(CollapseWhitespace(text));
+            lines.Add(LineBreakOpportunities.RemoveInvisibleBreaks(CollapseWhitespace(text)));
         }
         else
         {
@@ -385,24 +385,39 @@ public static class TextMeasurer
 
         if (words.Length == 0) { lines.Add(""); return lines; }
 
-        // Thai, Lao, Khmer and Myanmar have no spaces between words: offer syllable-boundary break
-        // opportunities inside such "words" so a long paragraph wraps. Split segments rejoin with no space.
         bool[]? noSpaceBefore = null;
-        if (!preserveSpaces && EggPdf.Text.SpacelessLineBreaker.Contains(text))
+        bool[]? softHyphenAfter = null;
+        if (!preserveSpaces && (EggPdf.Text.SpacelessLineBreaker.Contains(text) || LineBreakOpportunities.HasBreaksInsideWords(text)))
         {
-            var expanded = new List<string>(words.Length + 8);
-            var flags = new List<bool>(words.Length + 8);
+            var segments = new List<(string Text, bool JoinsPrevious, bool EndsAtSoftHyphen)>(words.Length + 8);
             foreach (var w in words)
             {
-                if (!EggPdf.Text.SpacelessLineBreaker.Contains(w)) { expanded.Add(w); flags.Add(false); continue; }
-                var segments = EggPdf.Text.SpacelessLineBreaker.Split(w);
-                for (int s = 0; s < segments.Count; s++) { expanded.Add(segments[s]); flags.Add(s > 0); }
+                if (EggPdf.Text.SpacelessLineBreaker.Contains(w))
+                {
+                    var syllables = EggPdf.Text.SpacelessLineBreaker.Split(w);
+                    for (int s = 0; s < syllables.Count; s++)
+                        LineBreakOpportunities.AppendSegments(syllables[s], s > 0, segments);
+                }
+                else
+                {
+                    LineBreakOpportunities.AppendSegments(w, false, segments);
+                }
             }
-            words = expanded.ToArray();
-            noSpaceBefore = flags.ToArray();
+            if (segments.Count == 0) { lines.Add(""); return lines; }
+
+            words = new string[segments.Count];
+            noSpaceBefore = new bool[segments.Count];
+            softHyphenAfter = new bool[segments.Count];
+            for (int s = 0; s < segments.Count; s++)
+            {
+                words[s] = segments[s].Text;
+                noSpaceBefore[s] = s > 0 && segments[s].JoinsPrevious;
+                softHyphenAfter[s] = segments[s].EndsAtSoftHyphen;
+            }
         }
 
         var currentLine = words[0];
+        bool currentEndsAtSoftHyphen = softHyphenAfter != null && softHyphenAfter[0];
         float currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
         // Measure separator width once; reused every iteration to avoid per-word allocation checks.
         float spaceWidth = preserveSpaces ? 0f : MeasureWidth(" ", fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
@@ -448,12 +463,13 @@ public static class TextMeasurer
             {
                 currentLine = preserveSpaces || joinNoSpace ? currentLine + word : currentLine + " " + word;
                 currentLineWidth = candidateWidth;
+                currentEndsAtSoftHyphen = softHyphenAfter != null && softHyphenAfter[i];
             }
             else
             {
                 string separator = preserveSpaces || joinNoSpace ? "" : " ";
                 bool hyphenUsed = false;
-                if (enableHyphenation)
+                if (enableHyphenation && !currentEndsAtSoftHyphen)
                 {
                     var hyphenated = HyphenateWordToFit(word, currentLine + separator, fontSize, fontFamily, fontWeight, fontStyle, maxWidth, letterSpacing);
                     if (hyphenated != null)
@@ -461,15 +477,17 @@ public static class TextMeasurer
                         lines.Add(hyphenated.Item1);
                         currentLine = hyphenated.Item2;
                         currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
+                        currentEndsAtSoftHyphen = false;
                         hyphenUsed = true;
                     }
                 }
 
                 if (!hyphenUsed)
                 {
-                    lines.Add(currentLine);
+                    lines.Add(currentEndsAtSoftHyphen && joinNoSpace ? currentLine + LineBreakOpportunities.VisibleHyphen : currentLine);
                     currentLine = word;
                     currentLineWidth = wordWidth;
+                    currentEndsAtSoftHyphen = softHyphenAfter != null && softHyphenAfter[i];
 
                     // If this word alone exceeds maxWidth, try hyphenation then character-breaking
                     if (currentLineWidth > maxWidth)
