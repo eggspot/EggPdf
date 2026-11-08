@@ -77,10 +77,10 @@ public class SvgPresentationTests
     }
 
     [Theory]
-    [InlineData("", "1.00 0 0 -1.00 0.00 75.00 cm")]
-    [InlineData(" preserveAspectRatio='xMinYMin meet'", "1.00 0 0 -1.00 0.00 100.00 cm")]
-    [InlineData(" preserveAspectRatio='none'", "1.00 0 0 -2.00 0.00 100.00 cm")]
-    [InlineData(" preserveAspectRatio='xMidYMid slice'", "2.00 0 0 -2.00 -50.00 100.00 cm")]
+    [InlineData("", "1 0 0 -1 0 75 cm")]
+    [InlineData(" preserveAspectRatio='xMinYMin meet'", "1 0 0 -1 0 100 cm")]
+    [InlineData(" preserveAspectRatio='none'", "1 0 0 -2 0 100 cm")]
+    [InlineData(" preserveAspectRatio='xMidYMid slice'", "2 0 0 -2 -50 100 cm")]
     public void Viewport_PreserveAspectRatio_PlacesTheViewBox(string attribute, string expectedMatrix)
     {
         var result = Render("<svg viewBox='0 0 100 50'" + attribute + "><rect width='10' height='10'/></svg>");

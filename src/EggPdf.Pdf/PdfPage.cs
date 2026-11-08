@@ -16,6 +16,10 @@ internal static class PdfContentStreamExtensions
     /// <summary>Append a line terminated by a literal LF, never CRLF.</summary>
     public static StringBuilder AppendOpLine(this StringBuilder sb, string value)
         => sb.Append(value).Append('\n');
+
+    /// <summary>Append a literal LF, never CRLF.</summary>
+    public static StringBuilder AppendOpLine(this StringBuilder sb)
+        => sb.Append('\n');
 }
 
 /// <summary>
@@ -464,6 +468,40 @@ public partial class PdfPage
     /// </summary>
     public void RegisterUsedFont(string fontName) => UsedFonts.Add(fontName);
 
+    /// <summary>
+    /// Mark a graphics state as used on this page without emitting it, for content assembled externally
+    /// that selects it with its own <c>gs</c> operator. Names come from <see cref="SeparateOpacityStateName"/>.
+    /// </summary>
+    public void RegisterUsedExtGState(string stateName) => UsedExtGStates.Add(stateName);
+
+    private const string SeparateOpacityStatePrefix = "GSA";
+
+    /// <summary>
+    /// The name of a graphics state with its own fill (<c>ca</c>) and stroke (<c>CA</c>) opacity,
+    /// each clamped to 0-1 and rounded to whole percent.
+    /// </summary>
+    public static string SeparateOpacityStateName(float fillOpacity, float strokeOpacity) =>
+        SeparateOpacityStatePrefix + OpacityPercent(fillOpacity).ToString(CultureInfo.InvariantCulture) + "_" +
+        OpacityPercent(strokeOpacity).ToString(CultureInfo.InvariantCulture);
+
+    internal static bool TryParseSeparateOpacityStateName(string stateName, out int fillPercent, out int strokePercent)
+    {
+        fillPercent = strokePercent = 100;
+        if (!stateName.StartsWith(SeparateOpacityStatePrefix, StringComparison.Ordinal)) return false;
+        int separator = stateName.IndexOf('_');
+        if (separator < 0) return false;
+        int start = SeparateOpacityStatePrefix.Length;
+        return int.TryParse(stateName.Substring(start, separator - start), NumberStyles.Integer, CultureInfo.InvariantCulture, out fillPercent) &&
+               int.TryParse(stateName.Substring(separator + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out strokePercent);
+    }
+
+    private static int OpacityPercent(float opacity)
+    {
+        if (float.IsNaN(opacity) || opacity <= 0f) return 0;
+        if (opacity >= 1f) return 100;
+        return (int)Math.Round(opacity * 100f);
+    }
+
     /// <summary>Add a stroked line between two points.</summary>
     public void AddLine(float x1, float y1, float x2, float y2, float r, float g, float b, float lineWidth)
     {
@@ -599,11 +637,11 @@ public partial class PdfPage
     private static string F(float value) => value.ToString("F2", CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// Escape a PDF literal string directly into a builder — the hot text
-    /// path appends into the content stream without a temporary
-    /// StringBuilder + string per run. Plain-ASCII runs append in one call.
+    /// Append <paramref name="text"/> as the body of a PDF literal string (without the parentheses)
+    /// for a standard Type 1 font with <c>/WinAnsiEncoding</c>: backslash and parentheses are escaped,
+    /// and characters outside WinAnsi become <c>?</c>.
     /// </summary>
-    private static void AppendEscapedPdfString(StringBuilder sb, string text)
+    public static void AppendEscapedPdfString(StringBuilder sb, string text)
     {
         bool simple = true;
         for (int i = 0; i < text.Length; i++)
@@ -670,6 +708,11 @@ public partial class PdfPage
             case '\u02C6': return 0x88; // circumflex ˆ
             case '\u02DC': return 0x98; // tilde ˜
             case '\u2122': return 0x99; // trademark ™
+            case (char)0x20AC: return 0x80;
+            case (char)0x201A: return 0x82;
+            case (char)0x201E: return 0x84;
+            case (char)0x017D: return 0x8E;
+            case (char)0x017E: return 0x9E;
             default: return (byte)'?'; // unmappable
         }
     }

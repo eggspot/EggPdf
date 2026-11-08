@@ -27,8 +27,8 @@ public static class QrCodeGenerator
         float moduleSize = size / moduleCount;
 
         var sb = new StringBuilder();
-        sb.AppendLine("q");
-        sb.AppendLine("0 0 0 rg"); // Black fill
+        sb.AppendOpLine("q");
+        sb.AppendOpLine("0 0 0 rg"); // Black fill
 
         for (int row = 0; row < moduleCount; row++)
         {
@@ -38,13 +38,13 @@ public static class QrCodeGenerator
                 {
                     float mx = x + col * moduleSize;
                     float my = y + (moduleCount - 1 - row) * moduleSize; // PDF Y is bottom-up
-                    sb.AppendLine($"{F(mx)} {F(my)} {F(moduleSize)} {F(moduleSize)} re");
+                    sb.AppendOpLine($"{F(mx)} {F(my)} {F(moduleSize)} {F(moduleSize)} re");
                 }
             }
         }
 
-        sb.AppendLine("f");
-        sb.AppendLine("Q");
+        sb.AppendOpLine("f");
+        sb.AppendOpLine("Q");
         return sb.ToString();
     }
 

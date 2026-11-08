@@ -13,21 +13,43 @@ public static class SvgParser
 {
     private const string DefaultCurrentColor = "black";
     private const string CurrentColorKeyword = "currentColor";
+    internal const string TextRunTagName = "#text";
 
-    private static readonly string[] InheritedProperties =
+    internal static readonly string[] InheritedProperties =
     {
         "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity", "stroke-linecap",
         "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray", "stroke-dashoffset", "font-family",
         "font-size", "font-weight", "font-style", "text-anchor", "color", "visibility", "letter-spacing",
+        "dominant-baseline",
     };
 
     /// <summary>
     /// Convert an HtmlElement (svg tag) to an SvgElement tree.
     /// </summary>
-    public static SvgElement? Parse(Html.Dom.HtmlElement htmlElement)
+    public static SvgElement? Parse(Html.Dom.HtmlElement htmlElement) => Parse(htmlElement, null);
+
+    /// <summary>
+    /// Convert an inline HtmlElement (svg tag) to an SvgElement tree whose root inherits from the HTML
+    /// around it: <paramref name="hostProperty"/> returns the computed value of an inherited property
+    /// (<c>color</c>, <c>fill</c>, <c>font-size</c>, ...) on the <c>&lt;svg&gt;</c> element, or null.
+    /// It fills in only what the root does not set itself.
+    /// </summary>
+    public static SvgElement? Parse(Html.Dom.HtmlElement htmlElement, Func<string, string?>? hostProperty)
     {
         if (htmlElement == null) return null;
-        return ConvertElement(htmlElement, null);
+        return ConvertElement(htmlElement, HostElement(hostProperty));
+    }
+
+    private static SvgElement? HostElement(Func<string, string?>? hostProperty)
+    {
+        if (hostProperty == null) return null;
+        var host = new SvgElement();
+        foreach (var property in InheritedProperties)
+        {
+            var value = hostProperty(property);
+            if (!string.IsNullOrEmpty(value)) host.Attributes[property] = value!;
+        }
+        return host;
     }
 
     private static SvgElement ConvertElement(Html.Dom.HtmlElement elem, SvgElement? parent)
@@ -42,6 +64,7 @@ public static class SvgParser
         ResolveCurrentColor(svg, "fill");
         ResolveCurrentColor(svg, "stroke");
 
+        bool keepsTextRuns = HoldsTextRuns(svg.TagName);
         foreach (var child in elem.ChildNodes)
         {
             if (child is Html.Dom.HtmlElement childElem)
@@ -51,11 +74,16 @@ public static class SvgParser
             else if (child is Html.Dom.HtmlTextNode textNode)
             {
                 svg.TextContent += textNode.Data;
+                if (keepsTextRuns)
+                    svg.Children.Add(new SvgElement { TagName = TextRunTagName, TextContent = textNode.Data });
             }
         }
 
         return svg;
     }
+
+    internal static bool HoldsTextRuns(string tagName) =>
+        tagName == "text" || tagName == "tspan" || tagName == "textpath";
 
     private static void ApplyStyleAttribute(SvgElement svg)
     {
@@ -73,16 +101,21 @@ public static class SvgParser
         }
     }
 
-    private static void InheritFrom(SvgElement svg, SvgElement? parent)
+    internal static void InheritFrom(SvgElement svg, SvgElement? parent)
     {
         if (parent == null) return;
         foreach (var property in InheritedProperties)
         {
             if (svg.Attributes.TryGetValue(property, out var own) && own != "inherit") continue;
             if (parent.Attributes.TryGetValue(property, out var inherited))
+            {
                 svg.Attributes[property] = inherited;
+                (svg.InheritedPropertyNames ??= new HashSet<string>(StringComparer.Ordinal)).Add(property);
+            }
             else
+            {
                 svg.Attributes.Remove(property);
+            }
         }
     }
 

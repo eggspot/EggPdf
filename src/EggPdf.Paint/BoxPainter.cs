@@ -901,19 +901,22 @@ public static partial class BoxPainter
         var svgRoot = box.Element?.TagName == "svg" ? box.Element : box.ImageSvgRoot;
         if (svgRoot != null)
         {
-            var svgElement = SvgParser.Parse(svgRoot);
+            var svgElement = svgRoot == box.Element ? SvgParser.Parse(svgRoot, box.Style.Get) : SvgParser.Parse(svgRoot);
             if (svgElement != null)
             {
                 float pdfX = effectiveX * PdfCoordinates.PxToPt;
                 float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
                 float pdfW = box.Width * PdfCoordinates.PxToPt;
                 float pdfH = box.Height * PdfCoordinates.PxToPt;
-                var svgResult = SvgRenderer.RenderWithResources(svgElement, pdfX, pdfY, pdfW, pdfH, CurrentPdfDoc);
+                var svgResult = SvgRenderer.RenderWithResources(svgElement, pdfX, pdfY, pdfW, pdfH, CurrentPdfDoc,
+                    StandardFontMetrics.MeasureWidth);
                 page.AppendRawContent(svgResult.Commands);
                 foreach (var imgName in svgResult.UsedImages)
                     page.RegisterUsedImage(imgName);
                 foreach (var fontName in svgResult.UsedFonts)
                     page.RegisterUsedFont(fontName);
+                foreach (var stateName in svgResult.UsedExtGStates)
+                    page.RegisterUsedExtGState(stateName);
             }
         }
 

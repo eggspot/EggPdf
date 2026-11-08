@@ -54,9 +54,9 @@ public static class PdfConicGradient
         float radius = (float)Math.Sqrt(width * width + height * height) / 2f + 1f;
 
         var sb = new StringBuilder();
-        sb.AppendLine("q");
+        sb.AppendOpLine("q");
         // Clip to bounding rectangle
-        sb.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re W n");
+        sb.AppendOpLine($"{F(x)} {F(y)} {F(width)} {F(height)} re W n");
 
         for (int i = 0; i < Sectors; i++)
         {
@@ -75,11 +75,11 @@ public static class PdfConicGradient
             float px2 = cx + radius * (float)Math.Cos(angle2);
             float py2 = cy + radius * (float)Math.Sin(angle2);
 
-            sb.AppendLine($"{F(r)} {F(g)} {F(b)} rg");
-            sb.AppendLine($"{F(cx)} {F(cy)} m {F(px1)} {F(py1)} l {F(px2)} {F(py2)} l h f");
+            sb.AppendOpLine($"{F(r)} {F(g)} {F(b)} rg");
+            sb.AppendOpLine($"{F(cx)} {F(cy)} m {F(px1)} {F(py1)} l {F(px2)} {F(py2)} l h f");
         }
 
-        sb.AppendLine("Q");
+        sb.AppendOpLine("Q");
         return sb.ToString();
     }
 

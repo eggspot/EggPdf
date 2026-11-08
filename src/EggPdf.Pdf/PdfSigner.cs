@@ -45,9 +45,9 @@ public static class PdfSigner
 
         const string byteRangePlaceholder = "[0 0000000000 0000000000 0000000000]";
         var sb = new StringBuilder();
-        sb.AppendLine();
+        sb.AppendOpLine();
         int sigValObj = FindNextObjNumber(pdfBytes) + 1;
-        sb.AppendLine($"{sigValObj} 0 obj");
+        sb.AppendOpLine($"{sigValObj} 0 obj");
         sb.Append("<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached");
         sb.Append($" /Name {PdfTextStrings.Encode(name)}");
         if (!string.IsNullOrEmpty(options.Reason))
@@ -57,8 +57,8 @@ public static class PdfSigner
         sb.Append($" /M ({PdfDates.PdfDate(DateTime.UtcNow)})");
         sb.Append($" /ByteRange {byteRangePlaceholder}");
         sb.Append($" /Contents <{new string('0', ContentsHexLength)}>");
-        sb.AppendLine(" >>");
-        sb.AppendLine("endobj");
+        sb.AppendOpLine(" >>");
+        sb.AppendOpLine("endobj");
 
         byte[] output;
         using (var ms = new MemoryStream())
@@ -141,10 +141,10 @@ public static class PdfSigner
         string location = options.Location ?? "";
 
         var sb = new StringBuilder();
-        sb.AppendLine();
+        sb.AppendOpLine();
 
         int sigValObj = FindNextObjNumber(pdfBytes) + 1;
-        sb.AppendLine($"{sigValObj} 0 obj");
+        sb.AppendOpLine($"{sigValObj} 0 obj");
         sb.Append("<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached");
         sb.Append($" /Name {PdfTextStrings.Encode(name)}");
         if (!string.IsNullOrEmpty(reason))
@@ -154,8 +154,8 @@ public static class PdfSigner
         sb.Append($" /M ({PdfDates.PdfDate(DateTime.UtcNow)})");
         sb.Append($" /Contents <{new string('0', 16384)}>");
         sb.Append($" /ByteRange [0 {pdfBytes.Length} {pdfBytes.Length} 0]");
-        sb.AppendLine(" >>");
-        sb.AppendLine("endobj");
+        sb.AppendOpLine(" >>");
+        sb.AppendOpLine("endobj");
 
         using var ms = new MemoryStream();
         ms.Write(pdfBytes, 0, pdfBytes.Length);

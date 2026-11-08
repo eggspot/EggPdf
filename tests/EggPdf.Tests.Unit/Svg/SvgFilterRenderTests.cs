@@ -191,7 +191,7 @@ public class SvgFilterRenderTests
 
         // Local bbox (0,0,20,20) -> region (-2,-2,24,24); translate(50,50) is applied by the CTM, not baked in
         r.Commands.Should().Contain("24.00 0 0 -24.00 -2.00 22.00 cm");
-        r.Commands.Should().Contain("1 0 0 1 50.00 50.00 cm", "the element's transform still applies around the image");
+        r.Commands.Should().Contain("1 0 0 1 50 50 cm", "the element's transform still applies around the image");
     }
 
     [Fact]

@@ -64,6 +64,12 @@ public partial class PdfDocument
                     throw new InvalidOperationException(
                         $"PDF/A-1 forbids transparency: partial opacity ({pct}%) is not allowed. Remove it, or use PdfA2b/PdfA2u/PdfA3b/PdfA3u instead.");
                 }
+                else if (PdfPage.TryParseSeparateOpacityStateName(gs, out int fillPercent, out int strokePercent) &&
+                         (fillPercent != 100 || strokePercent != 100))
+                {
+                    throw new InvalidOperationException(
+                        $"PDF/A-1 forbids transparency: partial opacity ({Math.Min(fillPercent, strokePercent)}%) is not allowed. Remove it, or use PdfA2b/PdfA2u/PdfA3b/PdfA3u instead.");
+                }
             }
         }
 

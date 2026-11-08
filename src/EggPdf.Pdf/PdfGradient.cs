@@ -69,8 +69,8 @@ public static class PdfGradient
 
         // Build PDF content: clip to rect, fill with gradient approximation (N color bands)
         var sb = new StringBuilder();
-        sb.AppendLine("q");
-        sb.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re W n");
+        sb.AppendOpLine("q");
+        sb.AppendOpLine($"{F(x)} {F(y)} {F(width)} {F(height)} re W n");
 
         // Determine dominant direction
         bool horizontal = Math.Abs(cos) >= Math.Abs(sin);
@@ -104,11 +104,11 @@ public static class PdfGradient
                 bandH = height / bands + 0.5f;
             }
 
-            sb.AppendLine($"{F(r)} {F(g)} {F(b)} rg");
-            sb.AppendLine($"{F(bandX)} {F(bandY)} {F(bandW)} {F(bandH)} re f");
+            sb.AppendOpLine($"{F(r)} {F(g)} {F(b)} rg");
+            sb.AppendOpLine($"{F(bandX)} {F(bandY)} {F(bandW)} {F(bandH)} re f");
         }
 
-        sb.AppendLine("Q");
+        sb.AppendOpLine("Q");
         return sb.ToString();
     }
 
