@@ -23,6 +23,7 @@ public static class PageFragmenter
     {
         public LayoutBox TheadBox;
         public float TableBottom;
+        public float FirstBodyRowBottom;
     }
 
     /// <summary>
@@ -37,7 +38,13 @@ public static class PageFragmenter
             {
                 if (box.Children[i].Element?.TagName == "thead")
                 {
-                    result.Add(new TableHeaderInfo { TheadBox = box.Children[i], TableBottom = box.Y + box.Height });
+                    var thead = box.Children[i];
+                    result.Add(new TableHeaderInfo
+                    {
+                        TheadBox = thead,
+                        TableBottom = box.Y + box.Height,
+                        FirstBodyRowBottom = FirstBodyRowBottom(box, thead) ?? thead.Y + thead.Height,
+                    });
                     break;
                 }
             }
@@ -45,6 +52,34 @@ public static class PageFragmenter
 
         for (int i = 0; i < box.Children.Count; i++)
             CollectRepeatingTableHeaders(box.Children[i], result);
+    }
+
+    private static float? FirstBodyRowBottom(LayoutBox table, LayoutBox thead)
+    {
+        float? best = null;
+        foreach (var child in table.Children)
+        {
+            if (child == thead) continue;
+            var tag = child.Element?.TagName;
+            LayoutBox? row = tag == "tr" ? child : tag == "tbody" && child.Children.Count > 0 ? child.Children[0] : null;
+            if (row == null || row.Y < thead.Y) continue;
+            if (best == null || row.Y + row.Height < best.Value) best = row.Y + row.Height;
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// True when a page break must not cut through the box: text lines, images and other
+    /// replaced content, table rows and cells, and boxes with no children. Containers with
+    /// children split between their descendants instead.
+    /// </summary>
+    public static bool IsUnsplittable(LayoutBox box)
+    {
+        if (!string.IsNullOrEmpty(box.Text) || !string.IsNullOrEmpty(box.ImageSource) || box.ImageSvgRoot != null) return true;
+        var tag = box.Element?.TagName;
+        if (tag == "tr" || tag == "td" || tag == "th" || tag == "img" || tag == "svg" || tag == "canvas" || tag == "iframe")
+            return true;
+        return box.Children.Count == 0;
     }
 
     public static void CollectPaintableBoxes(LayoutBox box, List<LayoutBox> result)
