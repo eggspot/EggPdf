@@ -315,10 +315,16 @@ public class BasicStyleResolver
         }
     }
 
-    /// <summary>
-    /// Apply legacy HTML presentational attributes as CSS equivalents.
-    /// These have the lowest priority -- any stylesheet or inline style overrides them.
-    /// </summary>
+    private static void ApplyAlignAttribute(HtmlElement element, string align, ComputedStyle style)
+    {
+        if (element.TagName == "caption" && (align == "top" || align == "bottom"))
+        {
+            style.Set("caption-side", align);
+            return;
+        }
+        style.Set("text-align", align);
+    }
+
     private static void ApplyPresentationalAttributes(HtmlElement element, ComputedStyle style)
     {
         // width / height attributes (img, table, td, th, col)
@@ -339,10 +345,9 @@ public class BasicStyleResolver
         if (!string.IsNullOrEmpty(bgcolor) && !style.Has("background-color"))
             style.Set("background-color", bgcolor);
 
-        // align
         var align = element.GetAttribute("align");
-        if (!string.IsNullOrEmpty(align) && !style.Has("text-align"))
-            style.Set("text-align", align.ToLowerInvariant());
+        if (!string.IsNullOrEmpty(align))
+            ApplyAlignAttribute(element, align.Trim().ToLowerInvariant(), style);
 
         // valign
         var valign = element.GetAttribute("valign");

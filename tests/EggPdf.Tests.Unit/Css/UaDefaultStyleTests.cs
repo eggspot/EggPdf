@@ -35,6 +35,30 @@ public class UaDefaultStyleTests
         Resolve(tag).Get(property).Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData("left")]
+    [InlineData("right")]
+    [InlineData("justify")]
+    public void HeaderCellAlignAttribute_OverridesUaCentring(string align)
+    {
+        var th = new HtmlElement("th");
+        th.SetAttribute("align", align);
+
+        _resolver.Resolve(th, null).Get("text-align").Should().Be(align);
+    }
+
+    [Fact]
+    public void CaptionAlignBottom_SetsCaptionSideNotTextAlign()
+    {
+        var caption = new HtmlElement("caption");
+        caption.SetAttribute("align", "bottom");
+
+        var style = _resolver.Resolve(caption, null);
+
+        style.Get("caption-side").Should().Be("bottom");
+        style.Get("text-align").Should().Be("center");
+    }
+
     [Fact]
     public void Big_IsLargerThanParent()
     {
