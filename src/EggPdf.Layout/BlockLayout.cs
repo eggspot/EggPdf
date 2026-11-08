@@ -57,6 +57,7 @@ public static partial class BlockLayout
         public HtmlElement? Element;
         public float FontSize;
         public bool HasLeadingSpace;
+        public bool KeepsSpaces;
     }
 
     /// <summary>
@@ -910,7 +911,18 @@ public static partial class BlockLayout
                 childrenFlowInline ??= HasInlineElementSiblings(element, style, resolver);
                 bool hasInlineSiblings = hasInlinePseudoContent || childrenFlowInline.Value;
 
-                // If there are inline siblings, participate in inline flow
+                if (hasInlineSiblings && preserveWhitespace)
+                {
+                    var preservedRuns = new System.Collections.Generic.List<InlineRun>();
+                    AddPreservedTextRuns(textNode.Data, style, fontSize, preservedRuns);
+                    LayoutInlineRuns(preservedRuns, box, null, ref inlineX, ref childY, ref inlineLineHeight,
+                        childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
+                        LineStartFor(childY, firstLineIndentY, firstLineIndent));
+                    prevTextEndedWithSpace = false;
+                    prevInlineElementEndedWithSpace = false;
+                    continue;
+                }
+
                 if (hasInlineSiblings && !preserveWhitespace)
                 {
                     var textRuns = new System.Collections.Generic.List<InlineRun>(1)

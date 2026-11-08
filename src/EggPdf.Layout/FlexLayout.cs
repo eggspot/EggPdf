@@ -11,7 +11,7 @@ namespace EggPdf.Layout;
 /// Handles flex-direction, flex-wrap, flex-grow, flex-shrink, flex-basis,
 /// justify-content, align-items, align-self, align-content, gap, and order.
 /// </summary>
-public static class FlexLayout
+public static partial class FlexLayout
 {
     private const float DefaultFontSize = 16f;
 
@@ -406,6 +406,8 @@ public static class FlexLayout
             {
                 minMain = BlockLayout.ResolveOptionalLength(childStyle.Get("min-width"), container.ContentWidth, fontSize);
                 maxMain = BlockLayout.ResolveOptionalLength(childStyle.Get("max-width"), container.ContentWidth, fontSize);
+                if (!minMain.HasValue)
+                    minMain = AutomaticMinimumWidth(childElem, childStyle, resolver, fontSize, hasExplicitMainSize ? baseSize : (float?)null, maxMain);
             }
             else
             {
@@ -578,29 +580,7 @@ public static class FlexLayout
         }
         else if (freeSpace < 0)
         {
-            // Negative free space: absorb via flex-shrink
-            float totalShrinkWeighted = 0;
-            for (int i = 0; i < line.Items.Count; i++)
-                totalShrinkWeighted += line.Items[i].FlexShrink * line.Items[i].HypotheticalMainSize;
-
-            for (int i = 0; i < line.Items.Count; i++)
-            {
-                var item = line.Items[i];
-                if (totalShrinkWeighted > 0 && item.FlexShrink > 0)
-                {
-                    float shrinkRatio = (item.FlexShrink * item.HypotheticalMainSize) / totalShrinkWeighted;
-                    float reduction = Math.Abs(freeSpace) * shrinkRatio;
-                    item.MainSize = item.HypotheticalMainSize - reduction;
-                }
-                else
-                {
-                    item.MainSize = item.HypotheticalMainSize;
-                }
-
-                // Clamp to min/max
-                if (item.MainSize < item.MinMain) item.MainSize = item.MinMain;
-                if (item.MainSize > item.MaxMain) item.MainSize = item.MaxMain;
-            }
+            ShrinkItemsHonoringMinimums(line.Items, -freeSpace);
         }
         else
         {

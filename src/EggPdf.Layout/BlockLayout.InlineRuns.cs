@@ -22,7 +22,11 @@ public static partial class BlockLayout
         if (node is HtmlTextNode textNode)
         {
             var data = textNode.Data;
-            if (!string.IsNullOrEmpty(data))
+            if (PreservesWhitespace(parentStyle))
+            {
+                AddPreservedTextRuns(data, parentStyle, parentFontSize, runs);
+            }
+            else if (!string.IsNullOrEmpty(data))
             {
                 runs.Add(new InlineRun
                 {
@@ -148,6 +152,10 @@ public static partial class BlockLayout
             return inset > 0 ? inset + lineStart : currentInlineX;
         }
 
+        float parentBaseline = TextMeasurer.GetBaselineOffset(parentFontSize,
+            TextMeasurer.GetLineHeight(parentFontSize, parentStyle.Get("line-height")),
+            parentStyle.FontFamily, parentStyle.FontWeight, parentStyle.Get("font-style"));
+
         for (int ri = 0; ri < runs.Count; ri++)
         {
             var run = runs[ri];
@@ -172,10 +180,7 @@ public static partial class BlockLayout
                 continue;
             }
 
-            // Normalize whitespace: \n \r \t become spaces, runs of spaces
-            // collapse, edges trim — single pass (the old Replace loop
-            // reallocated the string once per collapsed pair).
-            var text = NormalizeInlineWhitespace(run.Text);
+            var text = run.KeepsSpaces ? run.Text : NormalizeInlineWhitespace(run.Text);
 
             if (text.Length == 0)
             {
@@ -207,13 +212,13 @@ public static partial class BlockLayout
                                 (runOverflowWrap == "break-word" || runOverflowWrap == "anywhere" ||
                                  runWordBreak == "break-all" || runWordBreak == "break-word");
 
-            // vertical-align: baseline (default) — every run sits on the parent line's
-            // baseline, not the line top (ascent approximated at 0.8em). A smaller run
-            // shifts down (positive); a larger run shifts up (negative) so its baseline
-            // still meets the smaller surrounding text instead of hanging below it.
-            float baselineShift = (parentFontSize - run.FontSize) * 0.8f;
+            float baselineShift = run.FontSize == parentFontSize
+                ? 0f
+                : parentBaseline - TextMeasurer.GetBaselineOffset(run.FontSize, lhRun, fontFamily, fontWeight, fontStyle, text);
 
-            var pieces = NeedsBreakablePieces(text) ? SplitIntoBreakablePieces(text) : null;
+            var pieces = run.KeepsSpaces
+                ? new List<(string Text, bool JoinsPrevious, bool EndsAtSoftHyphen)> { (text, true, false) }
+                : NeedsBreakablePieces(text) ? SplitIntoBreakablePieces(text) : null;
             int pieceIndex = 0;
             int wPos = 0;
             bool firstWord = true;
@@ -386,9 +391,33 @@ public static partial class BlockLayout
                 previousEndsAtSoftHyphen = endsAtSoftHyphen;
             }
 
-            // NBSP is rendered content, not a collapsible boundary space
             char lastRunChar = run.Text.Length > 0 ? run.Text[run.Text.Length - 1] : '\0';
-            prevRunTrailingSpace = lastRunChar != NonBreakingSpace && char.IsWhiteSpace(lastRunChar);
+            prevRunTrailingSpace = !run.KeepsSpaces && lastRunChar != NonBreakingSpace && char.IsWhiteSpace(lastRunChar);
+        }
+    }
+
+    private const int PreservedTabSize = 8;
+
+    private static void AddPreservedTextRuns(string data, ComputedStyle style, float fontSize, List<InlineRun> runs)
+    {
+        if (string.IsNullOrEmpty(data)) return;
+        bool keepsSpaces = style.Get("white-space") != "pre-line";
+        var lines = data.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (i > 0)
+                runs.Add(new InlineRun { Text = "\n", Style = style, Element = null, FontSize = fontSize });
+            var line = keepsSpaces ? TextMeasurer.ExpandTabs(lines[i], PreservedTabSize) : lines[i];
+            if (line.Length == 0) continue;
+            runs.Add(new InlineRun
+            {
+                Text = line,
+                Style = style,
+                Element = null,
+                FontSize = fontSize,
+                KeepsSpaces = keepsSpaces,
+                HasLeadingSpace = !keepsSpaces && StartsWithCollapsibleWhitespace(line),
+            });
         }
     }
 

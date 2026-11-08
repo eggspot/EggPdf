@@ -503,13 +503,10 @@ public static partial class BoxPainter
                 else if (textTransform == "capitalize") paintText = CapitalizeText(paintText);
             }
 
-            // font-variant: small-caps / font-variant-caps: small-caps → render as uppercase
             var fontVariant = box.Style.Get("font-variant");
             var fontVariantCaps = box.Style.Get("font-variant-caps");
             bool isSmallCaps = fontVariant == "small-caps" ||
                 fontVariantCaps == "small-caps" || fontVariantCaps == "all-small-caps";
-            if (isSmallCaps && !string.IsNullOrEmpty(paintText))
-                paintText = paintText.ToUpperInvariant();
 
             // Arabic contextual shaping (isolated/initial/medial/final forms, lam-alef
             // ligatures) -- must run on logical-order text, i.e. before the bidi reorder below.
@@ -728,46 +725,15 @@ public static partial class BoxPainter
                 PaintColorGlyphRun(page, paintText, pdfX, pdfY, fontName, pdfFontSize, letterSpacing,
                     color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0);
             }
-            else if (CurrentPdfDoc != null && CurrentPdfDoc.IsEmbeddedFont(fontName))
+            else if (isSmallCaps)
             {
-                var glyphIds = CurrentPdfDoc.GetGlyphIds(fontName, paintText);
-                if (glyphIds != null && glyphIds.Length > 0)
-                {
-                    // Glyphs missing from the main font route to the embedded fallback
-                    // fonts mid-run instead of painting .notdef.
-                    var fallbackFonts = CurrentPdfDoc.GetFallbackFonts(fontName);
-                    bool hasNotdef = false;
-                    for (int gi = 0; gi < glyphIds.Length; gi++)
-                        if (glyphIds[gi] == 0) { hasNotdef = true; break; }
-
-                    if (hasNotdef && fallbackFonts.Count > 0)
-                    {
-                        var runs = BuildFontFallbackRuns(paintText, fontName, fallbackFonts);
-                        page.AddTextRunsCID(runs, pdfX, pdfY, pdfFontSize,
-                            color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
-                            letterSpacing, wordSpacing);
-                    }
-                    else
-                    {
-                        page.AddTextCID(glyphIds, pdfX, pdfY, fontName, pdfFontSize,
-                            color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
-                            letterSpacing, wordSpacing);
-                    }
-                }
-                else
-                {
-                    page.AddText(paintText, pdfX, pdfY, StripWeightSuffix(fontName), pdfFontSize,
-                        color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
-                        letterSpacing, wordSpacing);
-                }
+                PaintSmallCaps(page, paintText, fontVariantCaps == "all-small-caps", pdfX, pdfY, fontName, fontSize,
+                    box.Style, color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0, letterSpacing, wordSpacing);
             }
             else
             {
-                // Non-embedded fallback: weight-suffixed names ("Arial-W600") are
-                // not valid built-in fonts — degrade to the bucketed name.
-                page.AddText(paintText, pdfX, pdfY, StripWeightSuffix(fontName), pdfFontSize,
-                    color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
-                    letterSpacing, wordSpacing);
+                EmitTextRun(page, paintText, pdfX, pdfY, fontName, pdfFontSize,
+                    color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0, letterSpacing, wordSpacing);
             }
 
             if (textAlpha < 1f)
