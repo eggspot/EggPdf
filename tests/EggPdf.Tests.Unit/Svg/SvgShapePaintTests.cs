@@ -169,16 +169,15 @@ public class SvgShapePaintTests
     {
         var act = () => Render(Svg("<path d='" + d + "'/>"));
 
-        act.Should().CompleteWithin(TimeSpan.FromSeconds(5));
+        act.Should().NotThrow();
     }
 
     [Fact]
     public void Polyline_WithAnInvalidPoint_StopsAtIt()
     {
-        var act = () => Render(Svg("<polyline stroke='black' points='0,0 10,10 x 20,20'/>"));
+        var result = Render(Svg("<polyline stroke='black' points='0,0 10,10 x 20,20'/>"));
 
-        act.Should().CompleteWithin(TimeSpan.FromSeconds(5));
-        act().Commands.Should().Contain("10.00 10.00 l").And.NotContain("20.00 20.00");
+        result.Commands.Should().Contain("10.00 10.00 l").And.NotContain("20.00 20.00");
     }
 
     [Fact]

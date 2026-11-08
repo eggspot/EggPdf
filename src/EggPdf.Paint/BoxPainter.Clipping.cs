@@ -1,4 +1,5 @@
 using System;
+using EggPdf.Core;
 using EggPdf.Layout;
 using EggPdf.Pdf;
 

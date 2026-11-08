@@ -601,7 +601,7 @@ public class PageRulesE2ETests
     }
 
     [Fact]
-    public async Task Background_BoxSpanningMultiplePages_ClampsToVisiblePortionPerPage()
+    public async Task Background_BoxSpanningMultiplePages_IsPaintedWholeAndClippedToEachPage()
     {
         // A box taller than one physical page (already proven possible by the pagination fix
         // above) used to have its background/border rectangle painted using its full,
@@ -625,14 +625,16 @@ public class PageRulesE2ETests
         const float pageHeightPt = 800f * 0.75f;
         foreach (var content in pageContents)
         {
-            foreach (Match m in Regex.Matches(content, @"([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) re f"))
-            {
-                float y = float.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
-                float h = float.Parse(m.Groups[4].Value, CultureInfo.InvariantCulture);
-                y.Should().BeGreaterOrEqualTo(-1f, "a background rect must never start above the physical page it's painted on");
-                (y + h).Should().BeLessOrEqualTo(pageHeightPt + 1f,
-                    "a background rect must never extend beyond the physical page it's painted on");
-            }
+            var clip = Regex.Match(content, @"(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) re W n\n0\.20 0\.40 0\.60 rg\n(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) re f");
+            clip.Success.Should().BeTrue("the box is painted whole, clipped to the page's content band");
+            float clipY = float.Parse(clip.Groups[2].Value, CultureInfo.InvariantCulture);
+            float clipTop = clipY + float.Parse(clip.Groups[4].Value, CultureInfo.InvariantCulture);
+            float fillY = float.Parse(clip.Groups[6].Value, CultureInfo.InvariantCulture);
+            float fillTop = fillY + float.Parse(clip.Groups[8].Value, CultureInfo.InvariantCulture);
+            clipY.Should().BeGreaterOrEqualTo(-1f);
+            clipTop.Should().BeLessOrEqualTo(pageHeightPt + 1f, "the clip never extends beyond the physical page");
+            fillY.Should().BeLessOrEqualTo(clipY + 0.5f, "the fill covers the whole visible band");
+            fillTop.Should().BeGreaterOrEqualTo(clipTop - 0.5f);
         }
     }
 

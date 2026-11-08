@@ -6,6 +6,15 @@ namespace EggPdf.Layout;
 
 public static partial class BlockLayout
 {
+    private static bool IsPaintedFormControl(HtmlElement element)
+    {
+        if (element.TagName == "progress" || element.TagName == "meter") return true;
+        if (element.TagName != "input") return false;
+        var type = element.GetAttribute("type");
+        return string.Equals(type, "checkbox", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(type, "radio", StringComparison.OrdinalIgnoreCase);
+    }
+
     internal static float CollapseMargins(float first, float second) =>
         Math.Max(0f, Math.Max(first, second)) + Math.Min(0f, Math.Min(first, second));
 

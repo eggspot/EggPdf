@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using EggPdf.Core;
 using EggPdf.Layout;
 using EggPdf.Pdf;
 using EggPdf.Svg;

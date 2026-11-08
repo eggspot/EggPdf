@@ -10,7 +10,8 @@ public static partial class FlexLayout
     private const int MaxMinContentDepth = 64;
 
     private static float? AutomaticMinimumWidth(HtmlElement element, ComputedStyle style,
-        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, float containerFontSize, float? specifiedWidth, float? maxWidth)
+        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, float containerFontSize, float? specifiedWidth, float? maxWidth,
+        float horizontalInsets)
     {
         var overflow = style.Get("overflow-x") ?? style.Get("overflow");
         if (!string.IsNullOrEmpty(overflow) && overflow != "visible" && overflow != "clip") return null;
@@ -19,6 +20,7 @@ public static partial class FlexLayout
         float minimum = element.TagName == "img" || element.TagName == "svg"
             ? BlockLayout.ResolveReplacedElementWidth(style, element, fontSize)
             : MeasureMinContentWidth(element, style, resolver, fontSize, 0);
+        minimum += horizontalInsets;
         if (specifiedWidth.HasValue) minimum = Math.Min(minimum, specifiedWidth.Value);
         if (maxWidth.HasValue) minimum = Math.Min(minimum, maxWidth.Value);
         return minimum > 0f ? minimum : null;
@@ -70,6 +72,16 @@ public static partial class FlexLayout
     }
 
     private static readonly char[] WordSeparators = { ' ', '\t', '\n', '\r', '\f' };
+
+    private static float WithMainAxisInsets(float baseSize, HtmlElement element, ComputedStyle style, LayoutBox box,
+        bool isRow, bool specifiedSize)
+    {
+        float insets = isRow ? box.PaddingLeft + box.PaddingRight : box.PaddingTop + box.PaddingBottom;
+        if (specifiedSize) return style.Get("box-sizing") == "border-box" ? baseSize : baseSize + insets;
+        if (!isRow) return baseSize;
+        bool replaced = element.TagName == "img" || element.TagName == "svg";
+        return replaced ? box.Width : baseSize + insets;
+    }
 
     private static float HorizontalSpacing(ComputedStyle style, float fontSize) =>
         BlockLayout.ResolveLength(style.Get("padding-left"), 0, fontSize) +

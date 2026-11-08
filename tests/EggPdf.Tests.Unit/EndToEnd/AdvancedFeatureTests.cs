@@ -563,7 +563,7 @@ public class AdvancedFeatureTests
         byte[] pdf = HtmlToPdf.Render(html);
         var text = PdfAssert.ValidPdf(pdf);
 
-        text.Should().Contain("6.00 826.89 150.00 15.00 re S", "the 200x20px track outline");
+        text.Should().Contain("6.38 827.27 149.25 14.25 re S", "the 200x20px track outline, stroked inside its edge");
         text.Should().Contain("88.20 12.00 re f", "60% of the inner track width is filled");
     }
 
@@ -574,7 +574,7 @@ public class AdvancedFeatureTests
         byte[] pdf = HtmlToPdf.Render(html);
         var text = PdfAssert.ValidPdf(pdf);
 
-        text.Should().Contain("6.00 826.89 150.00 15.00 re S", "the track outline");
+        text.Should().Contain("6.38 827.27 149.25 14.25 re S", "the track outline, stroked inside its edge");
         text.Should().Contain("58.80 12.00 re f", "the indeterminate bar covers a fixed portion of the track");
     }
 

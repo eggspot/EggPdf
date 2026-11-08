@@ -877,7 +877,7 @@ public static partial class BlockLayout
                 {
                     // Inline elements: collect text runs with style info and lay out word-by-word
                     var runs = new System.Collections.Generic.List<InlineRun>();
-                    CollectInlineRuns(childElem, childStyle, ResolveFontSize(childStyle.FontSize, fontSize), resolver, runs);
+                    CollectInlineRuns(childElem, style, fontSize, resolver, runs);
                     if (runs.Count > 0 && prevTextEndedWithSpace)
                     {
                         var firstRun = runs[0];
@@ -1583,7 +1583,7 @@ public static partial class BlockLayout
         box.PaddingRight = ResolveLength(style.PaddingRight ?? paddingShort, containingWidth, fontSize);
         box.PaddingBottom = ResolveLength(style.PaddingBottom ?? paddingShort, containingWidth, fontSize);
         box.PaddingLeft = ResolveLength(style.PaddingLeft ?? paddingShort, containingWidth, fontSize);
-        if (!BordersCollapse(element, style))
+        if (!BordersCollapse(element, style) && !IsPaintedFormControl(element))
         {
             box.PaddingTop += VisibleBorderWidth(style, "top", fontSize);
             box.PaddingRight += VisibleBorderWidth(style, "right", fontSize);

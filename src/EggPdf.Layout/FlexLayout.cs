@@ -399,15 +399,17 @@ public static partial class FlexLayout
                     baseSize = childBox.Height;
                 }
             }
+            baseSize = WithMainAxisInsets(baseSize, childElem, childStyle, childBox, isRow,
+                specifiedSize: (!string.IsNullOrEmpty(flexBasis) && flexBasis != "auto") || hasExplicitMainSize);
 
-            // Read min/max constraints
             float? minMain, maxMain;
             if (isRow)
             {
                 minMain = BlockLayout.ResolveOptionalLength(childStyle.Get("min-width"), container.ContentWidth, fontSize);
                 maxMain = BlockLayout.ResolveOptionalLength(childStyle.Get("max-width"), container.ContentWidth, fontSize);
                 if (!minMain.HasValue)
-                    minMain = AutomaticMinimumWidth(childElem, childStyle, resolver, fontSize, hasExplicitMainSize ? baseSize : (float?)null, maxMain);
+                    minMain = AutomaticMinimumWidth(childElem, childStyle, resolver, fontSize, hasExplicitMainSize ? baseSize : (float?)null, maxMain,
+                        childBox.PaddingLeft + childBox.PaddingRight);
             }
             else
             {

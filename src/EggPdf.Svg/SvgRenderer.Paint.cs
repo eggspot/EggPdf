@@ -116,7 +116,7 @@ public static partial class SvgRenderer
         return byId;
     }
 
-    private static Color? ResolvePaintColor(string paint, Color? whenUnset)
+    private static Color? VectorPaintColor(string paint, Color? whenUnset)
     {
         paint = paint.Trim();
         if (paint.Length == 0) return whenUnset;
@@ -155,8 +155,8 @@ public static partial class SvgRenderer
 
     private static bool ApplyShapePaint(SvgElement el, StringBuilder sb, bool canFill, out bool fill, out bool stroke)
     {
-        var fillColor = canFill ? ResolvePaintColor(el.GetAttribute("fill"), Color.Black) : null;
-        var strokeColor = ResolvePaintColor(el.GetAttribute("stroke"), null);
+        var fillColor = canFill ? VectorPaintColor(el.GetAttribute("fill"), Color.Black) : null;
+        var strokeColor = VectorPaintColor(el.GetAttribute("stroke"), null);
         float fillAlpha = fillColor.HasValue ? fillColor.Value.A / 255f * ReadOpacity(el, "fill-opacity") * _inheritedOpacity : 1f;
         float strokeAlpha = strokeColor.HasValue ? strokeColor.Value.A / 255f * ReadOpacity(el, "stroke-opacity") * _inheritedOpacity : 1f;
         if (fillAlpha <= 0f) fillColor = null;
@@ -178,7 +178,7 @@ public static partial class SvgRenderer
 
     private static bool ApplyTextPaint(SvgElement el, StringBuilder sb)
     {
-        var fillColor = ResolvePaintColor(el.GetAttribute("fill"), Color.Black);
+        var fillColor = VectorPaintColor(el.GetAttribute("fill"), Color.Black);
         if (fillColor is not { } f) return false;
         float alpha = f.A / 255f * ReadOpacity(el, "fill-opacity") * _inheritedOpacity;
         if (alpha <= 0f) return false;

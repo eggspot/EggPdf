@@ -69,7 +69,7 @@ public static class PdfGradient
 
         float centerX = x + width / 2f, centerY = y + height / 2f;
         float reach = (float)Math.Sqrt(width * width + height * height);
-        int bands = Math.Max(MinBands, Math.Min(MaxBands, (int)(lineLength / PointsPerBand)));
+        int bands = Math.Max(MinBands, Math.Min(MaxBands, (int)(lineLength / PointsPerBand))) | 1;
         float bandLength = lineLength / bands;
 
         var sb = new StringBuilder();

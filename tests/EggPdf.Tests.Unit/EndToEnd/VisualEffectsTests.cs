@@ -301,7 +301,7 @@ public class VisualEffectsTests
 
         text.Should().Contain("re W n", "the gradient must be clipped");
         text.Should().Contain("1.00 0.00 0.00 rg", "the red start of the gradient");
-        text.Should().Contain("0.98 0.00 0.03 rg", "intermediate gradient band");
+        HasIntermediateRedBlueBand(text).Should().BeTrue("intermediate gradient band");
         text.Should().Contain("/GS0 gs", "the transparent glyph fill is painted with zero alpha");
     }
 
@@ -575,8 +575,8 @@ public class VisualEffectsTests
         var text = PdfAssert.ValidPdf(pdf, "Gradient Text");
 
         text.Should().Contain("re W n");
-        text.Should().Contain("0.98 0.00 0.03 rg", "intermediate gradient band");
-        text.Should().Contain("6.00 797.01 583.28 1.22 re f", "vertical gradient bands are full-width strips");
+        HasIntermediateRedBlueBand(text).Should().BeTrue("intermediate gradient band");
+        text.Should().Contain("0 -1 1 0 ", "the gradient line runs down the box");
     }
 
     [Fact]
@@ -611,7 +611,7 @@ public class VisualEffectsTests
 
         text.Should().Contain("re W n", "the border-image gradient is clipped to the border box");
         text.Should().Contain("1.00 0.00 0.00 rg");
-        text.Should().Contain("0.98 0.00 0.03 rg", "intermediate gradient band");
+        HasIntermediateRedBlueBand(text).Should().BeTrue("intermediate gradient band");
     }
 
     [Fact]
@@ -729,8 +729,19 @@ public class VisualEffectsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "X");
 
-        text.Should().Contain("6.12 75.00 re f", "'to right' gradients are painted as narrow strips spanning the full 100px height");
+        Regex.IsMatch(text, @"\n1 0 0 1 [\d.]+ [\d.]+ cm\n").Should().BeTrue("'to right' runs the gradient line along the x axis, so the bands are vertical strips");
         text.Should().Contain("6.00 766.89 225.00 75.00 re W n", "clipped to the 300px-wide box");
+    }
+
+    private static bool HasIntermediateRedBlueBand(string text)
+    {
+        foreach (Match band in Regex.Matches(text, @"(\d\.\d\d) 0\.00 (\d\.\d\d) rg"))
+        {
+            float red = float.Parse(band.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            float blue = float.Parse(band.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
+            if (red > 0.05f && red < 0.95f && blue > 0.05f && blue < 0.95f) return true;
+        }
+        return false;
     }
 
     [Fact]

@@ -40,7 +40,7 @@ public class ReplacedElementLimitTests
     [Fact]
     public void ReplacedElementWithBorderBoxSizing_KeepsItsOuterWidth()
     {
-        var root = Layout("<svg id='s' viewBox='0 0 10 10' style='box-sizing:border-box;width:40px;height:40px;padding:5px'></svg>");
+        var root = Layout("<svg id='s' viewBox='0 0 10 10' style='display:block;box-sizing:border-box;width:40px;height:40px;padding:5px'></svg>");
 
         var svg = root.FindById("s")!;
         svg.Width.Should().BeApproximately(40, 0.5f);

@@ -19,7 +19,7 @@ public class SvgPresentationTests
 
     private static string FillBefore(string commands, string pathOperator)
     {
-        int at = commands.IndexOf(pathOperator, System.StringComparison.Ordinal);
+        int at = commands.IndexOf(pathOperator + "\n", System.StringComparison.Ordinal);
         at.Should().BeGreaterThan(-1);
         var fills = Regex.Matches(commands.Substring(0, at), @"(\d\.\d\d \d\.\d\d \d\.\d\d) rg");
         fills.Count.Should().BeGreaterThan(0, "a fill colour must be set before the shape");
@@ -47,7 +47,7 @@ public class SvgPresentationTests
     {
         var result = Render("<svg viewBox='0 0 10 10'><rect fill='red' width='5' height='5'/><circle cx='5' cy='5' r='2'/></svg>");
 
-        var afterRect = result.Commands.Substring(result.Commands.IndexOf(" re", System.StringComparison.Ordinal));
+        var afterRect = result.Commands.Substring(result.Commands.IndexOf(" re\n", System.StringComparison.Ordinal));
         afterRect.Should().Contain("0.00 0.00 0.00 rg", "an unfilled shape paints black, not the previous colour");
     }
 

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text;
+using EggPdf.Core;
 using EggPdf.Css;
 using EggPdf.Layout;
 using EggPdf.Pdf;
