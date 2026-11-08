@@ -64,6 +64,12 @@ public class LayoutBox
     /// </summary>
     public float AncestorOpacity { get; set; } = 1f;
 
+    /// <summary>
+    /// True for a box inside an author <c>position: fixed</c> element, whose coordinates are relative to the
+    /// page area (inside the <c>@page</c> margins) rather than the whole sheet; set when fixed boxes are collected.
+    /// </summary>
+    public bool FixedToPageArea { get; set; }
+
     public List<LayoutBox> Children { get; } = new();
 
     public string? TagName => Element?.TagName;

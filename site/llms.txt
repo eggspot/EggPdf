@@ -27,16 +27,18 @@ await File.WriteAllBytesAsync("output.pdf", pdf);
 ```
 
 ## Page size, margins, headers/footers
-Set with CSS, not an options object — `@page` for size/margin, `position: fixed` for running
-headers/footers (repeats on every page), `counter(page)`/`counter(pages)` for page numbers:
+Set with CSS, not an options object — `@page` for size/margin, `@page` margin boxes (`@top-center`,
+`@bottom-right`, ...) for running headers/footers in the margins, `counter(page)`/`counter(pages)` for page
+numbers. `position: fixed` repeats on every page inside the page area (like Chrome):
 ```csharp
 string html = @"
     <html><head><style>
-        @page { size: A4; margin: 20mm 15mm; }
-        .footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; }
-        .footer::after { content: ""Page "" counter(page) "" of "" counter(pages); }
+        @page {
+            size: A4; margin: 20mm 15mm;
+            @bottom-center { content: ""Page "" counter(page) "" of "" counter(pages); }
+        }
     </style></head>
-    <body><div class=""footer""></div><h1>My Document</h1></body></html>";
+    <body><h1>My Document</h1></body></html>";
 byte[] pdf = await HtmlToPdf.RenderAsync(html);
 ```
 

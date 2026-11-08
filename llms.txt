@@ -27,7 +27,8 @@ File.WriteAllBytes("output.pdf", pdf);
 
 `HtmlToPdf` is a static class -- no configurable-converter instance to construct. Page
 size/margins/orientation/headers/footers are set with CSS in the HTML itself (`@page` for
-size/margin, `position: fixed` + `counter(page)`/`counter(pages)` for running headers/footers
+size/margin, `@page` margin boxes (`@top-center`, `@bottom-right`, ...) + `counter(page)`/`counter(pages)`
+for running headers/footers; `position: fixed` repeats inside the page area, like Chrome
 -- see "Page size, margins, headers/footers" above). A `PdfRenderOptions` object is available
 for callers who'd rather set C# properties than write CSS -- it's translated into the
 equivalent `@page` rule internally, not a separate layout path:
