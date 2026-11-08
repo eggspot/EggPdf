@@ -123,7 +123,16 @@ public static partial class BlockLayout
         var whiteSpace = style.Get("white-space");
         if (whiteSpace == "nowrap" || whiteSpace == "pre") return true;
         var wrapMode = style.Get("text-wrap-mode") ?? style.Get("text-wrap");
-        return wrapMode == "nowrap";
+        return wrapMode != null && FirstTokenIs(wrapMode, "nowrap");
+    }
+
+    private static bool FirstTokenIs(string value, string token)
+    {
+        int start = 0;
+        while (start < value.Length && IsCollapsibleWhitespace(value[start])) start++;
+        if (string.CompareOrdinal(value, start, token, 0, token.Length) != 0) return false;
+        int end = start + token.Length;
+        return end == value.Length || IsCollapsibleWhitespace(value[end]);
     }
 
     private static bool StartsWithCollapsibleWhitespace(string s) => s.Length > 0 && IsCollapsibleWhitespace(s[0]);

@@ -28,10 +28,29 @@ public class InlineNoWrapTests
     [Fact]
     public void NoWrapSpanInsideWrappingText_KeepsItsWordsTogether()
     {
-        var root = Layout("<div id='d' style='width:140px'>Ship to <span id='s' style='white-space:nowrap'>Nguyen Van A, 123 Le Loi</span></div>");
+        var root = Layout("<div id='d' style='width:140px'>Ship to <span id='s' style='white-space:nowrap'>Nguyen Van A, 123 Le Loi Street</span> today</div>");
 
-        var spanWords = root.FindById("d")!.FindAll(b => b.InlineSpan?.Element.Id == "s" || (b.Text != null && b.Text.Contains("Loi")));
-        spanWords.Select(b => (int)Math.Round(b.Y)).Distinct().Should().ContainSingle("the nowrap span must not break internally");
+        var div = root.FindById("d")!;
+        var first = div.FindAll(b => b.Text != null && b.Text.Contains("Nguyen")).Single();
+        var last = div.FindAll(b => b.Text != null && b.Text.Contains("Street")).Single();
+        last.Y.Should().BeApproximately(first.Y, 0.5f, "the nowrap span must not break internally");
+        LineCount(div).Should().BeGreaterThan(1, "text outside the span still wraps");
+    }
+
+    [Fact]
+    public void TextWrapShorthandStartingWithNoWrap_StaysOnOneLine()
+    {
+        var root = Layout("<div id='d' style='width:120px;text-wrap:nowrap balance'>One two <b>three four</b> five six</div>");
+
+        LineCount(root.FindById("d")!).Should().Be(1);
+    }
+
+    [Fact]
+    public void NoWrapBlockWithLineBreakElement_StillBreaksAtBr()
+    {
+        var root = Layout("<div id='d' style='width:600px;white-space:nowrap'>One <b>two</b><br>three <b>four</b></div>");
+
+        LineCount(root.FindById("d")!).Should().Be(2);
     }
 
     [Fact]
