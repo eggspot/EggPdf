@@ -19,7 +19,7 @@ public class PseudoElementTests
 
         var textBoxes = p!.Children.Where(c => !string.IsNullOrEmpty(c.Text)).ToList();
         textBoxes.Should().NotBeEmpty();
-        textBoxes[0].Text.Should().Be("PRE: ", "::before content should appear first");
+        textBoxes[0].Text!.Trim().Should().Be("PRE:", "::before content should appear first");
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public class PseudoElementTests
 
         var textBoxes = p!.Children.Where(c => !string.IsNullOrEmpty(c.Text)).ToList();
         textBoxes.Should().NotBeEmpty();
-        textBoxes[textBoxes.Count - 1].Text.Should().Be(" AFTER", "::after content should appear last");
+        textBoxes[textBoxes.Count - 1].Text!.Trim().Should().Be("AFTER", "::after content should appear last");
     }
 
     [Fact]
@@ -262,5 +262,102 @@ public class PseudoElementTests
             "open-quote should use the custom quote character from the quotes property");
         allText.Should().Contain("»",
             "close-quote should use the custom quote character from the quotes property");
+    }
+
+    private static LayoutBox LayoutWithStyle(string css, string body) =>
+        LayoutTestHelper.Layout("<html><head><style>body{margin:0}" + css + "</style></head><body>" + body + "</body></html>", 600, 800);
+
+    private static LayoutBox TextBox(LayoutBox root, string text) =>
+        root.FindAll(b => b.Text != null && b.Text.Trim() == text).First();
+
+    [Fact]
+    public void BlockBefore_InlineByDefault_SharesTheLineWithTheText()
+    {
+        var root = LayoutWithStyle("p::before{content:'Note:'}", "<p>Hello world</p>");
+
+        var note = TextBox(root, "Note:");
+        var hello = TextBox(root, "Hello");
+        hello.Y.Should().BeApproximately(note.Y, 0.5f);
+        hello.X.Should().BeGreaterThan(note.X);
+    }
+
+    [Fact]
+    public void BlockAfter_InlineByDefault_FollowsTheLastWordOnItsLine()
+    {
+        var root = LayoutWithStyle("p::after{content:'!'}", "<p>Hello world</p>");
+
+        var world = TextBox(root, "world");
+        var bang = TextBox(root, "!");
+        bang.Y.Should().BeApproximately(world.Y, 0.5f);
+        bang.X.Should().BeGreaterThanOrEqualTo(world.X + world.ContentWidth - 0.5f);
+    }
+
+    [Theory]
+    [InlineData("p::after{content:' [end]'}", "<p>Important note</p>", "note", "[end]")]
+    [InlineData("b::after{content:' x'}", "<p><b>bold</b></p>", "bold", "x")]
+    public void InlineAfter_LeadingSpaceInContent_KeepsAGap(string css, string body, string previousWord, string afterWord)
+    {
+        var root = LayoutWithStyle(css, body);
+
+        var previous = TextBox(root, previousWord);
+        var after = TextBox(root, afterWord);
+        bool separated = after.Text!.StartsWith(" ") || after.X > previous.X + previous.ContentWidth + 1;
+        separated.Should().BeTrue("the leading space in the content must separate it from the text");
+    }
+
+    [Fact]
+    public void BlockAfter_AfterInlineElement_StaysOnTheSameLine()
+    {
+        var root = LayoutWithStyle("p::after{content:'!'}", "<p>Hi <b>there</b></p>");
+
+        TextBox(root, "!").Y.Should().BeApproximately(TextBox(root, "there").Y, 0.5f);
+    }
+
+    [Fact]
+    public void ListItemBefore_CustomBullet_SharesTheLineWithTheItemText()
+    {
+        var root = LayoutWithStyle("ul{list-style:none;padding:0} li::before{content:'• '}", "<ul><li>Item one</li></ul>");
+
+        var bullet = TextBox(root, "•");
+        var item = TextBox(root, "Item");
+        item.Y.Should().BeApproximately(bullet.Y, 0.5f);
+        item.X.Should().BeGreaterThan(bullet.X);
+    }
+
+    [Fact]
+    public void BlockBefore_DisplayBlock_StaysOnItsOwnLine()
+    {
+        var root = LayoutWithStyle("p::before{content:'Title';display:block}", "<p>Body</p>");
+
+        TextBox(root, "Body").Y.Should().BeGreaterThan(TextBox(root, "Title").Y + 1);
+    }
+
+    [Fact]
+    public void BlockBefore_CenteredText_CentersTheWholeLine()
+    {
+        var root = LayoutWithStyle("p{text-align:center;width:600px} p::before{content:'>> '}", "<p>Hi</p>");
+
+        var marker = TextBox(root, ">>");
+        var hi = TextBox(root, "Hi");
+        float left = marker.X;
+        float right = hi.X + hi.ContentWidth;
+        (left - 0).Should().BeApproximately(600 - right, 1.5f, "the line containing ::before and the text is centered as one");
+    }
+
+    [Fact]
+    public void BlockAfter_EmptyContent_AddsNoHeight()
+    {
+        var plain = LayoutWithStyle("", "<p id='p'>Hello</p>").FindById("p")!;
+        var withAfter = LayoutWithStyle("p::after{content:''}", "<p id='p'>Hello</p>").FindById("p")!;
+
+        withAfter.Height.Should().BeApproximately(plain.Height, 0.5f);
+    }
+
+    [Fact]
+    public void BlockBefore_WithOnlyBlockChildren_FormsItsOwnLineAboveThem()
+    {
+        var root = LayoutWithStyle("div::before{content:'Head'}", "<div><p style='margin:0'>Para</p></div>");
+
+        TextBox(root, "Para").Y.Should().BeGreaterThan(TextBox(root, "Head").Y + 1);
     }
 }

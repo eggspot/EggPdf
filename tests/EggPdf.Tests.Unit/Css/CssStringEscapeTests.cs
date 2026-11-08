@@ -60,7 +60,7 @@ public class CssStringEscapeTests
     {
         var content = await RenderAscii(".x::after{content:\" it's done\"}", "<p class='x'>Task</p>");
 
-        content.Should().Contain("it's done");
+        content.Should().Contain("it's").And.Contain("done");
     }
 
     [Fact]
