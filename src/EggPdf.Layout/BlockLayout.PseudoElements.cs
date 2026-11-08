@@ -61,11 +61,15 @@ public static partial class BlockLayout
         var display = pseudoStyle.Display;
         if (display == "none" || (display != null && IsBlockLevel(display))) return false;
 
-        var position = pseudoStyle.Get("position");
-        if (position == "absolute" || position == "fixed") return false;
+        return !IsOutOfFlow(pseudoStyle);
+    }
 
+    private static bool IsOutOfFlow(ComputedStyle pseudoStyle)
+    {
+        var position = pseudoStyle.Get("position");
+        if (position == "absolute" || position == "fixed") return true;
         var floatValue = pseudoStyle.Get("float");
-        return floatValue != "left" && floatValue != "right";
+        return floatValue == "left" || floatValue == "right";
     }
 
     private static void LayoutInlinePseudoElement(string content, ComputedStyle pseudoStyle, bool hasLeadingSpace,
@@ -90,8 +94,6 @@ public static partial class BlockLayout
     private static float LayoutPseudoElementLine(string content, ComputedStyle pseudoStyle, LayoutBox box,
         float childY, float containingWidth, float parentFontSize)
     {
-        if (content.Length == 0) return childY;
-
         float fontSize = ResolveFontSize(pseudoStyle.FontSize, parentFontSize);
         float lineHeight = TextMeasurer.GetLineHeight(fontSize, pseudoStyle.Get("line-height"));
         box.Children.Add(new LayoutBox
@@ -108,6 +110,58 @@ public static partial class BlockLayout
         });
         return childY + lineHeight;
     }
+
+    private static float LayoutEmptyPseudoElementBox(ComputedStyle pseudoStyle, LayoutBox box, float childY,
+        float containingWidth, float parentFontSize)
+    {
+        float fontSize = ResolveFontSize(pseudoStyle.FontSize, parentFontSize);
+        float height = ResolveLength(pseudoStyle.Get("height"), 0, fontSize);
+        float paddingTop = ResolveLength(pseudoStyle.Get("padding-top"), containingWidth, fontSize);
+        float paddingBottom = ResolveLength(pseudoStyle.Get("padding-bottom"), containingWidth, fontSize);
+        float boxHeight = height + paddingTop + paddingBottom;
+        if (boxHeight <= 0 && !HasVisibleBorder(pseudoStyle)) return childY;
+
+        float width = ResolveOptionalLength(pseudoStyle.Get("width"), containingWidth, fontSize) ?? containingWidth;
+        float marginTop = ResolveLength(pseudoStyle.Get("margin-top"), containingWidth, fontSize);
+        float marginBottom = ResolveLength(pseudoStyle.Get("margin-bottom"), containingWidth, fontSize);
+        float marginLeft = ResolveLength(pseudoStyle.Get("margin-left"), containingWidth, fontSize);
+        box.Children.Add(new LayoutBox
+        {
+            Style = pseudoStyle,
+            X = box.X + box.PaddingLeft + marginLeft,
+            Y = box.Y + box.PaddingTop + childY + marginTop,
+            Width = width,
+            Height = boxHeight,
+            ContentWidth = width,
+            ContentHeight = height,
+            PaddingTop = paddingTop,
+            PaddingBottom = paddingBottom,
+        });
+        float borders = VisibleBorderWidth(pseudoStyle, "top", fontSize) + VisibleBorderWidth(pseudoStyle, "bottom", fontSize);
+        return childY + marginTop + boxHeight + borders + marginBottom;
+    }
+
+    private static float VisibleBorderWidth(ComputedStyle style, string side, float fontSize) =>
+        IsVisibleBorderStyle(style.Get("border-" + side + "-style"))
+            ? ResolveLength(style.Get("border-" + side + "-width"), 0, fontSize)
+            : 0f;
+
+    private static bool IsBlockLevelEmptyStringPseudoElement(ComputedStyle? pseudoStyle)
+    {
+        if (pseudoStyle == null) return false;
+        var display = pseudoStyle.Display;
+        if (display == null || !IsBlockLevel(display)) return false;
+        if (IsOutOfFlow(pseudoStyle)) return false;
+        var content = pseudoStyle.Get("content")?.Trim();
+        return content == "''" || content == "\"\"";
+    }
+
+    private static bool HasVisibleBorder(ComputedStyle style) =>
+        IsVisibleBorderStyle(style.Get("border-top-style")) || IsVisibleBorderStyle(style.Get("border-right-style")) ||
+        IsVisibleBorderStyle(style.Get("border-bottom-style")) || IsVisibleBorderStyle(style.Get("border-left-style"));
+
+    private static bool IsVisibleBorderStyle(string? borderStyle) =>
+        !string.IsNullOrEmpty(borderStyle) && borderStyle != "none" && borderStyle != "hidden";
 
     private static string? ResolvePseudoElementContent(HtmlElement element, ComputedStyle pseudoStyle) =>
         _threadCounterCtx?.ResolveContent(pseudoStyle.Get("content"), element, pseudoStyle);

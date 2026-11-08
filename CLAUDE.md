@@ -77,8 +77,11 @@ reports to the user. Running it is the go-ahead for its own fixes, commits, one 
 review round, a test run, investigating something else) gets fixed, even a minor one: reproduce it with
 a failing test, fix it, and land it through the `pr` skill until it is merged. Noting it, leaving it
 for later or only opening an issue is not enough; an issue is fine as the tracker, but the fix still
-follows. Give each unrelated bug its own PR (bugs with one root cause share one) so each stays
-reviewable, and don't fold it into an unrelated change.
+follows. Batch bug fixes: when several bugs are queued, write all their fixes (and tests) on one
+branch, one commit per fix, then build and test once at the end and land them as one PR. Every
+build and test run loads the owner's PC, so don't open a PR (and rerun the suites) per bug. Keep a
+fix out of a batch only when it must ship on its own, and don't fold bug fixes into an unrelated
+feature change.
 
 - When the right behaviour is a design question (a public API change, an ambiguous spec), settle it
   with a research subagent first (the global "Questions: research them" rule), then fix it.
@@ -125,7 +128,7 @@ src/
   EggPdf.AspNetCore/   -- ASP.NET Core middleware/DI integration (API key auth, service registration)
   EggPdf.Razor/         -- Razor component/view -> PDF conversion
   EggPdf.Style/        -- (placeholder for future style resolution module)
-  EggPdf.Svg/          -- SVG parser + renderer (inline <svg>, external .svg images), filter graphs (SvgFilter*, FilterPixels)
+  EggPdf.Svg/          -- SVG parser + renderer (inline <svg>, and <img> with an .svg file or data:image/svg+xml, both painted as vectors), filter graphs (SvgFilter*, FilterPixels)
   EggPdf.Paint/        -- paints a laid-out box tree onto a PdfPage (text, backgrounds, borders, shadows, transforms)
   EggPdf.Fragmentation/ -- pure pagination computation (page breaks, orphans/widows, fixed-position collection)
 

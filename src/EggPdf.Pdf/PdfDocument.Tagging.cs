@@ -111,7 +111,7 @@ public partial class PdfDocument
         catalogDict.Append(" /MarkInfo << /Marked true >>");
         catalogDict.Append(" /ViewerPreferences << /DisplayDocTitle true >>");
         var lang = string.IsNullOrEmpty(DocumentLanguage) ? "en" : DocumentLanguage;
-        catalogDict.Append($" /Lang ({EscapePdfString(lang!)})");
+        catalogDict.Append($" /Lang {PdfTextStrings.Encode(lang!)}");
     }
 
     /// <summary>
@@ -252,9 +252,9 @@ public partial class PdfDocument
         if (_pdf2NamespaceObj != 0)
             dict.Append($" /NS {_pdf2NamespaceObj} 0 R");
         if (!string.IsNullOrEmpty(elem.Alt))
-            dict.Append($" /Alt ({EscapePdfString(elem.Alt!)})");
+            dict.Append($" /Alt {PdfTextStrings.Encode(elem.Alt!)}");
         if (!string.IsNullOrEmpty(elem.Lang))
-            dict.Append($" /Lang ({EscapePdfString(elem.Lang!)})");
+            dict.Append($" /Lang {PdfTextStrings.Encode(elem.Lang!)}");
         if (!string.IsNullOrEmpty(elem.TableScope))
             dict.Append($" /A << /O /Table /Scope /{elem.TableScope} >>");
         dict.Append(" >>");

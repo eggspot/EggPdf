@@ -149,6 +149,8 @@ public static partial class BoxPainter
         return result;
     }
 
+    private static string ImageResourceName(string imageSource) =>
+        "Img" + imageSource.GetHashCode().ToString("X8", CultureInfo.InvariantCulture);
 
     /// <summary>The element id an internal <c>#fragment</c> href targets, percent-decoded like a browser does (<c>#sec%20one</c> -> "sec one"); malformed escapes are used as written.</summary>
     private static string AnchorIdFromHref(string href)
@@ -836,7 +838,7 @@ public static partial class BoxPainter
         }
 
         // Paint image (with object-fit support)
-        if (!string.IsNullOrEmpty(box.ImageSource) && box.ImageData != null)
+        if (!string.IsNullOrEmpty(box.ImageSource) && box.ImageData != null && CurrentPdfDoc?.GetImage(ImageResourceName(box.ImageSource!)) != null)
         {
             float pdfX = effectiveX * PdfCoordinates.PxToPt;
             float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
@@ -892,14 +894,14 @@ public static partial class BoxPainter
             }
             // object-fit: fill (default) uses the box dimensions unchanged
 
-            string imgName = "Img" + box.ImageSource.GetHashCode().ToString("X8");
+            string imgName = ImageResourceName(box.ImageSource!);
             page.AddImage(imgName, pdfX, pdfY, pdfW, pdfH);
         }
 
-        // Paint inline SVG
-        if (box.Element?.TagName == "svg")
+        var svgRoot = box.Element?.TagName == "svg" ? box.Element : box.ImageSvgRoot;
+        if (svgRoot != null)
         {
-            var svgElement = SvgParser.Parse(box.Element);
+            var svgElement = SvgParser.Parse(svgRoot);
             if (svgElement != null)
             {
                 float pdfX = effectiveX * PdfCoordinates.PxToPt;
@@ -1253,19 +1255,8 @@ public static partial class BoxPainter
             return;
         }
 
-        // Register image with PDF document
-        string imgName = "BgImg" + url.GetHashCode().ToString("X8");
-        PdfImage? pdfImage = null;
-
-        if (data.Length >= 8 && data[0] == 137 && data[1] == 80 && data[2] == 78 && data[3] == 71)
-            pdfImage = PdfImage.FromPng(imgName, data);
-        else if (data.Length >= 2 && data[0] == 0xFF && data[1] == 0xD8)
-            pdfImage = PdfImage.FromJpeg(imgName, data);
-        else if (data.Length >= 4 && data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46)
-            pdfImage = PdfImage.FromGif(imgName, data);
-        else if (WebPDecoder.IsWebP(data))
-            pdfImage = PdfImage.FromWebP(imgName, data);
-
+        string imgName = "BgImg" + url.GetHashCode().ToString("X8", CultureInfo.InvariantCulture);
+        var pdfImage = PdfImage.FromEncodedImage(imgName, data);
         if (pdfImage == null) return;
 
         CurrentPdfDoc?.AddImage(pdfImage);

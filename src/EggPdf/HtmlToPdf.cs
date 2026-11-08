@@ -753,8 +753,8 @@ public static partial class HtmlToPdf
         return null;
     }
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (byte[] raw, PdfImage? image)>
-        DataUriImageCache = new System.Collections.Concurrent.ConcurrentDictionary<string, (byte[], PdfImage?)>(StringComparer.Ordinal);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (byte[] raw, PdfImage? image, HtmlElement? svgRoot)>
+        DataUriImageCache = new System.Collections.Concurrent.ConcurrentDictionary<string, (byte[], PdfImage?, HtmlElement?)>(StringComparer.Ordinal);
     private const int DataUriImageCacheMaxEntries = 32;
 
     internal static int ImageCacheHits;
@@ -764,31 +764,38 @@ public static partial class HtmlToPdf
         if (!string.IsNullOrEmpty(box.ImageSource))
         {
             bool cacheable = box.ImageSource.StartsWith("data:", StringComparison.OrdinalIgnoreCase);
+            byte[]? data;
+            PdfImage? pdfImage;
+            HtmlElement? svgRoot;
+            (byte[] raw, PdfImage? image, HtmlElement? svgRoot) cached = default;
+            bool fromCache = cacheable && DataUriImageCache.TryGetValue(box.ImageSource, out cached);
 
-            if (cacheable && DataUriImageCache.TryGetValue(box.ImageSource, out var cached))
+            if (fromCache)
             {
                 System.Threading.Interlocked.Increment(ref ImageCacheHits);
-                box.ImageData = cached.raw;
-                if (cached.image != null)
-                    pdfDoc.AddImage(cached.image);
+                (data, pdfImage, svgRoot) = cached;
             }
             else
             {
-                var data = resources.Load(box.ImageSource, Core.Resources.ResourceType.Image);
-                if (data != null)
+                data = resources.Load(box.ImageSource, Core.Resources.ResourceType.Image);
+                pdfImage = data == null ? null : DecodeImage(box.ImageSource, data);
+                svgRoot = data != null && pdfImage == null ? SvgImages.ParseRoot(data) : null;
+                if (data != null && cacheable)
                 {
-                    box.ImageData = data;
-                    var pdfImage = DecodeImage(box.ImageSource, data);
-                    if (pdfImage != null)
-                        pdfDoc.AddImage(pdfImage);
-
-                    if (cacheable)
-                    {
-                        if (DataUriImageCache.Count >= DataUriImageCacheMaxEntries)
-                            DataUriImageCache.Clear();
-                        DataUriImageCache.TryAdd(box.ImageSource, (data, pdfImage));
-                    }
+                    if (DataUriImageCache.Count >= DataUriImageCacheMaxEntries)
+                        DataUriImageCache.Clear();
+                    DataUriImageCache.TryAdd(box.ImageSource, (data, pdfImage, svgRoot));
                 }
+            }
+
+            if (data != null)
+            {
+                box.ImageData = data;
+                box.ImageSvgRoot = svgRoot;
+                if (pdfImage != null)
+                    pdfDoc.AddImage(pdfImage);
+                else if (svgRoot == null)
+                    resources.WarnImageNotDecoded(box.ImageSource);
             }
         }
 
@@ -798,32 +805,8 @@ public static partial class HtmlToPdf
 
     private static PdfImage? DecodeImage(string source, byte[] data)
     {
-        string imgName = "Img" + source.GetHashCode().ToString("X8");
-
-        if (data.Length >= 8 &&
-            data[0] == 137 && data[1] == 80 && data[2] == 78 && data[3] == 71 &&
-            data[4] == 13 && data[5] == 10 && data[6] == 26 && data[7] == 10)
-        {
-            return PdfImage.FromPng(imgName, data);
-        }
-        if (data.Length >= 2 && data[0] == 0xFF && data[1] == 0xD8)
-        {
-            return PdfImage.FromJpeg(imgName, data);
-        }
-        if (data.Length >= 4 &&
-            data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x38)
-        {
-            return PdfImage.FromGif(imgName, data);
-        }
-        if (data.Length >= 2 && data[0] == 0x42 && data[1] == 0x4D)
-        {
-            return PdfImage.FromBmp(imgName, data);
-        }
-        if (WebPDecoder.IsWebP(data))
-        {
-            return PdfImage.FromWebP(imgName, data);
-        }
-        return null;
+        string imgName = "Img" + source.GetHashCode().ToString("X8", CultureInfo.InvariantCulture);
+        return PdfImage.FromEncodedImage(imgName, data);
     }
 
     private static void SubsetAndEmbedFonts(IReadOnlyList<LayoutBox> roots, PdfDocument pdfDoc,

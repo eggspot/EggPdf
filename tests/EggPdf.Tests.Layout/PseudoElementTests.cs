@@ -399,4 +399,45 @@ public class PseudoElementTests
 
         TextBox(root, "Para").Y.Should().BeGreaterThan(TextBox(root, "Head").Y + 1);
     }
+
+    [Fact]
+    public void DecorativeAfter_EmptyContentWithSize_IsLaidOutAsASizedBox()
+    {
+        var root = LayoutWithStyle("h2{margin:0} h2::after{content:'';display:block;width:50px;height:3px;margin-top:4px;background:red}",
+            "<h2 id='h'>Title</h2>");
+
+        var heading = root.FindById("h")!;
+        var underline = heading.Children.Single(c => c.Text == null && c.Style.Get("background-color") != null);
+        underline.Width.Should().BeApproximately(50, 0.01f);
+        underline.Height.Should().BeApproximately(3, 0.01f);
+        underline.Y.Should().BeGreaterThan(TextBox(root, "Title").Y);
+    }
+
+    [Theory]
+    [InlineData("position:absolute;bottom:-8px;left:0")]
+    [InlineData("float:left")]
+    public void DecorativeAfter_OutOfFlow_DoesNotGrowTheParent(string placement)
+    {
+        var plain = LayoutWithStyle("h2{position:relative;margin:0}", "<h2 id='h'>Title</h2>").FindById("h")!;
+        var withBar = LayoutWithStyle("h2{position:relative;margin:0} h2::after{content:'';display:block;" + placement + ";width:60px;height:3px;background:red}",
+            "<h2 id='h'>Title</h2>").FindById("h")!;
+
+        withBar.Height.Should().BeApproximately(plain.Height, 0.5f);
+    }
+
+    [Fact]
+    public void DecorativeAfter_BorderOnly_PushesFollowingContentPastTheBorder()
+    {
+        var root = LayoutWithStyle("div{margin:0} div::before{content:'';display:block;border-top:6px solid red}", "<div id='d'>Text</div>");
+
+        TextBox(root, "Text").Y.Should().BeGreaterThanOrEqualTo(5.5f);
+    }
+
+    [Fact]
+    public void DecorativeAfter_EmptyContentWithOnlyABorder_IsLaidOut()
+    {
+        var root = LayoutWithStyle("h2::after{content:'';display:block;width:40px;border-bottom:2px solid blue}", "<h2 id='h'>Title</h2>");
+
+        root.FindById("h")!.Children.Should().Contain(c => c.Text == null && c.Width > 39.5f && c.Width < 40.5f);
+    }
 }

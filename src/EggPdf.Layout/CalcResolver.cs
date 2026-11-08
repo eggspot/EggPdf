@@ -4,9 +4,9 @@ using System.Globalization;
 namespace EggPdf.Layout;
 
 /// <summary>
-/// Resolves CSS calc(), min(), max(), and clamp() expressions.
-/// Converts mixed units (px, em, rem, %, pt, cm, mm, in) to pixel values.
-/// Infallible: returns 0 on parse errors.
+/// Evaluates CSS math functions (calc and the CSS Values 4 functions) with mixed units
+/// (px, em, rem, %, pt, cm, mm, in, viewport units, angles) to a single number. Infallible:
+/// malformed input evaluates to 0.
 /// </summary>
 public static class CalcResolver
 {
@@ -23,7 +23,9 @@ public static class CalcResolver
     };
 
     /// <summary>
-    /// Check if a CSS value contains a math function (calc, min, max, clamp).
+    /// True when the value starts with a CSS math function: calc, min, max, clamp, the trigonometric
+    /// functions (sin, cos, tan, asin, acos, atan, atan2), sqrt, pow, hypot, abs, sign, round, mod,
+    /// rem, log or exp.
     /// </summary>
     public static bool IsMathFunction(string value)
     {
@@ -39,8 +41,9 @@ public static class CalcResolver
     }
 
     /// <summary>
-    /// Resolve a CSS value that may contain calc(), min(), max(), or clamp().
-    /// Returns the computed value in pixels.
+    /// Evaluate a CSS value that may be or contain a math function (see <see cref="IsMathFunction"/>)
+    /// and return it in pixels; angles come back in degrees and plain numbers unchanged. Never throws:
+    /// malformed input evaluates to 0.
     /// </summary>
     public static float Resolve(string value, float containingSize, float fontSize)
     {

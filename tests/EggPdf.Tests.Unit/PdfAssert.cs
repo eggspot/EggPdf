@@ -27,6 +27,22 @@ internal static class PdfAssert
         return text;
     }
 
+    /// <summary>
+    /// Asserts every XObject a content stream draws with <c>/Name Do</c> is defined as an
+    /// indirect object in some resource dictionary, and returns how many draws there are.
+    /// </summary>
+    public static int EveryDrawnXObjectIsDefined(string text)
+    {
+        var draws = Regex.Matches(text, @"/([A-Za-z0-9_]+) Do\b");
+        foreach (Match draw in draws)
+        {
+            var name = draw.Groups[1].Value;
+            Regex.IsMatch(text, "/" + Regex.Escape(name) + @" \d+ 0 R").Should()
+                .BeTrue($"the XObject /{name} drawn by a content stream must be defined in the resources");
+        }
+        return draws.Count;
+    }
+
     /// <summary>Number of physical pages in the rendered PDF.</summary>
     public static int PageCount(string text) => Regex.Matches(text, @"/Type /Page[^s]").Count;
 

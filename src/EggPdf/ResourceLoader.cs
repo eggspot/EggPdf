@@ -148,6 +148,21 @@ internal sealed class ResourceLoader
         _ => WarningCodes.ImageLoadFailed,
     };
 
+    internal void WarnImageNotDecoded(string url) =>
+        WarnOnce(url, WarningCodes.ImageLoadFailed,
+            $"Image '{ShortenDataUri(url)}' could not be decoded as a PNG, JPEG, GIF, BMP, WebP or SVG image (unsupported format or damaged data); it is left out");
+
+    private const int MaxDataUriPrefixInMessage = 48;
+
+    private static string ShortenDataUri(string url)
+    {
+        if (!url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return url;
+        int comma = url.IndexOf(',');
+        int end = comma < 0 ? url.Length : comma;
+        if (end > MaxDataUriPrefixInMessage) end = MaxDataUriPrefixInMessage;
+        return url.Substring(0, end) + ",...";
+    }
+
     private void WarnOnce(string url, string code, string message)
     {
         if (_warnings == null) return;

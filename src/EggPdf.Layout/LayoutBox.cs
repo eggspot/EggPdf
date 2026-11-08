@@ -49,6 +49,12 @@ public class LayoutBox
     public bool IsAbsolutelyPositioned { get; set; }
     public string? ImageSource { get; set; }
     public byte[]? ImageData { get; set; }
+
+    /// <summary>
+    /// The root <c>&lt;svg&gt;</c> element parsed from <see cref="ImageData"/> when the image source
+    /// is an SVG document, painted as vector graphics into this box; null for raster images.
+    /// </summary>
+    public HtmlElement? ImageSvgRoot { get; set; }
     public List<LayoutBox> Children { get; } = new();
 
     public string? TagName => Element?.TagName;

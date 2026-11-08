@@ -73,7 +73,8 @@ public static partial class BlockLayout
     /// <summary>
     /// Resolve a ::before/::after pseudo-element for <paramref name="element"/>: its computed
     /// style and the text produced by its `content` property. Returns false when no cascade
-    /// context is active, the pseudo-element has no matching rule, or `content` yields nothing.
+    /// context is active, the pseudo-element has no matching rule, or `content` yields nothing; in
+    /// the last case <paramref name="pseudoStyle"/> is still set, so callers can lay out an empty box.
     /// </summary>
     internal static bool TryResolvePseudoContent(HtmlElement element, string pseudo, ComputedStyle parentStyle,
         out ComputedStyle? pseudoStyle, out string? content)
@@ -89,9 +90,9 @@ public static partial class BlockLayout
         if (resolved == null) return false;
 
         var text = counterCtx.ResolveContent(resolved.Get("content"), element, resolved);
+        pseudoStyle = resolved;
         if (text == null) return false;
 
-        pseudoStyle = resolved;
         content = text;
         return true;
     }

@@ -9,7 +9,7 @@ namespace EggPdf.Pdf;
 /// 4 (grayscale+alpha), 6 (RGBA) at 8-bit and 16-bit depth.
 /// Infallible: returns null on any error, never throws.
 /// </summary>
-internal static class PngDecoder
+internal static partial class PngDecoder
 {
     // PNG magic bytes: 137 80 78 71 13 10 26 10
     internal static readonly byte[] PngSignature = { 137, 80, 78, 71, 13, 10, 26, 10 };
@@ -68,8 +68,7 @@ internal static class PngDecoder
             return null;
         if (compressionMethod != 0 || filterMethod != 0)
             return null;
-        // Interlaced PNGs not supported
-        if (interlaceMethod != 0)
+        if (interlaceMethod != 0 && interlaceMethod != Adam7InterlaceMethod)
             return null;
         // Only 8-bit and 16-bit depth
         if (bitDepth != 8 && bitDepth != 16)
@@ -143,15 +142,24 @@ internal static class PngDecoder
 
         int bytesPerPixel = Math.Max(1, bitsPerPixel / 8);
         int stride = (width * bitsPerPixel + 7) / 8; // bytes per scanline (without filter byte)
-        int expectedLength = height * (stride + 1); // +1 for filter byte per row
+        byte[] unfiltered;
+        if (interlaceMethod == Adam7InterlaceMethod)
+        {
+            var deinterlaced = DeinterlaceAdam7(rawScanlines, width, height, bitsPerPixel, bytesPerPixel, stride);
+            if (deinterlaced == null)
+                return null;
+            unfiltered = deinterlaced;
+        }
+        else
+        {
+            int expectedLength = height * (stride + 1);
+            if (rawScanlines.Length < expectedLength)
+                return null;
 
-        if (rawScanlines.Length < expectedLength)
-            return null;
-
-        // Unfilter scanlines
-        byte[] unfiltered = new byte[height * stride];
-        if (!UnfilterScanlines(rawScanlines, unfiltered, height, stride, bytesPerPixel))
-            return null;
+            unfiltered = new byte[height * stride];
+            if (!UnfilterScanlines(rawScanlines, unfiltered, height, stride, bytesPerPixel))
+                return null;
+        }
 
         // Convert to 8-bit RGB or RGBA
         return ConvertPixels(unfiltered, width, height, bitDepth, colorType, channels, stride, palette, trns);
@@ -497,9 +505,9 @@ internal static class PngDecoder
         }
     }
 
-    private static bool UnfilterScanlines(byte[] raw, byte[] output, int height, int stride, int bytesPerPixel)
+    private static bool UnfilterScanlines(byte[] raw, byte[] output, int height, int stride, int bytesPerPixel, int sourceOffset = 0)
     {
-        int srcPos = 0;
+        int srcPos = sourceOffset;
         for (int y = 0; y < height; y++)
         {
             if (srcPos >= raw.Length)

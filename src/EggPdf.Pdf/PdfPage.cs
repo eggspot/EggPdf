@@ -591,13 +591,6 @@ public partial class PdfPage
 
     private static string F(float value) => value.ToString("F2", CultureInfo.InvariantCulture);
 
-    private static string EscapePdfString(string text)
-    {
-        var sb = new StringBuilder(text.Length);
-        AppendEscapedPdfString(sb, text);
-        return sb.ToString();
-    }
-
     /// <summary>
     /// Escape a PDF literal string directly into a builder — the hot text
     /// path appends into the content stream without a temporary
