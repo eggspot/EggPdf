@@ -442,12 +442,12 @@ public static partial class BlockLayout
                             rowTotalColumns = running;
                         }
                         int totalColumns, colOffset, colspan, rowspan;
-                        if (gridSlot != null)
+                        if (gridSlot is { } slot)
                         {
                             totalColumns = gridColumnCount;
-                            colOffset = gridSlot.Column;
-                            colspan = gridSlot.ColSpan;
-                            rowspan = gridSlot.RowSpan;
+                            colOffset = slot.Column;
+                            colspan = slot.ColSpan;
+                            rowspan = slot.RowSpan;
                         }
                         else
                         {

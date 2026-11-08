@@ -13,11 +13,18 @@ public static partial class BlockLayout
     private const float MinimumColumnWidthPx = 1f;
     private const float FitTolerancePx = 0.05f;
 
-    private sealed class TableCellSlot
+    private readonly struct TableCellSlot
     {
-        public int Column;
-        public int RowSpan;
-        public int ColSpan;
+        public TableCellSlot(int column, int rowSpan, int colSpan)
+        {
+            Column = column;
+            RowSpan = rowSpan;
+            ColSpan = colSpan;
+        }
+
+        public int Column { get; }
+        public int RowSpan { get; }
+        public int ColSpan { get; }
     }
 
     private sealed class TableGrid
@@ -38,6 +45,14 @@ public static partial class BlockLayout
         public float[] MinContent { get; }
         public float[] MaxContent { get; }
         public bool[] Explicit { get; }
+        public bool HasMinContent { get; set; }
+
+        public float TotalMaxContent()
+        {
+            float total = 0f;
+            foreach (var width in MaxContent) total += width;
+            return total;
+        }
     }
 
     [ThreadStatic]
@@ -62,7 +77,7 @@ public static partial class BlockLayout
         if (table == null) return null;
         var grid = GridFor(table);
         columnCount = grid.ColumnCount;
-        return grid.Cells.TryGetValue(cell, out var slot) ? slot : null;
+        return grid.Cells.TryGetValue(cell, out var slot) ? slot : (TableCellSlot?)null;
     }
 
     private static int RowSpanOf(HtmlElement? cell)
@@ -123,7 +138,7 @@ public static partial class BlockLayout
                     while (occupiedUntilRow.Count <= k) occupiedUntilRow.Add(0);
                     occupiedUntilRow[k] = row + rowspan;
                 }
-                grid.Cells[cell] = new TableCellSlot { Column = column, RowSpan = Math.Max(1, rowspan), ColSpan = colspan };
+                grid.Cells[cell] = new TableCellSlot(column, Math.Max(1, rowspan), colspan);
                 column += colspan;
             }
         }
@@ -234,12 +249,14 @@ public static partial class BlockLayout
     }
 
     private static TableColumnMeasure MeasureTableColumns(HtmlElement table, int columnCount, float availableWidth, float fontSize,
-        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
+        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle, bool includeMinContent)
     {
         _tableColumnMeasureCache ??= new Dictionary<HtmlElement, TableColumnMeasure>();
-        if (_tableColumnMeasureCache.TryGetValue(table, out var cached) && cached.MaxContent.Length == columnCount) return cached;
+        if (_tableColumnMeasureCache.TryGetValue(table, out var cached) && cached.MaxContent.Length == columnCount &&
+            (cached.HasMinContent || !includeMinContent))
+            return cached;
 
-        var measure = new TableColumnMeasure(columnCount);
+        var measure = new TableColumnMeasure(columnCount) { HasMinContent = includeMinContent };
         var grid = GridFor(table);
         var tableStyle = resolver(table, parentStyle);
         bool collapse = tableStyle.Get("border-collapse") == "collapse";
@@ -257,7 +274,9 @@ public static partial class BlockLayout
                            + Math.Max(0f, ResolveLength(cellStyle.PaddingRight, 0, cellFontSize));
             if (!collapse) insets += VisibleBorderWidth(cellStyle, "left", cellFontSize) + VisibleBorderWidth(cellStyle, "right", cellFontSize);
 
-            float min = FlexLayout.MeasureMinContentWidth(cell, cellStyle, resolver, cellFontSize, 0) + insets + FitTolerancePx;
+            float min = includeMinContent
+                ? FlexLayout.MeasureMinContentWidth(cell, cellStyle, resolver, cellFontSize, 0) + insets + FitTolerancePx
+                : 0f;
             float max = Math.Max(min, FlexLayout.MeasureMaxContentWidth(cell, cellStyle, resolver, cellFontSize) + insets + FitTolerancePx);
             var specified = cellStyle.Width;
             if (!string.IsNullOrEmpty(specified) && specified != "auto" && slot.ColSpan == 1 &&
@@ -424,7 +443,8 @@ public static partial class BlockLayout
             spacing = !string.IsNullOrEmpty(spacingValue) ? ResolveLength(spacingValue, 0, fontSize) : 2f;
         }
         float spacingTotal = grid.ColumnCount > 1 ? spacing * (grid.ColumnCount - 1) : 0f;
-        var measure = MeasureTableColumns(table, grid.ColumnCount, box.ContentWidth - spacingTotal, fontSize, resolver, parentStyle);
+        var measure = MeasureTableColumns(table, grid.ColumnCount, box.ContentWidth - spacingTotal, fontSize, resolver, parentStyle,
+            includeMinContent: false);
         float preferred = spacingTotal;
         for (int c = 0; c < grid.ColumnCount; c++) preferred += measure.MaxContent[c];
         preferred = Math.Max(preferred, CaptionMinContentWidth(table, style, fontSize, resolver));

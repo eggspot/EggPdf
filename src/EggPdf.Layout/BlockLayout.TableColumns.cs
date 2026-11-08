@@ -111,7 +111,9 @@ public static partial class BlockLayout
             return fixedWidths;
         }
 
-        var measure = MeasureTableColumns(tableElement, totalColumns, availableWidth, fontSize, resolver, parentStyle);
+        var measure = MeasureTableColumns(tableElement, totalColumns, availableWidth, fontSize, resolver, parentStyle, includeMinContent: false);
+        if (measure.TotalMaxContent() > availableWidth)
+            measure = MeasureTableColumns(tableElement, totalColumns, availableWidth, fontSize, resolver, parentStyle, includeMinContent: true);
         var tableWidth = tableStyle.Width;
         bool tableHasWidth = !string.IsNullOrEmpty(tableWidth) && tableWidth != "auto";
         var result = DistributeColumnWidths(measure, availableWidth, tableHasWidth);
