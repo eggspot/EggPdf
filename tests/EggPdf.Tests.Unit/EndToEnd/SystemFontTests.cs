@@ -39,10 +39,10 @@ public class SystemFontTests
     [Fact]
     public void UsesInstalledSystemFamilies_FindsInlineAndStylesheetFamilies()
     {
-        var inline = Html.HtmlParser.Parse("<p style='font-family: Verdana'>x</p>");
+        var inline = EggPdf.Html.HtmlParser.Parse("<p style='font-family: Verdana'>x</p>");
         HtmlToPdf.UsesInstalledSystemFamilies(inline, null, OnlyVerdana).Should().BeTrue();
 
-        var standard = Html.HtmlParser.Parse("<p style='font-family: Arial'>x</p>");
+        var standard = EggPdf.Html.HtmlParser.Parse("<p style='font-family: Arial'>x</p>");
         HtmlToPdf.UsesInstalledSystemFamilies(standard, null, OnlyVerdana).Should().BeFalse();
     }
 

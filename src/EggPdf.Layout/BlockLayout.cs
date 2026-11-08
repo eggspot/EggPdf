@@ -412,7 +412,8 @@ public static partial class BlockLayout
                     if ((IsTableRow(style.Display) && IsTableCell(childStyle.Display)) || isImplicitRow)
                     {
                         if (isImplicitRow) actsAsImplicitTableRow = true;
-                        var gridSlot = isImplicitRow ? null : CellSlot(element, childElem, out int gridColumnCount);
+                        int gridColumnCount = 0;
+                        var gridSlot = isImplicitRow ? null : CellSlot(element, childElem, out gridColumnCount);
                         if (gridSlot == null && rowCellColOffsets == null)
                         {
                             rowCellColOffsets = new Dictionary<HtmlElement, int>();

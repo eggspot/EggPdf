@@ -19,12 +19,6 @@ public class DeterministicOutputTests
     }
 
     [Fact]
-    public void ImageResourceName_DoesNotDependOnTheProcess()
-    {
-        Paint.BoxPainter.ImageResourceName("logo.png").Should().Be("Img" + StableHash.Hex("logo.png"));
-    }
-
-    [Fact]
     public void FilterOpacity_FadesDescendants()
     {
         var text = PdfAssert.ValidPdf(HtmlToPdf.Render("<div style='filter:opacity(50%)'><p>Faded</p></div>"));

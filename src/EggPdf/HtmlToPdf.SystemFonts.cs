@@ -39,7 +39,18 @@ public static partial class HtmlToPdf
         return null;
     }
 
-    private static bool IsInstalledSystemFamily(string family) => Text.SystemFontLocator.FindFont(family) != null;
+    private const int InstalledFamilyCacheMaxEntries = 1024;
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> InstalledFamilyCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private static bool IsInstalledSystemFamily(string family)
+    {
+        if (InstalledFamilyCache.TryGetValue(family, out bool known)) return known;
+        bool installed = Text.SystemFontLocator.HasFamily(family);
+        if (InstalledFamilyCache.Count < InstalledFamilyCacheMaxEntries) InstalledFamilyCache.TryAdd(family, installed);
+        return installed;
+    }
 
     internal static bool UsesInstalledSystemFamilies(HtmlDocument document, IReadOnlyList<CssStyleSheet>? stylesheets,
         Func<string, bool> isInstalled)

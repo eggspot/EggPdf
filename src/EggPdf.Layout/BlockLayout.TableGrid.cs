@@ -11,10 +11,10 @@ public static partial class BlockLayout
     private const int MaxColspan = 1000;
     private const int MaxRowspan = 65534;
     private const float MinimumColumnWidthPx = 1f;
+    private const float FitTolerancePx = 0.05f;
 
     private sealed class TableCellSlot
     {
-        public int Row;
         public int Column;
         public int RowSpan;
         public int ColSpan;
@@ -123,7 +123,7 @@ public static partial class BlockLayout
                     while (occupiedUntilRow.Count <= k) occupiedUntilRow.Add(0);
                     occupiedUntilRow[k] = row + rowspan;
                 }
-                grid.Cells[cell] = new TableCellSlot { Row = row, Column = column, RowSpan = Math.Max(1, rowspan), ColSpan = colspan };
+                grid.Cells[cell] = new TableCellSlot { Column = column, RowSpan = Math.Max(1, rowspan), ColSpan = colspan };
                 column += colspan;
             }
         }
@@ -257,8 +257,8 @@ public static partial class BlockLayout
                            + Math.Max(0f, ResolveLength(cellStyle.PaddingRight, 0, cellFontSize));
             if (!collapse) insets += VisibleBorderWidth(cellStyle, "left", cellFontSize) + VisibleBorderWidth(cellStyle, "right", cellFontSize);
 
-            float min = FlexLayout.MeasureMinContentWidth(cell, cellStyle, resolver, cellFontSize, 0) + insets;
-            float max = Math.Max(min, FlexLayout.MeasureMaxContentWidth(cell, cellStyle, resolver, cellFontSize) + insets);
+            float min = FlexLayout.MeasureMinContentWidth(cell, cellStyle, resolver, cellFontSize, 0) + insets + FitTolerancePx;
+            float max = Math.Max(min, FlexLayout.MeasureMaxContentWidth(cell, cellStyle, resolver, cellFontSize) + insets + FitTolerancePx);
             var specified = cellStyle.Width;
             if (!string.IsNullOrEmpty(specified) && specified != "auto" && slot.ColSpan == 1 &&
                 ResolveOptionalLength(specified, availableWidth, cellFontSize) is float explicitWidth)
@@ -392,6 +392,22 @@ public static partial class BlockLayout
         return widths;
     }
 
+    private static float CaptionMinContentWidth(HtmlElement table, ComputedStyle tableStyle, float fontSize,
+        Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver)
+    {
+        float widest = 0f;
+        foreach (var node in table.ChildNodes)
+        {
+            if (node is not HtmlElement { TagName: "caption" } caption) continue;
+            var captionStyle = resolver(caption, tableStyle);
+            float captionFontSize = ResolveFontSize(captionStyle.FontSize, fontSize);
+            float insets = Math.Max(0f, ResolveLength(captionStyle.PaddingLeft, 0, captionFontSize))
+                           + Math.Max(0f, ResolveLength(captionStyle.PaddingRight, 0, captionFontSize));
+            widest = Math.Max(widest, FlexLayout.MeasureMinContentWidth(caption, captionStyle, resolver, captionFontSize, 0) + insets + FitTolerancePx);
+        }
+        return widest;
+    }
+
     private static void ShrinkTableToContent(LayoutBox box, HtmlElement table, ComputedStyle style, float fontSize,
         Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
     {
@@ -411,6 +427,7 @@ public static partial class BlockLayout
         var measure = MeasureTableColumns(table, grid.ColumnCount, box.ContentWidth - spacingTotal, fontSize, resolver, parentStyle);
         float preferred = spacingTotal;
         for (int c = 0; c < grid.ColumnCount; c++) preferred += measure.MaxContent[c];
+        preferred = Math.Max(preferred, CaptionMinContentWidth(table, style, fontSize, resolver));
         float preferredBox = preferred + box.PaddingLeft + box.PaddingRight;
         if (preferredBox >= box.Width) return;
 
