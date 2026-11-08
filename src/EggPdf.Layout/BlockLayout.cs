@@ -510,20 +510,25 @@ public static partial class BlockLayout
                             if (hasBlockChild) predictedTopMargin = Math.Max(prevMarginBottom, predictedTopMargin);
                         }
                         float childFloatOriginY = floatOriginY + box.PaddingTop + childY + predictedTopMargin;
-                        var childBox = CreateBox(childElem, childStyle, box, childContainingWidth, resolver, style,
+                        float childBoxContainingWidth = isFloatChild
+                            ? FloatShrinkToFitContainingWidth(childElem, childStyle, childContainingWidth, fontSize, resolver)
+                            : childContainingWidth;
+                        var childBox = CreateBox(childElem, childStyle, box, childBoxContainingWidth, resolver, style,
                             ambientFloats: isFloatChild ? null : floatCtx,
                             floatOriginY: isFloatChild ? 0f : childFloatOriginY);
 
                         if (isFloatChild)
                         {
-                            // Float: removed from normal flow — position at edge, don't increment childY.
                             childBox.IsFloat = true;
                             childBox.Y = box.Y + box.PaddingTop + childY;
 
-                            if (floatValue == "right")
-                                childBox.X = box.X + box.PaddingLeft + box.ContentWidth - childBox.Width;
-                            else
-                                childBox.X = box.X + box.PaddingLeft + childBox.MarginLeft;
+                            float floatTargetX = floatValue == "right"
+                                ? box.X + box.PaddingLeft + box.ContentWidth - childBox.Width - childBox.MarginRight
+                                : box.X + box.PaddingLeft + childBox.MarginLeft;
+                            float floatDeltaX = floatTargetX - childBox.X;
+                            childBox.X = floatTargetX;
+                            if (Math.Abs(floatDeltaX) > 0.01f)
+                                FlexLayout.OffsetChildren(childBox, floatDeltaX, 0f);
 
                             box.Children.Add(childBox);
 
