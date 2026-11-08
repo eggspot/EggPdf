@@ -57,6 +57,13 @@ public class LayoutBox
     /// is an SVG document, painted as vector graphics into this box; null for raster images.
     /// </summary>
     public HtmlElement? ImageSvgRoot { get; set; }
+
+    /// <summary>
+    /// The product of the <c>opacity</c> of every ancestor box (1 when none is translucent); the
+    /// painter multiplies it with the box's own opacity so a translucent element fades its descendants too.
+    /// </summary>
+    public float AncestorOpacity { get; set; } = 1f;
+
     public List<LayoutBox> Children { get; } = new();
 
     public string? TagName => Element?.TagName;

@@ -61,8 +61,8 @@ public static class BarcodeGenerator
         if (string.IsNullOrEmpty(data)) return "";
 
         var sb = new StringBuilder();
-        sb.AppendLine("q");
-        sb.AppendLine("0 0 0 rg"); // black
+        sb.AppendOpLine("q");
+        sb.AppendOpLine("0 0 0 rg"); // black
 
         // Calculate bar widths
         int totalModules = 11 + data.Length * 11 + 13 + 2; // start + data + checksum + stop
@@ -95,7 +95,7 @@ public static class BarcodeGenerator
         int[] stopPattern = { 2, 3, 3, 1, 1, 1, 2 };
         DrawPattern(sb, stopPattern, xPos, y, moduleWidth, height);
 
-        sb.AppendLine("Q");
+        sb.AppendOpLine("Q");
         return sb.ToString();
     }
 
@@ -124,8 +124,8 @@ public static class BarcodeGenerator
         };
 
         var sb = new StringBuilder();
-        sb.AppendLine("q");
-        sb.AppendLine("0 0 0 rg");
+        sb.AppendOpLine("q");
+        sb.AppendOpLine("0 0 0 rg");
 
         // Total modules: 3 (start) + 42 (left) + 5 (center) + 42 (right) + 3 (end) = 95
         float moduleWidth = width / 95f;
@@ -176,7 +176,7 @@ public static class BarcodeGenerator
         xPos += moduleWidth;
         xPos = DrawBar(sb, xPos, y, moduleWidth, height);
 
-        sb.AppendLine("Q");
+        sb.AppendOpLine("Q");
         return sb.ToString();
     }
 
@@ -189,18 +189,18 @@ public static class BarcodeGenerator
             float barWidth = w * moduleWidth;
             if (isBar && barWidth > 0)
             {
-                sb.AppendLine($"{F(xPos)} {F(y)} {F(barWidth)} {F(height)} re");
+                sb.AppendOpLine($"{F(xPos)} {F(y)} {F(barWidth)} {F(height)} re");
             }
             xPos += barWidth;
             isBar = !isBar;
         }
-        sb.AppendLine("f");
+        sb.AppendOpLine("f");
         return xPos;
     }
 
     private static float DrawBar(StringBuilder sb, float x, float y, float moduleWidth, float height)
     {
-        sb.AppendLine($"{F(x)} {F(y)} {F(moduleWidth)} {F(height)} re f");
+        sb.AppendOpLine($"{F(x)} {F(y)} {F(moduleWidth)} {F(height)} re f");
         return x + moduleWidth;
     }
 

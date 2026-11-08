@@ -130,10 +130,10 @@ public static partial class SvgRenderer
 
         // The image's unit square has y up while local SVG space has y down: flip it back
         float drawW = canvasW / pxPerUnit, drawH = canvasH / pxPerUnit;
-        sb.AppendLine("q");
-        sb.AppendLine($"{F(drawW)} 0 0 {F(-drawH)} {F(rx)} {F(ry + drawH)} cm");
-        sb.AppendLine($"/{imgName} Do");
-        sb.AppendLine("Q");
+        sb.AppendOpLine("q");
+        sb.AppendOpLine($"{F(drawW)} 0 0 {F(-drawH)} {F(rx)} {F(ry + drawH)} cm");
+        sb.AppendOpLine($"/{imgName} Do");
+        sb.AppendOpLine("Q");
         return true;
     }
 

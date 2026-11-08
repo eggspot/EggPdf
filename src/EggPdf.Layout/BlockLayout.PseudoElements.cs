@@ -107,10 +107,12 @@ public static partial class BlockLayout
     {
         float fontSize = ResolveFontSize(pseudoStyle.FontSize, parentFontSize);
         float height = ResolveLength(pseudoStyle.Get("height"), 0, fontSize);
-        float paddingTop = ResolveLength(pseudoStyle.Get("padding-top"), containingWidth, fontSize);
-        float paddingBottom = ResolveLength(pseudoStyle.Get("padding-bottom"), containingWidth, fontSize);
+        float paddingTop = ResolveLength(pseudoStyle.Get("padding-top"), containingWidth, fontSize)
+                           + VisibleBorderWidth(pseudoStyle, "top", fontSize);
+        float paddingBottom = ResolveLength(pseudoStyle.Get("padding-bottom"), containingWidth, fontSize)
+                              + VisibleBorderWidth(pseudoStyle, "bottom", fontSize);
         float boxHeight = height + paddingTop + paddingBottom;
-        if (boxHeight <= 0 && !HasVisibleBorder(pseudoStyle)) return childY;
+        if (boxHeight <= 0) return childY;
 
         float width = ResolveOptionalLength(pseudoStyle.Get("width"), containingWidth, fontSize) ?? containingWidth;
         float marginTop = ResolveLength(pseudoStyle.Get("margin-top"), containingWidth, fontSize);
@@ -128,18 +130,42 @@ public static partial class BlockLayout
             PaddingTop = paddingTop,
             PaddingBottom = paddingBottom,
         });
-        float borders = VisibleBorderWidth(pseudoStyle, "top", fontSize) + VisibleBorderWidth(pseudoStyle, "bottom", fontSize);
-        return childY + marginTop + boxHeight + borders + marginBottom;
+        return childY + marginTop + boxHeight + marginBottom;
     }
 
     private const float ThinBorderWidth = 1f;
     private const float MediumBorderWidth = 3f;
     private const float ThickBorderWidth = 5f;
 
+    private static bool BordersCollapse(HtmlElement element, ComputedStyle style)
+    {
+        var tag = element.TagName;
+        return (tag == "td" || tag == "th" || tag == "tr" || tag == "table" || tag == "thead" || tag == "tbody" || tag == "tfoot") &&
+               style.Get("border-collapse") == "collapse";
+    }
+
     private static float VisibleBorderWidth(ComputedStyle style, string side, float fontSize)
     {
-        if (!IsVisibleBorderStyle(style.Get("border-" + side + "-style"))) return 0f;
-        var width = style.Get("border-" + side + "-width");
+        var (styleProperty, widthProperty) = BorderSideProperties(side);
+        if (!IsVisibleBorderStyle(style.Get(styleProperty) ?? style.Get("border-style"))) return 0f;
+        var width = style.Get(widthProperty) ?? style.Get("border-width");
+        if (width != null && width.IndexOf(' ') > 0) width = width.Substring(0, width.IndexOf(' '));
+        return BorderWidthKeyword(width, fontSize);
+    }
+
+    private static (string Style, string Width) BorderSideProperties(string side)
+    {
+        switch (side)
+        {
+            case "top": return ("border-top-style", "border-top-width");
+            case "right": return ("border-right-style", "border-right-width");
+            case "bottom": return ("border-bottom-style", "border-bottom-width");
+            default: return ("border-left-style", "border-left-width");
+        }
+    }
+
+    internal static float BorderWidthKeyword(string? width, float fontSize)
+    {
         switch (width)
         {
             case null:
@@ -160,10 +186,6 @@ public static partial class BlockLayout
         var content = pseudoStyle.Get("content")?.Trim();
         return content == "''" || content == "\"\"";
     }
-
-    private static bool HasVisibleBorder(ComputedStyle style) =>
-        IsVisibleBorderStyle(style.Get("border-top-style")) || IsVisibleBorderStyle(style.Get("border-right-style")) ||
-        IsVisibleBorderStyle(style.Get("border-bottom-style")) || IsVisibleBorderStyle(style.Get("border-left-style"));
 
     private static bool IsVisibleBorderStyle(string? borderStyle) =>
         !string.IsNullOrEmpty(borderStyle) && borderStyle != "none" && borderStyle != "hidden";

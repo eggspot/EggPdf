@@ -52,8 +52,8 @@ public static class PdfRadialGradient
         float maxRadius = (float)Math.Sqrt(width * width + height * height) / 2;
 
         var sb = new StringBuilder();
-        sb.AppendLine("q");
-        sb.AppendLine($"{F(x)} {F(y)} {F(width)} {F(height)} re W n"); // clip
+        sb.AppendOpLine("q");
+        sb.AppendOpLine($"{F(x)} {F(y)} {F(width)} {F(height)} re W n"); // clip
 
         // Draw concentric circles from outside in (inner colors paint over outer)
         int bands = 30;
@@ -66,12 +66,12 @@ public static class PdfRadialGradient
 
             if (radius < 0.5f) radius = 0.5f;
 
-            sb.AppendLine($"{F(r)} {F(g)} {F(b)} rg");
+            sb.AppendOpLine($"{F(r)} {F(g)} {F(b)} rg");
             DrawCircle(sb, cx, cy, radius);
-            sb.AppendLine("f");
+            sb.AppendOpLine("f");
         }
 
-        sb.AppendLine("Q");
+        sb.AppendOpLine("Q");
         return sb.ToString();
     }
 
@@ -82,7 +82,7 @@ public static class PdfRadialGradient
         sb.Append($"{F(cx + r)} {F(cy + k)} {F(cx + k)} {F(cy + r)} {F(cx)} {F(cy + r)} c ");
         sb.Append($"{F(cx - k)} {F(cy + r)} {F(cx - r)} {F(cy + k)} {F(cx - r)} {F(cy)} c ");
         sb.Append($"{F(cx - r)} {F(cy - k)} {F(cx - k)} {F(cy - r)} {F(cx)} {F(cy - r)} c ");
-        sb.AppendLine($"{F(cx + k)} {F(cy - r)} {F(cx + r)} {F(cy - k)} {F(cx + r)} {F(cy)} c h");
+        sb.AppendOpLine($"{F(cx + k)} {F(cy - r)} {F(cx + r)} {F(cy - k)} {F(cx + r)} {F(cy)} c h");
     }
 
     private static List<string> SplitArgs(string args)

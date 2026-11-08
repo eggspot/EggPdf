@@ -783,7 +783,7 @@ public static partial class HtmlToPdf
             {
                 data = resources.Load(box.ImageSource, Core.Resources.ResourceType.Image);
                 pdfImage = data == null ? null : DecodeImage(box.ImageSource, data);
-                svgRoot = data != null && pdfImage == null ? SvgImages.ParseRoot(data) : null;
+                svgRoot = data != null && pdfImage == null ? EggPdf.Svg.SvgImageDocument.ParseRoot(data) : null;
                 long entryBytes = data == null ? 0 : CachedImageBytes(data, pdfImage);
                 if (data != null && cacheable && entryBytes <= DataUriImageCacheMaxBytes)
                 {

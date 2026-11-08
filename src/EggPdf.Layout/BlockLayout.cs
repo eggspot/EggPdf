@@ -57,6 +57,11 @@ public static partial class BlockLayout
         public HtmlElement? Element;
         public float FontSize;
         public bool HasLeadingSpace;
+        public bool KeepsSpaces;
+        public float StartInset;
+        public float EndInset;
+        public float StartMargin;
+        public float EndMargin;
     }
 
     /// <summary>
@@ -266,7 +271,10 @@ public static partial class BlockLayout
         // Layout children using inline formatting context awareness
         float childY = 0;
         float childContainingWidth = isMultiColumn ? multiColWidth : box.ContentWidth;
-        float prevMarginBottom = 0; // for margin collapsing
+        float prevMarginBottom = 0;
+        float childYAfterLastBlock = float.NaN;
+        float marginCollapsedThroughTop = 0f;
+        bool collapsesWithChildren = !isMultiColumn && CollapsesMarginsWithChildren(element, style, parentStyle);
         float inlineX = 0; // current X offset within the inline line
         float inlineLineHeight = 0; // max height of current inline line
         bool lastWasTextNode = false; // track if previous child was a text node (for <br> handling)
@@ -543,7 +551,8 @@ public static partial class BlockLayout
                             float predictedFontSize = ResolveFontSize(childStyle.FontSize, fontSize);
                             predictedTopMargin = ResolveLength(childStyle.MarginTop ?? childStyle.Get("margin"),
                                 childContainingWidth, predictedFontSize);
-                            if (hasBlockChild) predictedTopMargin = Math.Max(prevMarginBottom, predictedTopMargin);
+                            if (hasBlockChild) predictedTopMargin = CollapseMargins(prevMarginBottom, predictedTopMargin);
+                            else if (childY == 0f && collapsesWithChildren && box.PaddingTop == 0f) predictedTopMargin = 0f;
                         }
                         float childFloatOriginY = floatOriginY + box.PaddingTop + childY + predictedTopMargin;
                         float childBoxContainingWidth = isFloatChild
@@ -603,10 +612,14 @@ public static partial class BlockLayout
                             // clear was already resolved above (before CreateBox recursed into
                             // this child), so childY here is already post-clear.
 
-                            // Margin collapsing between adjacent block siblings
                             float effectiveTopMargin = hasBlockChild
-                                ? Math.Max(prevMarginBottom, childBox.MarginTop)
+                                ? CollapseMargins(prevMarginBottom, childBox.MarginTop)
                                 : childBox.MarginTop;
+                            if (!hasBlockChild && childY == 0f && collapsesWithChildren && box.PaddingTop == 0f)
+                            {
+                                marginCollapsedThroughTop = childBox.MarginTop;
+                                effectiveTopMargin = 0f;
+                            }
 
                             childBox.Y = box.Y + box.PaddingTop + childY + effectiveTopMargin;
                             childBox.X = box.X + box.PaddingLeft + childBox.MarginLeft;
@@ -636,6 +649,7 @@ public static partial class BlockLayout
                             {
                                 childY += effectiveTopMargin + childBox.Height;
                                 prevMarginBottom = childBox.MarginBottom;
+                                childYAfterLastBlock = childY;
                             }
                         }
                         lastWasTextNode = false;
@@ -863,7 +877,7 @@ public static partial class BlockLayout
                 {
                     // Inline elements: collect text runs with style info and lay out word-by-word
                     var runs = new System.Collections.Generic.List<InlineRun>();
-                    CollectInlineRuns(childElem, childStyle, ResolveFontSize(childStyle.FontSize, fontSize), resolver, runs);
+                    CollectInlineRuns(childElem, style, fontSize, resolver, runs);
                     if (runs.Count > 0 && prevTextEndedWithSpace)
                     {
                         var firstRun = runs[0];
@@ -910,7 +924,18 @@ public static partial class BlockLayout
                 childrenFlowInline ??= HasInlineElementSiblings(element, style, resolver);
                 bool hasInlineSiblings = hasInlinePseudoContent || childrenFlowInline.Value;
 
-                // If there are inline siblings, participate in inline flow
+                if (hasInlineSiblings && preserveWhitespace)
+                {
+                    var preservedRuns = new System.Collections.Generic.List<InlineRun>();
+                    AddPreservedTextRuns(textNode.Data, style, fontSize, preservedRuns);
+                    LayoutInlineRuns(preservedRuns, box, null, ref inlineX, ref childY, ref inlineLineHeight,
+                        childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
+                        LineStartFor(childY, firstLineIndentY, firstLineIndent));
+                    prevTextEndedWithSpace = false;
+                    prevInlineElementEndedWithSpace = false;
+                    continue;
+                }
+
                 if (hasInlineSiblings && !preserveWhitespace)
                 {
                     var textRuns = new System.Collections.Generic.List<InlineRun>(1)
@@ -1479,9 +1504,20 @@ public static partial class BlockLayout
                 }
             }
 
+            if (!isMultiColumn && hasBlockChild && childY == childYAfterLastBlock && prevMarginBottom != 0f)
+            {
+                bool collapsesThroughBottom = collapsesWithChildren && box.PaddingBottom == 0f &&
+                                              string.IsNullOrEmpty(style.Get("min-height"));
+                if (collapsesThroughBottom)
+                    box.MarginBottom = CollapseMargins(box.MarginBottom, prevMarginBottom);
+                else
+                    childY += prevMarginBottom;
+            }
             box.ContentHeight = childY;
             box.Height = childY + box.PaddingTop + box.PaddingBottom;
         }
+        if (marginCollapsedThroughTop != 0f)
+            box.MarginTop = CollapseMargins(box.MarginTop, marginCollapsedThroughTop);
 
         // aspect-ratio: when height is auto (no explicit height), derive it from width and ratio
         if (!specifiedHeight.HasValue)
@@ -1547,8 +1583,14 @@ public static partial class BlockLayout
         box.PaddingRight = ResolveLength(style.PaddingRight ?? paddingShort, containingWidth, fontSize);
         box.PaddingBottom = ResolveLength(style.PaddingBottom ?? paddingShort, containingWidth, fontSize);
         box.PaddingLeft = ResolveLength(style.PaddingLeft ?? paddingShort, containingWidth, fontSize);
+        if (!BordersCollapse(element, style) && !IsPaintedFormControl(element))
+        {
+            box.PaddingTop += VisibleBorderWidth(style, "top", fontSize);
+            box.PaddingRight += VisibleBorderWidth(style, "right", fontSize);
+            box.PaddingBottom += VisibleBorderWidth(style, "bottom", fontSize);
+            box.PaddingLeft += VisibleBorderWidth(style, "left", fontSize);
+        }
 
-        // Box-sizing
         bool borderBox = style.Get("box-sizing") == "border-box";
 
         // Width

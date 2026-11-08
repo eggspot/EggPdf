@@ -7,6 +7,7 @@ namespace EggPdf.Pdf;
 public static class ImageIntrinsicSize
 {
     private const int NormalOrientation = 1;
+    private const int CoreBitmapHeaderSize = 12;
     private const int FirstTransposedOrientation = 5;
 
     /// <summary>
@@ -83,6 +84,12 @@ public static class ImageIntrinsicSize
     {
         width = height = 0;
         if (data.Length < 26) return false;
+        if (ReadInt32LittleEndian(data, 14) == CoreBitmapHeaderSize)
+        {
+            width = data[18] | (data[19] << 8);
+            height = data[20] | (data[21] << 8);
+            return width > 0 && height > 0;
+        }
         width = ReadInt32LittleEndian(data, 18);
         int signedHeight = ReadInt32LittleEndian(data, 22);
         height = signedHeight == int.MinValue ? 0 : System.Math.Abs(signedHeight);

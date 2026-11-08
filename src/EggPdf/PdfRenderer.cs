@@ -61,6 +61,7 @@ internal static class PdfRenderer
     {
         // Collect all leaf boxes (boxes with text or background)
         var allPaintableBoxes = new List<LayoutBox>();
+        PageFragmenter.PropagateAncestorOpacity(layoutRoot);
         PageFragmenter.CollectPaintableBoxes(layoutRoot, allPaintableBoxes);
 
         // Ancestor map for clip-scope reconstruction (overflow:hidden / contain:paint,
@@ -191,6 +192,16 @@ internal static class PdfRenderer
         float currentTop = 0;
         int hardBoundaryIndex = 0;
 
+        var tableHeaders = new List<PageFragmenter.TableHeaderInfo>();
+        PageFragmenter.CollectRepeatingTableHeaders(layoutRoot, tableHeaders);
+        var breakCandidates = new List<(float Top, float Bottom)>(allBoxes.Count);
+        foreach (var box in allBoxes)
+        {
+            if (box.Height <= paginationHeight && PageFragmenter.IsUnsplittable(box))
+                breakCandidates.Add((box.Y, box.Y + box.Height));
+        }
+        breakCandidates.Sort((a, b) => a.Top.CompareTo(b.Top));
+
         // Fill pages using content area height, with smart page breaking that avoids
         // cutting through content boxes OR placing content within the body's bottom
         // margin zone (which would leave no visual padding at the page bottom) — bounded
@@ -202,24 +213,32 @@ internal static class PdfRenderer
             float nextHardBoundary = hardBoundaryIndex < hardBoundaries.Count
                 ? hardBoundaries[hardBoundaryIndex] : float.MaxValue;
 
-            float naiveBottom = Math.Min(currentTop + paginationHeight, nextHardBoundary);
-            // Effective soft boundary: boxes must not START in the bottom margin zone
+            float theadReserve = 0f;
+            foreach (var header in tableHeaders)
+            {
+                if (header.TheadBox.Y < currentTop && header.TableBottom > currentTop && header.TheadBox.Height < paginationHeight / 2f)
+                    theadReserve += header.TheadBox.Height;
+            }
+            float naiveBottom = Math.Min(currentTop + paginationHeight - theadReserve, nextHardBoundary);
             float effectiveBottom = naiveBottom - bodyMarginBottomPx;
             float smartBottom = naiveBottom;
 
-            foreach (var box in allBoxes)
+            for (int ci = FirstCandidateAfter(breakCandidates, currentTop); ci < breakCandidates.Count; ci++)
             {
-                float bTop = box.Y;
-                float bBottom = box.Y + box.Height;
-                if (bTop > currentTop && bTop < naiveBottom && box.Height <= paginationHeight)
-                {
-                    // Case 1: box straddles the hard page boundary
-                    bool straddles = bBottom > naiveBottom;
-                    // Case 2: box starts inside the bottom margin zone (too close to page edge)
-                    bool inMarginZone = bTop >= effectiveBottom;
-                    if ((straddles || inMarginZone) && bTop < smartBottom)
-                        smartBottom = bTop;
-                }
+                var (bTop, bBottom) = breakCandidates[ci];
+                if (bTop >= naiveBottom) break;
+                bool straddles = bBottom > naiveBottom;
+                bool inMarginZone = bTop >= effectiveBottom;
+                if ((straddles || inMarginZone) && bTop < smartBottom)
+                    smartBottom = bTop;
+            }
+
+            foreach (var header in tableHeaders)
+            {
+                float theadTop = header.TheadBox.Y;
+                if (theadTop > currentTop && theadTop < naiveBottom && header.FirstBodyRowBottom > naiveBottom &&
+                    header.FirstBodyRowBottom - theadTop <= paginationHeight && theadTop < smartBottom)
+                    smartBottom = theadTop;
             }
 
             // break-inside: avoid — move page break before any avoid box that would be split
@@ -355,8 +374,6 @@ internal static class PdfRenderer
         // and the thead's own paintable boxes (cells/text/borders) are repainted
         // there with a freshly computed page-local Y -- they still also paint once,
         // normally, via allBoxes on the page they actually start on.
-        var tableHeaders = new List<PageFragmenter.TableHeaderInfo>();
-        PageFragmenter.CollectRepeatingTableHeaders(layoutRoot, tableHeaders);
         var theadShiftDelta = new float[pageBounds.Count];
         var theadRepeatsByPage = new Dictionary<int, List<(LayoutBox box, float adjustedY)>>();
         foreach (var th in tableHeaders)
@@ -390,7 +407,8 @@ internal static class PdfRenderer
             }
         }
 
-        // Render each page
+        var boxesByPage = AssignBoxesToPages(allBoxes, pageBounds);
+
         int renderPageIndex = 0;
         foreach (var (pageTopPx, pageBottomPx) in pageBounds)
         {
@@ -444,34 +462,20 @@ internal static class PdfRenderer
                     float clipYpt = (pageHeightPx - aAdjustedY - aClampedHeight) * PdfCoordinates.PxToPt;
                     float clipWpt = ancestor.Width * PdfCoordinates.PxToPt;
                     float clipHpt = aClampedHeight * PdfCoordinates.PxToPt;
-                    page.AddClipRect(clipXpt, clipYpt, clipWpt, clipHpt);
+                    bool wholeOnThisPage = aEffectiveY >= pageTopPx &&
+                                           (aEffectiveY + ancestor.Height <= pageBottomPx || renderPageIndex == pageBounds.Count - 1);
+                    if (wholeOnThisPage)
+                        BoxPainter.ClipToBox(page, ancestor, clipXpt,
+                            (pageHeightPx - aAdjustedY - ancestor.Height) * PdfCoordinates.PxToPt, clipWpt, ancestor.Height * PdfCoordinates.PxToPt);
+                    else
+                        page.AddClipRect(clipXpt, clipYpt, clipWpt, clipHpt);
                 }
                 paint();
                 page.RestoreState();
             }
 
-            // Paint boxes that fall on this page
-            foreach (var box in allBoxes)
+            foreach (var box in boxesByPage[renderPageIndex])
             {
-                float boxTop = box.Y;
-                float boxBottom = box.Y + box.Height;
-
-                // Text boxes are assigned to exactly one page: the page where their top falls.
-                // This prevents text from appearing duplicated when a text line straddles a page boundary.
-                // Non-text boxes (backgrounds, borders) use overlap check so they cover their full area.
-                // On the first page, a box can legitimately sit slightly above Y=0 (e.g. a large
-                // inline run's vertical-align: baseline shift pulling it just above its line's
-                // nominal top) -- there's no earlier page it could belong to instead, so excluding
-                // it here would silently drop it rather than just paint it near the top edge.
-                float bandTop = renderPageIndex == 0 ? float.NegativeInfinity : pageTopPx;
-                bool skip;
-                if (!string.IsNullOrEmpty(box.Text))
-                    skip = boxTop < bandTop || boxTop >= pageBottomPx;
-                else
-                    skip = boxBottom <= bandTop || boxTop >= pageBottomPx;
-
-                if (skip) continue;
-
                 float effectiveY = box.Y;
                 if (shiftDelta > 0 && box.Y >= shiftThreshold)
                     effectiveY += shiftDelta;
@@ -481,26 +485,17 @@ internal static class PdfRenderer
                 // Adjust Y coordinate relative to this page, offset by top margin
                 float adjustedY = effectiveY - pageTopPx + _marginTopPx;
 
-                // A box taller than one physical page (e.g. a bordered/backgrounded <section>
-                // that now correctly spans multiple pages — see the pagination fix above) only
-                // has PART of its height visible on any single page. PaintBox draws background/
-                // border/shadow rectangles from box.Height unconditionally; passing the box's
-                // full height here would paint those rectangles at the wrong position and size
-                // on every page but the one where the box begins — visible as a mispositioned
-                // sliver of color instead of a correctly filled page. Clamp to the portion of
-                // the box actually visible on this page before painting, then restore.
-                float visibleTop = Math.Max(effectiveY, pageTopPx);
-                float visibleBottom = Math.Min(effectiveY + box.Height, pageBottomPx);
-                float clampedHeight = Math.Max(0f, visibleBottom - visibleTop);
-
-                if (clampedHeight < box.Height)
+                bool crossesPageEdge = string.IsNullOrEmpty(box.Text) &&
+                                       (effectiveY < pageTopPx && renderPageIndex > 0 || effectiveY + box.Height > pageBottomPx);
+                if (crossesPageEdge)
                 {
-                    float clampedAdjustedY = visibleTop - pageTopPx + _marginTopPx;
-                    float originalHeight = box.Height;
-                    box.Height = clampedHeight;
-                    PaintWithAncestorClips(box, clampedAdjustedY,
-                        () => BoxPainter.PaintBox(page, box, pageHeightPt, pageHeightPx, clampedAdjustedY));
-                    box.Height = originalHeight;
+                    float bandHeightPx = pageBottomPx - pageTopPx + theadDelta;
+                    page.SaveState();
+                    page.AddClipRect(0f, (pageHeightPx - _marginTopPx - bandHeightPx) * PdfCoordinates.PxToPt,
+                        pageWidthPt, bandHeightPx * PdfCoordinates.PxToPt);
+                    PaintWithAncestorClips(box, adjustedY,
+                        () => BoxPainter.PaintBox(page, box, pageHeightPt, pageHeightPx, adjustedY));
+                    page.RestoreState();
                 }
                 else
                 {
@@ -562,7 +557,51 @@ internal static class PdfRenderer
         }
     }
 
-    /// <summary>Cheap, allocation-free scan for whether clip-scope tracking is needed at all.</summary>
+    private static int FirstCandidateAfter(List<(float Top, float Bottom)> candidates, float y)
+    {
+        int low = 0, high = candidates.Count;
+        while (low < high)
+        {
+            int mid = (low + high) >> 1;
+            if (candidates[mid].Top > y) high = mid;
+            else low = mid + 1;
+        }
+        return low;
+    }
+
+    private static List<LayoutBox>[] AssignBoxesToPages(List<LayoutBox> boxes, List<(float top, float bottom)> pageBounds)
+    {
+        var byPage = new List<LayoutBox>[pageBounds.Count];
+        for (int i = 0; i < byPage.Length; i++) byPage[i] = new List<LayoutBox>();
+        foreach (var box in boxes)
+        {
+            float top = box.Y, bottom = box.Y + box.Height;
+            int page = PageContaining(pageBounds, top);
+            if (!string.IsNullOrEmpty(box.Text))
+            {
+                if (top < pageBounds[page].bottom) byPage[page].Add(box);
+                continue;
+            }
+            if (top >= pageBounds[page].bottom) continue;
+            byPage[page].Add(box);
+            for (int p = page + 1; p < pageBounds.Count && bottom > pageBounds[p].top; p++)
+                byPage[p].Add(box);
+        }
+        return byPage;
+    }
+
+    private static int PageContaining(List<(float top, float bottom)> pageBounds, float y)
+    {
+        int low = 0, high = pageBounds.Count - 1;
+        while (low < high)
+        {
+            int mid = (low + high + 1) >> 1;
+            if (pageBounds[mid].top <= y) low = mid;
+            else high = mid - 1;
+        }
+        return low;
+    }
+
     private static bool TreeHasPaintClip(LayoutBox box)
     {
         if (HasPaintClip(box.Style)) return true;

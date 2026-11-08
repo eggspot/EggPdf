@@ -22,7 +22,11 @@ public static partial class BlockLayout
         if (node is HtmlTextNode textNode)
         {
             var data = textNode.Data;
-            if (!string.IsNullOrEmpty(data))
+            if (PreservesWhitespace(parentStyle))
+            {
+                AddPreservedTextRuns(data, parentStyle, parentFontSize, runs);
+            }
+            else if (!string.IsNullOrEmpty(data))
             {
                 runs.Add(new InlineRun
                 {
@@ -50,8 +54,8 @@ public static partial class BlockLayout
             var style = resolver(elem, parentStyle);
             if (style.Display == "none") return;
             float fontSize = ResolveFontSize(style.FontSize, parentFontSize);
+            int firstRunOfElement = runs.Count;
 
-            // ::before pseudo-element injection for inline elements
             if (TryResolvePseudoContent(elem, "before", style, out var beforeStyle, out var beforeContent))
             {
                 float bfs = ResolveFontSize(beforeStyle!.FontSize, fontSize);
@@ -61,13 +65,61 @@ public static partial class BlockLayout
             foreach (var child in elem.ChildNodes)
                 CollectInlineRuns(child, style, fontSize, resolver, runs);
 
-            // ::after pseudo-element injection for inline elements
             if (TryResolvePseudoContent(elem, "after", style, out var afterStyle, out var afterContent))
             {
                 float afs = ResolveFontSize(afterStyle!.FontSize, fontSize);
                 runs.Add(new InlineRun { Text = afterContent!, Style = afterStyle, Element = null, FontSize = afs, HasLeadingSpace = StartsWithCollapsibleWhitespace(afterContent!) });
             }
+
+            ApplyInlineBoxInsets(runs, firstRunOfElement, style, fontSize);
         }
+    }
+
+    private static void ApplyInlineBoxInsets(List<InlineRun> runs, int firstRunOfElement, ComputedStyle style, float fontSize)
+    {
+        float start = InlineEdgeInset(style, "left", fontSize);
+        float end = InlineEdgeInset(style, "right", fontSize);
+        float startMargin = ResolveLength(style.Get("margin-left"), 0, fontSize);
+        float endMargin = ResolveLength(style.Get("margin-right"), 0, fontSize);
+        if (start <= 0f && end <= 0f && startMargin == 0f && endMargin == 0f) return;
+
+        int first = firstRunOfElement;
+        while (first < runs.Count && runs[first].Text == "\n") first++;
+        int last = runs.Count - 1;
+        while (last >= first && runs[last].Text == "\n") last--;
+        if (first > last) return;
+
+        var firstRun = runs[first];
+        firstRun.StartInset += start;
+        firstRun.StartMargin += startMargin;
+        runs[first] = firstRun;
+        var lastRun = runs[last];
+        lastRun.EndInset += end;
+        lastRun.EndMargin += endMargin;
+        runs[last] = lastRun;
+    }
+
+    private static float InlineEdgeInset(ComputedStyle style, string side, float fontSize)
+    {
+        var padding = side == "left" ? style.PaddingLeft : style.PaddingRight;
+        return Math.Max(0f, ResolveLength(padding, 0, fontSize)) + VisibleBorderWidth(style, side, fontSize);
+    }
+
+    private static bool PaintsInlineDecoration(ComputedStyle style)
+    {
+        var background = style.Get("background-color");
+        if (!string.IsNullOrEmpty(background) && background != "transparent" && background != "rgba(0, 0, 0, 0)") return true;
+        var backgroundImage = style.Get("background-image");
+        if (!string.IsNullOrEmpty(backgroundImage) && backgroundImage != "none") return true;
+        var decoration = style.Get("text-decoration-line") ?? style.Get("text-decoration");
+        return !string.IsNullOrEmpty(decoration) && decoration != "none";
+    }
+
+    private static bool OnlySpacesFrom(string text, int index)
+    {
+        for (int i = index; i < text.Length; i++)
+            if (text[i] != ' ') return false;
+        return true;
     }
 
     /// <summary>
@@ -145,8 +197,12 @@ public static partial class BlockLayout
             float absY = floatOriginY + box.PaddingTop + currentChildY;
             float startX = floats!.GetContentStartX(absY, lineHeight, absContainerLeft);
             float inset = startX - absContainerLeft;
-            return inset > 0 ? inset + lineStart : currentInlineX;
+            return (inset > 0 ? inset : 0f) + lineStart;
         }
+
+        float parentBaseline = TextMeasurer.GetBaselineOffset(parentFontSize,
+            TextMeasurer.GetLineHeight(parentFontSize, parentStyle.Get("line-height")),
+            parentStyle.FontFamily, parentStyle.FontWeight, parentStyle.Get("font-style"));
 
         for (int ri = 0; ri < runs.Count; ri++)
         {
@@ -172,10 +228,7 @@ public static partial class BlockLayout
                 continue;
             }
 
-            // Normalize whitespace: \n \r \t become spaces, runs of spaces
-            // collapse, edges trim — single pass (the old Replace loop
-            // reallocated the string once per collapsed pair).
-            var text = NormalizeInlineWhitespace(run.Text);
+            var text = run.KeepsSpaces ? run.Text : NormalizeInlineWhitespace(run.Text);
 
             if (text.Length == 0)
             {
@@ -207,13 +260,13 @@ public static partial class BlockLayout
                                 (runOverflowWrap == "break-word" || runOverflowWrap == "anywhere" ||
                                  runWordBreak == "break-all" || runWordBreak == "break-word");
 
-            // vertical-align: baseline (default) — every run sits on the parent line's
-            // baseline, not the line top (ascent approximated at 0.8em). A smaller run
-            // shifts down (positive); a larger run shifts up (negative) so its baseline
-            // still meets the smaller surrounding text instead of hanging below it.
-            float baselineShift = (parentFontSize - run.FontSize) * 0.8f;
+            float baselineShift = run.FontSize == parentFontSize
+                ? 0f
+                : parentBaseline - TextMeasurer.GetBaselineOffset(run.FontSize, lhRun, fontFamily, fontWeight, fontStyle, text);
 
-            var pieces = NeedsBreakablePieces(text) ? SplitIntoBreakablePieces(text) : null;
+            var pieces = run.KeepsSpaces
+                ? new List<(string Text, bool JoinsPrevious, bool EndsAtSoftHyphen)> { (text, true, false) }
+                : NeedsBreakablePieces(text) ? SplitIntoBreakablePieces(text) : null;
             int pieceIndex = 0;
             int wPos = 0;
             bool firstWord = true;
@@ -250,8 +303,12 @@ public static partial class BlockLayout
                 var wordText = needSpace ? " " + word : word;
                 float wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                 float rightLimit = RightLimit(Math.Max(inlineLineHeight, lhRun), childY);
+                bool lastWord = pieces != null ? pieceIndex >= pieces.Count : OnlySpacesFrom(text, wPos);
+                float leadInset = firstWord ? run.StartInset : 0f;
+                float trailInset = lastWord ? run.EndInset : 0f;
+                float leadMargin = firstWord ? run.StartMargin : 0f;
 
-                if (!runNoWrap && notAtLineStart && inlineX + wordWidth > rightLimit)
+                if (!runNoWrap && notAtLineStart && inlineX + leadMargin + wordWidth + leadInset + trailInset > rightLimit)
                 {
                     if (joinNoSpace && previousEndsAtSoftHyphen && previousPieceBox != null)
                         AppendVisibleHyphen(previousPieceBox, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
@@ -344,16 +401,26 @@ public static partial class BlockLayout
                     continue;
                 }
 
+                inlineX += leadMargin;
+                if (firstWord && wordText.Length > word.Length && (leadInset > 0f || PaintsInlineDecoration(run.Style)))
+                {
+                    float wordOnlyWidth = TextMeasurer.MeasureWidth(word, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                    inlineX += wordWidth - wordOnlyWidth;
+                    wordText = word;
+                    wordWidth = wordOnlyWidth;
+                }
+
                 var textBox = new LayoutBox
                 {
                     Element = (!elementAssigned && wrapperElement != null) ? wrapperElement : null,
                     Style = run.Style,
                     InlineLineTop = childY,
                     X = box.X + box.PaddingLeft + inlineX,
-                    // See the chunkBox comment above about box.Y being provisional here.
                     Y = box.Y + box.PaddingTop + childY + baselineShift,
-                    Width = wordWidth,
+                    Width = wordWidth + leadInset + trailInset,
                     Height = lhRun,
+                    PaddingLeft = leadInset,
+                    PaddingRight = trailInset,
                     ContentWidth = wordWidth,
                     ContentHeight = lhRun,
                     Text = wordText
@@ -377,7 +444,7 @@ public static partial class BlockLayout
                 }
 
                 box.Children.Add(textBox);
-                inlineX += wordWidth;
+                inlineX += textBox.Width + (lastWord ? run.EndMargin : 0f);
                 atLineStart = false;
                 if (lhRun > inlineLineHeight)
                     inlineLineHeight = lhRun;
@@ -386,9 +453,33 @@ public static partial class BlockLayout
                 previousEndsAtSoftHyphen = endsAtSoftHyphen;
             }
 
-            // NBSP is rendered content, not a collapsible boundary space
             char lastRunChar = run.Text.Length > 0 ? run.Text[run.Text.Length - 1] : '\0';
-            prevRunTrailingSpace = lastRunChar != NonBreakingSpace && char.IsWhiteSpace(lastRunChar);
+            prevRunTrailingSpace = !run.KeepsSpaces && lastRunChar != NonBreakingSpace && char.IsWhiteSpace(lastRunChar);
+        }
+    }
+
+    private const int PreservedTabSize = 8;
+
+    private static void AddPreservedTextRuns(string data, ComputedStyle style, float fontSize, List<InlineRun> runs)
+    {
+        if (string.IsNullOrEmpty(data)) return;
+        bool keepsSpaces = style.Get("white-space") != "pre-line";
+        var lines = data.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (i > 0)
+                runs.Add(new InlineRun { Text = "\n", Style = style, Element = null, FontSize = fontSize });
+            var line = keepsSpaces ? TextMeasurer.ExpandTabs(lines[i], PreservedTabSize) : lines[i];
+            if (line.Length == 0) continue;
+            runs.Add(new InlineRun
+            {
+                Text = line,
+                Style = style,
+                Element = null,
+                FontSize = fontSize,
+                KeepsSpaces = keepsSpaces,
+                HasLeadingSpace = !keepsSpaces && StartsWithCollapsibleWhitespace(line),
+            });
         }
     }
 

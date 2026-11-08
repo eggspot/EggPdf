@@ -234,8 +234,26 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   `color-interpolation-filters`, with filter regions, primitive subregions and named `in`/`result`
   wiring. A filtered shape, `<text>` (glyph outlines from the installed font), `<use>` or `<g>` is
   rasterized (fills incl. linear/radial gradients, strokes), filtered and re-embedded as an image,
-  since PDF has no vector filter primitive. Filtered `<image>` elements and pattern paints paint unfiltered
-- Images: JPEG, PNG (incl. 1-bit QR codes and Adam7-interlaced files), GIF, BMP, WebP (lossy VP8 incl. alpha, lossless VP8L, extended VP8X containers, first frame of animations) and SVG (an `<img>` pointing at an .svg file or `data:image/svg+xml` is painted as vectors), from files, URLs or Base64 data URIs. An `<img>` without both a width and a height takes its natural size and aspect ratio (also within `max-width`/`max-height`), including in flex and grid layouts, and a JPEG's EXIF orientation is applied unless `image-orientation: none`. An image that can't be decoded is left out with an `IMAGE_LOAD_FAILED` warning, never a broken PDF. SVG as a CSS `background-image` is not painted yet
+  since PDF has no vector filter primitive. Filtered `<image>` elements and pattern paints paint unfiltered.
+  Unfiltered SVG follows the presentation rules: `style` and inherited `fill`/`stroke`/font properties,
+  `currentColor` (from the surrounding HTML `color` for inline SVG), `opacity`/`fill-opacity`/`stroke-opacity`,
+  `fill-rule`, `stroke-dasharray`/`linecap`/`linejoin`, `display`/`visibility`, percentages and units,
+  `viewBox` with `preserveAspectRatio`, `<use>` of elements and `<symbol>`s, every path command
+  (arcs as curves), and `<text>`/`<tspan>` with `text-anchor`, `dominant-baseline`, `dx`/`dy` and
+  standard fonts. Vector (unfiltered) gradient paints use their first stop's colour
+- Images: JPEG, PNG (incl. 1-bit QR codes and Adam7-interlaced files), GIF, BMP, WebP (lossy VP8 incl. alpha, lossless VP8L, extended VP8X containers, first frame of animations) and SVG (an `<img>` pointing at an .svg file or `data:image/svg+xml` is painted as vectors), from files, URLs or Base64 data URIs. An `<img>` without both a width and a height takes its natural size and aspect ratio (also within `max-width`/`max-height`), including in flex and grid layouts, and a JPEG's EXIF orientation is applied unless `image-orientation: none`. An image that can't be decoded is left out with an `IMAGE_LOAD_FAILED` warning, never a broken PDF. `border-radius` clips images, and `object-fit: cover`/`none` is clipped to the box
+- Backgrounds: `background-image` (raster or SVG) at its natural size or `background-size`
+  (`cover`, `contain`, one or two lengths/percentages), `background-position` keywords, lengths and
+  percentages, `background-repeat` per axis, clipped to the box; `linear-gradient()` and
+  `repeating-linear-gradient()` at any angle or side/corner direction, with stop positions and
+  translucent stops
+- `opacity` fades the element and everything inside it (nested opacities multiply); borders take
+  layout space (`box-sizing` aware, `medium` when no width is given); margins collapse between
+  siblings and between a parent and its first/last child (negative margins included); inline
+  elements' padding, borders and margins take space in the line; `font-variant: small-caps` is
+  synthesized; `<pre>` with inline markup keeps its spaces and line breaks
+- Pagination splits containers between their lines instead of moving them whole, never leaves a
+  `<thead>` alone at a page bottom, and leaves room for the repeated header
 - Responsive images: `<img srcset>`/`<picture>` and CSS `image-set()` resolve to their best candidate (PDF is treated as a fixed 1x print context)
 - CSS Images Level 4 `image()`: resolves `ltr`/`rtl`-tagged candidates against the element's
   computed direction and paints a trailing `<color>` fallback when no image resolves. `paint()`

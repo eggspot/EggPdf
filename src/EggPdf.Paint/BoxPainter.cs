@@ -197,7 +197,7 @@ public static partial class BoxPainter
             int mcid = page.BeginMarkedContent(structElem.Type);
             try
             {
-                PaintBoxCore(page, box, pageHeightPt, pageHeightPx, adjustedY);
+                PaintBoxWithOpacity(page, box, pageHeightPt, pageHeightPx, adjustedY);
             }
             finally
             {
@@ -207,7 +207,7 @@ public static partial class BoxPainter
         }
         else
         {
-            PaintBoxCore(page, box, pageHeightPt, pageHeightPx, adjustedY);
+            PaintBoxWithOpacity(page, box, pageHeightPt, pageHeightPx, adjustedY);
         }
     }
 
@@ -247,7 +247,7 @@ public static partial class BoxPainter
             float clipW = box.Width * PdfCoordinates.PxToPt;
             float clipH = box.Height * PdfCoordinates.PxToPt;
             page.SaveState();
-            page.AddClipRect(clipX, clipY, clipW, clipH);
+            ClipToBox(page, box, clipX, clipY, clipW, clipH);
         }
 
         // CSS clip-path — establish clipping region before painting box content
@@ -282,14 +282,6 @@ public static partial class BoxPainter
         var filterParams = !string.IsNullOrEmpty(filterStr) && filterStr != "none"
             ? EggPdf.Pdf.PdfFilterEffects.Parse(filterStr) : null;
 
-        // CSS opacity property (combined with filter opacity)
-        var opacityStr = box.Style.Get("opacity");
-        float cssOpacity = 1f;
-        if (!string.IsNullOrEmpty(opacityStr) && float.TryParse(opacityStr,
-            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float op))
-            cssOpacity = Math.Max(0, Math.Min(1, op));
-        // Apply filter opacity on top of CSS opacity
-        if (filterParams != null) cssOpacity *= filterParams.Opacity;
 
         // Resolve border-radius values
         float tlr = ResolveBorderRadius(box.Style, "border-top-left-radius", box.Width);
@@ -354,9 +346,9 @@ public static partial class BoxPainter
                 var color = ParseColor(bgColor);
                 if (color.HasValue)
                 {
-                    float bgAlpha = (color.Value.A / 255f) * cssOpacity;
+                    float bgAlpha = color.Value.A / 255f;
                     if (bgAlpha < 1f)
-                        page.SetOpacity(bgAlpha);
+                        SetPaintOpacity(page, bgAlpha);
 
                     float bgR = color.Value.R / 255f, bgG = color.Value.G / 255f, bgB = color.Value.B / 255f;
                     if (filterParams != null && filterParams.HasEffect)
@@ -375,7 +367,7 @@ public static partial class BoxPainter
 
                     // Reset opacity so it does not leak into subsequent content
                     if (bgAlpha < 1f)
-                        page.SetOpacity(1f);
+                        SetPaintOpacity(page, 1f);
                 }
             }
 
@@ -503,13 +495,10 @@ public static partial class BoxPainter
                 else if (textTransform == "capitalize") paintText = CapitalizeText(paintText);
             }
 
-            // font-variant: small-caps / font-variant-caps: small-caps → render as uppercase
             var fontVariant = box.Style.Get("font-variant");
             var fontVariantCaps = box.Style.Get("font-variant-caps");
             bool isSmallCaps = fontVariant == "small-caps" ||
                 fontVariantCaps == "small-caps" || fontVariantCaps == "all-small-caps";
-            if (isSmallCaps && !string.IsNullOrEmpty(paintText))
-                paintText = paintText.ToUpperInvariant();
 
             // Arabic contextual shaping (isolated/initial/medial/final forms, lam-alef
             // ligatures) -- must run on logical-order text, i.e. before the bidi reorder below.
@@ -702,16 +691,16 @@ public static partial class BoxPainter
                 {
                     float shadowPdfX = pdfX + shX * PdfCoordinates.PxToPt;
                     float shadowPdfY = pdfY - shY * PdfCoordinates.PxToPt; // PDF Y is inverted
-                    if (shA < 1f) page.SetOpacity(shA);
+                    if (shA < 1f) SetPaintOpacity(page, shA);
                     page.AddText(paintText, shadowPdfX, shadowPdfY, fontName, pdfFontSize, shR, shG, shB, letterSpacing, wordSpacing);
-                    if (shA < 1f) page.SetOpacity(1f);
+                    if (shA < 1f) SetPaintOpacity(page, 1f);
                 }
             }
 
             // Text alpha: rgba() color alpha combined with the element's css opacity
-            float textAlpha = (color?.A / 255f ?? 1f) * cssOpacity;
+            float textAlpha = color?.A / 255f ?? 1f;
             if (textAlpha < 1f)
-                page.SetOpacity(textAlpha);
+                SetPaintOpacity(page, textAlpha);
 
             // Use CIDFont glyph IDs for embedded fonts, or WinAnsi for built-in fonts
             if (complexShapingFont != null && CurrentPdfDoc != null)
@@ -728,50 +717,19 @@ public static partial class BoxPainter
                 PaintColorGlyphRun(page, paintText, pdfX, pdfY, fontName, pdfFontSize, letterSpacing,
                     color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0);
             }
-            else if (CurrentPdfDoc != null && CurrentPdfDoc.IsEmbeddedFont(fontName))
+            else if (isSmallCaps)
             {
-                var glyphIds = CurrentPdfDoc.GetGlyphIds(fontName, paintText);
-                if (glyphIds != null && glyphIds.Length > 0)
-                {
-                    // Glyphs missing from the main font route to the embedded fallback
-                    // fonts mid-run instead of painting .notdef.
-                    var fallbackFonts = CurrentPdfDoc.GetFallbackFonts(fontName);
-                    bool hasNotdef = false;
-                    for (int gi = 0; gi < glyphIds.Length; gi++)
-                        if (glyphIds[gi] == 0) { hasNotdef = true; break; }
-
-                    if (hasNotdef && fallbackFonts.Count > 0)
-                    {
-                        var runs = BuildFontFallbackRuns(paintText, fontName, fallbackFonts);
-                        page.AddTextRunsCID(runs, pdfX, pdfY, pdfFontSize,
-                            color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
-                            letterSpacing, wordSpacing);
-                    }
-                    else
-                    {
-                        page.AddTextCID(glyphIds, pdfX, pdfY, fontName, pdfFontSize,
-                            color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
-                            letterSpacing, wordSpacing);
-                    }
-                }
-                else
-                {
-                    page.AddText(paintText, pdfX, pdfY, StripWeightSuffix(fontName), pdfFontSize,
-                        color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
-                        letterSpacing, wordSpacing);
-                }
+                PaintSmallCaps(page, paintText, fontVariantCaps == "all-small-caps", pdfX, pdfY, fontName, fontSize,
+                    box.Style, color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0, letterSpacing, wordSpacing);
             }
             else
             {
-                // Non-embedded fallback: weight-suffixed names ("Arial-W600") are
-                // not valid built-in fonts — degrade to the bucketed name.
-                page.AddText(paintText, pdfX, pdfY, StripWeightSuffix(fontName), pdfFontSize,
-                    color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0,
-                    letterSpacing, wordSpacing);
+                EmitTextRun(page, paintText, pdfX, pdfY, fontName, pdfFontSize,
+                    color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0, letterSpacing, wordSpacing);
             }
 
             if (textAlpha < 1f)
-                page.SetOpacity(1f);
+                SetPaintOpacity(page, 1f);
 
             // Text decoration (underline, line-through, overline)
             // Honour text-decoration-line, text-decoration-color, text-decoration-thickness longhands.
@@ -840,10 +798,11 @@ public static partial class BoxPainter
         // Paint image (with object-fit support)
         if (!string.IsNullOrEmpty(box.ImageSource) && box.ImageData != null && CurrentPdfDoc?.GetImage(ImageResourceName(box.ImageSource!)) != null)
         {
-            float pdfX = effectiveX * PdfCoordinates.PxToPt;
-            float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
-            float pdfW = box.Width * PdfCoordinates.PxToPt;
-            float pdfH = box.Height * PdfCoordinates.PxToPt;
+            var (contentX, contentTop, contentWidth, contentHeight) = ContentRect(box, effectiveX, adjustedY);
+            float pdfX = contentX * PdfCoordinates.PxToPt;
+            float pdfY = (pageHeightPx - contentTop - contentHeight) * PdfCoordinates.PxToPt;
+            float pdfW = contentWidth * PdfCoordinates.PxToPt;
+            float pdfH = contentHeight * PdfCoordinates.PxToPt;
 
             // Apply object-fit + object-position
             var objectFit = box.Style.Get("object-fit") ?? "fill";
@@ -898,23 +857,33 @@ public static partial class BoxPainter
             // object-fit: fill (default) uses the box dimensions unchanged
 
             string imgName = ImageResourceName(box.ImageSource!);
+            page.SaveState();
+            ClipToBox(page, box, effectiveX * PdfCoordinates.PxToPt, (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt,
+                box.Width * PdfCoordinates.PxToPt, box.Height * PdfCoordinates.PxToPt);
             page.AddImage(imgName, pdfX, pdfY, pdfW, pdfH, DisplayOrientation(box, CurrentPdfDoc!.GetImage(imgName)!));
+            page.RestoreState();
         }
 
         var svgRoot = box.Element?.TagName == "svg" ? box.Element : box.ImageSvgRoot;
         if (svgRoot != null)
         {
-            var svgElement = SvgParser.Parse(svgRoot);
+            var svgElement = svgRoot == box.Element ? SvgParser.Parse(svgRoot, box.Style.Get) : SvgParser.Parse(svgRoot);
             if (svgElement != null)
             {
-                float pdfX = effectiveX * PdfCoordinates.PxToPt;
-                float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
-                float pdfW = box.Width * PdfCoordinates.PxToPt;
-                float pdfH = box.Height * PdfCoordinates.PxToPt;
-                var (svgCommands, svgUsedImages) = SvgRenderer.Render(svgElement, pdfX, pdfY, pdfW, pdfH, CurrentPdfDoc);
-                page.AppendRawContent(svgCommands);
-                foreach (var imgName in svgUsedImages)
+                var (contentX, contentTop, contentWidth, contentHeight) = ContentRect(box, effectiveX, adjustedY);
+                float pdfX = contentX * PdfCoordinates.PxToPt;
+                float pdfY = (pageHeightPx - contentTop - contentHeight) * PdfCoordinates.PxToPt;
+                float pdfW = contentWidth * PdfCoordinates.PxToPt;
+                float pdfH = contentHeight * PdfCoordinates.PxToPt;
+                var svgResult = SvgRenderer.RenderWithResources(svgElement, pdfX, pdfY, pdfW, pdfH, CurrentPdfDoc,
+                    StandardFontMetrics.MeasureWidth);
+                page.AppendRawContent(svgResult.Commands);
+                foreach (var imgName in svgResult.UsedImages)
                     page.RegisterUsedImage(imgName);
+                foreach (var fontName in svgResult.UsedFonts)
+                    page.RegisterUsedFont(fontName);
+                foreach (var stateName in svgResult.UsedExtGStates)
+                    page.RegisterUsedExtGState(stateName);
             }
         }
 
@@ -1181,8 +1150,14 @@ public static partial class BoxPainter
             float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
             float pdfW = box.Width * PdfCoordinates.PxToPt;
             float pdfH = box.Height * PdfCoordinates.PxToPt;
-            var commands = PdfGradient.RenderLinearGradient(bgImage, pdfX, pdfY, pdfW, pdfH);
-            if (commands != null) page.AppendRawContent(commands);
+            var gradientStates = new List<string>();
+            var commands = PdfGradient.RenderLinearGradient(bgImage, pdfX, pdfY, pdfW, pdfH, gradientStates, CurrentBoxOpacity);
+            if (commands != null)
+            {
+                page.AppendRawContent(commands);
+                foreach (var state in gradientStates)
+                    page.RegisterUsedExtGState(state);
+            }
             return;
         }
         if (bgImage.StartsWith("radial-gradient(", StringComparison.OrdinalIgnoreCase))
@@ -1258,109 +1233,7 @@ public static partial class BoxPainter
             return;
         }
 
-        string imgName = "BgImg" + url.GetHashCode().ToString("X8", CultureInfo.InvariantCulture);
-        var pdfImage = PdfImage.FromEncodedImage(imgName, data);
-        if (pdfImage == null) return;
-
-        CurrentPdfDoc?.AddImage(pdfImage);
-
-        // Parse background-size
-        float imgW = box.Width;
-        float imgH = box.Height;
-        var bgSize = box.Style.Get("background-size");
-        if (!string.IsNullOrEmpty(bgSize) && bgSize != "auto")
-        {
-            if (bgSize == "cover")
-            {
-                float scaleX = box.Width / pdfImage.Width;
-                float scaleY = box.Height / pdfImage.Height;
-                float scale = Math.Max(scaleX, scaleY);
-                imgW = pdfImage.Width * scale;
-                imgH = pdfImage.Height * scale;
-            }
-            else if (bgSize == "contain")
-            {
-                float scaleX = box.Width / pdfImage.Width;
-                float scaleY = box.Height / pdfImage.Height;
-                float scale = Math.Min(scaleX, scaleY);
-                imgW = pdfImage.Width * scale;
-                imgH = pdfImage.Height * scale;
-            }
-            else
-            {
-                // Try px values
-                var parts = bgSize.Split(SpaceSep, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length >= 1)
-                {
-                    float? w = ResolveOptionalLength(parts[0], box.Width);
-                    if (w.HasValue) imgW = w.Value;
-                }
-                if (parts.Length >= 2)
-                {
-                    float? h = ResolveOptionalLength(parts[1], box.Height);
-                    if (h.HasValue) imgH = h.Value;
-                }
-            }
-        }
-
-        // Parse background-position (simplified: px or keywords)
-        float bgX = 0, bgY = 0;
-        var bgPos = box.Style.Get("background-position");
-        if (!string.IsNullOrEmpty(bgPos))
-        {
-            var parts = bgPos.Split(SpaceSep, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length >= 1)
-            {
-                if (parts[0] == "center") bgX = (box.Width - imgW) / 2;
-                else if (parts[0] == "right") bgX = box.Width - imgW;
-                else { var v = ResolveOptionalLength(parts[0], box.Width); if (v.HasValue) bgX = v.Value; }
-            }
-            if (parts.Length >= 2)
-            {
-                if (parts[1] == "center") bgY = (box.Height - imgH) / 2;
-                else if (parts[1] == "bottom") bgY = box.Height - imgH;
-                else { var v = ResolveOptionalLength(parts[1], box.Height); if (v.HasValue) bgY = v.Value; }
-            }
-        }
-
-        // Parse background-repeat
-        var bgRepeat = box.Style.Get("background-repeat") ?? "repeat";
-
-        // Calculate PDF coordinates
-        float baseX = effectiveX + bgX;
-        float baseY = adjustedY + bgY;
-
-        if (bgRepeat == "no-repeat")
-        {
-            float pdfX = baseX * PdfCoordinates.PxToPt;
-            float pdfY = (pageHeightPx - baseY - imgH) * PdfCoordinates.PxToPt;
-            float pdfW = imgW * PdfCoordinates.PxToPt;
-            float pdfH = imgH * PdfCoordinates.PxToPt;
-            page.AddImage(imgName, pdfX, pdfY, pdfW, pdfH);
-        }
-        else
-        {
-            // Tile the image
-            bool repeatX = bgRepeat == "repeat" || bgRepeat == "repeat-x";
-            bool repeatY = bgRepeat == "repeat" || bgRepeat == "repeat-y";
-
-            float startX = repeatX ? 0 : bgX;
-            float endX = repeatX ? box.Width : bgX + imgW;
-            float startY = repeatY ? 0 : bgY;
-            float endY = repeatY ? box.Height : bgY + imgH;
-
-            for (float ty = startY; ty < endY; ty += imgH)
-            {
-                for (float tx = startX; tx < endX; tx += imgW)
-                {
-                    float pdfX = (effectiveX + tx) * PdfCoordinates.PxToPt;
-                    float pdfY = (pageHeightPx - adjustedY - ty - imgH) * PdfCoordinates.PxToPt;
-                    float pdfW = imgW * PdfCoordinates.PxToPt;
-                    float pdfH = imgH * PdfCoordinates.PxToPt;
-                    page.AddImage(imgName, pdfX, pdfY, pdfW, pdfH);
-                }
-            }
-        }
+        PaintUrlBackground(page, box, url, data, effectiveX, pageHeightPx, adjustedY);
     }
 
     private static byte[]? LoadBackgroundImageData(string url)
@@ -1441,13 +1314,9 @@ public static partial class BoxPainter
             if (sideStyles[s] != "solid") allSolid = false;
 
             var widthStr = box.Style.Get(BorderWidthKeys[s]) ?? fallbackWidth;
-            sideWidths[s] = 1;
-            if (!string.IsNullOrEmpty(widthStr))
-            {
-                sideWidths[s] = BlockLayout.ResolveLength(widthStr, 0, 16);
-                // Explicit 0 means no border (e.g. border-collapse zeroed edges)
-                if (sideWidths[s] <= 0) { sideWidths[s] = 0; continue; }
-            }
+            if (widthStr != null && widthStr.IndexOf(' ') > 0) widthStr = widthStr.Split(' ')[0];
+            sideWidths[s] = BlockLayout.BorderWidthKeyword(widthStr, 16);
+            if (sideWidths[s] <= 0) { sideWidths[s] = 0; continue; }
 
             var colorStr = box.Style.Get(BorderColorKeys[s]) ?? fallbackColor;
             if (!string.IsNullOrEmpty(colorStr))
@@ -1477,24 +1346,30 @@ public static partial class BoxPainter
 
         if (uniformSolidBorder)
         {
+            float widthPt = sideWidths[0] * PdfCoordinates.PxToPt;
+            float half = Math.Min(widthPt / 2f, Math.Min(pdfW, pdfH) / 2f);
             bool translucent = BeginStrokeAlpha(page, sideA[0]);
             if (hasRadius)
-                page.AddStrokeRoundedRectangle(pdfX, pdfY, pdfW, pdfH,
-                    sideR[0], sideG[0], sideB[0], sideWidths[0] * PdfCoordinates.PxToPt,
-                    tlrPt, trrPt, brrPt, blrPt);
+                page.AddStrokeRoundedRectangle(pdfX + half, pdfY + half, pdfW - 2f * half, pdfH - 2f * half,
+                    sideR[0], sideG[0], sideB[0], widthPt,
+                    Math.Max(0f, tlrPt - half), Math.Max(0f, trrPt - half), Math.Max(0f, brrPt - half), Math.Max(0f, blrPt - half));
             else
-                page.AddStrokeRectangle(pdfX, pdfY, pdfW, pdfH,
-                    sideR[0], sideG[0], sideB[0], sideWidths[0] * PdfCoordinates.PxToPt);
+                page.AddStrokeRectangle(pdfX + half, pdfY + half, pdfW - 2f * half, pdfH - 2f * half,
+                    sideR[0], sideG[0], sideB[0], widthPt);
             EndStrokeAlpha(page, translucent);
             return;
         }
 
         float top = pdfY + pdfH;
         float right = pdfX + pdfW;
-        PaintBorderSide(page, 0, pdfX, top, right, top, sideWidths, sideR, sideG, sideB, sideA, sideStyles);
-        PaintBorderSide(page, 1, right, top, right, pdfY, sideWidths, sideR, sideG, sideB, sideA, sideStyles);
-        PaintBorderSide(page, 2, right, pdfY, pdfX, pdfY, sideWidths, sideR, sideG, sideB, sideA, sideStyles);
-        PaintBorderSide(page, 3, pdfX, pdfY, pdfX, top, sideWidths, sideR, sideG, sideB, sideA, sideStyles);
+        float topInset = sideWidths[0] * PdfCoordinates.PxToPt / 2f;
+        float rightInset = sideWidths[1] * PdfCoordinates.PxToPt / 2f;
+        float bottomInset = sideWidths[2] * PdfCoordinates.PxToPt / 2f;
+        float leftInset = sideWidths[3] * PdfCoordinates.PxToPt / 2f;
+        PaintBorderSide(page, 0, pdfX, top - topInset, right, top - topInset, sideWidths, sideR, sideG, sideB, sideA, sideStyles);
+        PaintBorderSide(page, 1, right - rightInset, top, right - rightInset, pdfY, sideWidths, sideR, sideG, sideB, sideA, sideStyles);
+        PaintBorderSide(page, 2, right, pdfY + bottomInset, pdfX, pdfY + bottomInset, sideWidths, sideR, sideG, sideB, sideA, sideStyles);
+        PaintBorderSide(page, 3, pdfX + leftInset, pdfY, pdfX + leftInset, top, sideWidths, sideR, sideG, sideB, sideA, sideStyles);
     }
 
     private static bool SameBorderSide(int a, int b, float[] widths, float[] r, float[] g, float[] blue, float[] alpha) =>
@@ -1512,13 +1387,13 @@ public static partial class BoxPainter
     private static bool BeginStrokeAlpha(PdfPage page, float alpha)
     {
         if (alpha >= 1f) return false;
-        page.SetOpacity(alpha);
+        SetPaintOpacity(page, alpha);
         return true;
     }
 
     private static void EndStrokeAlpha(PdfPage page, bool translucent)
     {
-        if (translucent) page.SetOpacity(1f);
+        if (translucent) SetPaintOpacity(page, 1f);
     }
 
     // ===== writing-mode support =====
@@ -2325,9 +2200,9 @@ public static partial class BoxPainter
 
             page.SaveState();
             page.AddClipRect(elX, elY, elW, elH);
-            if (sa < 1f) page.SetOpacity(sa);
+            if (sa < 1f) SetPaintOpacity(page, sa);
             page.AddRectangle(inX, inY, inW, inH, sr, sg, sb);
-            if (sa < 1f) page.SetOpacity(1f);
+            if (sa < 1f) SetPaintOpacity(page, 1f);
             page.RestoreState();
         }
         else
@@ -2337,9 +2212,9 @@ public static partial class BoxPainter
             float pdfW = (box.Width + spread * 2) * PdfCoordinates.PxToPt;
             float pdfH = (box.Height + spread * 2) * PdfCoordinates.PxToPt;
 
-            if (sa < 1f) page.SetOpacity(sa);
+            if (sa < 1f) SetPaintOpacity(page, sa);
             page.AddRectangle(pdfX, pdfY, pdfW, pdfH, sr, sg, sb);
-            if (sa < 1f) page.SetOpacity(1f);
+            if (sa < 1f) SetPaintOpacity(page, 1f);
         }
     }
 

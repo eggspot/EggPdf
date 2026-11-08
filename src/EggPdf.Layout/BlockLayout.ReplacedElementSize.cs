@@ -57,8 +57,15 @@ public static partial class BlockLayout
             size = ResolveImageBoxSize(style, element, box.ImageSource, containingWidth, fontSize);
         }
 
-        box.Width = box.ContentWidth = size.Width;
-        box.Height = box.ContentHeight = size.Height;
+        float horizontalInsets = box.PaddingLeft + box.PaddingRight;
+        float verticalInsets = box.PaddingTop + box.PaddingBottom;
+        bool borderBox = style.Get("box-sizing") == "border-box";
+        bool widthIncludesInsets = borderBox && IsSpecified(style.Width);
+        bool heightIncludesInsets = borderBox && IsSpecified(style.Height);
+        box.ContentWidth = widthIncludesInsets ? Math.Max(0f, size.Width - horizontalInsets) : size.Width;
+        box.ContentHeight = heightIncludesInsets ? Math.Max(0f, size.Height - verticalInsets) : size.Height;
+        box.Width = box.ContentWidth + horizontalInsets;
+        box.Height = box.ContentHeight + verticalInsets;
         return box;
     }
 
@@ -103,27 +110,32 @@ public static partial class BlockLayout
         float? maxHeight = DefiniteHeightLimit(NoneAsNull(style.Get("max-height")), fontSize);
         float? minHeight = DefiniteHeightLimit(style.Get("min-height"), fontSize);
 
-        if (maxWidth.HasValue && width > maxWidth.Value)
-        {
-            width = maxWidth.Value;
-            if (ratio > 0f) height = width / ratio;
-        }
-        if (maxHeight.HasValue && height > maxHeight.Value)
-        {
-            height = maxHeight.Value;
-            if (ratio > 0f) width = height * ratio;
-        }
-        if (minWidth.HasValue && width < minWidth.Value)
-        {
-            width = minWidth.Value;
-            if (ratio > 0f) height = width / ratio;
-        }
-        if (minHeight.HasValue && height < minHeight.Value)
-        {
-            height = minHeight.Value;
-            if (ratio > 0f) width = height * ratio;
-        }
-        return (width, height);
+        float minW = Math.Max(0f, minWidth ?? 0f), minH = Math.Max(0f, minHeight ?? 0f);
+        float maxW = Math.Max(minW, maxWidth ?? float.PositiveInfinity);
+        float maxH = Math.Max(minH, maxHeight ?? float.PositiveInfinity);
+        if (ratio <= 0f || width <= 0f || height <= 0f)
+            return (Clamp(width, minW, maxW), Clamp(height, minH, maxH));
+        return ConstrainKeepingRatio(width, height, minW, maxW, minH, maxH);
+    }
+
+    private static float Clamp(float value, float min, float max) => Math.Max(min, Math.Min(max, value));
+
+    private static bool IsSpecified(string? length) => !string.IsNullOrEmpty(length) && length != "auto";
+
+    private static (float Width, float Height) ConstrainKeepingRatio(float w, float h, float minW, float maxW, float minH, float maxH)
+    {
+        bool wideOver = w > maxW, wideUnder = w < minW, tallOver = h > maxH, tallUnder = h < minH;
+        if (wideOver && tallOver)
+            return maxW / w <= maxH / h ? (maxW, Math.Max(minH, maxW * h / w)) : (Math.Max(minW, maxH * w / h), maxH);
+        if (wideUnder && tallUnder)
+            return minW / w <= minH / h ? (Math.Min(maxW, minH * w / h), minH) : (minW, Math.Min(maxH, minW * h / w));
+        if (wideUnder && tallOver) return (minW, maxH);
+        if (wideOver && tallUnder) return (maxW, minH);
+        if (wideOver) return (maxW, Math.Max(maxW * h / w, minH));
+        if (wideUnder) return (minW, Math.Min(minW * h / w, maxH));
+        if (tallOver) return (Math.Max(maxH * w / h, minW), maxH);
+        if (tallUnder) return (Math.Min(minH * w / h, maxW), minH);
+        return (w, h);
     }
 
     private static string? NoneAsNull(string? value) => value == "none" ? null : value;

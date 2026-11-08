@@ -30,7 +30,7 @@ public static partial class HtmlToPdf
         if (ImageIntrinsicSize.TryRead(data, out int width, out int height, out int orientation))
             return (width, height, orientation);
 
-        var svg = SvgImages.ParseRoot(data);
+        var svg = EggPdf.Svg.SvgImageDocument.ParseRoot(data);
         if (svg == null) return null;
         var (svgWidth, svgHeight) = BlockLayout.SvgIntrinsicSize(svg) ?? (DefaultSvgImageWidthPx, DefaultSvgImageHeightPx);
         return (svgWidth, svgHeight, NormalExifOrientation);

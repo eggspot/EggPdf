@@ -80,10 +80,10 @@ public static partial class BlockLayout
                 {
                     // This box is the containing block — its PADDING box (CSS 2.1
                     // §10.1), so offsets count from inside the border.
-                    float cbBorderLeft = ResolveLength(style.Get("border-left-width"), 0, fontSize);
-                    float cbBorderRight = ResolveLength(style.Get("border-right-width"), 0, fontSize);
-                    float cbBorderTop = ResolveLength(style.Get("border-top-width"), 0, fontSize);
-                    float cbBorderBottom = ResolveLength(style.Get("border-bottom-width"), 0, fontSize);
+                    float cbBorderLeft = VisibleBorderWidth(style, "left", fontSize);
+                    float cbBorderRight = VisibleBorderWidth(style, "right", fontSize);
+                    float cbBorderTop = VisibleBorderWidth(style, "top", fontSize);
+                    float cbBorderBottom = VisibleBorderWidth(style, "bottom", fontSize);
                     cbX = box.X + cbBorderLeft;
                     cbY = box.Y + cbBorderTop;
                     cbWidth = box.Width - cbBorderLeft - cbBorderRight;

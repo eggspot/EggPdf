@@ -24,51 +24,61 @@ public static partial class SvgRenderer
     public static (string commands, List<string> usedImages) Render(SvgElement svg, float targetX, float targetY,
         float targetWidth, float targetHeight, PdfDocument? pdfDoc = null)
     {
+        var result = RenderWithResources(svg, targetX, targetY, targetWidth, targetHeight, pdfDoc);
+        return (result.Commands, result.UsedImages);
+    }
+
+    /// <summary>
+    /// Render an SVG element tree into the target box (PDF points), returning the content stream
+    /// fragment plus every image, standard font and graphics state it uses, which the caller registers
+    /// on the page. <paramref name="measureTextWidth"/> (text, font size, standard font name) returns a
+    /// run's advance width in user units; text anchoring and following <c>tspan</c> runs use it.
+    /// </summary>
+    public static SvgRenderResult RenderWithResources(SvgElement svg, float targetX, float targetY,
+        float targetWidth, float targetHeight, PdfDocument? pdfDoc = null,
+        Func<string, float, string, float>? measureTextWidth = null)
+    {
         var sb = new StringBuilder();
         var usedImages = new List<string>();
+        _usedFonts = new List<string>();
+        _usedExtGStates = new List<string>();
+        _measureTextWidth = measureTextWidth;
+        _inheritedOpacity = 1f;
+        _useClonedElements = 0;
+        _gradientFallbackColors = CollectGradientFallbackColors(svg);
+        _elementsById = CollectElementsById(svg);
 
-        // Save graphics state
-        sb.AppendLine("q");
+        sb.AppendOpLine("q");
+        sb.AppendOpLine($"{F(targetX)} {F(targetY)} {F(targetWidth)} {F(targetHeight)} re W n");
 
-        // Apply viewBox transform if present
-        float vbX = 0, vbY = 0, vbW = targetWidth, vbH = targetHeight;
-        // Tag/attribute names are lowercased uniformly by this parser (no HTML5 "foreign
-        // content" case-preservation for SVG), so "viewBox" arrives as "viewbox".
-        if (svg.Attributes.TryGetValue("viewbox", out var viewBox) && !string.IsNullOrEmpty(viewBox))
+        var (scaleX, scaleY, offsetX, offsetY) = ViewportTransform(svg, targetWidth, targetHeight);
+        float tx = targetX + offsetX;
+        float ty = targetY + targetHeight - offsetY;
+        var viewBoxMatrix = new Matrix2D(scaleX, 0, 0, -scaleY, tx, ty);
+        AppendMatrix(sb, viewBoxMatrix);
+        if (TryReadViewBox(svg, out _, out _, out float viewBoxWidth, out float viewBoxHeight))
         {
-            var parts = viewBox.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length >= 4)
-            {
-                float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out vbX);
-                float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out vbY);
-                float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out vbW);
-                float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out vbH);
-            }
+            _viewportWidth = viewBoxWidth;
+            _viewportHeight = viewBoxHeight;
+        }
+        else
+        {
+            _viewportWidth = targetWidth / CssPixelToPoint;
+            _viewportHeight = targetHeight / CssPixelToPoint;
         }
 
-        // Scale from viewBox to target size
-        float scaleX = vbW > 0 ? targetWidth / vbW : 1;
-        float scaleY = vbH > 0 ? targetHeight / vbH : 1;
-
-        // Apply translation to target position + viewBox offset
-        // PDF transform: translate(targetX, targetY) scale(scaleX, scaleY) translate(-vbX, -vbY)
-        // Combined: cm scaleX 0 0 scaleY (targetX - vbX*scaleX) (targetY - vbY*scaleY)
-        float tx = targetX - vbX * scaleX;
-        float ty = targetY + targetHeight + vbY * scaleY; // PDF Y is bottom-up
-        sb.AppendLine($"{F(scaleX)} 0 0 {F(-scaleY)} {F(tx)} {F(ty)} cm");
-
-        // Collect the <filter> definitions whose primitives are all supported
         var defs = CollectDefs(svg);
-
-        // Render child elements, tracking the cumulative local-to-PDF matrix (needed only
-        // for filtered elements, whose scale sets the raster resolution).
-        var viewBoxMatrix = new Matrix2D(scaleX, 0, 0, -scaleY, tx, ty);
         RenderChildren(svg, sb, pdfDoc, defs, usedImages, viewBoxMatrix);
 
-        // Restore graphics state
-        sb.AppendLine("Q");
+        sb.AppendOpLine("Q");
 
-        return (sb.ToString(), usedImages);
+        var result = new SvgRenderResult(sb.ToString(), usedImages, _usedFonts, _usedExtGStates);
+        _usedFonts = null;
+        _usedExtGStates = null;
+        _measureTextWidth = null;
+        _gradientFallbackColors = null;
+        _elementsById = null;
+        return result;
     }
 
     private static void RenderChildren(SvgElement parent, StringBuilder sb, PdfDocument? pdfDoc,
@@ -83,82 +93,101 @@ public static partial class SvgRenderer
     private static void RenderElement(SvgElement el, StringBuilder sb, PdfDocument? pdfDoc,
         SvgDefs defs, List<string> usedImages, Matrix2D matrix)
     {
-        // Handle transform attribute
+        if (el.GetAttribute("display").Trim() == "none" || IsNeverRendered(el.TagName)) return;
+
         bool hasTransform = el.Attributes.TryGetValue("transform", out var transformStr) && !string.IsNullOrEmpty(transformStr);
         if (hasTransform)
         {
-            sb.AppendLine("q");
+            sb.AppendOpLine("q");
             ApplyTransform(sb, transformStr!);
             matrix = MatrixMultiply(ParseTransformToMatrix(transformStr!), matrix);
         }
 
-        // A filtered element is rasterized, run through its filter graph and embedded as an
-        // image instead of emitting vector operators -- PDF has no blur/color-matrix/composite
-        // primitives. Elements the rasterizer can't reproduce (text, images, gradients) fall
-        // through and paint unfiltered.
-        if (defs.Filters.Count > 0 && pdfDoc != null)
+        float parentOpacity = _inheritedOpacity;
+        _inheritedOpacity = parentOpacity * ReadOpacity(el, "opacity");
+        try
         {
-            var filter = ResolveFilter(el, defs.Filters);
-            if (filter != null && RenderFilteredElement(el, sb, pdfDoc, usedImages, filter, defs, matrix))
+            if (_inheritedOpacity <= 0f) return;
+            if (defs.Filters.Count > 0 && pdfDoc != null)
             {
-                if (hasTransform) sb.AppendLine("Q");
-                return;
+                var filter = ResolveFilter(el, defs.Filters);
+                if (filter != null && RenderFilteredElement(el, sb, pdfDoc, usedImages, filter, defs, matrix))
+                    return;
+            }
+
+            switch (el.TagName)
+            {
+                case "text":
+                case "tspan":
+                    if (!IsInvisible(el)) RenderText(el, sb);
+                    break;
+                case "use":
+                    RenderUse(el, sb, pdfDoc, defs, usedImages, matrix);
+                    break;
+                default:
+                    if (IsShape(el.TagName))
+                    {
+                        if (IsInvisible(el)) break;
+                        sb.AppendOpLine("q");
+                        RenderShape(el, sb);
+                        sb.AppendOpLine("Q");
+                    }
+                    else
+                    {
+                        RenderChildren(el, sb, pdfDoc, defs, usedImages, matrix);
+                    }
+                    break;
             }
         }
-
-        switch (el.TagName)
+        finally
         {
-            case "g":
-            case "svg":
-                RenderChildren(el, sb, pdfDoc, defs, usedImages, matrix);
-                break;
-            case "rect":
-                RenderRect(el, sb);
-                break;
-            case "circle":
-                RenderCircle(el, sb);
-                break;
-            case "ellipse":
-                RenderEllipse(el, sb);
-                break;
-            case "line":
-                RenderLine(el, sb);
-                break;
-            case "polyline":
-                RenderPolyline(el, sb, false);
-                break;
-            case "polygon":
-                RenderPolyline(el, sb, true);
-                break;
-            case "path":
-                RenderPath(el, sb);
-                break;
-            case "text":
-            case "tspan":
-                RenderText(el, sb);
-                break;
-            case "defs":
-            case "clipPath":
-            case "mask":
-            case "filter":
-                // Skip definitions (used by reference)
-                break;
-            case "use":
-                // TODO: resolve use references
-                break;
-            default:
-                // Unknown element — render children
-                RenderChildren(el, sb, pdfDoc, defs, usedImages, matrix);
-                break;
+            _inheritedOpacity = parentOpacity;
+            if (hasTransform) sb.AppendOpLine("Q");
         }
-
-        if (hasTransform)
-            sb.AppendLine("Q");
     }
 
-    // =====================================================
-    // Shape rendering
-    // =====================================================
+    private static bool IsShape(string tagName) =>
+        tagName == "rect" || tagName == "circle" || tagName == "ellipse" || tagName == "line" ||
+        tagName == "polyline" || tagName == "polygon" || tagName == "path";
+
+    private static bool IsNeverRendered(string tagName)
+    {
+        switch (tagName)
+        {
+            case "defs":
+            case "clippath":
+            case "mask":
+            case "filter":
+            case "symbol":
+            case "marker":
+            case "pattern":
+            case "lineargradient":
+            case "radialgradient":
+            case "style":
+            case "script":
+            case "title":
+            case "desc":
+            case "metadata":
+            case SvgParser.TextRunTagName:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static void RenderShape(SvgElement el, StringBuilder sb)
+    {
+        switch (el.TagName)
+        {
+            case "rect": RenderRect(el, sb); break;
+            case "circle": RenderCircle(el, sb); break;
+            case "ellipse": RenderEllipse(el, sb); break;
+            case "line": RenderLine(el, sb); break;
+            case "polyline": RenderPolyline(el, sb, false); break;
+            case "polygon": RenderPolyline(el, sb, true); break;
+            case "path": RenderPath(el, sb); break;
+        }
+    }
 
     private static void RenderRect(SvgElement el, StringBuilder sb)
     {
@@ -170,14 +199,13 @@ public static partial class SvgRenderer
         float ry = GetFloat(el, "ry");
         if (ry == 0) ry = rx;
         if (rx == 0) rx = ry;
-
-        SetFillStroke(el, sb);
+        rx = Math.Min(rx, w / 2f);
+        ry = Math.Min(ry, h / 2f);
+        if (w <= 0f || h <= 0f || !ApplyShapePaint(el, sb, canFill: true, out bool fill, out bool stroke)) return;
 
         if (rx > 0 || ry > 0)
         {
-            // Rounded rectangle using Bézier curves
-            float k = 0.5523f; // Bézier approximation of quarter circle
-            float kx = rx * k, ky = ry * k;
+            float kx = rx * BezierCircleFactor, ky = ry * BezierCircleFactor;
 
             sb.Append($"{F(x + rx)} {F(y)} m ");
             sb.Append($"{F(x + w - rx)} {F(y)} l ");
@@ -187,14 +215,14 @@ public static partial class SvgRenderer
             sb.Append($"{F(x + rx)} {F(y + h)} l ");
             sb.Append($"{F(x + rx - kx)} {F(y + h)} {F(x)} {F(y + h - ry + ky)} {F(x)} {F(y + h - ry)} c ");
             sb.Append($"{F(x)} {F(y + ry)} l ");
-            sb.AppendLine($"{F(x)} {F(y + ry - ky)} {F(x + rx - kx)} {F(y)} {F(x + rx)} {F(y)} c h");
+            sb.AppendOpLine($"{F(x)} {F(y + ry - ky)} {F(x + rx - kx)} {F(y)} {F(x + rx)} {F(y)} c h");
         }
         else
         {
-            sb.AppendLine($"{F(x)} {F(y)} {F(w)} {F(h)} re");
+            sb.AppendOpLine($"{F(x)} {F(y)} {F(w)} {F(h)} re");
         }
 
-        EmitFillStroke(el, sb);
+        EmitPaintOperator(el, sb, fill, stroke);
     }
 
     private static void RenderCircle(SvgElement el, StringBuilder sb)
@@ -202,10 +230,10 @@ public static partial class SvgRenderer
         float cx = GetFloat(el, "cx");
         float cy = GetFloat(el, "cy");
         float r = GetFloat(el, "r");
+        if (r <= 0f || !ApplyShapePaint(el, sb, canFill: true, out bool fill, out bool stroke)) return;
 
-        SetFillStroke(el, sb);
         DrawEllipse(sb, cx, cy, r, r);
-        EmitFillStroke(el, sb);
+        EmitPaintOperator(el, sb, fill, stroke);
     }
 
     private static void RenderEllipse(SvgElement el, StringBuilder sb)
@@ -214,22 +242,23 @@ public static partial class SvgRenderer
         float cy = GetFloat(el, "cy");
         float rx = GetFloat(el, "rx");
         float ry = GetFloat(el, "ry");
+        if (rx <= 0f || ry <= 0f || !ApplyShapePaint(el, sb, canFill: true, out bool fill, out bool stroke)) return;
 
-        SetFillStroke(el, sb);
         DrawEllipse(sb, cx, cy, rx, ry);
-        EmitFillStroke(el, sb);
+        EmitPaintOperator(el, sb, fill, stroke);
     }
+
+    private const float BezierCircleFactor = 0.5523f;
 
     private static void DrawEllipse(StringBuilder sb, float cx, float cy, float rx, float ry)
     {
-        float k = 0.5523f;
-        float kx = rx * k, ky = ry * k;
+        float kx = rx * BezierCircleFactor, ky = ry * BezierCircleFactor;
 
         sb.Append($"{F(cx + rx)} {F(cy)} m ");
         sb.Append($"{F(cx + rx)} {F(cy + ky)} {F(cx + kx)} {F(cy + ry)} {F(cx)} {F(cy + ry)} c ");
         sb.Append($"{F(cx - kx)} {F(cy + ry)} {F(cx - rx)} {F(cy + ky)} {F(cx - rx)} {F(cy)} c ");
         sb.Append($"{F(cx - rx)} {F(cy - ky)} {F(cx - kx)} {F(cy - ry)} {F(cx)} {F(cy - ry)} c ");
-        sb.AppendLine($"{F(cx + kx)} {F(cy - ry)} {F(cx + rx)} {F(cy - ky)} {F(cx + rx)} {F(cy)} c h");
+        sb.AppendOpLine($"{F(cx + kx)} {F(cy - ry)} {F(cx + rx)} {F(cy - ky)} {F(cx + rx)} {F(cy)} c h");
     }
 
     private static void RenderLine(SvgElement el, StringBuilder sb)
@@ -239,8 +268,8 @@ public static partial class SvgRenderer
         float x2 = GetFloat(el, "x2");
         float y2 = GetFloat(el, "y2");
 
-        SetFillStroke(el, sb);
-        sb.AppendLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
+        if (!ApplyShapePaint(el, sb, canFill: false, out _, out bool stroke) || !stroke) return;
+        sb.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
     }
 
     private static void RenderPolyline(SvgElement el, StringBuilder sb, bool close)
@@ -249,424 +278,120 @@ public static partial class SvgRenderer
         if (string.IsNullOrEmpty(points)) return;
 
         var coords = ParsePointsList(points);
-        if (coords.Count < 2) return;
-
-        SetFillStroke(el, sb);
+        if (coords.Count < 2 || !ApplyShapePaint(el, sb, canFill: true, out bool fill, out bool stroke)) return;
 
         sb.Append($"{F(coords[0].x)} {F(coords[0].y)} m ");
         for (int i = 1; i < coords.Count; i++)
             sb.Append($"{F(coords[i].x)} {F(coords[i].y)} l ");
 
         if (close) sb.Append("h ");
-        EmitFillStroke(el, sb);
+        EmitPaintOperator(el, sb, fill, stroke);
     }
 
     private static void RenderPath(SvgElement el, StringBuilder sb)
     {
-        var d = el.GetAttribute("d");
-        if (string.IsNullOrEmpty(d)) return;
+        var segments = SvgPathData.Parse(el.GetAttribute("d"));
+        if (segments.Count == 0 || !ApplyShapePaint(el, sb, canFill: true, out bool fill, out bool stroke)) return;
 
-        SetFillStroke(el, sb);
-
-        // Parse SVG path data and convert to PDF path operators
-        ConvertSvgPathToPdf(d, sb);
-
-        EmitFillStroke(el, sb);
+        AppendPathOperators(segments, sb);
+        EmitPaintOperator(el, sb, fill, stroke);
     }
 
-    private static void RenderText(SvgElement el, StringBuilder sb)
+    private static void AppendPathOperators(List<PathSegment> segments, StringBuilder sb)
     {
-        float x = GetFloat(el, "x");
-        float y = GetFloat(el, "y");
-        float fontSize = 16;
-
-        var fsAttr = el.GetAttribute("font-size");
-        if (!string.IsNullOrEmpty(fsAttr))
-            float.TryParse(fsAttr.Replace("px", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out fontSize);
-
-        var text = el.TextContent;
-        if (string.IsNullOrEmpty(text)) return;
-
-        // Set fill color for text
-        SetFillColor(el, sb);
-
-        sb.Append("BT ");
-        sb.Append($"/Helvetica {F(fontSize)} Tf ");
-        sb.Append($"{F(x)} {F(y)} Td ");
-        sb.Append($"({EscapePdfString(text)}) Tj ");
-        sb.AppendLine("ET");
-    }
-
-    // =====================================================
-    // SVG Path data → PDF path operators
-    // =====================================================
-
-    private static void ConvertSvgPathToPdf(string d, StringBuilder sb)
-    {
-        float curX = 0, curY = 0;
-        float startX = 0, startY = 0;
-        float lastCX = 0, lastCY = 0; // last control point for smooth curves
-        char lastCmd = ' ';
-
-        int i = 0;
-        while (i < d.Length)
+        foreach (var segment in segments)
         {
-            SkipWhitespace(d, ref i);
-            if (i >= d.Length) break;
-
-            char cmd = d[i];
-            if (char.IsLetter(cmd))
+            switch (segment.Kind)
             {
-                i++;
-                lastCmd = cmd;
-            }
-            else
-            {
-                cmd = lastCmd;
-            }
-
-            bool relative = char.IsLower(cmd);
-            char cmdUpper = char.ToUpper(cmd);
-
-            switch (cmdUpper)
-            {
-                case 'M':
-                {
-                    float x = ReadNumber(d, ref i);
-                    float y = ReadNumber(d, ref i);
-                    if (relative) { x += curX; y += curY; }
-                    curX = x; curY = y;
-                    startX = x; startY = y;
-                    sb.Append($"{F(x)} {F(y)} m ");
-                    lastCmd = relative ? 'l' : 'L'; // subsequent coords are line-to
+                case PathSegmentKind.MoveTo:
+                    sb.Append(F(segment.X)).Append(' ').Append(F(segment.Y)).Append(" m ");
                     break;
-                }
-                case 'L':
-                {
-                    float x = ReadNumber(d, ref i);
-                    float y = ReadNumber(d, ref i);
-                    if (relative) { x += curX; y += curY; }
-                    curX = x; curY = y;
-                    sb.Append($"{F(x)} {F(y)} l ");
+                case PathSegmentKind.LineTo:
+                    sb.Append(F(segment.X)).Append(' ').Append(F(segment.Y)).Append(" l ");
                     break;
-                }
-                case 'H':
-                {
-                    float x = ReadNumber(d, ref i);
-                    if (relative) x += curX;
-                    curX = x;
-                    sb.Append($"{F(curX)} {F(curY)} l ");
+                case PathSegmentKind.CubicTo:
+                    sb.Append(F(segment.X1)).Append(' ').Append(F(segment.Y1)).Append(' ')
+                      .Append(F(segment.X2)).Append(' ').Append(F(segment.Y2)).Append(' ')
+                      .Append(F(segment.X)).Append(' ').Append(F(segment.Y)).Append(" c ");
                     break;
-                }
-                case 'V':
-                {
-                    float y = ReadNumber(d, ref i);
-                    if (relative) y += curY;
-                    curY = y;
-                    sb.Append($"{F(curX)} {F(curY)} l ");
-                    break;
-                }
-                case 'C':
-                {
-                    float x1 = ReadNumber(d, ref i), y1 = ReadNumber(d, ref i);
-                    float x2 = ReadNumber(d, ref i), y2 = ReadNumber(d, ref i);
-                    float x = ReadNumber(d, ref i), y = ReadNumber(d, ref i);
-                    if (relative) { x1 += curX; y1 += curY; x2 += curX; y2 += curY; x += curX; y += curY; }
-                    sb.Append($"{F(x1)} {F(y1)} {F(x2)} {F(y2)} {F(x)} {F(y)} c ");
-                    lastCX = x2; lastCY = y2;
-                    curX = x; curY = y;
-                    break;
-                }
-                case 'S':
-                {
-                    // Smooth cubic: reflected control point
-                    float cx1 = 2 * curX - lastCX;
-                    float cy1 = 2 * curY - lastCY;
-                    float x2 = ReadNumber(d, ref i), y2 = ReadNumber(d, ref i);
-                    float x = ReadNumber(d, ref i), y = ReadNumber(d, ref i);
-                    if (relative) { x2 += curX; y2 += curY; x += curX; y += curY; }
-                    sb.Append($"{F(cx1)} {F(cy1)} {F(x2)} {F(y2)} {F(x)} {F(y)} c ");
-                    lastCX = x2; lastCY = y2;
-                    curX = x; curY = y;
-                    break;
-                }
-                case 'Q':
-                {
-                    // Quadratic Bézier → cubic approximation
-                    float qx = ReadNumber(d, ref i), qy = ReadNumber(d, ref i);
-                    float x = ReadNumber(d, ref i), y = ReadNumber(d, ref i);
-                    if (relative) { qx += curX; qy += curY; x += curX; y += curY; }
-                    // Convert quadratic to cubic: cp1 = start + 2/3*(q-start), cp2 = end + 2/3*(q-end)
-                    float cx1 = curX + 2f / 3f * (qx - curX);
-                    float cy1 = curY + 2f / 3f * (qy - curY);
-                    float cx2 = x + 2f / 3f * (qx - x);
-                    float cy2 = y + 2f / 3f * (qy - y);
-                    sb.Append($"{F(cx1)} {F(cy1)} {F(cx2)} {F(cy2)} {F(x)} {F(y)} c ");
-                    lastCX = qx; lastCY = qy;
-                    curX = x; curY = y;
-                    break;
-                }
-                case 'Z':
-                {
+                case PathSegmentKind.Close:
                     sb.Append("h ");
-                    curX = startX; curY = startY;
-                    break;
-                }
-                case 'A':
-                {
-                    // Arc: simplified — treat as line-to for now
-                    ReadNumber(d, ref i); ReadNumber(d, ref i); // rx, ry
-                    ReadNumber(d, ref i); // x-rotation
-                    ReadNumber(d, ref i); ReadNumber(d, ref i); // large-arc, sweep
-                    float x = ReadNumber(d, ref i), y = ReadNumber(d, ref i);
-                    if (relative) { x += curX; y += curY; }
-                    sb.Append($"{F(x)} {F(y)} l ");
-                    curX = x; curY = y;
-                    break;
-                }
-                default:
-                    i++; // skip unknown
                     break;
             }
         }
-        sb.AppendLine();
+        sb.AppendOpLine();
     }
 
-    // =====================================================
-    // Fill/Stroke
-    // =====================================================
+    private static void ApplyTransform(StringBuilder sb, string transform) =>
+        AppendMatrix(sb, ParseTransformToMatrix(transform));
 
-    private static void SetFillStroke(SvgElement el, StringBuilder sb)
+    private static void AppendMatrix(StringBuilder sb, Matrix2D m) =>
+        sb.AppendOpLine($"{FMatrix(m.A)} {FMatrix(m.B)} {FMatrix(m.C)} {FMatrix(m.D)} {FMatrix(m.E)} {FMatrix(m.F)} cm");
+
+    private static string FMatrix(float v) =>
+        Math.Abs(v) < 5e-7f ? "0" : v.ToString("0.######", CultureInfo.InvariantCulture);
+
+    private const float DefaultFontSizePx = 16f;
+
+    [ThreadStatic]
+    private static float _viewportWidth;
+
+    [ThreadStatic]
+    private static float _viewportHeight;
+
+    private static float GetFloat(SvgElement el, string attr, float defaultValue = 0) =>
+        ParseLength(el.GetAttribute(attr), el, attr, defaultValue);
+
+    private static float ParseLength(string value, SvgElement el, string attr, float defaultValue)
     {
-        SetFillColor(el, sb);
-        SetStrokeColor(el, sb);
-    }
-
-    private static void SetFillColor(SvgElement el, StringBuilder sb)
-    {
-        var fill = el.GetAttribute("fill");
-        if (string.IsNullOrEmpty(fill) || fill == "none") return;
-
-        var (r, g, b) = ParseSvgColor(fill);
-        sb.AppendLine($"{F(r)} {F(g)} {F(b)} rg");
-    }
-
-    private static void SetStrokeColor(SvgElement el, StringBuilder sb)
-    {
-        var stroke = el.GetAttribute("stroke");
-        if (string.IsNullOrEmpty(stroke) || stroke == "none") return;
-
-        var (r, g, b) = ParseSvgColor(stroke);
-        sb.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
-
-        var strokeWidth = el.GetAttribute("stroke-width");
-        if (!string.IsNullOrEmpty(strokeWidth))
-        {
-            if (float.TryParse(strokeWidth.Replace("px", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out float sw))
-                sb.AppendLine($"{F(sw)} w");
-        }
-    }
-
-    private static void EmitFillStroke(SvgElement el, StringBuilder sb)
-    {
-        bool hasFill = el.GetAttribute("fill") != "none";
-        bool hasStroke = !string.IsNullOrEmpty(el.GetAttribute("stroke")) && el.GetAttribute("stroke") != "none";
-
-        if (hasFill && hasStroke) sb.AppendLine("B"); // fill and stroke
-        else if (hasFill) sb.AppendLine("f");
-        else if (hasStroke) sb.AppendLine("S");
-        else sb.AppendLine("f"); // default: fill with black
-    }
-
-    // =====================================================
-    // Transform
-    // =====================================================
-
-    private static void ApplyTransform(StringBuilder sb, string transform)
-    {
-        // Parse simple transforms: translate, scale, rotate, matrix
+        value = value.Trim();
+        if (value.Length == 0) return defaultValue;
         int i = 0;
-        while (i < transform.Length)
+        if (!SvgPathData.TryReadNumber(value, ref i, out float number)) return defaultValue;
+        switch (value.Substring(i).Trim().ToLowerInvariant())
         {
-            SkipWhitespace(transform, ref i);
-            if (i >= transform.Length) break;
-
-            if (transform.Substring(i).StartsWith("translate(", StringComparison.OrdinalIgnoreCase))
-            {
-                i += 10;
-                float tx = ReadNumber(transform, ref i);
-                float ty = ReadNumberOpt(transform, ref i, 0);
-                SkipParen(transform, ref i);
-                sb.AppendLine($"1 0 0 1 {F(tx)} {F(ty)} cm");
-            }
-            else if (transform.Substring(i).StartsWith("scale(", StringComparison.OrdinalIgnoreCase))
-            {
-                i += 6;
-                float sx = ReadNumber(transform, ref i);
-                float sy = ReadNumberOpt(transform, ref i, sx);
-                SkipParen(transform, ref i);
-                sb.AppendLine($"{F(sx)} 0 0 {F(sy)} 0 0 cm");
-            }
-            else if (transform.Substring(i).StartsWith("rotate(", StringComparison.OrdinalIgnoreCase))
-            {
-                i += 7;
-                float angle = ReadNumber(transform, ref i);
-                SkipParen(transform, ref i);
-                float rad = angle * (float)Math.PI / 180f;
-                float cos = (float)Math.Cos(rad), sin = (float)Math.Sin(rad);
-                sb.AppendLine($"{F(cos)} {F(sin)} {F(-sin)} {F(cos)} 0 0 cm");
-            }
-            else if (transform.Substring(i).StartsWith("matrix(", StringComparison.OrdinalIgnoreCase))
-            {
-                i += 7;
-                float a = ReadNumber(transform, ref i);
-                float b = ReadNumber(transform, ref i);
-                float c = ReadNumber(transform, ref i);
-                float d = ReadNumber(transform, ref i);
-                float e = ReadNumber(transform, ref i);
-                float f = ReadNumber(transform, ref i);
-                SkipParen(transform, ref i);
-                sb.AppendLine($"{F(a)} {F(b)} {F(c)} {F(d)} {F(e)} {F(f)} cm");
-            }
-            else
-            {
-                i++;
-            }
+            case "":
+            case "px": return number;
+            case "%": return number / 100f * PercentageBasis(attr);
+            case "pt": return number * 96f / 72f;
+            case "pc": return number * 16f;
+            case "in": return number * 96f;
+            case "cm": return number * 96f / 2.54f;
+            case "mm": return number * 96f / 25.4f;
+            case "q": return number * 96f / 101.6f;
+            case "em": return number * FontSizeFor(el, attr);
+            case "ex": return number * FontSizeFor(el, attr) / 2f;
+            case "rem": return number * DefaultFontSizePx;
+            default: return defaultValue;
         }
     }
 
-    // =====================================================
-    // Color parsing
-    // =====================================================
+    private static float FontSizeFor(SvgElement el, string attr) =>
+        attr == "font-size" ? DefaultFontSizePx : GetFloat(el, "font-size", DefaultFontSizePx);
 
-    private static (float r, float g, float b) ParseSvgColor(string color)
+    private static float PercentageBasis(string attr)
     {
-        if (string.IsNullOrEmpty(color)) return (0, 0, 0);
-        color = color.Trim();
-
-        // Hex color
-        if (color.StartsWith("#"))
+        switch (attr)
         {
-            if (color.Length == 4) // #RGB
-            {
-                int r = Convert.ToInt32(new string(color[1], 2), 16);
-                int g = Convert.ToInt32(new string(color[2], 2), 16);
-                int b = Convert.ToInt32(new string(color[3], 2), 16);
-                return (r / 255f, g / 255f, b / 255f);
-            }
-            if (color.Length == 7) // #RRGGBB
-            {
-                int r = Convert.ToInt32(color.Substring(1, 2), 16);
-                int g = Convert.ToInt32(color.Substring(3, 2), 16);
-                int b = Convert.ToInt32(color.Substring(5, 2), 16);
-                return (r / 255f, g / 255f, b / 255f);
-            }
+            case "x": case "x1": case "x2": case "cx": case "width": case "rx": case "dx":
+                return _viewportWidth;
+            case "y": case "y1": case "y2": case "cy": case "height": case "ry": case "dy":
+                return _viewportHeight;
+            case "font-size":
+                return DefaultFontSizePx;
+            default:
+                return (float)Math.Sqrt((_viewportWidth * _viewportWidth + _viewportHeight * _viewportHeight) / 2.0);
         }
-
-        // rgb() function
-        if (color.StartsWith("rgb(", StringComparison.OrdinalIgnoreCase))
-        {
-            var inner = color.Substring(4, color.Length - 5);
-            var parts = inner.Split(',');
-            if (parts.Length >= 3)
-            {
-                float.TryParse(parts[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float r);
-                float.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float g);
-                float.TryParse(parts[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float b);
-                return (r / 255f, g / 255f, b / 255f);
-            }
-        }
-
-        // Named colors (common subset)
-        switch (color.ToLowerInvariant())
-        {
-            case "black": return (0, 0, 0);
-            case "white": return (1, 1, 1);
-            case "red": return (1, 0, 0);
-            case "green": return (0, 0.502f, 0);
-            case "blue": return (0, 0, 1);
-            case "yellow": return (1, 1, 0);
-            case "orange": return (1, 0.647f, 0);
-            case "gray": case "grey": return (0.502f, 0.502f, 0.502f);
-            case "none": return (0, 0, 0);
-            default: return (0, 0, 0);
-        }
-    }
-
-    // =====================================================
-    // Helpers
-    // =====================================================
-
-    private static float GetFloat(SvgElement el, string attr, float defaultValue = 0)
-    {
-        var val = el.GetAttribute(attr);
-        if (!string.IsNullOrEmpty(val))
-        {
-            val = val.Replace("px", "");
-            if (float.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out float result))
-                return result;
-        }
-        return defaultValue;
     }
 
     private static List<(float x, float y)> ParsePointsList(string points)
     {
         var result = new List<(float x, float y)>();
-        var nums = new List<float>();
         int i = 0;
-        while (i < points.Length)
-        {
-            SkipWhitespace(points, ref i);
-            if (i >= points.Length) break;
-            if (points[i] == ',') { i++; continue; }
-            nums.Add(ReadNumber(points, ref i));
-        }
-        for (int j = 0; j + 1 < nums.Count; j += 2)
-            result.Add((nums[j], nums[j + 1]));
+        while (SvgPathData.TryReadNumber(points, ref i, out float x) && SvgPathData.TryReadNumber(points, ref i, out float y))
+            result.Add((x, y));
         return result;
     }
 
-    private static void SkipWhitespace(string s, ref int i)
-    {
-        while (i < s.Length && (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n' || s[i] == ','))
-            i++;
-    }
-
-    private static void SkipParen(string s, ref int i)
-    {
-        while (i < s.Length && s[i] != ')') i++;
-        if (i < s.Length) i++; // skip ')'
-    }
-
-    private static float ReadNumber(string s, ref int i)
-    {
-        SkipWhitespace(s, ref i);
-        if (i >= s.Length) return 0;
-
-        int start = i;
-        if (i < s.Length && (s[i] == '-' || s[i] == '+')) i++;
-        while (i < s.Length && (char.IsDigit(s[i]) || s[i] == '.')) i++;
-        if (i < s.Length && (s[i] == 'e' || s[i] == 'E'))
-        {
-            i++;
-            if (i < s.Length && (s[i] == '-' || s[i] == '+')) i++;
-            while (i < s.Length && char.IsDigit(s[i])) i++;
-        }
-
-        if (i == start) return 0;
-        float.TryParse(s.Substring(start, i - start), NumberStyles.Float, CultureInfo.InvariantCulture, out float val);
-        return val;
-    }
-
-    private static float ReadNumberOpt(string s, ref int i, float defaultVal)
-    {
-        SkipWhitespace(s, ref i);
-        if (i >= s.Length || s[i] == ')') return defaultVal;
-        return ReadNumber(s, ref i);
-    }
-
     private static string F(float v) => v.ToString("F2", CultureInfo.InvariantCulture);
-
-    private static string EscapePdfString(string text)
-        => text.Replace("\\", "\\\\").Replace("(", "\\(").Replace(")", "\\)");
 }

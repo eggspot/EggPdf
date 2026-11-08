@@ -44,7 +44,7 @@ public static class PdfClipPath
             return null;
         }
 
-        sb.AppendLine("W n"); // Set clipping path, then clear path
+        sb.AppendOpLine("W n"); // Set clipping path, then clear path
         return sb.ToString();
     }
 
@@ -118,7 +118,7 @@ public static class PdfClipPath
                 sb.Append($"{F(px)} {F(py)} l ");
             }
         }
-        sb.AppendLine("h");
+        sb.AppendOpLine("h");
     }
 
     private static void GenerateInsetClip(string value, float x, float y, float w, float h, StringBuilder sb)
@@ -139,7 +139,7 @@ public static class PdfClipPath
         float iw = w - left - right;
         float ih = h - top - bottom;
 
-        sb.AppendLine($"{F(ix)} {F(iy)} {F(iw)} {F(ih)} re");
+        sb.AppendOpLine($"{F(ix)} {F(iy)} {F(iw)} {F(ih)} re");
     }
 
     private static void DrawEllipse(StringBuilder sb, float cx, float cy, float rx, float ry)
@@ -150,7 +150,7 @@ public static class PdfClipPath
         sb.Append($"{F(cx + rx)} {F(cy + ky)} {F(cx + kx)} {F(cy + ry)} {F(cx)} {F(cy + ry)} c ");
         sb.Append($"{F(cx - kx)} {F(cy + ry)} {F(cx - rx)} {F(cy + ky)} {F(cx - rx)} {F(cy)} c ");
         sb.Append($"{F(cx - rx)} {F(cy - ky)} {F(cx - kx)} {F(cy - ry)} {F(cx)} {F(cy - ry)} c ");
-        sb.AppendLine($"{F(cx + kx)} {F(cy - ry)} {F(cx + rx)} {F(cy - ky)} {F(cx + rx)} {F(cy)} c h");
+        sb.AppendOpLine($"{F(cx + kx)} {F(cy - ry)} {F(cx + rx)} {F(cy - ky)} {F(cx + rx)} {F(cy)} c h");
     }
 
     private static float ResolveValue(string value, float reference)

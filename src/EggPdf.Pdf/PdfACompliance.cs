@@ -29,23 +29,23 @@ public static class PdfACompliance
         var now = PdfDates.XmpDate(DateTime.UtcNow);
 
         var xmp = new StringBuilder();
-        xmp.AppendLine("<?xpacket begin='" + (char)0xFEFF + "' id='W5M0MpCehiHzreSzNTczkc9d'?>");
-        xmp.AppendLine("<x:xmpmeta xmlns:x='adobe:ns:meta/'>");
-        xmp.AppendLine("<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>");
-        xmp.AppendLine("<rdf:Description rdf:about=''");
-        xmp.AppendLine("  xmlns:dc='http://purl.org/dc/elements/1.1/'");
-        xmp.AppendLine("  xmlns:xmp='http://ns.adobe.com/xap/1.0/'");
+        xmp.AppendOpLine("<?xpacket begin='" + (char)0xFEFF + "' id='W5M0MpCehiHzreSzNTczkc9d'?>");
+        xmp.AppendOpLine("<x:xmpmeta xmlns:x='adobe:ns:meta/'>");
+        xmp.AppendOpLine("<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>");
+        xmp.AppendOpLine("<rdf:Description rdf:about=''");
+        xmp.AppendOpLine("  xmlns:dc='http://purl.org/dc/elements/1.1/'");
+        xmp.AppendOpLine("  xmlns:xmp='http://ns.adobe.com/xap/1.0/'");
         if (conformance != null)
-            xmp.AppendLine("  xmlns:pdfaid='http://www.aiim.org/pdfa/ns/id/'");
+            xmp.AppendOpLine("  xmlns:pdfaid='http://www.aiim.org/pdfa/ns/id/'");
         if (includePdfUA)
-            xmp.AppendLine("  xmlns:pdfuaid='http://www.aiim.org/pdfua/ns/id/'");
-        xmp.AppendLine("  xmlns:pdf='http://ns.adobe.com/pdf/1.3/'>");
+            xmp.AppendOpLine("  xmlns:pdfuaid='http://www.aiim.org/pdfua/ns/id/'");
+        xmp.AppendOpLine("  xmlns:pdf='http://ns.adobe.com/pdf/1.3/'>");
 
         // PDF/A identification
         if (conformance != null)
         {
-            xmp.AppendLine($"  <pdfaid:part>{conformance.Value.Part()}</pdfaid:part>");
-            xmp.AppendLine($"  <pdfaid:conformance>{conformance.Value.Level()}</pdfaid:conformance>");
+            xmp.AppendOpLine($"  <pdfaid:part>{conformance.Value.Part()}</pdfaid:part>");
+            xmp.AppendOpLine($"  <pdfaid:conformance>{conformance.Value.Level()}</pdfaid:conformance>");
         }
 
         // PDF/UA identification (part only -- neither UA-1 nor UA-2 has a conformance letter,
@@ -54,9 +54,9 @@ public static class PdfACompliance
         // "future-proofing XMP identification" guidance for versioned UA parts.
         if (includePdfUA)
         {
-            xmp.AppendLine($"  <pdfuaid:part>{(isUa2 ? 2 : 1)}</pdfuaid:part>");
+            xmp.AppendOpLine($"  <pdfuaid:part>{(isUa2 ? 2 : 1)}</pdfuaid:part>");
             if (isUa2)
-                xmp.AppendLine("  <pdfuaid:rev>2024</pdfuaid:rev>");
+                xmp.AppendOpLine("  <pdfuaid:rev>2024</pdfuaid:rev>");
         }
 
         // Dublin Core metadata. PDF/UA-1 requires a title (rule 7.1-8/7.1-9); default rather
@@ -64,38 +64,38 @@ public static class PdfACompliance
         var effectiveTitle = includePdfUA && string.IsNullOrEmpty(title) ? "Untitled Document" : title;
         if (!string.IsNullOrEmpty(effectiveTitle))
         {
-            xmp.AppendLine("  <dc:title><rdf:Alt><rdf:li xml:lang='x-default'>");
-            xmp.AppendLine($"    {EscapeXml(effectiveTitle!)}");
-            xmp.AppendLine("  </rdf:li></rdf:Alt></dc:title>");
+            xmp.AppendOpLine("  <dc:title><rdf:Alt><rdf:li xml:lang='x-default'>");
+            xmp.AppendOpLine($"    {EscapeXml(effectiveTitle!)}");
+            xmp.AppendOpLine("  </rdf:li></rdf:Alt></dc:title>");
         }
         if (!string.IsNullOrEmpty(author))
         {
-            xmp.AppendLine("  <dc:creator><rdf:Seq><rdf:li>");
-            xmp.AppendLine($"    {EscapeXml(author!)}");
-            xmp.AppendLine("  </rdf:li></rdf:Seq></dc:creator>");
+            xmp.AppendOpLine("  <dc:creator><rdf:Seq><rdf:li>");
+            xmp.AppendOpLine($"    {EscapeXml(author!)}");
+            xmp.AppendOpLine("  </rdf:li></rdf:Seq></dc:creator>");
         }
 
         // XMP basic
-        xmp.AppendLine($"  <xmp:CreateDate>{now}</xmp:CreateDate>");
-        xmp.AppendLine($"  <xmp:ModifyDate>{now}</xmp:ModifyDate>");
-        xmp.AppendLine("  <xmp:CreatorTool>EggPdf</xmp:CreatorTool>");
+        xmp.AppendOpLine($"  <xmp:CreateDate>{now}</xmp:CreateDate>");
+        xmp.AppendOpLine($"  <xmp:ModifyDate>{now}</xmp:ModifyDate>");
+        xmp.AppendOpLine("  <xmp:CreatorTool>EggPdf</xmp:CreatorTool>");
 
         // PDF info
-        xmp.AppendLine("  <pdf:Producer>EggPdf</pdf:Producer>");
+        xmp.AppendOpLine("  <pdf:Producer>EggPdf</pdf:Producer>");
 
-        xmp.AppendLine("</rdf:Description>");
+        xmp.AppendOpLine("</rdf:Description>");
 
         if (!string.IsNullOrEmpty(facturXFileName))
             AppendFacturXExtensionSchema(xmp, facturXFileName!, facturXConformanceLevel);
 
-        xmp.AppendLine("</rdf:RDF>");
-        xmp.AppendLine("</x:xmpmeta>");
+        xmp.AppendOpLine("</rdf:RDF>");
+        xmp.AppendOpLine("</x:xmpmeta>");
 
         // Padding (XMP spec recommends 2KB padding for in-place updates)
         for (int i = 0; i < 20; i++)
-            xmp.AppendLine(new string(' ', 100));
+            xmp.AppendOpLine(new string(' ', 100));
 
-        xmp.AppendLine("<?xpacket end='w'?>");
+        xmp.AppendOpLine("<?xpacket end='w'?>");
         return xmp.ToString();
     }
 
@@ -126,46 +126,46 @@ public static class PdfACompliance
     /// </summary>
     private static void AppendFacturXExtensionSchema(StringBuilder xmp, string facturXFileName, string conformanceLevel)
     {
-        xmp.AppendLine("<rdf:Description rdf:about=''");
-        xmp.AppendLine("  xmlns:pdfaExtension='http://www.aiim.org/pdfa/ns/extension/'");
-        xmp.AppendLine("  xmlns:pdfaSchema='http://www.aiim.org/pdfa/ns/schema#'");
-        xmp.AppendLine("  xmlns:pdfaProperty='http://www.aiim.org/pdfa/ns/property#'>");
-        xmp.AppendLine("  <pdfaExtension:schemas>");
-        xmp.AppendLine("    <rdf:Bag>");
-        xmp.AppendLine("      <rdf:li rdf:parseType='Resource'>");
-        xmp.AppendLine("        <pdfaSchema:schema>Factur-X PDFA Extension Schema</pdfaSchema:schema>");
-        xmp.AppendLine("        <pdfaSchema:namespaceURI>urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#</pdfaSchema:namespaceURI>");
-        xmp.AppendLine("        <pdfaSchema:prefix>fx</pdfaSchema:prefix>");
-        xmp.AppendLine("        <pdfaSchema:property>");
-        xmp.AppendLine("          <rdf:Seq>");
+        xmp.AppendOpLine("<rdf:Description rdf:about=''");
+        xmp.AppendOpLine("  xmlns:pdfaExtension='http://www.aiim.org/pdfa/ns/extension/'");
+        xmp.AppendOpLine("  xmlns:pdfaSchema='http://www.aiim.org/pdfa/ns/schema#'");
+        xmp.AppendOpLine("  xmlns:pdfaProperty='http://www.aiim.org/pdfa/ns/property#'>");
+        xmp.AppendOpLine("  <pdfaExtension:schemas>");
+        xmp.AppendOpLine("    <rdf:Bag>");
+        xmp.AppendOpLine("      <rdf:li rdf:parseType='Resource'>");
+        xmp.AppendOpLine("        <pdfaSchema:schema>Factur-X PDFA Extension Schema</pdfaSchema:schema>");
+        xmp.AppendOpLine("        <pdfaSchema:namespaceURI>urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#</pdfaSchema:namespaceURI>");
+        xmp.AppendOpLine("        <pdfaSchema:prefix>fx</pdfaSchema:prefix>");
+        xmp.AppendOpLine("        <pdfaSchema:property>");
+        xmp.AppendOpLine("          <rdf:Seq>");
         AppendFacturXPropertyDef(xmp, "DocumentFileName", "name of the embedded XML invoice file");
         AppendFacturXPropertyDef(xmp, "DocumentType", "INVOICE");
         AppendFacturXPropertyDef(xmp, "Version", "The actual version of the Factur-X XML schema");
         AppendFacturXPropertyDef(xmp, "ConformanceLevel", "The conformance level of the embedded Factur-X data");
-        xmp.AppendLine("          </rdf:Seq>");
-        xmp.AppendLine("        </pdfaSchema:property>");
-        xmp.AppendLine("      </rdf:li>");
-        xmp.AppendLine("    </rdf:Bag>");
-        xmp.AppendLine("  </pdfaExtension:schemas>");
-        xmp.AppendLine("</rdf:Description>");
+        xmp.AppendOpLine("          </rdf:Seq>");
+        xmp.AppendOpLine("        </pdfaSchema:property>");
+        xmp.AppendOpLine("      </rdf:li>");
+        xmp.AppendOpLine("    </rdf:Bag>");
+        xmp.AppendOpLine("  </pdfaExtension:schemas>");
+        xmp.AppendOpLine("</rdf:Description>");
 
-        xmp.AppendLine("<rdf:Description rdf:about=''");
-        xmp.AppendLine("  xmlns:fx='urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#'>");
-        xmp.AppendLine("  <fx:DocumentType>INVOICE</fx:DocumentType>");
-        xmp.AppendLine($"  <fx:DocumentFileName>{EscapeXml(facturXFileName)}</fx:DocumentFileName>");
-        xmp.AppendLine("  <fx:Version>1.0</fx:Version>");
-        xmp.AppendLine($"  <fx:ConformanceLevel>{EscapeXml(conformanceLevel)}</fx:ConformanceLevel>");
-        xmp.AppendLine("</rdf:Description>");
+        xmp.AppendOpLine("<rdf:Description rdf:about=''");
+        xmp.AppendOpLine("  xmlns:fx='urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#'>");
+        xmp.AppendOpLine("  <fx:DocumentType>INVOICE</fx:DocumentType>");
+        xmp.AppendOpLine($"  <fx:DocumentFileName>{EscapeXml(facturXFileName)}</fx:DocumentFileName>");
+        xmp.AppendOpLine("  <fx:Version>1.0</fx:Version>");
+        xmp.AppendOpLine($"  <fx:ConformanceLevel>{EscapeXml(conformanceLevel)}</fx:ConformanceLevel>");
+        xmp.AppendOpLine("</rdf:Description>");
     }
 
     private static void AppendFacturXPropertyDef(StringBuilder xmp, string name, string description)
     {
-        xmp.AppendLine("            <rdf:li rdf:parseType='Resource'>");
-        xmp.AppendLine($"              <pdfaProperty:name>{name}</pdfaProperty:name>");
-        xmp.AppendLine("              <pdfaProperty:valueType>Text</pdfaProperty:valueType>");
-        xmp.AppendLine("              <pdfaProperty:category>external</pdfaProperty:category>");
-        xmp.AppendLine($"              <pdfaProperty:description>{EscapeXml(description)}</pdfaProperty:description>");
-        xmp.AppendLine("            </rdf:li>");
+        xmp.AppendOpLine("            <rdf:li rdf:parseType='Resource'>");
+        xmp.AppendOpLine($"              <pdfaProperty:name>{name}</pdfaProperty:name>");
+        xmp.AppendOpLine("              <pdfaProperty:valueType>Text</pdfaProperty:valueType>");
+        xmp.AppendOpLine("              <pdfaProperty:category>external</pdfaProperty:category>");
+        xmp.AppendOpLine($"              <pdfaProperty:description>{EscapeXml(description)}</pdfaProperty:description>");
+        xmp.AppendOpLine("            </rdf:li>");
     }
 
     /// <summary>

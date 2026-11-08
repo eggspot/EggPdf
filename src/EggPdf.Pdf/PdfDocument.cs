@@ -335,6 +335,10 @@ public partial class PdfDocument
                 var pdfBm = PdfPage.CssBlendModeToPdf(cssName) ?? "Normal";
                 writer.WriteLine($"<< /Type /ExtGState /BM /{pdfBm} >>");
             }
+            else if (PdfPage.TryParseSeparateOpacityStateName(kv.Key, out int fillPercent, out int strokePercent))
+            {
+                writer.WriteLine($"<< /Type /ExtGState /ca {F(fillPercent / 100f)} /CA {F(strokePercent / 100f)} >>");
+            }
             else
             {
                 float opacity = 1.0f;
@@ -824,15 +828,15 @@ public partial class PdfDocument
     private static byte[] BuildToUnicodeCMap(Dictionary<int, ushort> codepointToGid)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("/CIDInit /ProcSet findresource begin");
-        sb.AppendLine("12 dict begin");
-        sb.AppendLine("begincmap");
-        sb.AppendLine("/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def");
-        sb.AppendLine("/CMapName /Adobe-Identity-UCS def");
-        sb.AppendLine("/CMapType 2 def");
-        sb.AppendLine("1 begincodespacerange");
-        sb.AppendLine("<0000> <FFFF>");
-        sb.AppendLine("endcodespacerange");
+        sb.AppendOpLine("/CIDInit /ProcSet findresource begin");
+        sb.AppendOpLine("12 dict begin");
+        sb.AppendOpLine("begincmap");
+        sb.AppendOpLine("/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def");
+        sb.AppendOpLine("/CMapName /Adobe-Identity-UCS def");
+        sb.AppendOpLine("/CMapType 2 def");
+        sb.AppendOpLine("1 begincodespacerange");
+        sb.AppendOpLine("<0000> <FFFF>");
+        sb.AppendOpLine("endcodespacerange");
 
         var gidToCodepoint = new Dictionary<ushort, int>();
         foreach (var kv in codepointToGid)
@@ -849,27 +853,27 @@ public partial class PdfDocument
         while (idx < entries.Length)
         {
             int batchSize = Math.Min(100, entries.Length - idx);
-            sb.AppendLine($"{batchSize} beginbfchar");
+            sb.AppendOpLine($"{batchSize} beginbfchar");
             for (int i = 0; i < batchSize; i++)
             {
                 var entry = entries[idx + i];
                 if (entry.Value <= 0xFFFF)
-                    sb.AppendLine($"<{entry.Key:X4}> <{entry.Value:X4}>");
+                    sb.AppendOpLine($"<{entry.Key:X4}> <{entry.Value:X4}>");
                 else
                 {
                     int hi = 0xD800 + ((entry.Value - 0x10000) >> 10);
                     int lo = 0xDC00 + ((entry.Value - 0x10000) & 0x3FF);
-                    sb.AppendLine($"<{entry.Key:X4}> <{hi:X4}{lo:X4}>");
+                    sb.AppendOpLine($"<{entry.Key:X4}> <{hi:X4}{lo:X4}>");
                 }
             }
-            sb.AppendLine("endbfchar");
+            sb.AppendOpLine("endbfchar");
             idx += batchSize;
         }
 
-        sb.AppendLine("endcmap");
-        sb.AppendLine("CMapName currentdict /CMap defineresource pop");
-        sb.AppendLine("end");
-        sb.AppendLine("end");
+        sb.AppendOpLine("endcmap");
+        sb.AppendOpLine("CMapName currentdict /CMap defineresource pop");
+        sb.AppendOpLine("end");
+        sb.AppendOpLine("end");
 
         return Encoding.ASCII.GetBytes(sb.ToString());
     }

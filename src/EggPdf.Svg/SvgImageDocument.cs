@@ -3,15 +3,17 @@ using System.Text;
 using EggPdf.Html;
 using EggPdf.Html.Dom;
 
-namespace EggPdf;
+namespace EggPdf.Svg;
 
-internal static class SvgImages
+/// <summary>Reads the bytes of an SVG image file (an <c>&lt;img&gt;</c> source or a CSS background image).</summary>
+public static class SvgImageDocument
 {
     private const int MaxSvgImageBytes = 16 * 1024 * 1024;
     private const int SniffedPrefixBytes = 4096;
     private const char ByteOrderMark = (char)0xFEFF;
 
-    internal static HtmlElement? ParseRoot(byte[] data)
+    /// <summary>The root <c>&lt;svg&gt;</c> element of an SVG file, or null when the bytes are not SVG (or larger than 16 MB).</summary>
+    public static HtmlElement? ParseRoot(byte[] data)
     {
         if (data.Length == 0 || data.Length > MaxSvgImageBytes || !StartsLikeSvg(data)) return null;
         var document = HtmlParser.Parse(Encoding.UTF8.GetString(data));

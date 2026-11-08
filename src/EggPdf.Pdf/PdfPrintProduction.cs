@@ -62,9 +62,9 @@ public class PdfPrintProduction
         float markArea = MarkLength + MarkOffset + bleed;
 
         var sb = new StringBuilder();
-        sb.AppendLine("q");
-        sb.AppendLine("0 0 0 RG"); // Black stroke
-        sb.AppendLine("0.25 w");    // Thin line
+        sb.AppendOpLine("q");
+        sb.AppendOpLine("0 0 0 RG"); // Black stroke
+        sb.AppendOpLine("0.25 w");    // Thin line
 
         // Top-left corner
         DrawCornerMark(sb, markArea, markArea + pageHeightPt, markArea, MarkLength, MarkOffset);
@@ -78,19 +78,19 @@ public class PdfPrintProduction
         // Bottom-right corner
         DrawCornerMark(sb, markArea + pageWidthPt, markArea, markArea, MarkLength, MarkOffset);
 
-        sb.AppendLine("Q");
+        sb.AppendOpLine("Q");
         return sb.ToString();
     }
 
     private static void DrawCornerMark(StringBuilder sb, float x, float y, float offset, float length, float gap)
     {
         // Horizontal mark
-        sb.AppendLine($"{F(x - gap - length)} {F(y)} m {F(x - gap)} {F(y)} l S");
-        sb.AppendLine($"{F(x + gap)} {F(y)} m {F(x + gap + length)} {F(y)} l S");
+        sb.AppendOpLine($"{F(x - gap - length)} {F(y)} m {F(x - gap)} {F(y)} l S");
+        sb.AppendOpLine($"{F(x + gap)} {F(y)} m {F(x + gap + length)} {F(y)} l S");
 
         // Vertical mark
-        sb.AppendLine($"{F(x)} {F(y - gap - length)} m {F(x)} {F(y - gap)} l S");
-        sb.AppendLine($"{F(x)} {F(y + gap)} m {F(x)} {F(y + gap + length)} l S");
+        sb.AppendOpLine($"{F(x)} {F(y - gap - length)} m {F(x)} {F(y - gap)} l S");
+        sb.AppendOpLine($"{F(x)} {F(y + gap)} m {F(x)} {F(y + gap + length)} l S");
     }
 
     private static string F(float v) => v.ToString("F2", CultureInfo.InvariantCulture);

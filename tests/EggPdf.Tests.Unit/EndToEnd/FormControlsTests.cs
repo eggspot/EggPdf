@@ -20,8 +20,7 @@ public class FormControlsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
-        // 13px * 0.75 (px->pt) = 9.75pt, used for both the stroked border rect's width and height
-        text.Should().Contain("9.75", "an unchecked checkbox must be a fixed 13x13px native-style square, not sized by glyph text");
+        text.Should().Contain("9.00 9.00 re S", "a 13x13px (9.75pt) square whose 1px border is stroked inside its edge, not sized by glyph text");
     }
 
     [Fact]
