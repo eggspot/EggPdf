@@ -1430,7 +1430,7 @@ public static partial class BoxPainter
         var sides = BorderSides;
         string[] sideStyles = new string[4];
         float[] sideWidths = new float[4];
-        float[] sideR = new float[4], sideG = new float[4], sideB = new float[4];
+        float[] sideR = new float[4], sideG = new float[4], sideB = new float[4], sideA = { 1f, 1f, 1f, 1f };
         bool anyBorder = false;
         bool allSolid = true;
 
@@ -1459,7 +1459,13 @@ public static partial class BoxPainter
             if (!string.IsNullOrEmpty(colorStr))
             {
                 var bc = ParseColor(colorStr);
-                if (bc.HasValue) { sideR[s] = bc.Value.R / 255f; sideG[s] = bc.Value.G / 255f; sideB[s] = bc.Value.B / 255f; }
+                if (bc.HasValue)
+                {
+                    sideR[s] = bc.Value.R / 255f;
+                    sideG[s] = bc.Value.G / 255f;
+                    sideB[s] = bc.Value.B / 255f;
+                    sideA[s] = bc.Value.A / 255f;
+                }
             }
         }
 
@@ -1470,55 +1476,55 @@ public static partial class BoxPainter
         float pdfW = box.Width * PdfCoordinates.PxToPt;
         float pdfH = box.Height * PdfCoordinates.PxToPt;
 
-        // If all sides are solid and same style, use existing rectangle stroke (fast path)
-        if (allSolid && hasRadius)
+        bool uniformSolidBorder = allSolid && sideWidths[0] > 0 &&
+            SameBorderSide(0, 1, sideWidths, sideR, sideG, sideB, sideA) &&
+            SameBorderSide(0, 2, sideWidths, sideR, sideG, sideB, sideA) &&
+            SameBorderSide(0, 3, sideWidths, sideR, sideG, sideB, sideA);
+
+        if (uniformSolidBorder)
         {
-            page.AddStrokeRoundedRectangle(pdfX, pdfY, pdfW, pdfH,
-                sideR[0], sideG[0], sideB[0], sideWidths[0] * PdfCoordinates.PxToPt,
-                tlrPt, trrPt, brrPt, blrPt);
+            bool translucent = BeginStrokeAlpha(page, sideA[0]);
+            if (hasRadius)
+                page.AddStrokeRoundedRectangle(pdfX, pdfY, pdfW, pdfH,
+                    sideR[0], sideG[0], sideB[0], sideWidths[0] * PdfCoordinates.PxToPt,
+                    tlrPt, trrPt, brrPt, blrPt);
+            else
+                page.AddStrokeRectangle(pdfX, pdfY, pdfW, pdfH,
+                    sideR[0], sideG[0], sideB[0], sideWidths[0] * PdfCoordinates.PxToPt);
+            EndStrokeAlpha(page, translucent);
             return;
         }
 
-        if (allSolid && !hasRadius &&
-            sideWidths[0] == sideWidths[1] && sideWidths[1] == sideWidths[2] && sideWidths[2] == sideWidths[3] &&
-            sideR[0] == sideR[1] && sideR[1] == sideR[2] && sideR[2] == sideR[3])
-        {
-            page.AddStrokeRectangle(pdfX, pdfY, pdfW, pdfH,
-                sideR[0], sideG[0], sideB[0], sideWidths[0] * PdfCoordinates.PxToPt);
-            return;
-        }
+        float top = pdfY + pdfH;
+        float right = pdfX + pdfW;
+        PaintBorderSide(page, 0, pdfX, top, right, top, sideWidths, sideR, sideG, sideB, sideA, sideStyles);
+        PaintBorderSide(page, 1, right, top, right, pdfY, sideWidths, sideR, sideG, sideB, sideA, sideStyles);
+        PaintBorderSide(page, 2, right, pdfY, pdfX, pdfY, sideWidths, sideR, sideG, sideB, sideA, sideStyles);
+        PaintBorderSide(page, 3, pdfX, pdfY, pdfX, top, sideWidths, sideR, sideG, sideB, sideA, sideStyles);
+    }
 
-        // Per-side rendering (handles different styles, widths, colors)
-        // Top border: left-top corner to right-top corner
-        if (sideWidths[0] > 0)
-        {
-            float y = pdfY + pdfH; // top edge
-            page.AddBorderLine(pdfX, y, pdfX + pdfW, y,
-                sideR[0], sideG[0], sideB[0], sideWidths[0] * PdfCoordinates.PxToPt, sideStyles[0]);
-        }
+    private static bool SameBorderSide(int a, int b, float[] widths, float[] r, float[] g, float[] blue, float[] alpha) =>
+        widths[a] == widths[b] && r[a] == r[b] && g[a] == g[b] && blue[a] == blue[b] && alpha[a] == alpha[b];
 
-        // Right border: right-top to right-bottom
-        if (sideWidths[1] > 0)
-        {
-            float x = pdfX + pdfW; // right edge
-            page.AddBorderLine(x, pdfY + pdfH, x, pdfY,
-                sideR[1], sideG[1], sideB[1], sideWidths[1] * PdfCoordinates.PxToPt, sideStyles[1]);
-        }
+    private static void PaintBorderSide(PdfPage page, int side, float x1, float y1, float x2, float y2,
+        float[] widths, float[] r, float[] g, float[] b, float[] alpha, string[] styles)
+    {
+        if (widths[side] <= 0) return;
+        bool translucent = BeginStrokeAlpha(page, alpha[side]);
+        page.AddBorderLine(x1, y1, x2, y2, r[side], g[side], b[side], widths[side] * PdfCoordinates.PxToPt, styles[side]);
+        EndStrokeAlpha(page, translucent);
+    }
 
-        // Bottom border: right-bottom to left-bottom
-        if (sideWidths[2] > 0)
-        {
-            float y = pdfY; // bottom edge
-            page.AddBorderLine(pdfX + pdfW, y, pdfX, y,
-                sideR[2], sideG[2], sideB[2], sideWidths[2] * PdfCoordinates.PxToPt, sideStyles[2]);
-        }
+    private static bool BeginStrokeAlpha(PdfPage page, float alpha)
+    {
+        if (alpha >= 1f) return false;
+        page.SetOpacity(alpha);
+        return true;
+    }
 
-        // Left border: left-bottom to left-top
-        if (sideWidths[3] > 0)
-        {
-            page.AddBorderLine(pdfX, pdfY, pdfX, pdfY + pdfH,
-                sideR[3], sideG[3], sideB[3], sideWidths[3] * PdfCoordinates.PxToPt, sideStyles[3]);
-        }
+    private static void EndStrokeAlpha(PdfPage page, bool translucent)
+    {
+        if (translucent) page.SetOpacity(1f);
     }
 
     // ===== writing-mode support =====
