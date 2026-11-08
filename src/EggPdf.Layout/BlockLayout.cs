@@ -287,12 +287,16 @@ public static partial class BlockLayout
         bool prevTextEndedWithSpace = false;
         bool prevInlineElementEndedWithSpace = false;
 
+        bool childrenFlowInline = HasInlineElementSiblings(element, style, resolver);
+        bool pseudoElementsCanFlowInline = !PreservesWhitespace(style) &&
+            (childrenFlowInline || PlainTextKeepsItsFeaturesInInlineFlow(style, floatCtx, firstLineStyle, firstLetterStyle));
+
         var afterPseudoStyle = ResolvePseudoElementStyle(element, "after", style);
-        bool afterIsInline = GeneratesInlineBox(afterPseudoStyle);
+        bool afterIsInline = pseudoElementsCanFlowInline && GeneratesInlineBox(afterPseudoStyle);
         bool beforeIsInline = false;
         if (TryResolvePseudoContent(element, "before", style, out var beforeStyle, out var beforeContent))
         {
-            beforeIsInline = GeneratesInlineBox(beforeStyle);
+            beforeIsInline = pseudoElementsCanFlowInline && GeneratesInlineBox(beforeStyle);
             if (beforeIsInline)
             {
                 LayoutInlinePseudoElement(beforeContent!, beforeStyle!, false, box, ref inlineX, ref childY, ref inlineLineHeight,
@@ -868,7 +872,7 @@ public static partial class BlockLayout
                 }
 
                 // Check if parent has mixed inline content (inline elements + text)
-                bool hasInlineSiblings = hasInlinePseudoContent || HasInlineElementSiblings(element, style, resolver);
+                bool hasInlineSiblings = hasInlinePseudoContent || childrenFlowInline;
 
                 // If there are inline siblings, participate in inline flow
                 if (hasInlineSiblings && !preserveWhitespace)
@@ -1276,7 +1280,7 @@ public static partial class BlockLayout
         string? afterContent = afterPseudoStyle != null ? ResolvePseudoElementContent(element, afterPseudoStyle) : null;
         if (afterContent != null && afterIsInline)
         {
-            LayoutInlinePseudoElement(afterContent, afterPseudoStyle!, prevTextEndedWithSpace, box, ref inlineX, ref childY,
+            LayoutInlinePseudoElement(afterContent, afterPseudoStyle!, prevTextEndedWithSpace || prevInlineElementEndedWithSpace, box, ref inlineX, ref childY,
                 ref inlineLineHeight, childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY);
         }
 

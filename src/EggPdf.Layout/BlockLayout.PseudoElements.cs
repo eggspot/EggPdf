@@ -9,6 +9,36 @@ public static partial class BlockLayout
     private static ComputedStyle? ResolvePseudoElementStyle(HtmlElement element, string pseudo, ComputedStyle parentStyle) =>
         _threadCascadeResolver?.ResolvePseudoElement(element, pseudo, parentStyle);
 
+    private static bool PreservesWhitespace(ComputedStyle style)
+    {
+        var whiteSpace = style.Get("white-space");
+        return whiteSpace == "pre" || whiteSpace == "pre-wrap" || whiteSpace == "pre-line" || whiteSpace == "break-spaces";
+    }
+
+    private static bool PlainTextKeepsItsFeaturesInInlineFlow(ComputedStyle style, FloatContext floats,
+        ComputedStyle? firstLineStyle, ComputedStyle? firstLetterStyle)
+    {
+        if (floats.HasFloats || firstLineStyle != null || firstLetterStyle != null) return false;
+        if (style.Get("text-align") == "justify") return false;
+        if (style.Get("hyphens") == "auto") return false;
+        if (style.Get("line-clamp") != null || style.Get("-webkit-line-clamp") != null) return false;
+        if (style.Get("initial-letter") != null) return false;
+
+        var textIndent = style.Get("text-indent");
+        if (!string.IsNullOrEmpty(textIndent) && textIndent != "0" && textIndent != "0px") return false;
+
+        var textWrap = style.Get("text-wrap");
+        if (textWrap == "balance" || textWrap == "pretty") return false;
+
+        var hangingPunctuation = style.Get("hanging-punctuation");
+        if (!string.IsNullOrEmpty(hangingPunctuation) && hangingPunctuation != "none") return false;
+
+        var overflowWrap = style.Get("overflow-wrap") ?? style.Get("word-wrap");
+        if (overflowWrap == "break-word" || overflowWrap == "anywhere") return false;
+        var wordBreak = style.Get("word-break");
+        return wordBreak != "break-all" && wordBreak != "break-word";
+    }
+
     private static bool GeneratesInlineBox(ComputedStyle? pseudoStyle)
     {
         if (pseudoStyle == null) return false;
@@ -48,6 +78,8 @@ public static partial class BlockLayout
     private static float LayoutPseudoElementLine(string content, ComputedStyle pseudoStyle, LayoutBox box,
         float childY, float containingWidth, float parentFontSize)
     {
+        if (content.Length == 0) return childY;
+
         float fontSize = ResolveFontSize(pseudoStyle.FontSize, parentFontSize);
         float lineHeight = TextMeasurer.GetLineHeight(fontSize, pseudoStyle.Get("line-height"));
         box.Children.Add(new LayoutBox

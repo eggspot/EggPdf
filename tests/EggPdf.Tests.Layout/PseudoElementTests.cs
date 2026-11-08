@@ -281,8 +281,57 @@ public class PseudoElementTests
 
         var previous = TextBox(root, previousWord);
         var after = TextBox(root, afterWord);
-        bool separated = after.Text!.StartsWith(" ") || after.X > previous.X + previous.ContentWidth + 1;
-        separated.Should().BeTrue("the leading space in the content must separate it from the text");
+        after.Y.Should().BeApproximately(previous.Y, 0.5f);
+        after.Text.Should().StartWith(" ", "the word path carries the separating space in the word box");
+        after.X.Should().BeApproximately(previous.X + previous.ContentWidth, 0.5f);
+    }
+
+    [Fact]
+    public void PreBefore_PreservedWhitespace_KeepsItsOwnLineWithoutOverlap()
+    {
+        var root = LayoutWithStyle("pre::before{content:'code:'}", "<pre>x = 1\ny = 2</pre>");
+
+        var label = TextBox(root, "code:");
+        var firstLine = root.FindAll(b => b.Text != null && b.Text.Contains("x = 1")).First();
+        firstLine.Y.Should().BeGreaterThan(label.Y + 1);
+    }
+
+    [Fact]
+    public void JustifiedParagraphBefore_KeepsTheJustifiedLineLayout()
+    {
+        var root = LayoutWithStyle("p{text-align:justify;width:200px} p::before{content:'1.'}",
+            "<p>alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron</p>");
+
+        root.FindAll(b => b.Text != null && b.Text.Contains("alpha") && b.Text.Contains("beta"))
+            .Should().NotBeEmpty("justified text stays on the line-box path, which the painter justifies");
+    }
+
+    [Fact]
+    public void IndentedParagraphBefore_KeepsTheIndent()
+    {
+        var root = LayoutWithStyle("p{text-indent:40px} p::before{content:'1.'}", "<p>Clause text</p>");
+
+        var text = root.FindAll(b => b.Text != null && b.Text.Contains("Clause")).First();
+        text.X.Should().BeGreaterThanOrEqualTo(39.5f);
+    }
+
+    [Fact]
+    public void ParagraphBesideFloatBefore_TextStillAvoidsTheFloat()
+    {
+        var root = LayoutWithStyle("p::before{content:'>'}",
+            "<div><img style='float:left;width:100px;height:100px' src='x.png'><p>Text beside the float</p></div>");
+
+        var text = root.FindAll(b => b.Text != null && b.Text.Contains("Text")).First();
+        text.X.Should().BeGreaterThanOrEqualTo(99.5f);
+    }
+
+    [Fact]
+    public void ClearfixAfter_EmptyBlockContent_AddsNoHeight()
+    {
+        var plain = LayoutWithStyle("", "<div id='d'>Hello</div>").FindById("d")!;
+        var clearfix = LayoutWithStyle("div::after{content:'';display:table;clear:both}", "<div id='d'>Hello</div>").FindById("d")!;
+
+        clearfix.Height.Should().BeApproximately(plain.Height, 0.5f);
     }
 
     [Fact]
