@@ -1,10 +1,11 @@
+using System.Linq;
 using EggPdf.Layout;
 using FluentAssertions;
 using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-public class TablePresentationalAttributeLayoutTests
+public class PresentationalAttributeLayoutTests
 {
     private static LayoutBox Layout(string body) =>
         LayoutTestHelper.Layout("<body style='margin:0'>" + body + "</body>", 600, 800);
@@ -45,6 +46,36 @@ public class TablePresentationalAttributeLayoutTests
         var a = root.FindById("a")!;
         var b = root.FindById("b")!;
         b.X.Should().BeApproximately(a.X + a.Width, 0.5f);
+    }
+
+    [Fact]
+    public void OrderedListTypeAttribute_ChangesMarkers()
+    {
+        var markers = LayoutTestHelper.Layout("<ol type='a'><li>x</li><li>y</li></ol><ol type='I'><li>z</li></ol>", 600, 800)
+            .FindAllByTag("li")
+            .Select(li => li.Children.First(c => c.IsListMarker).Text!)
+            .ToArray();
+
+        markers.Should().Equal("a.", "b.", "I.");
+    }
+
+    [Fact]
+    public void CellNowrapAttribute_KeepsTextOnOneLine()
+    {
+        var root = Layout("<table width='120'><tr><td id='c' nowrap>Ngày <b>01/01/2024</b> ký tên đóng dấu</td></tr></table>");
+
+        root.FindById("c")!.FindAll(b => !string.IsNullOrEmpty(b.Text) && b.Children.Count == 0)
+            .Select(b => (int)System.Math.Round(b.Y)).Distinct().Should().ContainSingle();
+    }
+
+    [Fact]
+    public void BodyMarginAttributes_RemoveDefaultBodyMargin()
+    {
+        var root = LayoutTestHelper.Layout("<body leftmargin='0' topmargin='0' marginwidth='0' marginheight='0'><div id='d'>x</div></body>", 600, 800);
+
+        var div = root.FindById("d")!;
+        div.X.Should().BeApproximately(0, 0.01f);
+        div.Y.Should().BeApproximately(0, 0.01f);
     }
 
     [Fact]

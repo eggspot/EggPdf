@@ -27,10 +27,39 @@ public partial class BasicStyleResolver
         if (!string.IsNullOrEmpty(valign) && !style.Has("vertical-align"))
             style.Set("vertical-align", valign.ToLowerInvariant());
 
-        if (tag == "table")
-            ApplyTableAttributes(element, style);
-        else if (tag == "td" || tag == "th")
-            ApplyCellAttributesFromTable(element, style);
+        switch (tag)
+        {
+            case "table":
+                ApplyTableAttributes(element, style);
+                break;
+            case "td":
+            case "th":
+                ApplyCellAttributesFromTable(element, style);
+                if (element.HasAttribute("nowrap"))
+                    style.Set("white-space", "nowrap");
+                break;
+            case "img":
+                ApplyImageSpacingAttributes(element, style);
+                break;
+            case "ol":
+            case "ul":
+            case "li":
+                ApplyListTypeAttribute(element.GetAttribute("type"), tag, style);
+                break;
+            case "font":
+                ApplyFontSizeAttribute(element.GetAttribute("size"), style);
+                break;
+            case "body":
+                ApplyBodyAttributes(element, style);
+                break;
+        }
+
+        if (AcceptsBackgroundAttribute(tag))
+        {
+            var background = element.GetAttribute("background")?.Trim();
+            if (!string.IsNullOrEmpty(background) && !style.Has("background-image"))
+                style.Set("background-image", "url(" + CssStringEscapes.Quote(background!) + ")");
+        }
 
         var colorAttr = element.GetAttribute("color");
         if (!string.IsNullOrEmpty(colorAttr) && !style.Has("color"))
@@ -234,6 +263,122 @@ public partial class BasicStyleResolver
         style.Set("border-right-style", "solid");
         style.Set("border-bottom-style", "solid");
         style.Set("border-left-style", "solid");
+    }
+
+    private static bool AcceptsBackgroundAttribute(string tag) =>
+        tag == "body" || tag == "table" || tag == "thead" || tag == "tbody" || tag == "tfoot" ||
+        tag == "tr" || tag == "td" || tag == "th";
+
+    private static void ApplyImageSpacingAttributes(HtmlElement image, ComputedStyle style)
+    {
+        var hspace = image.GetAttribute("hspace");
+        var horizontal = hspace == null ? null : ParseHtmlDimension(hspace, rejectZero: false);
+        if (horizontal != null)
+        {
+            style.Set("margin-left", horizontal);
+            style.Set("margin-right", horizontal);
+        }
+
+        var vspace = image.GetAttribute("vspace");
+        var vertical = vspace == null ? null : ParseHtmlDimension(vspace, rejectZero: false);
+        if (vertical != null)
+        {
+            style.Set("margin-top", vertical);
+            style.Set("margin-bottom", vertical);
+        }
+
+        if (TryParseHtmlNonNegativeInteger(image.GetAttribute("border"), out int border) && !style.Has("border-top-width"))
+        {
+            if (border > 0)
+                SetAllBorderSides(style, border.ToString(CultureInfo.InvariantCulture) + "px");
+        }
+    }
+
+    private static void ApplyListTypeAttribute(string? type, string tag, ComputedStyle style)
+    {
+        if (string.IsNullOrEmpty(type)) return;
+        var trimmed = type!.Trim();
+        var listStyle = tag switch
+        {
+            "ol" => OrderedListStyleForType(trimmed),
+            "ul" => UnorderedListStyleForType(trimmed),
+            _ => OrderedListStyleForType(trimmed) ?? UnorderedListStyleForType(trimmed),
+        };
+        if (listStyle != null)
+            style.Set("list-style-type", listStyle);
+    }
+
+    private static string? OrderedListStyleForType(string type)
+    {
+        switch (type)
+        {
+            case "1": return "decimal";
+            case "a": return "lower-alpha";
+            case "A": return "upper-alpha";
+            case "i": return "lower-roman";
+            case "I": return "upper-roman";
+            default: return null;
+        }
+    }
+
+    private static string? UnorderedListStyleForType(string type)
+    {
+        switch (type.ToLowerInvariant())
+        {
+            case "disc": return "disc";
+            case "circle": return "circle";
+            case "square": return "square";
+            case "none": return "none";
+            default: return null;
+        }
+    }
+
+    private static readonly string[] LegacyFontSizeKeywords =
+        { "x-small", "small", "medium", "large", "x-large", "xx-large", "xxx-large" };
+
+    private static void ApplyFontSizeAttribute(string? size, ComputedStyle style)
+    {
+        if (size == null || style.Has("font-size")) return;
+        int i = SkipHtmlWhitespace(size, 0);
+        int sign = 0;
+        if (i < size.Length && (size[i] == '+' || size[i] == '-'))
+        {
+            sign = size[i] == '+' ? 1 : -1;
+            i++;
+        }
+        int digitsStart = i;
+        int value = 0;
+        while (i < size.Length && size[i] >= '0' && size[i] <= '9')
+        {
+            if (value < 100) value = value * 10 + (size[i] - '0');
+            i++;
+        }
+        if (i == digitsStart) return;
+        int level = sign == 0 ? value : 3 + sign * value;
+        if (level < 1) level = 1;
+        if (level > 7) level = 7;
+        style.Set("font-size", LegacyFontSizeKeywords[level - 1]);
+    }
+
+    private static void ApplyBodyAttributes(HtmlElement body, ComputedStyle style)
+    {
+        var text = body.GetAttribute("text");
+        if (!string.IsNullOrEmpty(text) && !style.Has("color"))
+            style.Set("color", text);
+
+        ApplyBodyMargin(body, "marginheight", "topmargin", "margin-top", style);
+        ApplyBodyMargin(body, "marginheight", "bottommargin", "margin-bottom", style);
+        ApplyBodyMargin(body, "marginwidth", "leftmargin", "margin-left", style);
+        ApplyBodyMargin(body, "marginwidth", "rightmargin", "margin-right", style);
+    }
+
+    private static void ApplyBodyMargin(HtmlElement body, string sharedAttribute, string sideAttribute, string property, ComputedStyle style)
+    {
+        if (TryParseHtmlNonNegativeInteger(body.GetAttribute(sharedAttribute), out int px) ||
+            TryParseHtmlNonNegativeInteger(body.GetAttribute(sideAttribute), out px))
+        {
+            style.Set(property, px.ToString(CultureInfo.InvariantCulture) + "px");
+        }
     }
 
     private static HtmlElement? FindAncestorTable(HtmlElement element)

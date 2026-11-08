@@ -255,6 +255,113 @@ public class PresentationalAttributeTests
     }
 
     [Fact]
+    public void CellNowrapAttribute_MapsToWhiteSpaceNowrap()
+    {
+        ResolveFirst("<table><tr><td nowrap>x</td></tr></table>", "td").Get("white-space").Should().Be("nowrap");
+    }
+
+    [Fact]
+    public void ImgHspaceVspace_MapToMargins()
+    {
+        var img = ResolveFirst("<img hspace='10' vspace='4px'>", "img");
+
+        img.Get("margin-left").Should().Be("10px");
+        img.Get("margin-right").Should().Be("10px");
+        img.Get("margin-top").Should().Be("4px");
+        img.Get("margin-bottom").Should().Be("4px");
+    }
+
+    [Fact]
+    public void ImgBorder_MapsToSolidBorder()
+    {
+        var img = ResolveFirst("<img border='2'>", "img");
+
+        img.Get("border-top-width").Should().Be("2px");
+        img.Get("border-top-style").Should().Be("solid");
+        ResolveFirst("<img border='0'>", "img").Has("border-top-style").Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("ol", "a", "lower-alpha")]
+    [InlineData("ol", "A", "upper-alpha")]
+    [InlineData("ol", "i", "lower-roman")]
+    [InlineData("ol", "I", "upper-roman")]
+    [InlineData("ol", "1", "decimal")]
+    [InlineData("ul", "square", "square")]
+    [InlineData("ul", "CIRCLE", "circle")]
+    public void ListTypeAttribute_MapsToListStyleType(string tag, string type, string expected)
+    {
+        ResolveFirst("<" + tag + " type='" + type + "'><li>x</li></" + tag + ">", tag)
+            .Get("list-style-type").Should().Be(expected);
+    }
+
+    [Fact]
+    public void ListItemTypeAttribute_OverridesListStyleForThatItem()
+    {
+        ResolveFirst("<ol><li type='I'>x</li></ol>", "li").Get("list-style-type").Should().Be("upper-roman");
+    }
+
+    [Fact]
+    public void OrderedListUnknownType_KeepsDecimal()
+    {
+        ResolveFirst("<ol type='square'><li>x</li></ol>", "ol").Get("list-style-type").Should().Be("decimal");
+    }
+
+    [Theory]
+    [InlineData("1", "x-small")]
+    [InlineData("3", "medium")]
+    [InlineData("7", "xxx-large")]
+    [InlineData("9", "xxx-large")]
+    [InlineData("0", "x-small")]
+    [InlineData("+1", "large")]
+    [InlineData("-2", "x-small")]
+    [InlineData("+9", "xxx-large")]
+    public void FontSizeAttribute_MapsToLegacyKeyword(string size, string expected)
+    {
+        ResolveFirst("<p><font size='" + size + "'>x</font></p>", "font").Get("font-size").Should().Be(ComputedFontSize(expected));
+    }
+
+    [Theory]
+    [InlineData("big")]
+    [InlineData("+")]
+    public void FontSizeAttribute_Invalid_IsIgnored(string size)
+    {
+        ResolveFirst("<p><font size='" + size + "'>x</font></p>", "font").Get("font-size")
+            .Should().Be(ResolveFirst("<p><font>x</font></p>", "font").Get("font-size"));
+    }
+
+    private static string ComputedFontSize(string keyword)
+    {
+        var style = new ComputedStyle();
+        style.Set("font-size", keyword);
+        ComputedFontMetrics.ComputeFontSizeAndLineHeight(style, null, 16f);
+        return style.Get("font-size")!;
+    }
+
+    [Fact]
+    public void BodyMarginAttributes_MapToMargins()
+    {
+        var body = ResolveFirst("<body leftmargin='0' topmargin='5' marginwidth='3'>x</body>", "body");
+
+        body.Get("margin-left").Should().Be("3px");
+        body.Get("margin-right").Should().Be("3px");
+        body.Get("margin-top").Should().Be("5px");
+    }
+
+    [Fact]
+    public void BodyTextAttribute_MapsToColor()
+    {
+        ResolveFirst("<body text='#333333'>x</body>", "body").Color.Should().Be("#333333");
+    }
+
+    [Fact]
+    public void BackgroundAttribute_MapsToBackgroundImage()
+    {
+        ResolveFirst("<table background='bg.png'><tr><td>x</td></tr></table>", "table")
+            .Get("background-image").Should().Be("url('bg.png')");
+    }
+
+    [Fact]
     public void ParseHtmlDimension_ZeroRejectedOnlyWhenAsked()
     {
         BasicStyleResolver.ParseHtmlDimension("0", rejectZero: true).Should().BeNull();
