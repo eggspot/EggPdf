@@ -404,4 +404,43 @@ public class CalcTests
     {
         CalcResolver.Resolve(expression, 100, DefaultFontSize).Should().BeApproximately(expected, 0.001f);
     }
+
+    [Theory]
+    [InlineData("sin(cos(60deg))", 0.4794)]
+    [InlineData("sin(sign(10deg))", 0.8415)]
+    [InlineData("sin(sqrt(tan(45deg)))", 0.8415)]
+    [InlineData("sin(calc(30deg * 2))", 0.8660)]
+    [InlineData("sin(max(30deg, 90deg))", 1)]
+    [InlineData("sin(abs(-90deg))", 1)]
+    [InlineData("sin(1e1deg * 9)", 1)]
+    [InlineData("sin(atan2(1, 1) * 2)", 1)]
+    [InlineData("cos(calc(pi))", -1)]
+    [InlineData("sin(asin(0.5) + asin(0.5))", 0.8660)]
+    public void Trig_NestedFunctionResults_TypedByTheFunctionNotByInnerUnits(string expression, float expected)
+    {
+        CalcResolver.Resolve(expression, 0, DefaultFontSize).Should().BeApproximately(expected, 0.001f);
+    }
+
+    [Theory]
+    [InlineData("sin(30deg + 60deg)", 1)]
+    [InlineData("abs(10px - 30px)", 20)]
+    [InlineData("max(10px + 5px, 2 * 6px)", 15)]
+    [InlineData("min(100% - 10px, 50px)", 50)]
+    [InlineData("clamp(10px, 2 * 30px, 100% - 20px)", 60)]
+    [InlineData("round(up, 20px + 1px, 2 * 5px)", 30)]
+    [InlineData("max(abs(-5px) + abs(-5px), 1px)", 10)]
+    [InlineData("min(min(10px, 5px) + max(1px, 2px), 100px)", 7)]
+    [InlineData("clamp(1px, min(20px, 30px) + max(1px, 5px), 100px)", 25)]
+    [InlineData("abs(-5px) + abs(-5px)", 10)]
+    [InlineData("calc(min(10px, 5px)) * 2", 10)]
+    public void MathFunction_ExpressionArguments_AreEvaluated(string expression, float expected)
+    {
+        CalcResolver.Resolve(expression, 100, DefaultFontSize).Should().BeApproximately(expected, 0.001f);
+    }
+
+    [Fact]
+    public void Round_JustBelowHalf_RoundsDown()
+    {
+        CalcResolver.Resolve("round(0.49999997)", 0, DefaultFontSize).Should().Be(0f);
+    }
 }
