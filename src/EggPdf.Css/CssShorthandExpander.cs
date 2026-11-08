@@ -367,7 +367,11 @@ public static class CssShorthandExpander
         int i = 0;
         while (i < parts.Length && TryReadFontPrefixKeyword(parts[i].ToLowerInvariant(),
                    ref fontStyle, ref fontVariant, ref fontWeight, ref fontStretch))
+        {
             i++;
+            if (fontStyle == "oblique" && i < parts.Length && IsAngle(parts[i]))
+                fontStyle = "oblique " + parts[i++];
+        }
 
         if (i >= parts.Length) return;
         var sizePart = parts[i++];
@@ -417,6 +421,12 @@ public static class CssShorthandExpander
         if (Array.IndexOf(FontStretchKeywords, part) >= 0) { fontStretch = part; return true; }
         return false;
     }
+
+    private static bool IsAngle(string value) =>
+        value.EndsWith("deg", StringComparison.OrdinalIgnoreCase) ||
+        value.EndsWith("grad", StringComparison.OrdinalIgnoreCase) ||
+        value.EndsWith("rad", StringComparison.OrdinalIgnoreCase) ||
+        value.EndsWith("turn", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsCssWideKeyword(string value) =>
         value.Equals("inherit", StringComparison.OrdinalIgnoreCase) ||

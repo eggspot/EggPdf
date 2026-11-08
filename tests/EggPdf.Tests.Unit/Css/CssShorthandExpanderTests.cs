@@ -295,6 +295,17 @@ public class CssShorthandExpanderTests
     }
 
     [Fact]
+    public void Font_Shorthand_ObliqueWithAngle_KeepsAngleOnStyle()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("font", "oblique 10deg 12px Arial", style);
+
+        style.Get("font-style").Should().Be("oblique 10deg");
+        style.FontSize.Should().Be("12px");
+        style.FontFamily.Should().Be("Arial");
+    }
+
+    [Fact]
     public void Font_Shorthand_Inherit_AppliesToEveryLonghand()
     {
         var style = new ComputedStyle();
