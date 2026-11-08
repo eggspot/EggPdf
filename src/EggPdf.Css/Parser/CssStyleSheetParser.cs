@@ -316,7 +316,7 @@ public static class CssStyleSheetParser
                         var t = tokens[pos];
                         if (t.Type == CssTokenType.Whitespace) valueParts.Append(' ');
                         else if (t.Type == CssTokenType.Function) valueParts.Append(t.Value ?? "").Append('(');
-                        else if (t.Type == CssTokenType.String) valueParts.Append('\'').Append(t.Value ?? "").Append('\'');
+                        else if (t.Type == CssTokenType.String) valueParts.Append(CssStringEscapes.Quote(t.Value ?? ""));
                         else valueParts.Append(t.Value ?? "");
                         pos++;
                     }
@@ -432,7 +432,7 @@ public static class CssStyleSheetParser
                 else if (t.Type == CssTokenType.Dimension)
                     valueParts.Append(t.Value ?? "");
                 else if (t.Type == CssTokenType.String)
-                    valueParts.Append('\'').Append(t.Value ?? "").Append('\'');
+                    valueParts.Append(CssStringEscapes.Quote(t.Value ?? ""));
                 else
                     valueParts.Append(t.Value ?? "");
                 pos++;

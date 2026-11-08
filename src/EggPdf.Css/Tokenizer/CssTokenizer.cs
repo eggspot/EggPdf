@@ -111,11 +111,10 @@ public class CssTokenizer
         {
             char c = _input[_pos];
             if (c == quote) { _pos++; break; }
-            if (c == '\\' && _pos + 1 < _input.Length)
+            if (c == '\\')
             {
                 _pos++;
-                sb.Append(_input[_pos]);
-                _pos++;
+                CssStringEscapes.AppendEscape(_input, ref _pos, sb);
                 continue;
             }
             if (c == '\n') break; // bad string
