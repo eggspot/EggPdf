@@ -78,7 +78,8 @@ public class CssIdentifierEscapeTests
     }
 
     [Theory]
-    [InlineData("suffix: \"\\29 \";", ") ")]
+    [InlineData("suffix: \"\\29 \";", ")")]
+    [InlineData("suffix: \"\\29  \";", ") ")]
     [InlineData("suffix: '\\'';", "'")]
     [InlineData("prefix: \"(\";", "(")]
     public void CounterStyle_EscapedPrefixOrSuffix_IsDecoded(string descriptor, string expected)

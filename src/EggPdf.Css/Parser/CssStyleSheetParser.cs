@@ -553,7 +553,8 @@ public static class CssStyleSheetParser
                    tokens[pos].Type != CssTokenType.Semicolon &&
                    tokens[pos].Type != CssTokenType.RightCurly)
             {
-                valueSb.Append(tokens[pos].Value ?? "");
+                var token = tokens[pos];
+                valueSb.Append(token.Type == CssTokenType.String ? CssStringEscapes.Quote(token.Value ?? "") : token.Value ?? "");
                 pos++;
             }
             if (pos < tokens.Count && tokens[pos].Type == CssTokenType.Semicolon) pos++;
@@ -604,11 +605,9 @@ public static class CssStyleSheetParser
 
             if (remaining[0] == '"' || remaining[0] == '\'')
             {
-                char q = remaining[0];
-                int end = remaining.IndexOf(q, 1);
-                if (end < 0) end = remaining.Length - 1;
-                symbols.Add(remaining.Substring(1, end - 1));
-                remaining = remaining.Substring(end + 1).TrimStart(',').TrimStart();
+                int afterString = 0;
+                symbols.Add(CssStringEscapes.ReadQuoted(remaining, ref afterString));
+                remaining = remaining.Substring(afterString).TrimStart(',').TrimStart();
             }
             else if (remaining[0] == '\\')
             {

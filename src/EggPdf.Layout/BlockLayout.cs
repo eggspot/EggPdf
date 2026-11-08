@@ -316,6 +316,10 @@ public static partial class BlockLayout
                 childY = LayoutPseudoElementLine(beforeContent!, beforeStyle!, box, childY, childContainingWidth, fontSize);
             }
         }
+        else if (IsBlockLevelEmptyStringPseudoElement(beforeStyle))
+        {
+            childY = LayoutEmptyPseudoElementBox(beforeStyle!, box, childY, childContainingWidth, fontSize);
+        }
         bool hasInlinePseudoContent = beforeIsInline || afterIsInline;
 
         childY = InjectFormElementContent(element, style, box, fontSize, childContainingWidth, childY);
@@ -1303,6 +1307,8 @@ public static partial class BlockLayout
 
         if (afterContent != null && !afterIsInline)
             childY = LayoutPseudoElementLine(afterContent, afterPseudoStyle!, box, childY, childContainingWidth, fontSize);
+        else if (afterContent == null && IsBlockLevelEmptyStringPseudoElement(afterPseudoStyle))
+            childY = LayoutEmptyPseudoElementBox(afterPseudoStyle!, box, childY, childContainingWidth, fontSize);
 
         // CSS counters: pop scopes created by counter-reset on this element (after children processed)
         if (counterCtx != null)

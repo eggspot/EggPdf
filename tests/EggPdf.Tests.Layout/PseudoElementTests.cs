@@ -399,4 +399,25 @@ public class PseudoElementTests
 
         TextBox(root, "Para").Y.Should().BeGreaterThan(TextBox(root, "Head").Y + 1);
     }
+
+    [Fact]
+    public void DecorativeAfter_EmptyContentWithSize_IsLaidOutAsASizedBox()
+    {
+        var root = LayoutWithStyle("h2{margin:0} h2::after{content:'';display:block;width:50px;height:3px;margin-top:4px;background:red}",
+            "<h2 id='h'>Title</h2>");
+
+        var heading = root.FindById("h")!;
+        var underline = heading.Children.Single(c => c.Text == null && c.Style.Get("background-color") != null);
+        underline.Width.Should().BeApproximately(50, 0.01f);
+        underline.Height.Should().BeApproximately(3, 0.01f);
+        underline.Y.Should().BeGreaterThan(TextBox(root, "Title").Y);
+    }
+
+    [Fact]
+    public void DecorativeAfter_EmptyContentWithOnlyABorder_IsLaidOut()
+    {
+        var root = LayoutWithStyle("h2::after{content:'';display:block;width:40px;border-bottom:2px solid blue}", "<h2 id='h'>Title</h2>");
+
+        root.FindById("h")!.Children.Should().Contain(c => c.Text == null && c.Width > 39.5f && c.Width < 40.5f);
+    }
 }

@@ -149,6 +149,8 @@ public static partial class BoxPainter
         return result;
     }
 
+    private static string ImageResourceName(string imageSource) =>
+        "Img" + imageSource.GetHashCode().ToString("X8", CultureInfo.InvariantCulture);
 
     /// <summary>The element id an internal <c>#fragment</c> href targets, percent-decoded like a browser does (<c>#sec%20one</c> -> "sec one"); malformed escapes are used as written.</summary>
     private static string AnchorIdFromHref(string href)
