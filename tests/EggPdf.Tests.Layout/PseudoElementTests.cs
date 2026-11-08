@@ -326,6 +326,16 @@ public class PseudoElementTests
     }
 
     [Fact]
+    public void ParagraphWithFloatInsideBefore_TextStillAvoidsTheFloat()
+    {
+        var root = LayoutWithStyle("p::before{content:'>'}",
+            "<p><img style='float:left;width:100px;height:100px' src='x.png'>Text beside the float</p>");
+
+        var text = root.FindAll(b => b.Text != null && b.Text.Contains("Text")).First();
+        text.X.Should().BeGreaterThanOrEqualTo(99.5f);
+    }
+
+    [Fact]
     public void ClearfixAfter_EmptyBlockContent_AddsNoHeight()
     {
         var plain = LayoutWithStyle("", "<div id='d'>Hello</div>").FindById("d")!;

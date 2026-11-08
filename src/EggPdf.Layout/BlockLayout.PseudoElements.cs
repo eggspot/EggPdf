@@ -39,6 +39,18 @@ public static partial class BlockLayout
         return wordBreak != "break-all" && wordBreak != "break-word";
     }
 
+    private static bool HasFloatedChild(HtmlElement element, ComputedStyle style,
+        System.Func<HtmlElement, ComputedStyle?, ComputedStyle>? resolver)
+    {
+        if (resolver == null) return false;
+        foreach (var child in element.ChildNodes)
+        {
+            if (child is HtmlElement childElement && IsFloated(resolver(childElement, style)))
+                return true;
+        }
+        return false;
+    }
+
     private static bool GeneratesInlineBox(ComputedStyle? pseudoStyle)
     {
         if (pseudoStyle == null) return false;

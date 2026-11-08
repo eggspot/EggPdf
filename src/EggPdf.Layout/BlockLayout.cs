@@ -287,14 +287,22 @@ public static partial class BlockLayout
         bool prevTextEndedWithSpace = false;
         bool prevInlineElementEndedWithSpace = false;
 
-        bool childrenFlowInline = HasInlineElementSiblings(element, style, resolver);
-        bool pseudoElementsCanFlowInline = !PreservesWhitespace(style) &&
-            (childrenFlowInline || PlainTextKeepsItsFeaturesInInlineFlow(style, floatCtx, firstLineStyle, firstLetterStyle));
-
+        bool? childrenFlowInline = null;
         var afterPseudoStyle = ResolvePseudoElementStyle(element, "after", style);
+        bool hasBefore = TryResolvePseudoContent(element, "before", style, out var beforeStyle, out var beforeContent);
+        bool pseudoElementsCanFlowInline = false;
+        if ((hasBefore && GeneratesInlineBox(beforeStyle)) || GeneratesInlineBox(afterPseudoStyle))
+        {
+            childrenFlowInline = HasInlineElementSiblings(element, style, resolver);
+            pseudoElementsCanFlowInline = !PreservesWhitespace(style) &&
+                (childrenFlowInline.Value ||
+                 (PlainTextKeepsItsFeaturesInInlineFlow(style, floatCtx, firstLineStyle, firstLetterStyle) &&
+                  !HasFloatedChild(element, style, resolver)));
+        }
+
         bool afterIsInline = pseudoElementsCanFlowInline && GeneratesInlineBox(afterPseudoStyle);
         bool beforeIsInline = false;
-        if (TryResolvePseudoContent(element, "before", style, out var beforeStyle, out var beforeContent))
+        if (hasBefore)
         {
             beforeIsInline = pseudoElementsCanFlowInline && GeneratesInlineBox(beforeStyle);
             if (beforeIsInline)
@@ -872,7 +880,8 @@ public static partial class BlockLayout
                 }
 
                 // Check if parent has mixed inline content (inline elements + text)
-                bool hasInlineSiblings = hasInlinePseudoContent || childrenFlowInline;
+                childrenFlowInline ??= HasInlineElementSiblings(element, style, resolver);
+                bool hasInlineSiblings = hasInlinePseudoContent || childrenFlowInline.Value;
 
                 // If there are inline siblings, participate in inline flow
                 if (hasInlineSiblings && !preserveWhitespace)
