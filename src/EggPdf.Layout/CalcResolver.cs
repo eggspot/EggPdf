@@ -39,11 +39,27 @@ public static class CalcResolver
     /// </summary>
     public static float Resolve(string value, float containingSize, float fontSize)
     {
-        if (string.IsNullOrEmpty(value))
+        if (string.IsNullOrEmpty(value) || _nestingDepth >= MaxNestingDepth)
             return 0;
 
-        value = value.Trim();
+        _nestingDepth++;
+        try
+        {
+            return ResolveFunctionOrTerm(value.Trim(), containingSize, fontSize);
+        }
+        finally
+        {
+            _nestingDepth--;
+        }
+    }
 
+    private const int MaxNestingDepth = 32;
+
+    [ThreadStatic]
+    private static int _nestingDepth;
+
+    private static float ResolveFunctionOrTerm(string value, float containingSize, float fontSize)
+    {
         if (StartsWithIgnoreCase(value, "calc(") && value[value.Length - 1] == ')')
         {
             string inner = value.Substring(5, value.Length - 6);
@@ -69,11 +85,11 @@ public static class CalcResolver
         }
 
         if (StartsWithIgnoreCase(value, "sin(") && value[value.Length - 1] == ')')
-            return (float)Math.Sin(ToRadians(Resolve(value.Substring(4, value.Length - 5), containingSize, fontSize), value.Substring(4, value.Length - 5)));
+            return (float)Math.Sin(AngleArgumentInRadians(value.Substring(4, value.Length - 5), containingSize, fontSize));
         if (StartsWithIgnoreCase(value, "cos(") && value[value.Length - 1] == ')')
-            return (float)Math.Cos(ToRadians(Resolve(value.Substring(4, value.Length - 5), containingSize, fontSize), value.Substring(4, value.Length - 5)));
+            return (float)Math.Cos(AngleArgumentInRadians(value.Substring(4, value.Length - 5), containingSize, fontSize));
         if (StartsWithIgnoreCase(value, "tan(") && value[value.Length - 1] == ')')
-            return (float)Math.Tan(ToRadians(Resolve(value.Substring(4, value.Length - 5), containingSize, fontSize), value.Substring(4, value.Length - 5)));
+            return (float)Math.Tan(AngleArgumentInRadians(value.Substring(4, value.Length - 5), containingSize, fontSize));
         if (StartsWithIgnoreCase(value, "asin(") && value[value.Length - 1] == ')')
             return (float)(Math.Asin(Resolve(value.Substring(5, value.Length - 6), containingSize, fontSize)) * 180.0 / Math.PI);
         if (StartsWithIgnoreCase(value, "acos(") && value[value.Length - 1] == ')')
@@ -116,12 +132,12 @@ public static class CalcResolver
             var ra = SplitArgs(value.Substring(6, value.Length - 7));
             int vi = 0;
             string strategy = "nearest";
-            if (ra.Length >= 1 && !ra[0].Trim().EndsWith("px") && !char.IsDigit(ra[0].Trim()[0]))
-            { strategy = ra[0].Trim(); vi = 1; }
-            if (ra.Length >= vi + 2)
+            if (ra.Length >= 1 && IsRoundingStrategy(ra[0].Trim()))
+            { strategy = ra[0].Trim().ToLowerInvariant(); vi = 1; }
+            if (ra.Length > vi)
             {
                 float rv = Resolve(ra[vi].Trim(), containingSize, fontSize);
-                float step = Resolve(ra[vi + 1].Trim(), containingSize, fontSize);
+                float step = ra.Length > vi + 1 ? Resolve(ra[vi + 1].Trim(), containingSize, fontSize) : 1f;
                 if (step == 0) return rv;
                 float n = rv / step;
                 float rounded = strategy == "up" ? (float)Math.Ceiling(n) :
@@ -157,6 +173,7 @@ public static class CalcResolver
         if (StartsWithIgnoreCase(value, "log(") && value[value.Length - 1] == ')')
         {
             var la = SplitArgs(value.Substring(4, value.Length - 5));
+            if (la.Length == 0) return 0;
             float lv = Resolve(la[0].Trim(), containingSize, fontSize);
             if (la.Length >= 2)
             {
@@ -173,103 +190,148 @@ public static class CalcResolver
 
     private static float EvaluateExpression(string expr, float containingSize, float fontSize)
     {
-        expr = expr.Trim();
-        if (string.IsNullOrEmpty(expr))
-            return 0;
-
-        var tokens = Tokenize(expr, containingSize, fontSize);
-        if (tokens.Length == 0)
-            return 0;
-
-        return EvaluateTokens(tokens);
-    }
-
-    private static float[] Tokenize(string expr, float containingSize, float fontSize)
-    {
-        var values = new System.Collections.Generic.List<float>();
-        var operators = new System.Collections.Generic.List<char>();
-
         int pos = 0;
-        while (pos < expr.Length)
-        {
-            SkipWhitespace(expr, ref pos);
-            if (pos >= expr.Length) break;
-
-            if (IsNestedFunction(expr, pos))
-            {
-                int funcEnd = FindFunctionEnd(expr, pos);
-                if (funcEnd > pos)
-                {
-                    string funcStr = expr.Substring(pos, funcEnd - pos + 1);
-                    float funcVal = Resolve(funcStr, containingSize, fontSize);
-                    values.Add(funcVal);
-                    pos = funcEnd + 1;
-                    continue;
-                }
-            }
-
-            char c = expr[pos];
-            if ((c == '+' || c == '-') && values.Count > 0 && values.Count > operators.Count)
-            {
-                bool leftSpace = pos > 0 && (expr[pos - 1] == ' ' || expr[pos - 1] == '\t');
-                bool rightSpace = pos + 1 < expr.Length && (expr[pos + 1] == ' ' || expr[pos + 1] == '\t');
-                bool isWhitespaceDelimitedBinaryOperator = leftSpace && rightSpace;
-                if (isWhitespaceDelimitedBinaryOperator)
-                {
-                    operators.Add(c);
-                    pos++;
-                    continue;
-                }
-            }
-            else if ((c == '*' || c == '/') && values.Count > 0)
-            {
-                operators.Add(c);
-                pos++;
-                continue;
-            }
-
-            string term = ExtractTerm(expr, ref pos);
-            if (!string.IsNullOrEmpty(term))
-            {
-                values.Add(ResolveTerm(term, containingSize, fontSize));
-            }
-            else
-            {
-                pos++;
-            }
-        }
-
-        for (int i = 0; i < operators.Count; i++)
-        {
-            if (operators[i] == '*' || operators[i] == '/')
-            {
-                float left = values[i];
-                float right = values[i + 1];
-                float result = operators[i] == '*' ? left * right : (right != 0 ? left / right : 0);
-                values[i] = result;
-                values.RemoveAt(i + 1);
-                operators.RemoveAt(i);
-                i--;
-            }
-        }
-
-        float final_result = values.Count > 0 ? values[0] : 0;
-        for (int i = 0; i < operators.Count; i++)
-        {
-            float right = values[i + 1];
-            if (operators[i] == '+')
-                final_result += right;
-            else if (operators[i] == '-')
-                final_result -= right;
-        }
-
-        return new[] { final_result };
+        return ParseSum(expr, ref pos, containingSize, fontSize);
     }
 
-    private static float EvaluateTokens(float[] tokens)
+    private static float ParseSum(string expr, ref int pos, float containingSize, float fontSize)
     {
-        return tokens.Length > 0 ? tokens[0] : 0;
+        float value = ParseProduct(expr, ref pos, containingSize, fontSize);
+        while (true)
+        {
+            int operatorPos = pos;
+            SkipWhitespace(expr, ref operatorPos);
+            bool whitespaceBefore = operatorPos > pos;
+            if (!whitespaceBefore || operatorPos + 1 >= expr.Length) return value;
+
+            char op = expr[operatorPos];
+            if ((op != '+' && op != '-') || !IsCalcWhitespace(expr[operatorPos + 1])) return value;
+
+            pos = operatorPos + 1;
+            float right = ParseProduct(expr, ref pos, containingSize, fontSize);
+            value = op == '+' ? value + right : value - right;
+        }
     }
+
+    private static float ParseProduct(string expr, ref int pos, float containingSize, float fontSize)
+    {
+        float value = ParseFactor(expr, ref pos, containingSize, fontSize);
+        while (true)
+        {
+            int operatorPos = pos;
+            SkipWhitespace(expr, ref operatorPos);
+            if (operatorPos >= expr.Length) return value;
+
+            char op = expr[operatorPos];
+            if (op != '*' && op != '/') return value;
+
+            pos = operatorPos + 1;
+            float right = ParseFactor(expr, ref pos, containingSize, fontSize);
+            value = op == '*' ? value * right : (right != 0 ? value / right : 0);
+        }
+    }
+
+    private static float ParseFactor(string expr, ref int pos, float containingSize, float fontSize)
+    {
+        SkipWhitespace(expr, ref pos);
+        if (pos >= expr.Length) return 0;
+
+        if (expr[pos] == '(')
+            return ParseParenthesized(expr, ref pos, containingSize, fontSize);
+
+        if (IsNestedFunction(expr, pos))
+        {
+            int end = FindFunctionEnd(expr, pos);
+            if (end < 0)
+            {
+                pos = expr.Length;
+                return 0;
+            }
+            float functionValue = Resolve(expr.Substring(pos, end - pos + 1), containingSize, fontSize);
+            pos = end + 1;
+            return functionValue;
+        }
+
+        string term = ExtractTerm(expr, ref pos);
+        if (term.Length > 0)
+            return ResolveTerm(term, containingSize, fontSize);
+
+        return ParseConstant(expr, ref pos);
+    }
+
+    private static float ParseParenthesized(string expr, ref int pos, float containingSize, float fontSize)
+    {
+        if (_nestingDepth >= MaxNestingDepth)
+        {
+            pos = expr.Length;
+            return 0;
+        }
+
+        _nestingDepth++;
+        try
+        {
+            pos++;
+            float inner = ParseSum(expr, ref pos, containingSize, fontSize);
+            SkipWhitespace(expr, ref pos);
+            if (pos < expr.Length && expr[pos] == ')') pos++;
+            return inner;
+        }
+        finally
+        {
+            _nestingDepth--;
+        }
+    }
+
+    private static float ParseConstant(string expr, ref int pos)
+    {
+        int start = pos;
+        while (pos < expr.Length && IsAsciiLetter(expr[pos])) pos++;
+        int length = pos - start;
+        if (length == 2 && string.Compare(expr, start, "pi", 0, 2, StringComparison.OrdinalIgnoreCase) == 0)
+            return (float)Math.PI;
+        if (length == 1 && (expr[start] == 'e' || expr[start] == 'E'))
+            return (float)Math.E;
+        return 0;
+    }
+
+    private static bool IsCalcWhitespace(char c) => c == ' ' || c == '\t' || c == '\n' || c == '\r';
+
+    private static bool IsAsciiLetter(char c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+
+    private static bool IsAsciiDigit(char c) => c >= '0' && c <= '9';
+
+    private static bool IsRoundingStrategy(string value) =>
+        string.Equals(value, "nearest", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(value, "up", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(value, "down", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(value, "to-zero", StringComparison.OrdinalIgnoreCase);
+
+    private static double AngleArgumentInRadians(string argument, float containingSize, float fontSize)
+    {
+        float value = Resolve(argument, containingSize, fontSize);
+        return IsAngleExpression(argument) ? value * Math.PI / 180.0 : value;
+    }
+
+    private static bool IsAngleExpression(string expr)
+    {
+        for (int i = 1; i < expr.Length; i++)
+        {
+            if (!IsAsciiLetter(expr[i]) || !(IsAsciiDigit(expr[i - 1]) || expr[i - 1] == '.')) continue;
+            int unitEnd = i;
+            while (unitEnd < expr.Length && IsAsciiLetter(expr[unitEnd])) unitEnd++;
+            if (IsAngleUnit(expr, i, unitEnd - i)) return true;
+            i = unitEnd;
+        }
+        return expr.IndexOf("asin(", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               expr.IndexOf("acos(", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               expr.IndexOf("atan", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static bool IsAngleUnit(string expr, int start, int length) =>
+        (length == 3 && (string.Compare(expr, start, "deg", 0, 3, StringComparison.OrdinalIgnoreCase) == 0 ||
+                         string.Compare(expr, start, "rad", 0, 3, StringComparison.OrdinalIgnoreCase) == 0)) ||
+        (length == 4 && (string.Compare(expr, start, "grad", 0, 4, StringComparison.OrdinalIgnoreCase) == 0 ||
+                         string.Compare(expr, start, "turn", 0, 4, StringComparison.OrdinalIgnoreCase) == 0));
 
     private static float EvaluateMin(string inner, float containingSize, float fontSize)
     {
@@ -358,14 +420,14 @@ public static class CalcResolver
         if (term.EndsWith("deg", StringComparison.OrdinalIgnoreCase))
             return ParseFloat(term.Substring(0, term.Length - 3));
 
+        if (term.EndsWith("grad", StringComparison.OrdinalIgnoreCase))
+            return ParseFloat(term.Substring(0, term.Length - 4)) * 0.9f;
+
         if (term.EndsWith("rad", StringComparison.OrdinalIgnoreCase))
             return ParseFloat(term.Substring(0, term.Length - 3)) * 180f / (float)Math.PI;
 
         if (term.EndsWith("turn", StringComparison.OrdinalIgnoreCase))
             return ParseFloat(term.Substring(0, term.Length - 4)) * 360f;
-
-        if (term.EndsWith("grad", StringComparison.OrdinalIgnoreCase))
-            return ParseFloat(term.Substring(0, term.Length - 4)) * 0.9f;
 
         return ParseFloat(term);
     }
@@ -378,16 +440,6 @@ public static class CalcResolver
             if (StartsWithIgnoreCase(expr, pos, _mathFunctions[f])) return true;
         }
         return false;
-    }
-
-    private static double ToRadians(float value, string originalExpr)
-    {
-        var t = originalExpr.Trim().ToLowerInvariant();
-        if (t.EndsWith("deg")) return value * Math.PI / 180.0;
-        if (t.EndsWith("turn")) return value * 2.0 * Math.PI;
-        if (t.EndsWith("grad")) return value * Math.PI / 200.0;
-        if (t.EndsWith("rad")) return value;
-        return value * Math.PI / 180.0;
     }
 
     private static int FindFunctionEnd(string expr, int pos)
@@ -419,7 +471,7 @@ public static class CalcResolver
             pos++;
 
         bool hasDigit = false;
-        while (pos < expr.Length && (char.IsDigit(expr[pos]) || expr[pos] == '.'))
+        while (pos < expr.Length && (IsAsciiDigit(expr[pos]) || expr[pos] == '.'))
         {
             hasDigit = true;
             pos++;
@@ -431,7 +483,19 @@ public static class CalcResolver
             return "";
         }
 
-        while (pos < expr.Length && (char.IsLetter(expr[pos]) || expr[pos] == '%'))
+        if (pos < expr.Length && (expr[pos] == 'e' || expr[pos] == 'E'))
+        {
+            int exponentDigits = pos + 1;
+            if (exponentDigits < expr.Length && (expr[exponentDigits] == '+' || expr[exponentDigits] == '-'))
+                exponentDigits++;
+            if (exponentDigits < expr.Length && IsAsciiDigit(expr[exponentDigits]))
+            {
+                pos = exponentDigits;
+                while (pos < expr.Length && IsAsciiDigit(expr[pos])) pos++;
+            }
+        }
+
+        while (pos < expr.Length && (IsAsciiLetter(expr[pos]) || expr[pos] == '%'))
             pos++;
 
         return expr.Substring(start, pos - start);

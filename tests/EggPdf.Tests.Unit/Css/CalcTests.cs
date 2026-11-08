@@ -296,4 +296,107 @@ public class CalcTests
         float r = CalcResolver.Resolve("calc(100px * sin(90deg))", 0, DefaultFontSize);
         r.Should().BeApproximately(100f, 0.5f);
     }
+
+    [Theory]
+    [InlineData("calc((100% - 20px) / 2)", 500, 240)]
+    [InlineData("calc(2 * (10px + 5px))", 0, 30)]
+    [InlineData("calc(((10px)))", 0, 10)]
+    [InlineData("calc((100% - 2 * 10px) / 4 + 1px)", 420, 101)]
+    [InlineData("calc(100px - (20px - 5px))", 0, 85)]
+    public void Calc_Parentheses_GroupSubExpressions(string expression, float containing, float expected)
+    {
+        CalcResolver.Resolve(expression, containing, DefaultFontSize).Should().BeApproximately(expected, 0.01f);
+    }
+
+    [Theory]
+    [InlineData("calc(1e2px)", 100)]
+    [InlineData("calc(1.5e1px + 5px)", 20)]
+    [InlineData("calc(2E-1 * 50px)", 10)]
+    [InlineData("calc(1em + 1e1px)", 26)]
+    public void Calc_ScientificNotation_ParsesExponent(string expression, float expected)
+    {
+        CalcResolver.Resolve(expression, 0, DefaultFontSize).Should().BeApproximately(expected, 0.01f);
+    }
+
+    [Theory]
+    [InlineData("calc(10px *)")]
+    [InlineData("calc(10px * * 2)")]
+    [InlineData("calc(10px / / 2)")]
+    [InlineData("calc(* 10px)")]
+    [InlineData("calc(10px + )")]
+    [InlineData("calc((10px + 5px)")]
+    [InlineData("calc(10px))")]
+    [InlineData("calc(min(10px)")]
+    [InlineData("round(,10px)")]
+    [InlineData("round(  )")]
+    [InlineData("round(up)")]
+    [InlineData("log()")]
+    [InlineData("atan2(1)")]
+    [InlineData("pow(2)")]
+    [InlineData("clamp(1px)")]
+    [InlineData("sin()")]
+    public void MathFunction_MalformedInput_DoesNotThrow(string expression)
+    {
+        var act = () => CalcResolver.Resolve(expression, 100, DefaultFontSize);
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Calc_DeeplyNestedParentheses_DoesNotOverflowTheStack()
+    {
+        var expression = "calc(" + new string('(', 100000) + "1px" + new string(')', 100000) + ")";
+
+        var act = () => CalcResolver.Resolve(expression, 100, DefaultFontSize);
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Calc_DeeplyNestedFunctions_DoesNotOverflowTheStack()
+    {
+        var builder = new System.Text.StringBuilder();
+        for (int i = 0; i < 20000; i++) builder.Append("calc(");
+        builder.Append("1px");
+        for (int i = 0; i < 20000; i++) builder.Append(')');
+
+        var act = () => CalcResolver.Resolve(builder.ToString(), 100, DefaultFontSize);
+
+        act.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData("sin(1rad)", 0.8415)]
+    [InlineData("sin(0.25turn)", 1)]
+    [InlineData("sin(100grad)", 1)]
+    [InlineData("cos(0.5turn)", -1)]
+    [InlineData("tan(0.125turn)", 1)]
+    [InlineData("sin(1)", 0.8415)]
+    [InlineData("cos(3.14159265)", -1)]
+    [InlineData("sin(calc(45deg + 45deg))", 1)]
+    [InlineData("sin(calc(pi / 2))", 1)]
+    [InlineData("cos(acos(0.5))", 0.5)]
+    public void Trig_AngleUnitsAndPlainNumbers_UseTheRightUnit(string expression, float expected)
+    {
+        CalcResolver.Resolve(expression, 0, DefaultFontSize).Should().BeApproximately(expected, 0.001f);
+    }
+
+    [Theory]
+    [InlineData("calc(pi * 1px)", 3.14159)]
+    [InlineData("calc(e * 1px)", 2.71828)]
+    public void Calc_Constants_PiAndE(string expression, float expected)
+    {
+        CalcResolver.Resolve(expression, 0, DefaultFontSize).Should().BeApproximately(expected, 0.001f);
+    }
+
+    [Theory]
+    [InlineData("round(2.5)", 3)]
+    [InlineData("round(down, 2.7)", 2)]
+    [InlineData("round(UP, 21px, 10px)", 30)]
+    [InlineData("round(to-zero, -25px, 10px)", -20)]
+    [InlineData("round(23px, 10px)", 20)]
+    public void Round_StrategyAndDefaultStep(string expression, float expected)
+    {
+        CalcResolver.Resolve(expression, 0, DefaultFontSize).Should().BeApproximately(expected, 0.001f);
+    }
 }
