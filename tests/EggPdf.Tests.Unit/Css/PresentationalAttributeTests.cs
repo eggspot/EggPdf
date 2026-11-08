@@ -120,7 +120,7 @@ public class PresentationalAttributeTests
     [InlineData("<img width='12.5'>", "12.5px")]
     [InlineData("<img width='120abc'>", "120px")]
     [InlineData("<img width='0'>", "0px")]
-    public void WidthAttribute_ParsedAsHtmlDimension(string html, string expected)
+    public void WidthAttribute_HtmlDimension_MapsToPxOrPercent(string html, string expected)
     {
         ResolveFirst(html, "img").Width.Should().Be(expected);
     }
@@ -131,18 +131,17 @@ public class PresentationalAttributeTests
     [InlineData("<img width='auto'>")]
     public void WidthAttribute_Invalid_IsIgnored(string html)
     {
-        ResolveFirst(html, "img").Width.Should().NotBe("abcpx").And.NotBe("-5px").And.NotBe("autopx");
         ResolveFirst(html, "img").Has("width").Should().BeFalse();
     }
 
     [Fact]
-    public void TableWidthZero_IsIgnored()
+    public void TableWidthAttribute_Zero_IsIgnored()
     {
         ResolveFirst("<table width='0'><tr><td>x</td></tr></table>", "table").Has("width").Should().BeFalse();
     }
 
     [Fact]
-    public void SvgWidthWithCssUnit_KeepsTheUnit()
+    public void SvgWidthAttribute_CssUnit_KeepsTheUnit()
     {
         ResolveFirst("<svg width='10em' height='50%'></svg>", "svg").Width.Should().Be("10em");
         ResolveFirst("<svg width='10em' height='50%'></svg>", "svg").Height.Should().Be("50%");
@@ -152,14 +151,14 @@ public class PresentationalAttributeTests
     [InlineData("0", "0px")]
     [InlineData("5px", "5px")]
     [InlineData(" 7", "7px")]
-    public void CellSpacing_MapsToBorderSpacing(string value, string expected)
+    public void CellSpacingAttribute_OnTable_MapsToBorderSpacing(string value, string expected)
     {
         ResolveFirst("<table cellspacing='" + value + "'><tr><td>x</td></tr></table>", "table")
             .Get("border-spacing").Should().Be(expected);
     }
 
     [Fact]
-    public void CellPadding_MapsToCellPadding()
+    public void CellPaddingAttribute_OnTable_PadsEveryCellSide()
     {
         var td = ResolveFirst("<table cellpadding='8'><tr><td>x</td></tr></table>", "td");
 
@@ -170,7 +169,7 @@ public class PresentationalAttributeTests
     }
 
     [Fact]
-    public void CellPadding_InlineStyleOnCellWins()
+    public void CellPaddingAttribute_CellInlineStyle_InlineStyleWins()
     {
         var td = ResolveFirst("<table cellpadding='8'><tr><td style='padding-left:2px'>x</td></tr></table>", "td");
 
@@ -179,7 +178,7 @@ public class PresentationalAttributeTests
     }
 
     [Fact]
-    public void TableBorder_CellsGetOnePixelBorder()
+    public void TableBorderAttribute_WiderThanOne_CellsGetOnePixelBorder()
     {
         const string html = "<table border='5'><tr><td>x</td></tr></table>";
 
@@ -189,7 +188,7 @@ public class PresentationalAttributeTests
     }
 
     [Fact]
-    public void TableBorderWithoutValue_IsOnePixel()
+    public void TableBorderAttribute_NoValue_IsOnePixel()
     {
         const string html = "<table border><tr><td>x</td></tr></table>";
 
@@ -198,14 +197,14 @@ public class PresentationalAttributeTests
     }
 
     [Fact]
-    public void TableBorderWithPxSuffix_IsParsed()
+    public void TableBorderAttribute_PxSuffix_IsParsed()
     {
         ResolveFirst("<table border='2px'><tr><td>x</td></tr></table>", "table")
             .Get("border-top-width").Should().Be("2px");
     }
 
     [Fact]
-    public void TableBorderZero_NoBorders()
+    public void TableBorderAttribute_Zero_NoBorders()
     {
         const string html = "<table border='0'><tr><td>x</td></tr></table>";
 
@@ -214,7 +213,7 @@ public class PresentationalAttributeTests
     }
 
     [Fact]
-    public void TableAlignCenter_MapsToAutoMarginsNotTextAlign()
+    public void TableAlignAttribute_Center_MapsToAutoMarginsNotTextAlign()
     {
         var table = ResolveFirst("<table align='center'><tr><td>x</td></tr></table>", "table");
 
@@ -226,7 +225,7 @@ public class PresentationalAttributeTests
     [Theory]
     [InlineData("left")]
     [InlineData("right")]
-    public void TableAlignLeftOrRight_Floats(string align)
+    public void TableAlignAttribute_LeftOrRight_Floats(string align)
     {
         var table = ResolveFirst("<table align='" + align + "'><tr><td>x</td></tr></table>", "table");
 
@@ -240,7 +239,9 @@ public class PresentationalAttributeTests
     [InlineData("middle", "vertical-align", "middle")]
     [InlineData("top", "vertical-align", "top")]
     [InlineData("bottom", "vertical-align", "baseline")]
-    public void ImgAlign_MapsToFloatOrVerticalAlign(string align, string property, string expected)
+    [InlineData("absbottom", "vertical-align", "bottom")]
+    [InlineData("abscenter", "vertical-align", "middle")]
+    public void ImgAlignAttribute_Keyword_MapsToFloatOrVerticalAlign(string align, string property, string expected)
     {
         var img = ResolveFirst("<img align='" + align + "'>", "img");
 
@@ -249,19 +250,19 @@ public class PresentationalAttributeTests
     }
 
     [Fact]
-    public void CellAlignMiddle_CentersText()
+    public void CellAlignAttribute_Middle_CentersText()
     {
         ResolveFirst("<table><tr><td align='middle'>x</td></tr></table>", "td").TextAlign.Should().Be("center");
     }
 
     [Fact]
-    public void CellNowrapAttribute_MapsToWhiteSpaceNowrap()
+    public void CellNowrapAttribute_Present_MapsToWhiteSpaceNowrap()
     {
         ResolveFirst("<table><tr><td nowrap>x</td></tr></table>", "td").Get("white-space").Should().Be("nowrap");
     }
 
     [Fact]
-    public void ImgHspaceVspace_MapToMargins()
+    public void ImgSpaceAttributes_HspaceAndVspace_MapToMargins()
     {
         var img = ResolveFirst("<img hspace='10' vspace='4px'>", "img");
 
@@ -272,7 +273,7 @@ public class PresentationalAttributeTests
     }
 
     [Fact]
-    public void ImgBorder_MapsToSolidBorder()
+    public void ImgBorderAttribute_NonZero_MapsToSolidBorder()
     {
         var img = ResolveFirst("<img border='2'>", "img");
 
@@ -289,20 +290,20 @@ public class PresentationalAttributeTests
     [InlineData("ol", "1", "decimal")]
     [InlineData("ul", "square", "square")]
     [InlineData("ul", "CIRCLE", "circle")]
-    public void ListTypeAttribute_MapsToListStyleType(string tag, string type, string expected)
+    public void ListTypeAttribute_KnownType_MapsToListStyleType(string tag, string type, string expected)
     {
         ResolveFirst("<" + tag + " type='" + type + "'><li>x</li></" + tag + ">", tag)
             .Get("list-style-type").Should().Be(expected);
     }
 
     [Fact]
-    public void ListItemTypeAttribute_OverridesListStyleForThatItem()
+    public void ListItemTypeAttribute_OnItem_OverridesListStyleForThatItem()
     {
         ResolveFirst("<ol><li type='I'>x</li></ol>", "li").Get("list-style-type").Should().Be("upper-roman");
     }
 
     [Fact]
-    public void OrderedListUnknownType_KeepsDecimal()
+    public void OrderedListTypeAttribute_UnorderedKeyword_KeepsDecimal()
     {
         ResolveFirst("<ol type='square'><li>x</li></ol>", "ol").Get("list-style-type").Should().Be("decimal");
     }
@@ -316,7 +317,7 @@ public class PresentationalAttributeTests
     [InlineData("+1", "large")]
     [InlineData("-2", "x-small")]
     [InlineData("+9", "xxx-large")]
-    public void FontSizeAttribute_MapsToLegacyKeyword(string size, string expected)
+    public void FontSizeAttribute_AbsoluteOrRelative_MapsToLegacyKeyword(string size, string expected)
     {
         ResolveFirst("<p><font size='" + size + "'>x</font></p>", "font").Get("font-size").Should().Be(ComputedFontSize(expected));
     }
@@ -339,23 +340,53 @@ public class PresentationalAttributeTests
     }
 
     [Fact]
-    public void BodyMarginAttributes_MapToMargins()
+    public void BodyMarginAttributes_WidthAndHeight_SetBothSides()
     {
         var body = ResolveFirst("<body leftmargin='0' topmargin='5' marginwidth='3'>x</body>", "body");
 
         body.Get("margin-left").Should().Be("3px");
         body.Get("margin-right").Should().Be("3px");
         body.Get("margin-top").Should().Be("5px");
+        body.Get("margin-bottom").Should().Be("5px");
     }
 
     [Fact]
-    public void BodyTextAttribute_MapsToColor()
+    public void BodyMarginAttributes_LeftAndTopOnly_SetBothSidesLikeChrome()
+    {
+        var body = ResolveFirst("<body leftmargin='0' topmargin='0'>x</body>", "body");
+
+        body.Get("margin-right").Should().Be("0px");
+        body.Get("margin-bottom").Should().Be("0px");
+    }
+
+    [Theory]
+    [InlineData("<table><colgroup><col width='2*'></colgroup><tr><td>x</td></tr></table>", "col")]
+    [InlineData("<table><tr><td width='3*'>x</td></tr></table>", "td")]
+    public void WidthAttribute_RelativeStar_IsIgnored(string html, string tag)
+    {
+        ResolveFirst(html, tag).Has("width").Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("image", true)]
+    [InlineData("text", false)]
+    [InlineData("submit", false)]
+    public void InputAlignAttribute_OnlyImageInputs_Float(string type, bool floats)
+    {
+        var input = ResolveFirst("<input type='" + type + "' align='right'>", "input");
+
+        input.Has("float").Should().Be(floats);
+        input.Has("text-align").Should().BeFalse();
+    }
+
+    [Fact]
+    public void BodyTextAttribute_Color_MapsToColor()
     {
         ResolveFirst("<body text='#333333'>x</body>", "body").Color.Should().Be("#333333");
     }
 
     [Fact]
-    public void BackgroundAttribute_MapsToBackgroundImage()
+    public void BackgroundAttribute_OnTable_MapsToBackgroundImage()
     {
         ResolveFirst("<table background='bg.png'><tr><td>x</td></tr></table>", "table")
             .Get("background-image").Should().Be("url('bg.png')");

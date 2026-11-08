@@ -21,7 +21,7 @@ public partial class BasicStyleResolver
 
         var align = element.GetAttribute("align");
         if (!string.IsNullOrEmpty(align))
-            ApplyAlignAttribute(tag, align.Trim().ToLowerInvariant(), style);
+            ApplyAlignAttribute(element, align.Trim().ToLowerInvariant(), style);
 
         var valign = element.GetAttribute("valign");
         if (!string.IsNullOrEmpty(valign) && !style.Has("vertical-align"))
@@ -85,6 +85,8 @@ public partial class BasicStyleResolver
         int end = ScanDecimalNumber(value, start);
         if (end == start) return null;
 
+        bool relative = end < value.Length && value[end] == '*';
+        if (relative) return null;
         var number = value.Substring(start, end - start);
         if (rejectZero && IsZeroNumber(number)) return null;
         bool percent = end < value.Length && value[end] == '%';
@@ -153,9 +155,9 @@ public partial class BasicStyleResolver
         return true;
     }
 
-    private static void ApplyAlignAttribute(string tag, string align, ComputedStyle style)
+    private static void ApplyAlignAttribute(HtmlElement element, string align, ComputedStyle style)
     {
-        switch (tag)
+        switch (element.TagName)
         {
             case "caption":
                 if (align == "top" || align == "bottom")
@@ -170,8 +172,11 @@ public partial class BasicStyleResolver
             case "object":
             case "embed":
             case "iframe":
-            case "input":
                 ApplyReplacedElementAlign(align, style);
+                return;
+            case "input":
+                if (string.Equals(element.GetAttribute("type")?.Trim(), "image", System.StringComparison.OrdinalIgnoreCase))
+                    ApplyReplacedElementAlign(align, style);
                 return;
             default:
                 style.Set("text-align", align == "middle" ? "center" : align);
@@ -205,6 +210,7 @@ public partial class BasicStyleResolver
                 return;
             case "middle":
             case "absmiddle":
+            case "abscenter":
             case "center":
                 style.Set("vertical-align", "middle");
                 return;
@@ -213,8 +219,10 @@ public partial class BasicStyleResolver
                 return;
             case "bottom":
             case "baseline":
-            case "absbottom":
                 style.Set("vertical-align", "baseline");
+                return;
+            case "absbottom":
+                style.Set("vertical-align", "bottom");
                 return;
         }
     }
@@ -366,19 +374,16 @@ public partial class BasicStyleResolver
         if (!string.IsNullOrEmpty(text) && !style.Has("color"))
             style.Set("color", text);
 
-        ApplyBodyMargin(body, "marginheight", "topmargin", "margin-top", style);
-        ApplyBodyMargin(body, "marginheight", "bottommargin", "margin-bottom", style);
-        ApplyBodyMargin(body, "marginwidth", "leftmargin", "margin-left", style);
-        ApplyBodyMargin(body, "marginwidth", "rightmargin", "margin-right", style);
+        ApplyBodyMarginPair(body.GetAttribute("marginwidth") ?? body.GetAttribute("leftmargin"), "margin-left", "margin-right", style);
+        ApplyBodyMarginPair(body.GetAttribute("marginheight") ?? body.GetAttribute("topmargin"), "margin-top", "margin-bottom", style);
     }
 
-    private static void ApplyBodyMargin(HtmlElement body, string sharedAttribute, string sideAttribute, string property, ComputedStyle style)
+    private static void ApplyBodyMarginPair(string? value, string firstProperty, string secondProperty, ComputedStyle style)
     {
-        if (TryParseHtmlNonNegativeInteger(body.GetAttribute(sharedAttribute), out int px) ||
-            TryParseHtmlNonNegativeInteger(body.GetAttribute(sideAttribute), out px))
-        {
-            style.Set(property, px.ToString(CultureInfo.InvariantCulture) + "px");
-        }
+        var margin = value == null ? null : ParseHtmlDimension(value, rejectZero: false);
+        if (margin == null) return;
+        style.Set(firstProperty, margin);
+        style.Set(secondProperty, margin);
     }
 
     private static HtmlElement? FindAncestorTable(HtmlElement element)
