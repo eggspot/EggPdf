@@ -228,6 +228,39 @@ public class HtmlTokenizerTests
             .Should().ContainSingle().Which.Should().Be(expectedText);
     }
 
+    private static string TextOf(string html) =>
+        string.Concat(Tokenize(html).Where(t => t.Type == HtmlTokenType.Character).Select(t => t.Data));
+
+    [Theory]
+    [InlineData("a <", "a <")]
+    [InlineData("<", "<")]
+    [InlineData("a </", "a </")]
+    [InlineData("1 < 2", "1 < 2")]
+    [InlineData("x <3 y", "x <3 y")]
+    [InlineData("a <é> b", "a <é> b")]
+    [InlineData("a </> b", "a  b")]
+    [InlineData("a </ 3> b", "a  b")]
+    [InlineData("a </3> b", "a  b")]
+    public void LessThan_NotStartingATag_FollowsHtmlTokenizerRules(string html, string expectedText)
+    {
+        TextOf(html).Should().Be(expectedText);
+    }
+
+    [Fact]
+    public void EndTagOpen_FollowedByNonLetter_BecomesBogusComment()
+    {
+        var tokens = Tokenize("a </ 3> b");
+
+        tokens.Should().ContainSingle(t => t.Type == HtmlTokenType.Comment).Which.Data.Should().Be(" 3");
+    }
+
+    [Fact]
+    public void LessThan_BeforeNonAsciiLetter_StaysText()
+    {
+        Tokenize("<é>").Should().NotContain(t => t.Type == HtmlTokenType.StartTag);
+        TextOf("<é>").Should().Be("<é>");
+    }
+
     [Fact]
     public void Doctype_Parsed()
     {
