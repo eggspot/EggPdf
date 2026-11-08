@@ -443,6 +443,24 @@ public class SelectorMatcherTests
         SelectorMatcher.CalculateSpecificity("*").Should().Be((0, 0, 0));
     }
 
+    [Theory]
+    [InlineData(".l>div:nth-child(2n+1)", 0, 2, 1)]
+    [InlineData(".l>div:last-child", 0, 2, 1)]
+    [InlineData("li:nth-child(2n + 1)", 0, 1, 1)]
+    [InlineData("li:nth-of-type(odd)", 0, 1, 1)]
+    [InlineData(":is(#a, .b, c)", 1, 0, 0)]
+    [InlineData(":not(.a, p)", 0, 1, 0)]
+    [InlineData("div:not(.x.y)", 0, 2, 1)]
+    [InlineData(":where(#a) p", 0, 0, 1)]
+    [InlineData("p:has(> img, .logo)", 0, 1, 1)]
+    [InlineData("p:before", 0, 0, 2)]
+    [InlineData("p::first-letter", 0, 0, 2)]
+    [InlineData("a[href^='http'] ~ span", 0, 1, 2)]
+    public void Specificity_FunctionalPseudoClasses(string selector, int a, int b, int c)
+    {
+        SelectorMatcher.CalculateSpecificity(selector).Should().Be((a, b, c));
+    }
+
     [Fact]
     public void Specificity_SiblingCombinators()
     {

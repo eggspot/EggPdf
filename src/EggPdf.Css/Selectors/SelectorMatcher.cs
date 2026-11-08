@@ -308,74 +308,95 @@ public static class SelectorMatcher
     public static (int A, int B, int C) CalculateSpecificity(string selector)
     {
         int a = 0, b = 0, c = 0;
-
-        // Split by combinators and process each part
-        var parts = selector.Split(new[] { ' ', '>', '+', '~' }, StringSplitOptions.RemoveEmptyEntries);
-
-        for (int p = 0; p < parts.Length; p++)
+        int i = 0;
+        while (i < selector.Length)
         {
-            var part = parts[p];
-            int i = 0;
-            while (i < part.Length)
+            char ch = selector[i];
+            if (ch == '#') { a++; i++; ConsumeIdent(selector, ref i); }
+            else if (ch == '.') { b++; i++; ConsumeIdent(selector, ref i); }
+            else if (ch == '[') { b++; SkipBracket(selector, ref i); }
+            else if (ch == ':')
             {
-                if (part[i] == '#') { a++; i++; ConsumeIdent(part, ref i); }
-                else if (part[i] == '.') { b++; i++; ConsumeIdent(part, ref i); }
-                else if (part[i] == '[') { b++; SkipBracket(part, ref i); }
-                else if (part[i] == ':')
+                i++;
+                if (i < selector.Length && selector[i] == ':')
                 {
                     i++;
-                    if (i < part.Length && part[i] == ':')
+                    c++;
+                    ConsumeIdent(selector, ref i);
+                    if (i < selector.Length && selector[i] == '(')
+                        SkipParenthesis(selector, ref i);
+                    continue;
+                }
+
+                var pseudo = ConsumeIdent(selector, ref i);
+                bool hasArgument = i < selector.Length && selector[i] == '(';
+                if (IsSelectorListPseudo(pseudo))
+                {
+                    if (hasArgument)
                     {
-                        // Pseudo-element: contributes to c
                         i++;
-                        c++;
-                        ConsumeIdent(part, ref i);
-                    }
-                    else
-                    {
-                        var pseudo = ConsumeIdent(part, ref i);
-                        if (string.Equals(pseudo, "where", StringComparison.OrdinalIgnoreCase))
-                        {
-                            // :where() has zero specificity
-                            if (i < part.Length && part[i] == '(')
-                                SkipParenthesis(part, ref i);
-                        }
-                        else if (string.Equals(pseudo, "not", StringComparison.OrdinalIgnoreCase) ||
-                                 string.Equals(pseudo, "is", StringComparison.OrdinalIgnoreCase))
-                        {
-                            // :not() and :is() take specificity of their argument
-                            if (i < part.Length && part[i] == '(')
-                            {
-                                i++; // skip (
-                                var inner = ConsumeUntilCloseParen(part, ref i);
-                                var innerSpec = CalculateSpecificity(inner);
-                                a += innerSpec.A;
-                                b += innerSpec.B;
-                                c += innerSpec.C;
-                            }
-                        }
-                        else if (string.Equals(pseudo, "nth-child", StringComparison.OrdinalIgnoreCase) ||
-                                 string.Equals(pseudo, "nth-last-child", StringComparison.OrdinalIgnoreCase) ||
-                                 string.Equals(pseudo, "nth-of-type", StringComparison.OrdinalIgnoreCase) ||
-                                 string.Equals(pseudo, "nth-last-of-type", StringComparison.OrdinalIgnoreCase))
-                        {
-                            b++;
-                            if (i < part.Length && part[i] == '(')
-                                SkipParenthesis(part, ref i);
-                        }
-                        else
-                        {
-                            b++;
-                        }
+                        var most = MostSpecificInList(ConsumeUntilCloseParen(selector, ref i));
+                        a += most.A;
+                        b += most.B;
+                        c += most.C;
                     }
                 }
-                else if (part[i] == '*') { i++; }
-                else if (char.IsLetterOrDigit(part[i]) || part[i] == '-' || part[i] == '_') { c++; ConsumeIdent(part, ref i); }
-                else { i++; }
+                else if (string.Equals(pseudo, "where", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (hasArgument) SkipParenthesis(selector, ref i);
+                }
+                else
+                {
+                    if (IsLegacyPseudoElement(pseudo)) c++;
+                    else b++;
+                    if (hasArgument) SkipParenthesis(selector, ref i);
+                }
             }
+            else if (char.IsLetterOrDigit(ch) || ch == '-' || ch == '_') { c++; ConsumeIdent(selector, ref i); }
+            else if (ch == '(') { SkipParenthesis(selector, ref i); }
+            else { i++; }
         }
 
         return (a, b, c);
+    }
+
+    private static bool IsSelectorListPseudo(string pseudo) =>
+        string.Equals(pseudo, "is", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(pseudo, "not", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(pseudo, "has", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(pseudo, "matches", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsLegacyPseudoElement(string pseudo) =>
+        string.Equals(pseudo, "before", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(pseudo, "after", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(pseudo, "first-line", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(pseudo, "first-letter", StringComparison.OrdinalIgnoreCase);
+
+    private static (int A, int B, int C) MostSpecificInList(string selectorList)
+    {
+        var most = (A: 0, B: 0, C: 0);
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i <= selectorList.Length; i++)
+        {
+            char ch = i < selectorList.Length ? selectorList[i] : ',';
+            if (ch == '(' || ch == '[') depth++;
+            else if (ch == ')' || ch == ']') depth = Math.Max(0, depth - 1);
+            else if (ch == ',' && depth == 0)
+            {
+                var spec = CalculateSpecificity(selectorList.Substring(start, i - start));
+                if (CompareSpecificity(spec, most) > 0) most = spec;
+                start = i + 1;
+            }
+        }
+        return most;
+    }
+
+    private static int CompareSpecificity((int A, int B, int C) x, (int A, int B, int C) y)
+    {
+        if (x.A != y.A) return x.A.CompareTo(y.A);
+        if (x.B != y.B) return x.B.CompareTo(y.B);
+        return x.C.CompareTo(y.C);
     }
 
     /// <summary>
