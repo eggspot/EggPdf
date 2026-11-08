@@ -247,7 +247,7 @@ public static partial class BoxPainter
             float clipW = box.Width * PdfCoordinates.PxToPt;
             float clipH = box.Height * PdfCoordinates.PxToPt;
             page.SaveState();
-            page.AddClipRect(clipX, clipY, clipW, clipH);
+            ClipToBox(page, box, clipX, clipY, clipW, clipH);
         }
 
         // CSS clip-path — establish clipping region before painting box content
@@ -856,7 +856,11 @@ public static partial class BoxPainter
             // object-fit: fill (default) uses the box dimensions unchanged
 
             string imgName = ImageResourceName(box.ImageSource!);
+            page.SaveState();
+            ClipToBox(page, box, effectiveX * PdfCoordinates.PxToPt, (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt,
+                box.Width * PdfCoordinates.PxToPt, box.Height * PdfCoordinates.PxToPt);
             page.AddImage(imgName, pdfX, pdfY, pdfW, pdfH, DisplayOrientation(box, CurrentPdfDoc!.GetImage(imgName)!));
+            page.RestoreState();
         }
 
         var svgRoot = box.Element?.TagName == "svg" ? box.Element : box.ImageSvgRoot;

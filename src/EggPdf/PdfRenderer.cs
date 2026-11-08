@@ -444,7 +444,10 @@ internal static class PdfRenderer
                     float clipYpt = (pageHeightPx - aAdjustedY - aClampedHeight) * PdfCoordinates.PxToPt;
                     float clipWpt = ancestor.Width * PdfCoordinates.PxToPt;
                     float clipHpt = aClampedHeight * PdfCoordinates.PxToPt;
-                    page.AddClipRect(clipXpt, clipYpt, clipWpt, clipHpt);
+                    if (aClampedHeight >= ancestor.Height)
+                        BoxPainter.ClipToBox(page, ancestor, clipXpt, clipYpt, clipWpt, clipHpt);
+                    else
+                        page.AddClipRect(clipXpt, clipYpt, clipWpt, clipHpt);
                 }
                 paint();
                 page.RestoreState();

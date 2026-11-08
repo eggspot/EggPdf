@@ -294,6 +294,18 @@ public partial class PdfPage
         ContentStream.AppendOpLine("h f");
     }
 
+    /// <summary>
+    /// Clip all subsequent drawing to a rounded rectangle (PDF points; radii per corner, clamped to
+    /// half the width and height). Call <see cref="SaveState"/> first and <see cref="RestoreState"/> to end it.
+    /// </summary>
+    public void AddRoundedClip(float x, float y, float w, float h, float tlr, float trr, float brr, float blr)
+    {
+        float maxRadius = Math.Min(w / 2f, h / 2f);
+        AppendRoundedRectPath(x, y, w, h, Math.Min(tlr, maxRadius), Math.Min(trr, maxRadius),
+            Math.Min(brr, maxRadius), Math.Min(blr, maxRadius));
+        ContentStream.AppendOpLine("h W n");
+    }
+
     /// <summary>Add a stroked rounded rectangle using Bézier curves for corners.</summary>
     public void AddStrokeRoundedRectangle(float x, float y, float w, float h,
         float r, float g, float b, float lineWidth,
