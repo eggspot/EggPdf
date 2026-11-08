@@ -1151,7 +1151,7 @@ public static partial class BoxPainter
             float pdfW = box.Width * PdfCoordinates.PxToPt;
             float pdfH = box.Height * PdfCoordinates.PxToPt;
             var gradientStates = new List<string>();
-            var commands = PdfGradient.RenderLinearGradient(bgImage, pdfX, pdfY, pdfW, pdfH, gradientStates);
+            var commands = PdfGradient.RenderLinearGradient(bgImage, pdfX, pdfY, pdfW, pdfH, gradientStates, CurrentBoxOpacity);
             if (commands != null)
             {
                 page.AppendRawContent(commands);

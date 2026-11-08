@@ -7,16 +7,16 @@ namespace EggPdf.Paint;
 
 public static partial class BoxPainter
 {
-    /// <summary>
-    /// Clip subsequent drawing to the box's border shape at the given rectangle (PDF points): a rounded
-    /// rectangle when the box has a <c>border-radius</c>, else a plain rectangle.
-    /// </summary>
     private static (float X, float Top, float Width, float Height) ContentRect(LayoutBox box, float effectiveX, float adjustedY) =>
         (effectiveX + box.PaddingLeft,
          adjustedY + box.PaddingTop,
          Math.Max(0f, box.Width - box.PaddingLeft - box.PaddingRight),
          Math.Max(0f, box.Height - box.PaddingTop - box.PaddingBottom));
 
+    /// <summary>
+    /// Clip subsequent drawing to the box's border shape at the given rectangle (PDF points): a rounded
+    /// rectangle when the box has a <c>border-radius</c>, else a plain rectangle.
+    /// </summary>
     public static void ClipToBox(PdfPage page, LayoutBox box, float x, float y, float width, float height)
     {
         float topLeft = ResolveBorderRadius(box.Style, "border-top-left-radius", box.Width) * PdfCoordinates.PxToPt;

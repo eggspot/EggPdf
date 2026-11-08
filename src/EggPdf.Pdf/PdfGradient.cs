@@ -29,9 +29,10 @@ public static class PdfGradient
     /// Translucent bands select opacity graphics states; their names are added to
     /// <paramref name="usedExtGStates"/> for the caller to register on the page (see
     /// <see cref="PdfPage.RegisterUsedExtGState"/>). When it is null, bands are drawn opaque.
+    /// <paramref name="opacity"/> (0-1) multiplies every band's alpha, for a gradient inside a translucent element.
     /// </summary>
     public static string? RenderLinearGradient(string cssGradient, float x, float y, float width, float height,
-        ICollection<string>? usedExtGStates)
+        ICollection<string>? usedExtGStates, float opacity = 1f)
     {
         if (string.IsNullOrEmpty(cssGradient) || width <= 0f || height <= 0f) return null;
 
@@ -81,6 +82,7 @@ public static class PdfGradient
         {
             float t = (float)i / (bands - 1);
             var (r, g, b, a) = stops.ColorAt(t, repeating);
+            a *= opacity;
             if (a <= 0f && usedExtGStates != null) continue;
             if (usedExtGStates != null)
             {

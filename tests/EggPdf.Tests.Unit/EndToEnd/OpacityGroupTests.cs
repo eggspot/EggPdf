@@ -35,6 +35,23 @@ public class OpacityGroupTests
     }
 
     [Fact]
+    public void ZeroOpacity_KeepsTranslucentBackgroundsAndTextHidden()
+    {
+        var text = PdfAssert.ValidPdf(HtmlToPdf.Render("<div style='opacity:0;background:rgba(255,0,0,0.5);color:rgba(0,0,255,0.5);height:20px'>Hidden</div>"));
+
+        text.Should().Contain("/GS0 gs");
+        text.Should().NotContain("/GS50 gs", "a translucent paint inside an opacity:0 element stays invisible");
+    }
+
+    [Fact]
+    public void GradientInsideATranslucentElement_IsFaded()
+    {
+        var text = PdfAssert.ValidPdf(HtmlToPdf.Render("<div style='opacity:0.5;height:20px;background:linear-gradient(red, blue)'></div>"));
+
+        text.Should().Contain("/GS50 gs\n1.00 0.00 0.00 rg", "the gradient bands keep the element's opacity");
+    }
+
+    [Fact]
     public void OpacityOnABorderedBox_AppliesToTheBorder()
     {
         var text = PdfAssert.ValidPdf(HtmlToPdf.Render("<div style='opacity:0.3;border:2px solid red;height:10px'></div>"));

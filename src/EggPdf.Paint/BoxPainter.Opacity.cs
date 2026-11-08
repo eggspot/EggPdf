@@ -10,11 +10,16 @@ public static partial class BoxPainter
     [ThreadStatic]
     private static float _boxOpacity;
 
+    [ThreadStatic]
+    private static bool _insideOpacityScope;
+
     private static void PaintBoxWithOpacity(PdfPage page, LayoutBox box, float pageHeightPt, float pageHeightPx, float adjustedY)
     {
         float opacity = box.AncestorOpacity * OwnOpacity(box);
-        float previous = _boxOpacity;
+        float previousOpacity = _boxOpacity;
+        bool previousScope = _insideOpacityScope;
         _boxOpacity = opacity;
+        _insideOpacityScope = true;
         try
         {
             if (opacity < 1f) page.SetOpacity(opacity);
@@ -23,12 +28,14 @@ public static partial class BoxPainter
         }
         finally
         {
-            _boxOpacity = previous;
+            _boxOpacity = previousOpacity;
+            _insideOpacityScope = previousScope;
         }
     }
 
-    private static void SetPaintOpacity(PdfPage page, float alpha) =>
-        page.SetOpacity(alpha * (_boxOpacity > 0f ? _boxOpacity : 1f));
+    private static float CurrentBoxOpacity => _insideOpacityScope ? _boxOpacity : 1f;
+
+    private static void SetPaintOpacity(PdfPage page, float alpha) => page.SetOpacity(alpha * CurrentBoxOpacity);
 
     private static float OwnOpacity(LayoutBox box)
     {

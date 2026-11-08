@@ -557,7 +557,6 @@ internal static class PdfRenderer
         }
     }
 
-    /// <summary>Cheap, allocation-free scan for whether clip-scope tracking is needed at all.</summary>
     private static int FirstCandidateAfter(List<(float Top, float Bottom)> candidates, float y)
     {
         int low = 0, high = candidates.Count;
@@ -583,10 +582,10 @@ internal static class PdfRenderer
                 if (top < pageBounds[page].bottom) byPage[page].Add(box);
                 continue;
             }
-            for (int p = page; p < pageBounds.Count && top < pageBounds[p].bottom; p++)
-            {
-                if (p == 0 || bottom > pageBounds[p].top) byPage[p].Add(box);
-            }
+            if (top >= pageBounds[page].bottom) continue;
+            byPage[page].Add(box);
+            for (int p = page + 1; p < pageBounds.Count && bottom > pageBounds[p].top; p++)
+                byPage[p].Add(box);
         }
         return byPage;
     }
