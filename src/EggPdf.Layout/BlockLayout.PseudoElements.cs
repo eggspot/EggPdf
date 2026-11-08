@@ -15,41 +15,32 @@ public static partial class BlockLayout
         return whiteSpace == "pre" || whiteSpace == "pre-wrap" || whiteSpace == "pre-line" || whiteSpace == "break-spaces";
     }
 
-    private static bool PlainTextKeepsItsFeaturesInInlineFlow(ComputedStyle style, FloatContext floats,
+    private static bool PlainTextKeepsItsFeaturesInInlineFlow(ComputedStyle style,
         ComputedStyle? firstLineStyle, ComputedStyle? firstLetterStyle)
     {
-        if (floats.HasFloats || firstLineStyle != null || firstLetterStyle != null) return false;
-        if (style.Get("text-align") == "justify") return false;
+        if (firstLineStyle != null || firstLetterStyle != null) return false;
         if (style.Get("hyphens") == "auto") return false;
         if (style.Get("line-clamp") != null || style.Get("-webkit-line-clamp") != null) return false;
         if (style.Get("initial-letter") != null) return false;
-
-        var textIndent = style.Get("text-indent");
-        if (!string.IsNullOrEmpty(textIndent) && textIndent != "0" && textIndent != "0px") return false;
+        if (style.Get("text-indent")?.TrimStart().StartsWith("-", System.StringComparison.Ordinal) == true) return false;
 
         var textWrap = style.Get("text-wrap");
         if (textWrap == "balance" || textWrap == "pretty") return false;
 
         var hangingPunctuation = style.Get("hanging-punctuation");
-        if (!string.IsNullOrEmpty(hangingPunctuation) && hangingPunctuation != "none") return false;
-
-        var overflowWrap = style.Get("overflow-wrap") ?? style.Get("word-wrap");
-        if (overflowWrap == "break-word" || overflowWrap == "anywhere") return false;
-        var wordBreak = style.Get("word-break");
-        return wordBreak != "break-all" && wordBreak != "break-word";
+        return string.IsNullOrEmpty(hangingPunctuation) || hangingPunctuation == "none";
     }
 
-    private static bool HasFloatedChild(HtmlElement element, ComputedStyle style,
-        System.Func<HtmlElement, ComputedStyle?, ComputedStyle>? resolver)
+    private static float PositiveTextIndent(ComputedStyle style, float containingWidth, float fontSize)
     {
-        if (resolver == null) return false;
-        foreach (var child in element.ChildNodes)
-        {
-            if (child is HtmlElement childElement && IsFloated(resolver(childElement, style)))
-                return true;
-        }
-        return false;
+        var textIndent = style.Get("text-indent");
+        if (string.IsNullOrEmpty(textIndent)) return 0f;
+        float indent = ResolveLength(textIndent, containingWidth, fontSize);
+        return indent > 0f ? indent : 0f;
     }
+
+    private static float LineStartFor(float childY, float firstLineIndentY, float firstLineIndent) =>
+        childY == firstLineIndentY ? firstLineIndent : 0f;
 
     private static bool GeneratesInlineBox(ComputedStyle? pseudoStyle)
     {
@@ -74,7 +65,7 @@ public static partial class BlockLayout
 
     private static void LayoutInlinePseudoElement(string content, ComputedStyle pseudoStyle, bool hasLeadingSpace,
         LayoutBox box, ref float inlineX, ref float childY, ref float inlineLineHeight, float containerWidth,
-        ComputedStyle parentStyle, float parentFontSize, FloatContext? floats, float floatOriginY)
+        ComputedStyle parentStyle, float parentFontSize, FloatContext? floats, float floatOriginY, float lineStartX)
     {
         var runs = new List<InlineRun>(1)
         {
@@ -88,7 +79,7 @@ public static partial class BlockLayout
             }
         };
         LayoutInlineRuns(runs, box, null, ref inlineX, ref childY, ref inlineLineHeight,
-            containerWidth, parentStyle, parentFontSize, floats, floatOriginY);
+            containerWidth, parentStyle, parentFontSize, floats, floatOriginY, lineStartX);
     }
 
     private static float LayoutPseudoElementLine(string content, ComputedStyle pseudoStyle, LayoutBox box,
@@ -141,10 +132,24 @@ public static partial class BlockLayout
         return childY + marginTop + boxHeight + borders + marginBottom;
     }
 
-    private static float VisibleBorderWidth(ComputedStyle style, string side, float fontSize) =>
-        IsVisibleBorderStyle(style.Get("border-" + side + "-style"))
-            ? ResolveLength(style.Get("border-" + side + "-width"), 0, fontSize)
-            : 0f;
+    private const float ThinBorderWidth = 1f;
+    private const float MediumBorderWidth = 3f;
+    private const float ThickBorderWidth = 5f;
+
+    private static float VisibleBorderWidth(ComputedStyle style, string side, float fontSize)
+    {
+        if (!IsVisibleBorderStyle(style.Get("border-" + side + "-style"))) return 0f;
+        var width = style.Get("border-" + side + "-width");
+        switch (width)
+        {
+            case null:
+            case "":
+            case "medium": return MediumBorderWidth;
+            case "thin": return ThinBorderWidth;
+            case "thick": return ThickBorderWidth;
+            default: return ResolveLength(width, 0, fontSize);
+        }
+    }
 
     private static bool IsBlockLevelEmptyStringPseudoElement(ComputedStyle? pseudoStyle)
     {

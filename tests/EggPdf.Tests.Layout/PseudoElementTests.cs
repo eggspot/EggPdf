@@ -297,13 +297,16 @@ public class PseudoElementTests
     }
 
     [Fact]
-    public void JustifiedParagraphBefore_KeepsTheJustifiedLineLayout()
+    public void JustifiedParagraphBefore_LinesAreJustifiedWithTheMarker()
     {
-        var root = LayoutWithStyle("p{text-align:justify;width:200px} p::before{content:'1.'}",
-            "<p>alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron</p>");
+        var root = LayoutWithStyle("p{text-align:justify;width:200px;margin:0} p::before{content:'1.'}",
+            "<p id='p'>alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron</p>");
 
-        root.FindAll(b => b.Text != null && b.Text.Contains("alpha") && b.Text.Contains("beta"))
-            .Should().NotBeEmpty("justified text stays on the line-box path, which the painter justifies");
+        var words = root.FindById("p")!.Children.Where(c => c.Text != null).ToList();
+        float firstLineY = words[0].Y;
+        var firstLine = words.Where(w => System.Math.Abs(w.Y - firstLineY) < 0.5f).ToList();
+        (firstLine.Max(w => w.X + w.Width)).Should().BeApproximately(200, 0.5f, "a wrapped line is stretched to the full width");
+        words[0].Text!.Trim().Should().Be("1.");
     }
 
     [Fact]
@@ -431,6 +434,17 @@ public class PseudoElementTests
         var root = LayoutWithStyle("div{margin:0} div::before{content:'';display:block;border-top:6px solid red}", "<div id='d'>Text</div>");
 
         TextBox(root, "Text").Y.Should().BeGreaterThanOrEqualTo(5.5f);
+    }
+
+    [Theory]
+    [InlineData("border-top-style:solid", 3)]
+    [InlineData("border-top:thick solid red", 5)]
+    [InlineData("border-top:thin solid red", 1)]
+    public void DecorativeBefore_KeywordBorderWidth_PushesContentByThatWidth(string border, float expected)
+    {
+        var root = LayoutWithStyle("div{margin:0} div::before{content:'';display:block;" + border + "}", "<div id='d'>Text</div>");
+
+        TextBox(root, "Text").Y.Should().BeApproximately(expected, 0.5f);
     }
 
     [Fact]

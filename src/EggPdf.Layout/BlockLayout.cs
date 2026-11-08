@@ -295,20 +295,34 @@ public static partial class BlockLayout
         {
             childrenFlowInline = HasInlineElementSiblings(element, style, resolver);
             pseudoElementsCanFlowInline = !PreservesWhitespace(style) &&
-                (childrenFlowInline.Value ||
-                 (PlainTextKeepsItsFeaturesInInlineFlow(style, floatCtx, firstLineStyle, firstLetterStyle) &&
-                  !HasFloatedChild(element, style, resolver)));
+                (childrenFlowInline.Value || PlainTextKeepsItsFeaturesInInlineFlow(style, firstLineStyle, firstLetterStyle));
         }
 
         bool afterIsInline = pseudoElementsCanFlowInline && GeneratesInlineBox(afterPseudoStyle);
-        bool beforeIsInline = false;
+        bool beforeIsInline = hasBefore && pseudoElementsCanFlowInline && GeneratesInlineBox(beforeStyle);
+
+        float firstLineIndent = 0f;
+        float firstLineIndentY = float.NaN;
+        float positiveTextIndent = PositiveTextIndent(style, childContainingWidth, fontSize);
+        bool firstLineIsBlockBefore = hasBefore && !beforeIsInline;
+        if (positiveTextIndent > 0f && !PreservesWhitespace(style) && !firstLineIsBlockBefore)
+        {
+            childrenFlowInline ??= HasInlineElementSiblings(element, style, resolver);
+            if (childrenFlowInline.Value || beforeIsInline || afterIsInline)
+            {
+                firstLineIndent = positiveTextIndent;
+                firstLineIndentY = childY;
+                inlineX = positiveTextIndent;
+            }
+        }
+
         if (hasBefore)
         {
-            beforeIsInline = pseudoElementsCanFlowInline && GeneratesInlineBox(beforeStyle);
             if (beforeIsInline)
             {
                 LayoutInlinePseudoElement(beforeContent!, beforeStyle!, false, box, ref inlineX, ref childY, ref inlineLineHeight,
-                    childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY);
+                    childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
+                    LineStartFor(childY, firstLineIndentY, firstLineIndent));
                 prevInlineElementEndedWithSpace = EndsWithCollapsibleWhitespace(beforeContent!);
             }
             else
@@ -338,7 +352,7 @@ public static partial class BlockLayout
         // only engages for synthetic table displays that skip the row element entirely.
         bool actsAsImplicitTableRow = false;
 
-        foreach (var childNode in element.ChildNodes)
+        foreach (var childNode in TableChildrenInRenderOrder(element, style))
         {
             if (childNode is HtmlElement childElem)
             {
@@ -362,13 +376,14 @@ public static partial class BlockLayout
 
                 if (IsBlockLevel(childStyle.Display) && !isImageElement)
                 {
-                    // Flush any pending inline content
                     if (inlineX > 0)
                     {
+                        MarkForcedLineEnd(box);
                         childY += inlineLineHeight;
                         inlineX = 0;
                         inlineLineHeight = 0;
                     }
+                    firstLineIndentY = float.NaN;
 
                     // Table row layout: cells go side-by-side (horizontal). A display:table
                     // box acts as an implicit single row for direct table-cell children that
@@ -621,10 +636,10 @@ public static partial class BlockLayout
                 }
                 else if (childElem.TagName == "br")
                 {
-                    // <br> forces a line break
                     float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
                     if (inlineX > 0)
                     {
+                        MarkForcedLineEnd(box);
                         childY += Math.Max(inlineLineHeight, lineHeight);
                         inlineX = 0;
                         inlineLineHeight = 0;
@@ -650,6 +665,7 @@ public static partial class BlockLayout
                     {
                         if (inlineX > 0)
                         {
+                            MarkForcedLineEnd(box);
                             childY += inlineLineHeight;
                             inlineX = 0;
                             inlineLineHeight = 0;
@@ -668,6 +684,7 @@ public static partial class BlockLayout
                     // Check if image fits on current inline line
                     if (inlineX > 0 && (imgIsBlock || inlineX + imgWidth > childContainingWidth))
                     {
+                        if (imgIsBlock) MarkForcedLineEnd(box);
                         childY += inlineLineHeight;
                         inlineX = 0;
                         inlineLineHeight = 0;
@@ -697,6 +714,7 @@ public static partial class BlockLayout
                         childY += imgHeight;
                         inlineX = 0;
                         inlineLineHeight = 0;
+                        firstLineIndentY = float.NaN;
                         hasBlockChild = true;
                     }
                     else
@@ -756,6 +774,7 @@ public static partial class BlockLayout
 
                     if (inlineX > 0 && (svgIsBlock || inlineX + svgWidth > childContainingWidth))
                     {
+                        if (svgIsBlock) MarkForcedLineEnd(box);
                         childY += inlineLineHeight;
                         inlineX = 0;
                         inlineLineHeight = 0;
@@ -780,6 +799,7 @@ public static partial class BlockLayout
                         childY += svgHeight;
                         inlineX = 0;
                         inlineLineHeight = 0;
+                        firstLineIndentY = float.NaN;
                         hasBlockChild = true;
                     }
                     else
@@ -852,7 +872,8 @@ public static partial class BlockLayout
                     if (runs.Count > 0)
                     {
                         LayoutInlineRuns(runs, box, childElem, ref inlineX, ref childY, ref inlineLineHeight,
-                            childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY);
+                            childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
+                            LineStartFor(childY, firstLineIndentY, firstLineIndent));
                         prevInlineElementEndedWithSpace = EndsWithCollapsibleWhitespace(runs[runs.Count - 1].Text);
                     }
                     else
@@ -890,70 +911,22 @@ public static partial class BlockLayout
                 // If there are inline siblings, participate in inline flow
                 if (hasInlineSiblings && !preserveWhitespace)
                 {
-                    var ilFontFamily = style.FontFamily;
-                    var ilFontWeight = style.FontWeight;
-                    var ilFontStyle = style.Get("font-style");
-                    float ilLetterSpacing = ResolveLength(style.Get("letter-spacing"), 0, fontSize);
-                    float ilLineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"),
-                        ilFontFamily, ilFontWeight, ilFontStyle, textNode.Data);
-                    var ilTextData = TrimHtmlText(textNode.Data);
-                    if (string.IsNullOrEmpty(ilTextData)) continue;
-
-                    // Measure the transformed text (uppercase is wider); paint-time
-                    // transform is idempotent so the box text may carry it too.
-                    ilTextData = ApplyTextTransformForMeasure(ilTextData, style);
-
-                    // Split into words and lay them out inline. TrimHtmlText only trims the
-                    // edges — it deliberately doesn't collapse internal whitespace runs (unlike
-                    // NormalizeInlineWhitespace), so a CRLF or bare \n/\t sitting between two
-                    // space-separated words must also be treated as a delimiter here, or it
-                    // stays glued to the end of a "word" and reaches the glyph layer as a raw
-                    // control character with no printable glyph (renders as a tofu box).
-                    var words = ilTextData.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                    // Thai/Lao/Khmer/Myanmar have no inter-word spaces: offer syllable-boundary pieces that rejoin space-free.
-                    bool[]? ilNoSpace = null;
-                    if (EggPdf.Text.SpacelessLineBreaker.Contains(ilTextData))
-                        words = ExpandSpacelessWords(words, out ilNoSpace);
-                    bool ilFirstWordHasLeadingSpace = StartsWithCollapsibleWhitespace(textNode.Data)
-                        || prevInlineElementEndedWithSpace || prevTextEndedWithSpace;
-                    bool ilNoWrap = SuppressesLineWrap(style);
-                    int ilWordIndex = -1;
-                    foreach (var word in words)
+                    var textRuns = new System.Collections.Generic.List<InlineRun>(1)
                     {
-                        ilWordIndex++;
-                        bool ilJoin = ilNoSpace != null && ilNoSpace[ilWordIndex];
-                        bool ilSpaceBefore = ilWordIndex > 0 ? !ilJoin : ilFirstWordHasLeadingSpace;
-                        var wordWithSpace = (inlineX > 0 && ilSpaceBefore ? " " : "") + word;
-                        float wordWidth = TextMeasurer.MeasureWidth(wordWithSpace, fontSize, ilFontFamily, ilFontWeight, ilFontStyle, ilLetterSpacing);
-
-                        if (!ilNoWrap && inlineX > 0 && inlineX + wordWidth > childContainingWidth)
+                        new InlineRun
                         {
-                            childY += inlineLineHeight;
-                            inlineX = 0;
-                            inlineLineHeight = 0;
-                            wordWithSpace = word;
-                            wordWidth = TextMeasurer.MeasureWidth(word, fontSize, ilFontFamily, ilFontWeight, ilFontStyle, ilLetterSpacing);
-                        }
-
-                        var textBox = new LayoutBox
-                        {
+                            Text = textNode.Data,
                             Style = style,
-                            InlineLineTop = childY,
-                            X = box.X + box.PaddingLeft + inlineX,
-                            Y = box.Y + box.PaddingTop + childY,
-                            Width = wordWidth,
-                            Height = ilLineHeight,
-                            ContentWidth = wordWidth,
-                            ContentHeight = ilLineHeight,
-                            Text = wordWithSpace
-                        };
-                        box.Children.Add(textBox);
-                        inlineX += wordWidth;
-                        if (ilLineHeight > inlineLineHeight)
-                            inlineLineHeight = ilLineHeight;
-                    }
+                            Element = null,
+                            FontSize = fontSize,
+                            HasLeadingSpace = StartsWithCollapsibleWhitespace(textNode.Data)
+                                || prevInlineElementEndedWithSpace || prevTextEndedWithSpace,
+                        }
+                    };
+                    LayoutInlineRuns(textRuns, box, null, ref inlineX, ref childY, ref inlineLineHeight,
+                        childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
+                        LineStartFor(childY, firstLineIndentY, firstLineIndent));
 
-                    // NBSP is rendered content, not a collapsible boundary space
                     char ilLastChar = textNode.Data.Length > 0 ? textNode.Data[textNode.Data.Length - 1] : '\0';
                     prevTextEndedWithSpace = ilLastChar != NonBreakingSpace && char.IsWhiteSpace(ilLastChar);
                     prevInlineElementEndedWithSpace = false;
@@ -1294,7 +1267,8 @@ public static partial class BlockLayout
         if (afterContent != null && afterIsInline)
         {
             LayoutInlinePseudoElement(afterContent, afterPseudoStyle!, prevTextEndedWithSpace || prevInlineElementEndedWithSpace, box, ref inlineX, ref childY,
-                ref inlineLineHeight, childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY);
+                ref inlineLineHeight, childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
+                LineStartFor(childY, firstLineIndentY, firstLineIndent));
         }
 
         if (inlineX > 0)

@@ -127,21 +127,24 @@ internal static partial class PngDecoder
         if (colorType == 3 && palette == null)
             return null;
 
-        // Decompress IDAT data (zlib: skip 2-byte header, then deflate)
+        int channels = GetChannelCount(colorType);
+        int bitsPerPixel = colorType == 3 ? bitDepth : channels * bitDepth;
+        int bytesPerPixel = Math.Max(1, bitsPerPixel / 8);
+
+        long strideBytes = ((long)width * bitsPerPixel + 7) / 8;
+        long expectedScanlineBytes = interlaceMethod == Adam7InterlaceMethod
+            ? Adam7ScanlineBytes(width, height, bitsPerPixel)
+            : (long)height * (strideBytes + 1);
+        if (strideBytes > int.MaxValue || expectedScanlineBytes > int.MaxValue ||
+            (long)width * height * MaxOutputBytesPerPixel > int.MaxValue)
+            return null;
+        int stride = (int)strideBytes;
+
         byte[] compressedData = idatStream.ToArray();
-        byte[]? rawScanlines = DecompressZlib(compressedData);
+        byte[]? rawScanlines = DecompressZlib(compressedData, (int)expectedScanlineBytes);
         if (rawScanlines == null)
             return null;
 
-        // Calculate bytes per pixel and stride
-        int channels = GetChannelCount(colorType);
-        int bitsPerPixel = channels * bitDepth;
-        // For indexed with sub-byte depth, bitsPerPixel is just bitDepth
-        if (colorType == 3)
-            bitsPerPixel = bitDepth;
-
-        int bytesPerPixel = Math.Max(1, bitsPerPixel / 8);
-        int stride = (width * bitsPerPixel + 7) / 8; // bytes per scanline (without filter byte)
         byte[] unfiltered;
         if (interlaceMethod == Adam7InterlaceMethod)
         {
@@ -583,21 +586,24 @@ internal static partial class PngDecoder
         return c;
     }
 
-    private static byte[]? DecompressZlib(byte[] zlibData)
+    private const int MaxOutputBytesPerPixel = 4;
+    private const int ZlibHeaderBytes = 2;
+
+    private static byte[]? DecompressZlib(byte[] zlibData, int maxOutputBytes)
     {
-        if (zlibData.Length < 2)
+        if (zlibData.Length < ZlibHeaderBytes)
             return null;
 
         try
         {
-            // Skip 2-byte zlib header (CMF + FLG)
-            using var input = new MemoryStream(zlibData, 2, zlibData.Length - 2);
+            using var input = new MemoryStream(zlibData, ZlibHeaderBytes, zlibData.Length - ZlibHeaderBytes);
             using var deflate = new DeflateStream(input, CompressionMode.Decompress);
             using var output = new MemoryStream();
 
             var buffer = new byte[8192];
             int read;
-            while ((read = deflate.Read(buffer, 0, buffer.Length)) > 0)
+            while (output.Length < maxOutputBytes &&
+                   (read = deflate.Read(buffer, 0, (int)Math.Min(buffer.Length, maxOutputBytes - output.Length))) > 0)
             {
                 output.Write(buffer, 0, read);
             }

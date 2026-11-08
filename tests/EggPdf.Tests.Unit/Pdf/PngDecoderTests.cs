@@ -8,7 +8,7 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Pdf;
 
-public class InterlacedPngTests
+public class PngDecoderTests
 {
     private static readonly int[] XStart = { 0, 4, 0, 2, 0, 1, 0 };
     private static readonly int[] YStart = { 0, 0, 4, 0, 2, 0, 1 };
@@ -137,6 +137,49 @@ public class InterlacedPngTests
 
         decoded.Should().BeNull();
         allocated.Should().BeLessThan(10 * 1024 * 1024, "a 1.2 GB image buffer must not be allocated before the data is checked");
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void Decode_ZlibBombForTinyImage_StopsAtTheScanlineSize(int interlace)
+    {
+        var header = new byte[13];
+        WriteInt32BE(header, 0, 2);
+        WriteInt32BE(header, 4, 2);
+        header[8] = 8;
+        header[9] = 2;
+        header[12] = (byte)interlace;
+        using var png = new MemoryStream();
+        png.Write(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
+        WriteChunk(png, "IHDR", header);
+        WriteChunk(png, "IDAT", Zlib(new byte[64 * 1024 * 1024]));
+        WriteChunk(png, "IEND", Array.Empty<byte>());
+        var bytes = png.ToArray();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var decoded = PngDecoder.Decode(bytes);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        decoded.Should().NotBeNull("the first scanlines are valid zero-filtered black pixels");
+        allocated.Should().BeLessThan(4 * 1024 * 1024, "decompression stops at the 2x2 image's scanline size, not 64 MB");
+    }
+
+    [Fact]
+    public void Decode_WidthOverflowingStride_ReturnsNull()
+    {
+        var header = new byte[13];
+        WriteInt32BE(header, 0, int.MaxValue);
+        WriteInt32BE(header, 4, 1);
+        header[8] = 16;
+        header[9] = 6;
+        using var png = new MemoryStream();
+        png.Write(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
+        WriteChunk(png, "IHDR", header);
+        WriteChunk(png, "IDAT", Zlib(new byte[64]));
+        WriteChunk(png, "IEND", Array.Empty<byte>());
+
+        PngDecoder.Decode(png.ToArray()).Should().BeNull();
     }
 
     [Fact]
