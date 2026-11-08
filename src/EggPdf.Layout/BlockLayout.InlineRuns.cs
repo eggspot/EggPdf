@@ -309,9 +309,9 @@ public static partial class BlockLayout
                 bool lastWord = pieces != null ? pieceIndex >= pieces.Count : OnlySpacesFrom(text, wPos);
                 float leadInset = firstWord ? run.StartInset : 0f;
                 float trailInset = lastWord ? run.EndInset : 0f;
-                if (firstWord) inlineX += run.StartMargin;
+                float leadMargin = firstWord ? run.StartMargin : 0f;
 
-                if (!runNoWrap && notAtLineStart && inlineX + wordWidth + leadInset + trailInset > rightLimit)
+                if (!runNoWrap && notAtLineStart && inlineX + leadMargin + wordWidth + leadInset + trailInset > rightLimit)
                 {
                     if (joinNoSpace && previousEndsAtSoftHyphen && previousPieceBox != null)
                         AppendVisibleHyphen(previousPieceBox, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
@@ -404,6 +404,7 @@ public static partial class BlockLayout
                     continue;
                 }
 
+                inlineX += leadMargin;
                 if (firstWord && wordText.Length > word.Length && (leadInset > 0f || PaintsInlineDecoration(run.Style)))
                 {
                     float wordOnlyWidth = TextMeasurer.MeasureWidth(word, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);

@@ -26,7 +26,7 @@ public static partial class FlexLayout
         return minimum > 0f ? minimum : null;
     }
 
-    internal static float MeasureMinContentWidth(HtmlElement element, ComputedStyle style,
+    private static float MeasureMinContentWidth(HtmlElement element, ComputedStyle style,
         Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, float fontSize, int depth)
     {
         if (depth > MaxMinContentDepth) return 0f;

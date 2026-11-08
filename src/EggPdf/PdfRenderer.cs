@@ -61,6 +61,7 @@ internal static class PdfRenderer
     {
         // Collect all leaf boxes (boxes with text or background)
         var allPaintableBoxes = new List<LayoutBox>();
+        PageFragmenter.PropagateAncestorOpacity(layoutRoot);
         PageFragmenter.CollectPaintableBoxes(layoutRoot, allPaintableBoxes);
 
         // Ancestor map for clip-scope reconstruction (overflow:hidden / contain:paint,

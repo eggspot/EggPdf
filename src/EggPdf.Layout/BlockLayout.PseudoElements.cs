@@ -144,7 +144,7 @@ public static partial class BlockLayout
                style.Get("border-collapse") == "collapse";
     }
 
-    internal static float VisibleBorderWidth(ComputedStyle style, string side, float fontSize)
+    private static float VisibleBorderWidth(ComputedStyle style, string side, float fontSize)
     {
         if (!IsVisibleBorderStyle(style.Get("border-" + side + "-style") ?? style.Get("border-style"))) return 0f;
         var width = style.Get("border-" + side + "-width") ?? style.Get("border-width");

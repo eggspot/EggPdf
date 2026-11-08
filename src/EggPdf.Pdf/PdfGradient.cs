@@ -147,7 +147,7 @@ public static class PdfGradient
         return 180f;
     }
 
-    internal static List<string> SplitGradientArgs(string args)
+    private static List<string> SplitGradientArgs(string args)
     {
         var result = new List<string>();
         int depth = 0;

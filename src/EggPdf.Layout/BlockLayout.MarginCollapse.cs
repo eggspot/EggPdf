@@ -15,7 +15,7 @@ public static partial class BlockLayout
                string.Equals(type, "radio", StringComparison.OrdinalIgnoreCase);
     }
 
-    internal static float CollapseMargins(float first, float second) =>
+    private static float CollapseMargins(float first, float second) =>
         Math.Max(0f, Math.Max(first, second)) + Math.Min(0f, Math.Min(first, second));
 
     private static bool CollapsesMarginsWithChildren(HtmlElement element, ComputedStyle style, ComputedStyle? parentStyle)

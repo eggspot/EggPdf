@@ -118,11 +118,27 @@ public static class PageFragmenter
         if (hasPaint)
             result.Add(box);
 
-        float childOpacity = box.AncestorOpacity * OwnOpacity(box.Style.Get("opacity"));
         foreach (var child in box.Children)
-        {
-            child.AncestorOpacity = childOpacity;
             CollectPaintableBoxes(child, result);
+    }
+
+    /// <summary>
+    /// Set every descendant's <see cref="LayoutBox.AncestorOpacity"/> to the product of its ancestors'
+    /// <c>opacity</c>, so the painter can fade a translucent element's whole subtree.
+    /// </summary>
+    public static void PropagateAncestorOpacity(LayoutBox root)
+    {
+        var pending = new Stack<LayoutBox>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            var box = pending.Pop();
+            float childOpacity = box.AncestorOpacity * OwnOpacity(box.Style.Get("opacity"));
+            foreach (var child in box.Children)
+            {
+                child.AncestorOpacity = childOpacity;
+                pending.Push(child);
+            }
         }
     }
 

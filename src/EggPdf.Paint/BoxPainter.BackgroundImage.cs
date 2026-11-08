@@ -19,7 +19,8 @@ public static partial class BoxPainter
         string imgName = "BgImg" + url.GetHashCode().ToString("X8", CultureInfo.InvariantCulture);
         var pdfImage = PdfImage.FromEncodedImage(imgName, data);
         var svgRoot = pdfImage == null ? SvgImageDocument.ParseRoot(data) : null;
-        if (pdfImage == null && svgRoot == null) return;
+        var svgTile = svgRoot == null ? null : SvgParser.Parse(svgRoot);
+        if (pdfImage == null && svgTile == null) return;
 
         float naturalWidth, naturalHeight;
         if (pdfImage != null)
@@ -59,17 +60,15 @@ public static partial class BoxPainter
                 if (pdfImage != null)
                     page.AddImage(imgName, pdfX, pdfY, pdfW, pdfH);
                 else
-                    PaintSvgTile(page, svgRoot!, pdfX, pdfY, pdfW, pdfH);
+                    PaintSvgTile(page, svgTile!, pdfX, pdfY, pdfW, pdfH);
                 tiles++;
             }
         }
         page.RestoreState();
     }
 
-    private static void PaintSvgTile(PdfPage page, Html.Dom.HtmlElement svgRoot, float pdfX, float pdfY, float pdfW, float pdfH)
+    private static void PaintSvgTile(PdfPage page, SvgElement svg, float pdfX, float pdfY, float pdfW, float pdfH)
     {
-        var svg = SvgParser.Parse(svgRoot);
-        if (svg == null) return;
         var result = SvgRenderer.RenderWithResources(svg, pdfX, pdfY, pdfW, pdfH, CurrentPdfDoc, StandardFontMetrics.MeasureWidth);
         page.AppendRawContent(result.Commands);
         foreach (var image in result.UsedImages) page.RegisterUsedImage(image);
@@ -90,7 +89,7 @@ public static partial class BoxPainter
         return value.Trim();
     }
 
-    internal static (float Width, float Height) BackgroundTileSize(string size, float areaWidth, float areaHeight,
+    private static (float Width, float Height) BackgroundTileSize(string size, float areaWidth, float areaHeight,
         float naturalWidth, float naturalHeight)
     {
         if (size == "cover" || size == "contain")
@@ -109,7 +108,7 @@ public static partial class BoxPainter
         return (naturalWidth, naturalHeight);
     }
 
-    internal static (float X, float Y) BackgroundOffset(string position, float areaWidth, float areaHeight, float tileWidth, float tileHeight)
+    private static (float X, float Y) BackgroundOffset(string position, float areaWidth, float areaHeight, float tileWidth, float tileHeight)
     {
         var parts = position.Split(SpaceSep, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0) return (0f, 0f);
@@ -140,7 +139,7 @@ public static partial class BoxPainter
         return ResolveOptionalLength(value, areaSize) ?? 0f;
     }
 
-    internal static (bool X, bool Y) BackgroundRepeat(string repeat)
+    private static (bool X, bool Y) BackgroundRepeat(string repeat)
     {
         var parts = repeat.Split(SpaceSep, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0) return (true, true);

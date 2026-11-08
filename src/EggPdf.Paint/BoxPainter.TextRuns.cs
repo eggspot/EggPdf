@@ -49,7 +49,7 @@ public static partial class BoxPainter
         }
     }
 
-    internal static List<(string Text, bool Reduced)> SmallCapsSegments(string text, bool allSmallCaps)
+    private static List<(string Text, bool Reduced)> SmallCapsSegments(string text, bool allSmallCaps)
     {
         var segments = new List<(string, bool)>();
         var current = new StringBuilder();
