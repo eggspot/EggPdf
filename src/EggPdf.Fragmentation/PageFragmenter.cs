@@ -83,8 +83,25 @@ public static class PageFragmenter
         if (hasPaint)
             result.Add(box);
 
+        float childOpacity = box.AncestorOpacity * OwnOpacity(box.Style.Get("opacity"));
         foreach (var child in box.Children)
+        {
+            child.AncestorOpacity = childOpacity;
             CollectPaintableBoxes(child, result);
+        }
+    }
+
+    private static float OwnOpacity(string? opacity)
+    {
+        if (string.IsNullOrEmpty(opacity)) return 1f;
+        var value = opacity!.Trim();
+        bool percent = value.EndsWith("%", StringComparison.Ordinal);
+        if (percent) value = value.Substring(0, value.Length - 1);
+        if (!float.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float parsed) ||
+            float.IsNaN(parsed))
+            return 1f;
+        if (percent) parsed /= 100f;
+        return Math.Max(0f, Math.Min(1f, parsed));
     }
 
     public static void CollectPageBreaks(LayoutBox box, List<float> breakYs)

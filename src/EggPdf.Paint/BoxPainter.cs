@@ -197,7 +197,7 @@ public static partial class BoxPainter
             int mcid = page.BeginMarkedContent(structElem.Type);
             try
             {
-                PaintBoxCore(page, box, pageHeightPt, pageHeightPx, adjustedY);
+                PaintBoxWithOpacity(page, box, pageHeightPt, pageHeightPx, adjustedY);
             }
             finally
             {
@@ -207,7 +207,7 @@ public static partial class BoxPainter
         }
         else
         {
-            PaintBoxCore(page, box, pageHeightPt, pageHeightPx, adjustedY);
+            PaintBoxWithOpacity(page, box, pageHeightPt, pageHeightPx, adjustedY);
         }
     }
 
@@ -282,14 +282,6 @@ public static partial class BoxPainter
         var filterParams = !string.IsNullOrEmpty(filterStr) && filterStr != "none"
             ? EggPdf.Pdf.PdfFilterEffects.Parse(filterStr) : null;
 
-        // CSS opacity property (combined with filter opacity)
-        var opacityStr = box.Style.Get("opacity");
-        float cssOpacity = 1f;
-        if (!string.IsNullOrEmpty(opacityStr) && float.TryParse(opacityStr,
-            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float op))
-            cssOpacity = Math.Max(0, Math.Min(1, op));
-        // Apply filter opacity on top of CSS opacity
-        if (filterParams != null) cssOpacity *= filterParams.Opacity;
 
         // Resolve border-radius values
         float tlr = ResolveBorderRadius(box.Style, "border-top-left-radius", box.Width);
@@ -354,9 +346,9 @@ public static partial class BoxPainter
                 var color = ParseColor(bgColor);
                 if (color.HasValue)
                 {
-                    float bgAlpha = (color.Value.A / 255f) * cssOpacity;
+                    float bgAlpha = color.Value.A / 255f;
                     if (bgAlpha < 1f)
-                        page.SetOpacity(bgAlpha);
+                        SetPaintOpacity(page, bgAlpha);
 
                     float bgR = color.Value.R / 255f, bgG = color.Value.G / 255f, bgB = color.Value.B / 255f;
                     if (filterParams != null && filterParams.HasEffect)
@@ -375,7 +367,7 @@ public static partial class BoxPainter
 
                     // Reset opacity so it does not leak into subsequent content
                     if (bgAlpha < 1f)
-                        page.SetOpacity(1f);
+                        SetPaintOpacity(page, 1f);
                 }
             }
 
@@ -699,16 +691,16 @@ public static partial class BoxPainter
                 {
                     float shadowPdfX = pdfX + shX * PdfCoordinates.PxToPt;
                     float shadowPdfY = pdfY - shY * PdfCoordinates.PxToPt; // PDF Y is inverted
-                    if (shA < 1f) page.SetOpacity(shA);
+                    if (shA < 1f) SetPaintOpacity(page, shA);
                     page.AddText(paintText, shadowPdfX, shadowPdfY, fontName, pdfFontSize, shR, shG, shB, letterSpacing, wordSpacing);
-                    if (shA < 1f) page.SetOpacity(1f);
+                    if (shA < 1f) SetPaintOpacity(page, 1f);
                 }
             }
 
             // Text alpha: rgba() color alpha combined with the element's css opacity
-            float textAlpha = (color?.A / 255f ?? 1f) * cssOpacity;
+            float textAlpha = color?.A / 255f ?? 1f;
             if (textAlpha < 1f)
-                page.SetOpacity(textAlpha);
+                SetPaintOpacity(page, textAlpha);
 
             // Use CIDFont glyph IDs for embedded fonts, or WinAnsi for built-in fonts
             if (complexShapingFont != null && CurrentPdfDoc != null)
@@ -737,7 +729,7 @@ public static partial class BoxPainter
             }
 
             if (textAlpha < 1f)
-                page.SetOpacity(1f);
+                SetPaintOpacity(page, 1f);
 
             // Text decoration (underline, line-through, overline)
             // Honour text-decoration-line, text-decoration-color, text-decoration-thickness longhands.
@@ -1387,13 +1379,13 @@ public static partial class BoxPainter
     private static bool BeginStrokeAlpha(PdfPage page, float alpha)
     {
         if (alpha >= 1f) return false;
-        page.SetOpacity(alpha);
+        SetPaintOpacity(page, alpha);
         return true;
     }
 
     private static void EndStrokeAlpha(PdfPage page, bool translucent)
     {
-        if (translucent) page.SetOpacity(1f);
+        if (translucent) SetPaintOpacity(page, 1f);
     }
 
     // ===== writing-mode support =====
@@ -2200,9 +2192,9 @@ public static partial class BoxPainter
 
             page.SaveState();
             page.AddClipRect(elX, elY, elW, elH);
-            if (sa < 1f) page.SetOpacity(sa);
+            if (sa < 1f) SetPaintOpacity(page, sa);
             page.AddRectangle(inX, inY, inW, inH, sr, sg, sb);
-            if (sa < 1f) page.SetOpacity(1f);
+            if (sa < 1f) SetPaintOpacity(page, 1f);
             page.RestoreState();
         }
         else
@@ -2212,9 +2204,9 @@ public static partial class BoxPainter
             float pdfW = (box.Width + spread * 2) * PdfCoordinates.PxToPt;
             float pdfH = (box.Height + spread * 2) * PdfCoordinates.PxToPt;
 
-            if (sa < 1f) page.SetOpacity(sa);
+            if (sa < 1f) SetPaintOpacity(page, sa);
             page.AddRectangle(pdfX, pdfY, pdfW, pdfH, sr, sg, sb);
-            if (sa < 1f) page.SetOpacity(1f);
+            if (sa < 1f) SetPaintOpacity(page, 1f);
         }
     }
 
