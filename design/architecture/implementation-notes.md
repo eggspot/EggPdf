@@ -32,6 +32,32 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 - Checkbox and radio inputs get a fixed 13px native control size with no padding: they are painted
   as a vector square/circle (`BoxPainter.PaintCheckboxOrRadio`), not sized by glyph text.
 
+## EggPdf.Layout/FlexLayout.cs
+
+- An auto-height column container has an indefinite main size: items keep their hypothetical sizes
+  (no grow, shrink or justify free space). A column container's main size is its height, else its
+  `min-height`, reduced to the content height for `border-box`.
+- Row items whose flex-resolved width differs from their first `CreateBox` width are laid out again
+  at the resolved width, so their content wraps there instead of overflowing at the container
+  width. The containing width passed is the resolved width plus margins, and an explicit `width`
+  is overridden by the resolved one.
+- Direct text and `<br>` children form an anonymous flex item (CSS Flexbox §4). It carries only the
+  inherited text properties: copying the container's borders or backgrounds would paint them twice
+  (a second circle inside a round stamp).
+- Absolutely and fixed positioned children are not flex items; the container positions them after
+  flex layout.
+- Items size against the container's content box. An auto basis in a row is the max-content width:
+  the larger of the widest laid-out leaf (block descendants fill the container, so their own width
+  says nothing) and the unwrapped text width.
+- Column items get the automatic minimum size (§4.5): an item with visible overflow and no explicit
+  height or basis cannot shrink below its content height, because block content doesn't reflow
+  vertically and the next sibling would overlap it. The minimum is capped by `max-height`.
+- Free space counts the items' main-axis margins, which `PositionMainAxis` advances past.
+- Auto margins absorb positive free space before `justify-content` (§8.1): `margin-top: auto`
+  pushes a footer to the bottom.
+- `align-items: baseline` in a row approximates each item's ascent as 0.8 em; in a column it falls
+  back to flex-start. `align-content` does nothing when the cross size is auto.
+
 ## EggPdf.Layout/GridLayout.cs
 
 - `grid-auto-rows` / `grid-auto-columns` size the implicit tracks auto-placement creates; a list
