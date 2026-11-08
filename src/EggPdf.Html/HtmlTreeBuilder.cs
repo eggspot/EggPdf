@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using EggPdf.Html.Dom;
 
 namespace EggPdf.Html;
@@ -28,7 +27,12 @@ internal class HtmlTreeBuilder
 
     private static readonly HashSet<string> RawTextElements = new(StringComparer.OrdinalIgnoreCase)
     {
-        "script", "style", "textarea", "title"
+        "script", "style", "textarea", "title", "xmp"
+    };
+
+    private static readonly HashSet<string> EscapableRawTextElements = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "textarea", "title"
     };
 
     private static readonly HashSet<string> ImplicitlyClosesParagraph = new(StringComparer.OrdinalIgnoreCase)
@@ -291,20 +295,7 @@ internal class HtmlTreeBuilder
     {
         if (_tokenizer == null) return;
 
-        var textBuf = new StringBuilder();
-        HtmlToken token;
-        while ((token = _tokenizer.NextToken()).Type != HtmlTokenType.EndOfFile)
-        {
-            if (token.Type == HtmlTokenType.EndTag && string.Equals(token.TagName, tagName, StringComparison.OrdinalIgnoreCase))
-                break;
-
-            if (token.Type == HtmlTokenType.Character)
-                textBuf.Append(token.Data);
-            else if (token.Type == HtmlTokenType.StartTag)
-                textBuf.Append($"<{token.TagName}>");  // raw text: tags are text
-        }
-
-        var rawText = textBuf.ToString();
+        var rawText = _tokenizer.ReadRawTextUntilEndTag(tagName, decodeCharacterReferences: EscapableRawTextElements.Contains(tagName));
         if (string.Equals(tagName, "textarea", StringComparison.OrdinalIgnoreCase))
             rawText = WithoutLeadingNewline(rawText);
         if (rawText.Length > 0)

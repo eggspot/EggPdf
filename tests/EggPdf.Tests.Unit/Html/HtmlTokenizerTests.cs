@@ -241,13 +241,13 @@ public class HtmlTokenizerTests
     [InlineData("a </> b", "a  b")]
     [InlineData("a </ 3> b", "a  b")]
     [InlineData("a </3> b", "a  b")]
-    public void LessThanNotStartingATag_FollowsHtmlTokenizerRules(string html, string expectedText)
+    public void LessThan_NotStartingATag_FollowsHtmlTokenizerRules(string html, string expectedText)
     {
         TextOf(html).Should().Be(expectedText);
     }
 
     [Fact]
-    public void EndTagOpenFollowedByNonLetter_BecomesBogusComment()
+    public void EndTagOpen_FollowedByNonLetter_BecomesBogusComment()
     {
         var tokens = Tokenize("a </ 3> b");
 
@@ -255,9 +255,10 @@ public class HtmlTokenizerTests
     }
 
     [Fact]
-    public void LessThanBeforeNonAsciiLetter_DoesNotOpenATag()
+    public void LessThan_BeforeNonAsciiLetter_StaysText()
     {
         Tokenize("<é>").Should().NotContain(t => t.Type == HtmlTokenType.StartTag);
+        TextOf("<é>").Should().Be("<é>");
     }
 
     [Fact]

@@ -593,6 +593,57 @@ public class HtmlTokenizer
     private static bool IsAsciiLetter(char c) =>
         (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 
+    internal string ReadRawTextUntilEndTag(string tagName, bool decodeCharacterReferences)
+    {
+        int start = _pos;
+        int end = FindAppropriateEndTag(tagName, start);
+
+        string text;
+        if (decodeCharacterReferences && _input.IndexOf('&', start, end - start) >= 0)
+        {
+            var decoded = new StringBuilder(end - start);
+            _pos = start;
+            while (_pos < end)
+            {
+                if (_input[_pos] == '&')
+                    decoded.Append(ConsumeCharacterReference());
+                else
+                    decoded.Append(_input[_pos++]);
+            }
+            text = decoded.ToString();
+        }
+        else
+        {
+            text = _input.Substring(start, end - start);
+        }
+
+        int closingBracket = end < _input.Length ? _input.IndexOf('>', end) : -1;
+        _pos = closingBracket < 0 ? _input.Length : closingBracket + 1;
+        _buffer.Clear();
+        _state = TokenizerState.Data;
+        return text;
+    }
+
+    private int FindAppropriateEndTag(string tagName, int from)
+    {
+        int candidate = from;
+        while ((candidate = _input.IndexOf("</", candidate, StringComparison.Ordinal)) >= 0)
+        {
+            int nameEnd = candidate + 2 + tagName.Length;
+            if (nameEnd <= _input.Length &&
+                string.Compare(_input, candidate + 2, tagName, 0, tagName.Length, StringComparison.OrdinalIgnoreCase) == 0 &&
+                (nameEnd == _input.Length || IsEndTagNameTerminator(_input[nameEnd])))
+            {
+                return candidate;
+            }
+            candidate += 2;
+        }
+        return _input.Length;
+    }
+
+    private static bool IsEndTagNameTerminator(char c) =>
+        c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '/' || c == '>';
+
     private const int MaxEntityNameLength = 32;
 
     private static readonly string[] SemicolonlessLegacyEntities = { "amp", "lt", "gt", "quot", "apos", "nbsp" };
