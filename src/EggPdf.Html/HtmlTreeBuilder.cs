@@ -1,16 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using EggPdf.Html.Dom;
 
 namespace EggPdf.Html;
 
-/// <summary>
-/// Builds a DOM tree from HTML tokens. Implements a simplified version of the
-/// WHATWG tree construction algorithm with core insertion modes.
-/// Infallible: never throws on any input.
-/// </summary>
 internal class HtmlTreeBuilder
 {
     private readonly HtmlDocument _document = new();
@@ -28,7 +22,12 @@ internal class HtmlTreeBuilder
 
     private static readonly HashSet<string> RawTextElements = new(StringComparer.OrdinalIgnoreCase)
     {
-        "script", "style", "textarea", "title"
+        "script", "style", "textarea", "title", "xmp"
+    };
+
+    private static readonly HashSet<string> EscapableRawTextElements = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "textarea", "title"
     };
 
     private static readonly HashSet<string> ImplicitlyClosesParagraph = new(StringComparer.OrdinalIgnoreCase)
@@ -53,7 +52,6 @@ internal class HtmlTreeBuilder
             ProcessToken(token);
         }
 
-        // Ensure document always has html/head/body even with empty input
         EnsureHtmlElement();
         EnsureHeadElement();
         EnsureBodyElement();
@@ -93,26 +91,24 @@ internal class HtmlTreeBuilder
         }
     }
 
+    private static void AddAttributesNotAlreadySet(HtmlElement element, HtmlToken token)
+    {
+        foreach (var attr in token.Attributes)
+            if (string.IsNullOrEmpty(element.GetAttribute(attr.Name)))
+                element.SetAttribute(attr.Name, attr.Value);
+    }
+
     private void ProcessStartTag(HtmlToken token)
     {
         var tagName = token.TagName!;
 
-        // html element
         if (tagName == "html")
         {
             EnsureHtmlElement();
-            // Per the HTML5 tree construction algorithm's "A start tag whose tag name is html"
-            // step: attributes on this token (e.g. lang) apply to the document element even
-            // when it already exists (e.g. synthesized by an earlier head/body tag), without
-            // overwriting an attribute already set by an earlier <html> tag.
-            var root = _document.DocumentElement!;
-            foreach (var attr in token.Attributes)
-                if (string.IsNullOrEmpty(root.GetAttribute(attr.Name)))
-                    root.SetAttribute(attr.Name, attr.Value);
+            AddAttributesNotAlreadySet(_document.DocumentElement!, token);
             return;
         }
 
-        // head element
         if (tagName == "head")
         {
             EnsureHtmlElement();
@@ -124,7 +120,6 @@ internal class HtmlTreeBuilder
             return;
         }
 
-        // body element
         if (tagName == "body")
         {
             EnsureHtmlElement();
@@ -133,7 +128,6 @@ internal class HtmlTreeBuilder
             {
                 _bodyElement = CreateElement(token);
                 _document.DocumentElement!.AppendChild(_bodyElement);
-                // Set as current insertion point
                 _openElements.Clear();
                 _openElements.Push(_document.DocumentElement!);
                 _openElements.Push(_bodyElement);
@@ -141,7 +135,6 @@ internal class HtmlTreeBuilder
             return;
         }
 
-        // Head content elements
         if (_bodyElement == null && HeadElements.Contains(tagName))
         {
             EnsureHtmlElement();
@@ -150,7 +143,6 @@ internal class HtmlTreeBuilder
             var elem = CreateElement(token);
             _headElement!.AppendChild(elem);
 
-            // Raw text elements: collect text until matching end tag
             if (RawTextElements.Contains(tagName))
             {
                 CollectRawText(elem, tagName);
@@ -162,14 +154,12 @@ internal class HtmlTreeBuilder
 
         CloseImpliedEndTags(tagName);
 
-        // Handle <p> implicit close
         if (ImplicitlyClosesParagraph.Contains(tagName))
         {
             if (HasOpenElement("p"))
                 CloseUpTo("p");
         }
 
-        // Table: implicit tbody for <tr>
         if (tagName == "tr" && _openElements.Count > 0 && _openElements.Peek().TagName == "table")
         {
             var tbody = new HtmlElement("tbody");
@@ -181,8 +171,7 @@ internal class HtmlTreeBuilder
         var insertionPoint = CurrentNode() ?? (HtmlNode)_bodyElement!;
         insertionPoint.AppendChild(element);
 
-        // Raw text elements in body (style in body, noscript, etc.)
-        if (RawTextElements.Contains(tagName) && tagName != "noscript")
+        if (RawTextElements.Contains(tagName))
         {
             CollectRawText(element, tagName);
             return;
@@ -213,7 +202,6 @@ internal class HtmlTreeBuilder
         if (tagName == "html" || tagName == "body" || tagName == "head")
             return;
 
-        // Fast path: properly nested close — no scratch stack needed.
         if (_openElements.Count > 0)
         {
             var topElement = _openElements.Peek();
@@ -230,7 +218,6 @@ internal class HtmlTreeBuilder
             return;
         }
 
-        // Pop elements until we find matching start tag
         var temp = new Stack<HtmlElement>();
         bool found = false;
 
@@ -251,7 +238,6 @@ internal class HtmlTreeBuilder
 
         if (!found)
         {
-            // Push back
             while (temp.Count > 0) _openElements.Push(temp.Pop());
         }
     }
@@ -261,7 +247,6 @@ internal class HtmlTreeBuilder
         if (string.IsNullOrEmpty(token.Data))
             return;
 
-        // If body doesn't exist yet and text is whitespace, ignore
         if (_bodyElement == null && string.IsNullOrWhiteSpace(token.Data))
             return;
 
@@ -269,17 +254,12 @@ internal class HtmlTreeBuilder
 
         var parent = CurrentNode() ?? (HtmlNode)_bodyElement!;
 
-        // Merge with previous text node
         if (parent.ChildNodes.Count > 0 && parent.ChildNodes[parent.ChildNodes.Count - 1] is HtmlTextNode lastText)
             lastText.Data += token.Data;
         else
             parent.AppendChild(new HtmlTextNode(token.Data));
     }
 
-    /// <summary>
-    /// Consume tokens from the tokenizer until the matching end tag, collecting all text into the element.
-    /// Used for style, script, title, textarea.
-    /// </summary>
     private bool HasOpenElement(string tagName)
     {
         foreach (var e in _openElements)
@@ -291,20 +271,7 @@ internal class HtmlTreeBuilder
     {
         if (_tokenizer == null) return;
 
-        var textBuf = new StringBuilder();
-        HtmlToken token;
-        while ((token = _tokenizer.NextToken()).Type != HtmlTokenType.EndOfFile)
-        {
-            if (token.Type == HtmlTokenType.EndTag && string.Equals(token.TagName, tagName, StringComparison.OrdinalIgnoreCase))
-                break;
-
-            if (token.Type == HtmlTokenType.Character)
-                textBuf.Append(token.Data);
-            else if (token.Type == HtmlTokenType.StartTag)
-                textBuf.Append($"<{token.TagName}>");  // raw text: tags are text
-        }
-
-        var rawText = textBuf.ToString();
+        var rawText = _tokenizer.ReadRawTextUntilEndTag(tagName, decodeCharacterReferences: EscapableRawTextElements.Contains(tagName));
         if (string.Equals(tagName, "textarea", StringComparison.OrdinalIgnoreCase))
             rawText = WithoutLeadingNewline(rawText);
         if (rawText.Length > 0)
