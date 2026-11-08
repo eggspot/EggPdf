@@ -470,20 +470,7 @@ public class CascadeResolver
             return f;
         }
 
-        // Find the rightmost compound: scan backwards for a top-level combinator
-        // (spaces/'+' inside [...] or (...) don't count).
-        int depth = 0, start = 0;
-        for (int i = sel.Length - 1; i >= 0; i--)
-        {
-            char c = sel[i];
-            if (c == ')' || c == ']') depth++;
-            else if (c == '(' || c == '[') depth--;
-            else if (depth == 0 && (c == ' ' || c == '>' || c == '+' || c == '~'))
-            {
-                start = i + 1;
-                break;
-            }
-        }
+        int start = SelectorMatcher.RightmostCompoundStart(sel);
 
         // Parse the compound's leading tag and '.class'/'#id' tokens; stop at
         // '[' / ':' / anything else — later constraints only narrow the match.

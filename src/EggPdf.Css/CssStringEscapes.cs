@@ -92,6 +92,49 @@ internal static class CssStringEscapes
         return sb.ToString();
     }
 
+    internal static int SkipEscape(string input, int backslash)
+    {
+        int pos = backslash + 1;
+        if (pos >= input.Length) return input.Length;
+        if (!IsHexDigit(input[pos])) return pos + 1;
+
+        int digits = 0;
+        while (pos < input.Length && digits < MaxHexDigits && IsHexDigit(input[pos]))
+        {
+            pos++;
+            digits++;
+        }
+        if (pos < input.Length && IsCssWhitespace(input[pos]))
+        {
+            if (input[pos] == '\r' && pos + 1 < input.Length && input[pos + 1] == '\n') pos++;
+            pos++;
+        }
+        return pos;
+    }
+
+    internal static void AppendIdentifier(StringBuilder output, string identifier)
+    {
+        if (identifier.Length == 1 && identifier[0] == '-')
+        {
+            output.Append("\\-");
+            return;
+        }
+
+        for (int i = 0; i < identifier.Length; i++)
+        {
+            char c = identifier[i];
+            bool leadingDigit = c >= '0' && c <= '9' && (i == 0 || (i == 1 && identifier[0] == '-'));
+            if (c == '\0')
+                output.Append(ReplacementCharacterText);
+            else if (c < 0x20 || c == 0x7F || leadingDigit)
+                output.Append('\\').Append(((int)c).ToString("x", System.Globalization.CultureInfo.InvariantCulture)).Append(' ');
+            else if (c >= 0x80 || c == '-' || c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+                output.Append(c);
+            else
+                output.Append('\\').Append(c);
+        }
+    }
+
     private static bool IsHexDigit(char c) => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 
     private static int HexValue(char c) => c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10;
