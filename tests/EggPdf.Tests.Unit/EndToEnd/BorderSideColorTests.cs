@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Xunit;
@@ -17,7 +18,7 @@ public class BorderSideColorTests
             "<div style='border-left:4px solid #0066cc;border-radius:4px;width:200px;height:40px'>Callout</div>");
 
         content.Should().Contain("0.00 0.40 0.80 RG", "the left border keeps its own colour");
-        content.Should().NotContain("0.00 w", "no hairline may be stroked round the whole box");
+        Regex.IsMatch(content, @"(?<![\d.])0\.00 w").Should().BeFalse("no hairline may be stroked round the whole box");
         content.Should().NotContain("0.00 0.00 0.00 RG");
     }
 
