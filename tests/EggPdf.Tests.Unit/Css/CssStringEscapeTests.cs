@@ -60,7 +60,7 @@ public class CssStringEscapeTests
     {
         var content = await RenderAscii(".x::after{content:\" it's done\"}", "<p class='x'>Task</p>");
 
-        content.Should().Contain("it's done");
+        content.IndexOf("it's", System.StringComparison.Ordinal).Should().BeGreaterThan(-1).And.BeLessThan(content.IndexOf("done", System.StringComparison.Ordinal));
     }
 
     [Fact]

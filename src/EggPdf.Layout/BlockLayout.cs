@@ -284,32 +284,41 @@ public static partial class BlockLayout
         // Collect absolutely/fixed positioned children for deferred layout
         var absChildren = new System.Collections.Generic.List<(HtmlElement elem, ComputedStyle style, string pos)>();
 
-        // ::before pseudo-element content
-        if (TryResolvePseudoContent(element, "before", style, out var beforeStyle, out var beforeContent))
-        {
-            float bFontSize = ResolveFontSize(beforeStyle!.FontSize, fontSize);
-            float bLineHeight = TextMeasurer.GetLineHeight(bFontSize, beforeStyle.Get("line-height"));
-            var textBox = new LayoutBox
-            {
-                Style = beforeStyle,
-                X = box.X + box.PaddingLeft,
-                Y = box.Y + box.PaddingTop + childY,
-                Width = childContainingWidth,
-                Height = bLineHeight,
-                ContentWidth = TextMeasurer.MeasureWidth(beforeContent!, bFontSize,
-                    beforeStyle.FontFamily, beforeStyle.FontWeight, beforeStyle.Get("font-style")),
-                ContentHeight = bLineHeight,
-                Text = beforeContent
-            };
-            box.Children.Add(textBox);
-            childY += bLineHeight;
-        }
-
-        // Form element special rendering: inject value/content text for void/custom form elements
-        childY = InjectFormElementContent(element, style, box, fontSize, childContainingWidth, childY);
-
         bool prevTextEndedWithSpace = false;
         bool prevInlineElementEndedWithSpace = false;
+
+        bool? childrenFlowInline = null;
+        var afterPseudoStyle = ResolvePseudoElementStyle(element, "after", style);
+        bool hasBefore = TryResolvePseudoContent(element, "before", style, out var beforeStyle, out var beforeContent);
+        bool pseudoElementsCanFlowInline = false;
+        if ((hasBefore && GeneratesInlineBox(beforeStyle)) || GeneratesInlineBox(afterPseudoStyle))
+        {
+            childrenFlowInline = HasInlineElementSiblings(element, style, resolver);
+            pseudoElementsCanFlowInline = !PreservesWhitespace(style) &&
+                (childrenFlowInline.Value ||
+                 (PlainTextKeepsItsFeaturesInInlineFlow(style, floatCtx, firstLineStyle, firstLetterStyle) &&
+                  !HasFloatedChild(element, style, resolver)));
+        }
+
+        bool afterIsInline = pseudoElementsCanFlowInline && GeneratesInlineBox(afterPseudoStyle);
+        bool beforeIsInline = false;
+        if (hasBefore)
+        {
+            beforeIsInline = pseudoElementsCanFlowInline && GeneratesInlineBox(beforeStyle);
+            if (beforeIsInline)
+            {
+                LayoutInlinePseudoElement(beforeContent!, beforeStyle!, false, box, ref inlineX, ref childY, ref inlineLineHeight,
+                    childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY);
+                prevInlineElementEndedWithSpace = EndsWithCollapsibleWhitespace(beforeContent!);
+            }
+            else
+            {
+                childY = LayoutPseudoElementLine(beforeContent!, beforeStyle!, box, childY, childContainingWidth, fontSize);
+            }
+        }
+        bool hasInlinePseudoContent = beforeIsInline || afterIsInline;
+
+        childY = InjectFormElementContent(element, style, box, fontSize, childContainingWidth, childY);
 
         // Table-row column geometry, computed once per row on first cell —
         // the previous per-cell rescans were O(cells²) per row.
@@ -871,7 +880,8 @@ public static partial class BlockLayout
                 }
 
                 // Check if parent has mixed inline content (inline elements + text)
-                bool hasInlineSiblings = HasInlineElementSiblings(element, style, resolver);
+                childrenFlowInline ??= HasInlineElementSiblings(element, style, resolver);
+                bool hasInlineSiblings = hasInlinePseudoContent || childrenFlowInline.Value;
 
                 // If there are inline siblings, participate in inline flow
                 if (hasInlineSiblings && !preserveWhitespace)
@@ -1276,6 +1286,13 @@ public static partial class BlockLayout
             }
         }
 
+        string? afterContent = afterPseudoStyle != null ? ResolvePseudoElementContent(element, afterPseudoStyle) : null;
+        if (afterContent != null && afterIsInline)
+        {
+            LayoutInlinePseudoElement(afterContent, afterPseudoStyle!, prevTextEndedWithSpace || prevInlineElementEndedWithSpace, box, ref inlineX, ref childY,
+                ref inlineLineHeight, childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY);
+        }
+
         if (inlineX > 0)
         {
             childY += inlineLineHeight;
@@ -1284,26 +1301,8 @@ public static partial class BlockLayout
         if (!deferInlineAlignment)
             AlignInlineLines(box, childContainingWidth, floatCtx.HasFloats ? floatCtx : null, floatOriginY);
 
-        // ::after pseudo-element content
-        if (TryResolvePseudoContent(element, "after", style, out var afterStyle, out var afterContent))
-        {
-            float aFontSize = ResolveFontSize(afterStyle!.FontSize, fontSize);
-            float aLineHeight = TextMeasurer.GetLineHeight(aFontSize, afterStyle.Get("line-height"));
-            var textBox = new LayoutBox
-            {
-                Style = afterStyle,
-                X = box.X + box.PaddingLeft,
-                Y = box.Y + box.PaddingTop + childY,
-                Width = childContainingWidth,
-                Height = aLineHeight,
-                ContentWidth = TextMeasurer.MeasureWidth(afterContent!, aFontSize,
-                    afterStyle.FontFamily, afterStyle.FontWeight, afterStyle.Get("font-style")),
-                ContentHeight = aLineHeight,
-                Text = afterContent
-            };
-            box.Children.Add(textBox);
-            childY += aLineHeight;
-        }
+        if (afterContent != null && !afterIsInline)
+            childY = LayoutPseudoElementLine(afterContent, afterPseudoStyle!, box, childY, childContainingWidth, fontSize);
 
         // CSS counters: pop scopes created by counter-reset on this element (after children processed)
         if (counterCtx != null)
