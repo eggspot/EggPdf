@@ -200,7 +200,7 @@ public static partial class BlockLayout
             float absY = floatOriginY + box.PaddingTop + currentChildY;
             float startX = floats!.GetContentStartX(absY, lineHeight, absContainerLeft);
             float inset = startX - absContainerLeft;
-            return inset > 0 ? inset + lineStart : currentInlineX;
+            return (inset > 0 ? inset : 0f) + lineStart;
         }
 
         float parentBaseline = TextMeasurer.GetBaselineOffset(parentFontSize,

@@ -798,10 +798,11 @@ public static partial class BoxPainter
         // Paint image (with object-fit support)
         if (!string.IsNullOrEmpty(box.ImageSource) && box.ImageData != null && CurrentPdfDoc?.GetImage(ImageResourceName(box.ImageSource!)) != null)
         {
-            float pdfX = effectiveX * PdfCoordinates.PxToPt;
-            float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
-            float pdfW = box.Width * PdfCoordinates.PxToPt;
-            float pdfH = box.Height * PdfCoordinates.PxToPt;
+            var (contentX, contentTop, contentWidth, contentHeight) = ContentRect(box, effectiveX, adjustedY);
+            float pdfX = contentX * PdfCoordinates.PxToPt;
+            float pdfY = (pageHeightPx - contentTop - contentHeight) * PdfCoordinates.PxToPt;
+            float pdfW = contentWidth * PdfCoordinates.PxToPt;
+            float pdfH = contentHeight * PdfCoordinates.PxToPt;
 
             // Apply object-fit + object-position
             var objectFit = box.Style.Get("object-fit") ?? "fill";
@@ -869,10 +870,11 @@ public static partial class BoxPainter
             var svgElement = svgRoot == box.Element ? SvgParser.Parse(svgRoot, box.Style.Get) : SvgParser.Parse(svgRoot);
             if (svgElement != null)
             {
-                float pdfX = effectiveX * PdfCoordinates.PxToPt;
-                float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
-                float pdfW = box.Width * PdfCoordinates.PxToPt;
-                float pdfH = box.Height * PdfCoordinates.PxToPt;
+                var (contentX, contentTop, contentWidth, contentHeight) = ContentRect(box, effectiveX, adjustedY);
+                float pdfX = contentX * PdfCoordinates.PxToPt;
+                float pdfY = (pageHeightPx - contentTop - contentHeight) * PdfCoordinates.PxToPt;
+                float pdfW = contentWidth * PdfCoordinates.PxToPt;
+                float pdfH = contentHeight * PdfCoordinates.PxToPt;
                 var svgResult = SvgRenderer.RenderWithResources(svgElement, pdfX, pdfY, pdfW, pdfH, CurrentPdfDoc,
                     StandardFontMetrics.MeasureWidth);
                 page.AppendRawContent(svgResult.Commands);

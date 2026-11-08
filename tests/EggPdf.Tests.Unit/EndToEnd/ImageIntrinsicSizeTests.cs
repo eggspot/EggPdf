@@ -158,6 +158,19 @@ public class ImageIntrinsicSizeTests
     }
 
     [Fact]
+    public void ImageIntrinsicSize_ReadsOs2CoreBitmapHeader()
+    {
+        var bmp = new byte[26 + 12];
+        bmp[0] = (byte)'B'; bmp[1] = (byte)'M';
+        BitConverter.GetBytes(12).CopyTo(bmp, 14);
+        BitConverter.GetBytes((ushort)7).CopyTo(bmp, 18);
+        BitConverter.GetBytes((ushort)3).CopyTo(bmp, 20);
+
+        ImageIntrinsicSize.TryRead(bmp, out int width, out int height, out _).Should().BeTrue();
+        (width, height).Should().Be((7, 3));
+    }
+
+    [Fact]
     public void ImageIntrinsicSize_UnknownBytes_ReturnFalse()
     {
         ImageIntrinsicSize.TryRead(new byte[32], out _, out _, out _).Should().BeFalse();
