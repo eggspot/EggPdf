@@ -434,6 +434,8 @@ Legacy HTML attributes that map to CSS properties. Must be handled as "presentat
 
 These attributes are still extremely common in email HTML, CMS output, legacy documents, and WYSIWYG editor output. **100% support means handling them all.**
 
+Status: mapped in `BasicStyleResolver.PresentationalAttributes.cs` following Chrome (author CSS wins): `width`/`height`, table `border`/`cellpadding`/`cellspacing`/`align`, cell `nowrap`/`valign`, `bgcolor`, `background`, `color`/`face`/`size` on `<font>`, `align`/`hspace`/`vspace`/`border` on `<img>`, list `type`, `<body text>` and the body margin attributes; `start`, `hidden` and `dir` are handled elsewhere. Not mapped yet: `<br clear>` (layout doesn't honour `clear` on an inline `<br>`), `<hr size/noshade>`, and `bordercolor`/`frame`/`rules` on tables.
+
 ### Special Element Handling
 
 | Element | Behavior in Print |

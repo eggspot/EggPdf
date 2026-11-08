@@ -9,7 +9,7 @@ namespace EggPdf.Css;
 /// Phase 1 style resolver: applies UA defaults + inline styles.
 /// No external stylesheets, no specificity, no cascade. Just inline + defaults.
 /// </summary>
-public class BasicStyleResolver
+public partial class BasicStyleResolver
 {
     // Inherited properties (child inherits from parent if not explicitly set)
     private static readonly HashSet<string> InheritedProperties = new(StringComparer.OrdinalIgnoreCase)
@@ -314,107 +314,5 @@ public class BasicStyleResolver
             style.Set("border-bottom-color", color);
             style.Set("border-left-color", color);
         }
-    }
-
-    private static void ApplyAlignAttribute(HtmlElement element, string align, ComputedStyle style)
-    {
-        if (element.TagName == "caption" && (align == "top" || align == "bottom"))
-        {
-            style.Set("caption-side", align);
-            return;
-        }
-        style.Set("text-align", align);
-    }
-
-    private static void ApplyPresentationalAttributes(HtmlElement element, ComputedStyle style)
-    {
-        // width / height attributes (img, table, td, th, col)
-        var widthAttr = element.GetAttribute("width");
-        if (!string.IsNullOrEmpty(widthAttr) && !style.Has("width"))
-        {
-            style.Set("width", widthAttr.EndsWith("%") ? widthAttr : widthAttr + "px");
-        }
-
-        var heightAttr = element.GetAttribute("height");
-        if (!string.IsNullOrEmpty(heightAttr) && !style.Has("height"))
-        {
-            style.Set("height", heightAttr.EndsWith("%") ? heightAttr : heightAttr + "px");
-        }
-
-        // bgcolor
-        var bgcolor = element.GetAttribute("bgcolor");
-        if (!string.IsNullOrEmpty(bgcolor) && !style.Has("background-color"))
-            style.Set("background-color", bgcolor);
-
-        var align = element.GetAttribute("align");
-        if (!string.IsNullOrEmpty(align))
-            ApplyAlignAttribute(element, align.Trim().ToLowerInvariant(), style);
-
-        // valign
-        var valign = element.GetAttribute("valign");
-        if (!string.IsNullOrEmpty(valign) && !style.Has("vertical-align"))
-            style.Set("vertical-align", valign.ToLowerInvariant());
-
-        // border (table)
-        var border = element.GetAttribute("border");
-        if (!string.IsNullOrEmpty(border) && element.TagName == "table")
-        {
-            if (!style.Has("border-top-width"))
-            {
-                var bw = border == "0" ? "0" : border + "px";
-                style.Set("border-top-width", bw);
-                style.Set("border-right-width", bw);
-                style.Set("border-bottom-width", bw);
-                style.Set("border-left-width", bw);
-                if (border != "0")
-                {
-                    style.Set("border-top-style", "solid");
-                    style.Set("border-right-style", "solid");
-                    style.Set("border-bottom-style", "solid");
-                    style.Set("border-left-style", "solid");
-                }
-            }
-        }
-
-        // Propagate table border attribute to cells (td/th)
-        if ((element.TagName == "td" || element.TagName == "th") && !style.Has("border-top-width"))
-        {
-            var tableBorder = FindAncestorTableBorder(element);
-            if (!string.IsNullOrEmpty(tableBorder) && tableBorder != "0")
-            {
-                var bw = tableBorder + "px";
-                style.Set("border-top-width", bw);
-                style.Set("border-right-width", bw);
-                style.Set("border-bottom-width", bw);
-                style.Set("border-left-width", bw);
-                style.Set("border-top-style", "solid");
-                style.Set("border-right-style", "solid");
-                style.Set("border-bottom-style", "solid");
-                style.Set("border-left-style", "solid");
-            }
-        }
-
-        // color (font element)
-        var colorAttr = element.GetAttribute("color");
-        if (!string.IsNullOrEmpty(colorAttr) && !style.Has("color"))
-            style.Set("color", colorAttr);
-
-        // face (font element)
-        var face = element.GetAttribute("face");
-        if (!string.IsNullOrEmpty(face) && !style.Has("font-family"))
-            style.Set("font-family", face);
-    }
-
-    /// <summary>Walk up from a td/th to find ancestor table's border attribute.</summary>
-    private static string? FindAncestorTableBorder(HtmlElement element)
-    {
-        var parent = element.Parent as HtmlElement;
-        while (parent != null)
-        {
-            if (parent.TagName == "table")
-                return parent.GetAttribute("border");
-            parent = parent.Parent as HtmlElement;
-        }
-        return null;
     }
 }
