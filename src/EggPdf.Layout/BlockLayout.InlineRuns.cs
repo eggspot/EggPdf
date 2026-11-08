@@ -213,20 +213,20 @@ public static partial class BlockLayout
             // still meets the smaller surrounding text instead of hanging below it.
             float baselineShift = (parentFontSize - run.FontSize) * 0.8f;
 
-            // Iterate words inline — avoids allocating a string[] upfront. Thai has no spaces
-            // between words, so a Thai run is pre-split into syllable-boundary pieces that rejoin
-            // without a space (the same heuristic the plain-text wrapper uses).
-            var thaiPieces = EggPdf.Text.SpacelessLineBreaker.Contains(text) ? SplitSpacelessWords(text) : null;
-            int thaiIndex = 0;
+            var pieces = NeedsBreakablePieces(text) ? SplitIntoBreakablePieces(text) : null;
+            int pieceIndex = 0;
             int wPos = 0;
             bool firstWord = true;
-            while (thaiPieces != null ? thaiIndex < thaiPieces.Count : wPos < text.Length)
+            LayoutBox? previousPieceBox = null;
+            bool previousEndsAtSoftHyphen = false;
+            while (pieces != null ? pieceIndex < pieces.Count : wPos < text.Length)
             {
                 string word;
                 bool joinNoSpace = false;
-                if (thaiPieces != null)
+                bool endsAtSoftHyphen = false;
+                if (pieces != null)
                 {
-                    (word, joinNoSpace) = thaiPieces[thaiIndex++];
+                    (word, joinNoSpace, endsAtSoftHyphen) = pieces[pieceIndex++];
                 }
                 else
                 {
@@ -253,6 +253,8 @@ public static partial class BlockLayout
 
                 if (!runNoWrap && notAtLineStart && inlineX + wordWidth > rightLimit)
                 {
+                    if (joinNoSpace && previousEndsAtSoftHyphen && previousPieceBox != null)
+                        AppendVisibleHyphen(previousPieceBox, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                     childY += inlineLineHeight;
                     inlineX = 0;
                     lineStart = 0;
@@ -337,6 +339,8 @@ public static partial class BlockLayout
                         }
                     }
                     firstWord = false;
+                    previousPieceBox = null;
+                    previousEndsAtSoftHyphen = false;
                     continue;
                 }
 
@@ -378,6 +382,8 @@ public static partial class BlockLayout
                 if (lhRun > inlineLineHeight)
                     inlineLineHeight = lhRun;
                 firstWord = false;
+                previousPieceBox = textBox;
+                previousEndsAtSoftHyphen = endsAtSoftHyphen;
             }
 
             // NBSP is rendered content, not a collapsible boundary space
@@ -386,19 +392,31 @@ public static partial class BlockLayout
         }
     }
 
-    /// <summary>
-    /// Split a run into words on spaces, then split Thai/Lao/Khmer/Myanmar words at syllable-boundary
-    /// break opportunities. Pieces after the first of such a word carry <c>noSpace</c> so they rejoin
-    /// the previous piece without a space.
-    /// </summary>
-    private static List<(string word, bool noSpace)> SplitSpacelessWords(string text)
+    private static void AppendVisibleHyphen(LayoutBox wordBox, float fontSize, string? fontFamily, string? fontWeight,
+        string? fontStyle, float letterSpacing)
     {
-        var pieces = new List<(string, bool)>();
+        float hyphenWidth = TextMeasurer.MeasureWidth(LineBreakOpportunities.VisibleHyphen, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
+        wordBox.Text += LineBreakOpportunities.VisibleHyphen;
+        wordBox.Width += hyphenWidth;
+        wordBox.ContentWidth += hyphenWidth;
+    }
+
+    private static bool NeedsBreakablePieces(string text) =>
+        EggPdf.Text.SpacelessLineBreaker.Contains(text) || LineBreakOpportunities.HasBreaksInsideWords(text);
+
+    private static List<(string Text, bool JoinsPrevious, bool EndsAtSoftHyphen)> SplitIntoBreakablePieces(string text)
+    {
+        var pieces = new List<(string Text, bool JoinsPrevious, bool EndsAtSoftHyphen)>();
         foreach (var word in text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
         {
-            if (!EggPdf.Text.SpacelessLineBreaker.Contains(word)) { pieces.Add((word, false)); continue; }
-            var segments = EggPdf.Text.SpacelessLineBreaker.Split(word);
-            for (int i = 0; i < segments.Count; i++) pieces.Add((segments[i], i > 0));
+            if (!EggPdf.Text.SpacelessLineBreaker.Contains(word))
+            {
+                LineBreakOpportunities.AppendSegments(word, false, pieces);
+                continue;
+            }
+            var syllables = EggPdf.Text.SpacelessLineBreaker.Split(word);
+            for (int i = 0; i < syllables.Count; i++)
+                LineBreakOpportunities.AppendSegments(syllables[i], i > 0, pieces);
         }
         return pieces;
     }

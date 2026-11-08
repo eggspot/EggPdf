@@ -77,8 +77,15 @@ public class PdfImage
         {
             JpegComponents = components,
             JpegAdobeInverted = adobe && components == 4,
+            ExifOrientation = ExifReader.GetOrientation(jpegData),
         };
     }
+
+    /// <summary>
+    /// The EXIF orientation (1-8) a JPEG declares for display; 1 for other formats. Drawing the image
+    /// with <see cref="PdfPage.AddImage(string, float, float, float, float, int)"/> applies it.
+    /// </summary>
+    public int ExifOrientation { get; private set; } = 1;
 
     internal int JpegComponents { get; private set; } = 3;
 

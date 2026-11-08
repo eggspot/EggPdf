@@ -857,10 +857,13 @@ public static partial class BoxPainter
 
             if (objectFit == "contain" || objectFit == "cover" || objectFit == "scale-down" || objectFit == "none")
             {
-                // Get natural image dimensions — attempt to read from ImageData header
-                float natW = pdfW, natH = pdfH; // fallback: same as box
-                var dims = TryGetImageDimensions(box.ImageData!);
-                if (dims.HasValue) { natW = dims.Value.w * PdfCoordinates.PxToPt; natH = dims.Value.h * PdfCoordinates.PxToPt; }
+                float natW = pdfW, natH = pdfH;
+                if (ImageIntrinsicSize.TryRead(box.ImageData!, out int storedWidth, out int storedHeight, out int orientation))
+                {
+                    bool swap = !IgnoresExifOrientation(box) && ImageIntrinsicSize.SwapsWidthAndHeight(orientation);
+                    natW = (swap ? storedHeight : storedWidth) * PdfCoordinates.PxToPt;
+                    natH = (swap ? storedWidth : storedHeight) * PdfCoordinates.PxToPt;
+                }
 
                 float fitW, fitH;
                 if (objectFit == "none")
@@ -895,7 +898,7 @@ public static partial class BoxPainter
             // object-fit: fill (default) uses the box dimensions unchanged
 
             string imgName = ImageResourceName(box.ImageSource!);
-            page.AddImage(imgName, pdfX, pdfY, pdfW, pdfH);
+            page.AddImage(imgName, pdfX, pdfY, pdfW, pdfH, DisplayOrientation(box, CurrentPdfDoc!.GetImage(imgName)!));
         }
 
         var svgRoot = box.Element?.TagName == "svg" ? box.Element : box.ImageSvgRoot;
@@ -2454,30 +2457,9 @@ public static partial class BoxPainter
         return 0.5f;
     }
 
-    /// <summary>
-    /// Try to read natural pixel dimensions from image bytes (PNG or JPEG).
-    /// Returns null if unrecognised format.
-    /// </summary>
-    private static (float w, float h)? TryGetImageDimensions(byte[] data)
-    {
-        if (data == null || data.Length < 24) return null;
-        // PNG: 8-byte sig + 4-byte length + "IHDR" + 4-byte width + 4-byte height
-        if (data[0] == 137 && data[1] == 80 && data[2] == 78 && data[3] == 71)
-        {
-            int w = (data[16] << 24) | (data[17] << 16) | (data[18] << 8) | data[19];
-            int h = (data[20] << 24) | (data[21] << 16) | (data[22] << 8) | data[23];
-            if (w > 0 && h > 0) return (w, h);
-        }
-        // JPEG: scan for SOF0/SOF2 markers (FF C0 / FF C2)
-        for (int i = 2; i < data.Length - 8; i++)
-        {
-            if (data[i] == 0xFF && (data[i + 1] == 0xC0 || data[i + 1] == 0xC2))
-            {
-                int h = (data[i + 5] << 8) | data[i + 6];
-                int w = (data[i + 7] << 8) | data[i + 8];
-                if (w > 0 && h > 0) return (w, h);
-            }
-        }
-        return null;
-    }
+    private static bool IgnoresExifOrientation(LayoutBox box) =>
+        string.Equals(box.Style.Get("image-orientation"), "none", StringComparison.OrdinalIgnoreCase);
+
+    private static int DisplayOrientation(LayoutBox box, PdfImage image) =>
+        IgnoresExifOrientation(box) ? 1 : image.ExifOrientation;
 }

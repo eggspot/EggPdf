@@ -404,6 +404,7 @@ public static partial class HtmlToPdf
         Paint.BoxPainter.ImageLoader = url => resources.Load(url, Core.Resources.ResourceType.Image);
 
         BlockLayout.ShapeImageLoader = source => LoadShapeImageAlpha(source, resources);
+        BlockLayout.ImageSizeLoader = CreateImageSizeLoader(resources);
 
         TextMeasurer.ComplexFontProvider = CreateComplexFontProvider(fontFaces);
 
@@ -464,6 +465,7 @@ public static partial class HtmlToPdf
             TextMeasurer.ComplexFontProvider = null;
             TextMeasurer.GlyphAdvanceProvider = null;
             BlockLayout.ShapeImageLoader = null;
+            BlockLayout.ImageSizeLoader = null;
             Paint.BoxPainter.ImageLoader = null;
             CurrentResources = null;
         }

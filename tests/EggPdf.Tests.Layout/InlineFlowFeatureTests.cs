@@ -102,7 +102,9 @@ public class InlineFlowFeatureTests
         var root = Layout("div{text-indent:30px}", "<div id='d'><div style='height:0'></div>one <b>two</b> three</div>");
 
         var words = Words(root.FindById("d")!);
-        words.Should().Contain(w => w.Text!.StartsWith(" two") || w.Text!.StartsWith(" three"), "words after the first keep their separating spaces");
+        words.Single(w => w.Text!.Trim() == "one").X.Should().BeApproximately(0, 0.5f, "a leading block child consumes the first-line indent");
+        words.Should().Contain(w => w.Text == " two");
+        words.Should().Contain(w => w.Text == " three");
     }
 
     [Fact]

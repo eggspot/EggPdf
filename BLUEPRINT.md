@@ -210,7 +210,7 @@ This is the core of what "Chrome Print parity" means. Below is the full matrix o
 | **CSS Outline** | `outline`, `outline-style`, `outline-width`, `outline-color`, `outline-offset`. Does NOT affect layout (unlike border) | Low |
 | **CSS `isolation`** | `isolation: isolate` -- creates new stacking context. Used in complex z-index scenarios | Low |
 | **CSS `image-rendering`** | `image-rendering: pixelated / crisp-edges / auto`. Controls image scaling quality | Low |
-| **CSS `image-orientation`** | `from-image` (respect EXIF) or `none`. Default: `from-image` in Chrome | Low |
+| **CSS `image-orientation`** | `from-image` (respect EXIF) or `none`. Default: `from-image` in Chrome. **Implemented.** | Low |
 | **CSS `paint-order`** | `normal / stroke / fill / markers`. Controls SVG/text paint order (stroke behind fill, etc.) | Low |
 | **CSS `text-decoration` (full)** | `text-decoration-skip-ink: auto/none`, `text-decoration-thickness`, `text-decoration-style` (solid/double/dotted/dashed/wavy) | Medium |
 | **CSS `shape-margin` / `shape-image-threshold`** | Fine-tune shape-outside float wrapping. Accompanies CSS Shapes Level 1 | Low |
@@ -1869,7 +1869,7 @@ Every layer exists but in minimal form:
 
 **All image formats:**
 - JPEG embedding (pass-through to PDF via DCTDecode)
-  - **EXIF orientation handling**: read EXIF orientation tag (1-8) and apply rotation/flip before embedding. Photos from smartphones are often stored rotated with EXIF tag indicating correct orientation. Without this, images appear sideways
+  - **EXIF orientation handling** (implemented: the JPEG is embedded as stored and drawn through an orientation matrix; layout swaps width and height for orientations 5-8): read EXIF orientation tag (1-8) and apply rotation/flip. Photos from smartphones are often stored rotated with EXIF tag indicating correct orientation. Without this, images appear sideways
   - CMYK JPEG: detect and handle (some print-workflow JPEGs are CMYK)
 - PNG decoding (RGBA, palette, interlaced) + alpha channel separation to SMask
 - GIF decoding (first frame, palette -> RGB)
