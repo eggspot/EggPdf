@@ -1563,8 +1563,14 @@ public static partial class BlockLayout
         box.PaddingRight = ResolveLength(style.PaddingRight ?? paddingShort, containingWidth, fontSize);
         box.PaddingBottom = ResolveLength(style.PaddingBottom ?? paddingShort, containingWidth, fontSize);
         box.PaddingLeft = ResolveLength(style.PaddingLeft ?? paddingShort, containingWidth, fontSize);
+        if (!BordersCollapse(element, style))
+        {
+            box.PaddingTop += VisibleBorderWidth(style, "top", fontSize);
+            box.PaddingRight += VisibleBorderWidth(style, "right", fontSize);
+            box.PaddingBottom += VisibleBorderWidth(style, "bottom", fontSize);
+            box.PaddingLeft += VisibleBorderWidth(style, "left", fontSize);
+        }
 
-        // Box-sizing
         bool borderBox = style.Get("box-sizing") == "border-box";
 
         // Width
