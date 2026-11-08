@@ -146,10 +146,22 @@ public static partial class BlockLayout
 
     private static float VisibleBorderWidth(ComputedStyle style, string side, float fontSize)
     {
-        if (!IsVisibleBorderStyle(style.Get("border-" + side + "-style") ?? style.Get("border-style"))) return 0f;
-        var width = style.Get("border-" + side + "-width") ?? style.Get("border-width");
-        if (width != null && width.IndexOf(' ') > 0) width = width.Split(' ')[0];
+        var (styleProperty, widthProperty) = BorderSideProperties(side);
+        if (!IsVisibleBorderStyle(style.Get(styleProperty) ?? style.Get("border-style"))) return 0f;
+        var width = style.Get(widthProperty) ?? style.Get("border-width");
+        if (width != null && width.IndexOf(' ') > 0) width = width.Substring(0, width.IndexOf(' '));
         return BorderWidthKeyword(width, fontSize);
+    }
+
+    private static (string Style, string Width) BorderSideProperties(string side)
+    {
+        switch (side)
+        {
+            case "top": return ("border-top-style", "border-top-width");
+            case "right": return ("border-right-style", "border-right-width");
+            case "bottom": return ("border-bottom-style", "border-bottom-width");
+            default: return ("border-left-style", "border-left-width");
+        }
     }
 
     internal static float BorderWidthKeyword(string? width, float fontSize)

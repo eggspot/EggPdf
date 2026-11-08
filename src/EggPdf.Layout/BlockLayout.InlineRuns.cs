@@ -101,11 +101,8 @@ public static partial class BlockLayout
 
     private static float InlineEdgeInset(ComputedStyle style, string side, float fontSize)
     {
-        float inset = Math.Max(0f, ResolveLength(style.Get("padding-" + side), 0, fontSize));
-        var borderStyle = style.Get("border-" + side + "-style");
-        if (!string.IsNullOrEmpty(borderStyle) && borderStyle != "none" && borderStyle != "hidden")
-            inset += Math.Max(0f, ResolveLength(style.Get("border-" + side + "-width") ?? "medium", 0, fontSize));
-        return inset;
+        var padding = side == "left" ? style.PaddingLeft : style.PaddingRight;
+        return Math.Max(0f, ResolveLength(padding, 0, fontSize)) + VisibleBorderWidth(style, side, fontSize);
     }
 
     private static bool PaintsInlineDecoration(ComputedStyle style)
