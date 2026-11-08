@@ -447,7 +447,8 @@ public class CascadeResolver
         var sel = selectorText.Trim();
 
         // Selector lists and escaped identifiers: just run the full matcher.
-        if (sel.Length == 0 || sel.IndexOf(',') >= 0 || sel.IndexOf('\\') >= 0)
+        if (sel.Length == 0 || sel.IndexOf(',') >= 0 || sel.IndexOf('\\') >= 0 ||
+            sel.IndexOf('"') >= 0 || sel.IndexOf('\'') >= 0)
         {
             f.AlwaysCheck = true;
             return f;

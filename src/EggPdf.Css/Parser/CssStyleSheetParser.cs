@@ -368,6 +368,8 @@ public static class CssStyleSheetParser
                 selectorParts.Append('#').Append(t.Value ?? "");
             else if (t.Type == CssTokenType.Function)
                 selectorParts.Append(t.Value ?? "").Append('(');
+            else if (t.Type == CssTokenType.String)
+                selectorParts.Append(CssStringEscapes.Quote(t.Value ?? ""));
             else
                 selectorParts.Append(t.Value ?? "");
             pos++;
