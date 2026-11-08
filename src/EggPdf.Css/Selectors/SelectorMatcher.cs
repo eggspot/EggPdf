@@ -12,7 +12,7 @@ namespace EggPdf.Css.Selectors;
 /// combinators, and pseudo-classes including :not(), :nth-child(), :nth-of-type(),
 /// :only-child, :only-of-type, :is(), :where().
 /// </summary>
-public static class SelectorMatcher
+public static partial class SelectorMatcher
 {
     /// <summary>Check if a selector matches an element.</summary>
     public static bool Matches(string selector, HtmlElement element)
@@ -47,7 +47,7 @@ public static class SelectorMatcher
     /// <summary>Check if a selector contains a pseudo-element (::before, ::after, etc.).</summary>
     internal static bool HasPseudoElement(string selector)
     {
-        int idx = selector.IndexOf("::", StringComparison.Ordinal);
+        int idx = IndexOfDoubleColonOutsideAttributeSelectors(selector);
         if (idx < 0) return false;
 
         int identStart = idx + 2;
@@ -164,24 +164,20 @@ public static class SelectorMatcher
 
         while (i < len)
         {
-            // Skip inside brackets and parentheses
+            if (selector[i] == '\\')
+            {
+                i = CssStringEscapes.SkipEscape(selector, i);
+                continue;
+            }
             if (selector[i] == '[')
             {
-                i++;
-                while (i < len && selector[i] != ']') i++;
-                if (i < len) i++;
+                i = AfterAttributeSelector(selector, i);
                 continue;
             }
             if (selector[i] == '(')
             {
-                int depth = 1;
-                i++;
-                while (i < len && depth > 0)
-                {
-                    if (selector[i] == '(') depth++;
-                    else if (selector[i] == ')') depth--;
-                    i++;
-                }
+                int closeParen = FindMatchingParen(selector, i + 1);
+                i = closeParen < len ? closeParen + 1 : len;
                 continue;
             }
 
@@ -375,19 +371,11 @@ public static class SelectorMatcher
     private static (int A, int B, int C) MostSpecificInList(string selectorList)
     {
         var most = (A: 0, B: 0, C: 0);
-        int depth = 0;
-        int start = 0;
-        for (int i = 0; i <= selectorList.Length; i++)
+        var selectors = SplitSelectorList(selectorList);
+        for (int i = 0; i < selectors.Count; i++)
         {
-            char ch = i < selectorList.Length ? selectorList[i] : ',';
-            if (ch == '(' || ch == '[') depth++;
-            else if (ch == ')' || ch == ']') depth = Math.Max(0, depth - 1);
-            else if (ch == ',' && depth == 0)
-            {
-                var spec = CalculateSpecificity(selectorList.Substring(start, i - start));
-                if (CompareSpecificity(spec, most) > 0) most = spec;
-                start = i + 1;
-            }
+            var spec = CalculateSpecificity(selectors[i]);
+            if (CompareSpecificity(spec, most) > 0) most = spec;
         }
         return most;
     }
@@ -471,7 +459,7 @@ public static class SelectorMatcher
     private static bool MatchesHas(HtmlElement element, string arg)
     {
         // Support comma-separated list: :has(a, b) = :has(a) OR :has(b)
-        var branches = SplitTopLevelCommas(arg);
+        var branches = SplitSelectorList(arg);
         foreach (var branch in branches)
         {
             if (MatchesHasBranch(element, branch.Trim()))
@@ -534,26 +522,6 @@ public static class SelectorMatcher
         }
         // Default: descendant
         return HasDescendantMatching(element, s);
-    }
-
-    private static List<string> SplitTopLevelCommas(string value)
-    {
-        var result = new List<string>();
-        int depth = 0;
-        int start = 0;
-        for (int i = 0; i < value.Length; i++)
-        {
-            var c = value[i];
-            if (c == '(' || c == '[') depth++;
-            else if (c == ')' || c == ']') depth--;
-            else if (c == ',' && depth == 0)
-            {
-                result.Add(value.Substring(start, i - start));
-                start = i + 1;
-            }
-        }
-        result.Add(value.Substring(start));
-        return result;
     }
 
     private static bool HasDescendantMatching(HtmlElement element, string selector)
@@ -931,93 +899,6 @@ public static class SelectorMatcher
         return null;
     }
 
-    private static bool MatchAttribute(string selector, ref int i, HtmlElement element)
-    {
-        var attrName = new System.Text.StringBuilder();
-        string matchOp = "="; // default: exact match
-
-        while (i < selector.Length && selector[i] != ']' && selector[i] != '=' &&
-               selector[i] != '~' && selector[i] != '|' && selector[i] != '^' &&
-               selector[i] != '$' && selector[i] != '*')
-        {
-            attrName.Append(selector[i]);
-            i++;
-        }
-
-        var name = attrName.ToString().Trim();
-
-        // Check for attribute match operators: ~=, |=, ^=, $=, *=
-        if (i < selector.Length && i + 1 < selector.Length && selector[i + 1] == '=')
-        {
-            if (selector[i] == '~') { matchOp = "~="; i += 2; }
-            else if (selector[i] == '|') { matchOp = "|="; i += 2; }
-            else if (selector[i] == '^') { matchOp = "^="; i += 2; }
-            else if (selector[i] == '$') { matchOp = "$="; i += 2; }
-            else if (selector[i] == '*') { matchOp = "*="; i += 2; }
-        }
-        else if (i < selector.Length && selector[i] == '=')
-        {
-            matchOp = "=";
-            i++; // skip =
-        }
-        else
-        {
-            // Existence check only
-            if (i < selector.Length && selector[i] == ']') i++;
-            return element.HasAttribute(name);
-        }
-
-        // Read value
-        char quote = (i < selector.Length && (selector[i] == '\'' || selector[i] == '"')) ? selector[i] : '\0';
-        if (quote != '\0') i++;
-
-        var value = new System.Text.StringBuilder();
-        while (i < selector.Length && selector[i] != ']' && (quote == '\0' || selector[i] != quote))
-        {
-            value.Append(selector[i]);
-            i++;
-        }
-        if (quote != '\0' && i < selector.Length) i++; // skip closing quote
-        if (i < selector.Length && selector[i] == ']') i++;
-
-        var attrValue = element.GetAttribute(name);
-        if (attrValue == null) return false;
-
-        string matchValue = value.ToString();
-
-        switch (matchOp)
-        {
-            case "=": return string.Equals(attrValue, matchValue, StringComparison.OrdinalIgnoreCase);
-            case "~=": // contains word — scan without allocating a string[]
-            {
-                int wStart = 0;
-                for (int wi = 0; wi <= attrValue.Length; wi++)
-                {
-                    if (wi == attrValue.Length || attrValue[wi] == ' ')
-                    {
-                        if (wi > wStart &&
-                            string.Compare(attrValue, wStart, matchValue, 0, wi - wStart, StringComparison.OrdinalIgnoreCase) == 0 &&
-                            wi - wStart == matchValue.Length)
-                            return true;
-                        wStart = wi + 1;
-                    }
-                }
-                return false;
-            }
-            case "|=": // starts with or equals (hyphen-separated)
-                return string.Equals(attrValue, matchValue, StringComparison.OrdinalIgnoreCase) ||
-                       attrValue.StartsWith(matchValue + "-", StringComparison.OrdinalIgnoreCase);
-            case "^=": // starts with
-                return attrValue.StartsWith(matchValue, StringComparison.OrdinalIgnoreCase);
-            case "$=": // ends with
-                return attrValue.EndsWith(matchValue, StringComparison.OrdinalIgnoreCase);
-            case "*=": // contains
-                return attrValue.IndexOf(matchValue, StringComparison.OrdinalIgnoreCase) >= 0;
-            default:
-                return false;
-        }
-    }
-
     /// <summary>Split a selector list on commas, respecting parentheses.</summary>
     private static List<string> SplitSelectorList(string selector)
     {
@@ -1027,8 +908,18 @@ public static class SelectorMatcher
 
         for (int i = 0; i < selector.Length; i++)
         {
-            if (selector[i] == '(' || selector[i] == '[') depth++;
-            else if (selector[i] == ')' || selector[i] == ']') depth--;
+            if (selector[i] == '\\')
+            {
+                i = CssStringEscapes.SkipEscape(selector, i) - 1;
+                continue;
+            }
+            if (selector[i] == '[')
+            {
+                i = FindAttributeSelectorEnd(selector, i);
+                continue;
+            }
+            if (selector[i] == '(') depth++;
+            else if (selector[i] == ')') depth--;
             else if (selector[i] == ',' && depth == 0)
             {
                 result.Add(selector.Substring(start, i - start));
@@ -1042,47 +933,107 @@ public static class SelectorMatcher
 
     private static string ConsumeIdent(string s, ref int i)
     {
-        var sb = new System.Text.StringBuilder();
-        while (i < s.Length && (char.IsLetterOrDigit(s[i]) || s[i] == '-' || s[i] == '_'))
+        int start = i;
+        while (i < s.Length && IsIdentChar(s[i])) i++;
+        if (i >= s.Length || s[i] != '\\' || !IsValidEscapeStart(s, i))
+            return s.Substring(start, i - start);
+
+        var decoded = new System.Text.StringBuilder(s, start, i - start, i - start + 8);
+        while (i < s.Length)
         {
-            sb.Append(s[i]);
-            i++;
+            if (IsIdentChar(s[i]))
+            {
+                decoded.Append(s[i]);
+                i++;
+            }
+            else if (s[i] == '\\' && IsValidEscapeStart(s, i))
+            {
+                i++;
+                CssStringEscapes.AppendEscape(s, ref i, decoded);
+            }
+            else
+            {
+                break;
+            }
         }
-        return sb.ToString();
+        return decoded.ToString();
     }
+
+    private static bool IsIdentChar(char c) =>
+        (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c >= 0x80;
+
+    private static bool IsValidEscapeStart(string s, int backslash) =>
+        backslash + 1 < s.Length && s[backslash + 1] != '\n' && s[backslash + 1] != '\r' && s[backslash + 1] != '\f';
 
     private static string ConsumeUntilCloseParen(string s, ref int i)
     {
-        int depth = 1;
         int start = i;
-        while (i < s.Length && depth > 0)
-        {
-            if (s[i] == '(') depth++;
-            else if (s[i] == ')') depth--;
-            if (depth > 0) i++;
-        }
+        i = FindMatchingParen(s, i);
         string result = s.Substring(start, i - start);
-        if (i < s.Length) i++; // skip closing )
+        if (i < s.Length) i++;
         return result;
+    }
+
+    private static int FindMatchingParen(string s, int afterOpenParen)
+    {
+        int depth = 1;
+        int i = afterOpenParen;
+        while (i < s.Length)
+        {
+            char c = s[i];
+            if (c == '\\')
+            {
+                i = CssStringEscapes.SkipEscape(s, i);
+                continue;
+            }
+            if (c == '[')
+            {
+                i = AfterAttributeSelector(s, i);
+                continue;
+            }
+            if (c == '"' || c == '\'')
+            {
+                i = SkipQuotedString(s, i);
+                continue;
+            }
+            if (c == '(') depth++;
+            else if (c == ')' && --depth == 0) return i;
+            i++;
+        }
+        return s.Length;
     }
 
     private static void SkipBracket(string s, ref int i)
     {
-        while (i < s.Length && s[i] != ']') i++;
-        if (i < s.Length) i++;
+        i = AfterAttributeSelector(s, i);
+    }
+
+    private static int IndexOfDoubleColonOutsideAttributeSelectors(string selector)
+    {
+        int i = 0;
+        while (i < selector.Length - 1)
+        {
+            if (selector[i] == '\\')
+            {
+                i = CssStringEscapes.SkipEscape(selector, i);
+                continue;
+            }
+            if (selector[i] == '[')
+            {
+                i = AfterAttributeSelector(selector, i);
+                continue;
+            }
+            if (selector[i] == ':' && selector[i + 1] == ':') return i;
+            i++;
+        }
+        return -1;
     }
 
     private static void SkipParenthesis(string s, ref int i)
     {
         if (i >= s.Length || s[i] != '(') return;
-        int depth = 1;
-        i++;
-        while (i < s.Length && depth > 0)
-        {
-            if (s[i] == '(') depth++;
-            else if (s[i] == ')') depth--;
-            i++;
-        }
+        int closeParen = FindMatchingParen(s, i + 1);
+        i = closeParen < s.Length ? closeParen + 1 : s.Length;
     }
 
     /// <summary>Case-insensitive array contains check (netstandard2.0 compatible).</summary>

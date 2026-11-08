@@ -194,4 +194,21 @@ public class CascadePrefilterTests
         resolver.Resolve(p, null).Color.Should().NotBe("red",
             "a pseudo-element rule must not style the element itself");
     }
+
+    [Theory]
+    [InlineData("<div><a title=']'>t</a></div>", "div a[title=']'] { color: red; }")]
+    [InlineData("<div title='x y'><a>t</a></div>", "[title='x y'] a { color: red; }")]
+    [InlineData("<div title='a > b'><a>t</a></div>", "div[title='a > b'] > a { color: red; }")]
+    [InlineData("<div><a title='p ~ q'>t</a></div>", "div a[title='p ~ q'] { color: red; }")]
+    [InlineData("<div><a>t</a></div>", "div :is(a, [title='x y']) { color: red; }")]
+    public void QuotedCombinatorCharacters_RightmostCompoundFoundCorrectly(string html, string css)
+    {
+        Resolve(html, css, "a").Color.Should().Be("red");
+    }
+
+    [Fact]
+    public void QuotedAttributeRule_DoesNotStyleOtherTags()
+    {
+        Resolve("<div><p title=']'>t</p></div>", "div a[title=']'] { color: red; }", "p").Color.Should().NotBe("red");
+    }
 }
