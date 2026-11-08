@@ -908,10 +908,12 @@ public static partial class BoxPainter
                 float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
                 float pdfW = box.Width * PdfCoordinates.PxToPt;
                 float pdfH = box.Height * PdfCoordinates.PxToPt;
-                var (svgCommands, svgUsedImages) = SvgRenderer.Render(svgElement, pdfX, pdfY, pdfW, pdfH, CurrentPdfDoc);
-                page.AppendRawContent(svgCommands);
-                foreach (var imgName in svgUsedImages)
+                var svgResult = SvgRenderer.RenderWithResources(svgElement, pdfX, pdfY, pdfW, pdfH, CurrentPdfDoc);
+                page.AppendRawContent(svgResult.Commands);
+                foreach (var imgName in svgResult.UsedImages)
                     page.RegisterUsedImage(imgName);
+                foreach (var fontName in svgResult.UsedFonts)
+                    page.RegisterUsedFont(fontName);
             }
         }
 

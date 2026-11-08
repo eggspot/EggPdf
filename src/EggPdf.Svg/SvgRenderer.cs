@@ -24,37 +24,29 @@ public static partial class SvgRenderer
     public static (string commands, List<string> usedImages) Render(SvgElement svg, float targetX, float targetY,
         float targetWidth, float targetHeight, PdfDocument? pdfDoc = null)
     {
+        var result = RenderWithResources(svg, targetX, targetY, targetWidth, targetHeight, pdfDoc);
+        return (result.Commands, result.UsedImages);
+    }
+
+    /// <summary>
+    /// Render an SVG element tree into the target box (PDF points), returning the content stream
+    /// fragment plus every image and standard font it uses, which the caller registers on the page.
+    /// </summary>
+    public static SvgRenderResult RenderWithResources(SvgElement svg, float targetX, float targetY,
+        float targetWidth, float targetHeight, PdfDocument? pdfDoc = null)
+    {
         var sb = new StringBuilder();
         var usedImages = new List<string>();
+        _usedFonts = new List<string>();
+        _gradientFallbackColors = CollectGradientFallbackColors(svg);
+        _elementsById = CollectElementsById(svg);
 
-        // Save graphics state
         sb.AppendLine("q");
+        sb.AppendLine($"{F(targetX)} {F(targetY)} {F(targetWidth)} {F(targetHeight)} re W n");
 
-        // Apply viewBox transform if present
-        float vbX = 0, vbY = 0, vbW = targetWidth, vbH = targetHeight;
-        // Tag/attribute names are lowercased uniformly by this parser (no HTML5 "foreign
-        // content" case-preservation for SVG), so "viewBox" arrives as "viewbox".
-        if (svg.Attributes.TryGetValue("viewbox", out var viewBox) && !string.IsNullOrEmpty(viewBox))
-        {
-            var parts = viewBox.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length >= 4)
-            {
-                float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out vbX);
-                float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out vbY);
-                float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out vbW);
-                float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out vbH);
-            }
-        }
-
-        // Scale from viewBox to target size
-        float scaleX = vbW > 0 ? targetWidth / vbW : 1;
-        float scaleY = vbH > 0 ? targetHeight / vbH : 1;
-
-        // Apply translation to target position + viewBox offset
-        // PDF transform: translate(targetX, targetY) scale(scaleX, scaleY) translate(-vbX, -vbY)
-        // Combined: cm scaleX 0 0 scaleY (targetX - vbX*scaleX) (targetY - vbY*scaleY)
-        float tx = targetX - vbX * scaleX;
-        float ty = targetY + targetHeight + vbY * scaleY; // PDF Y is bottom-up
+        var (scaleX, scaleY, offsetX, offsetY) = ViewportTransform(svg, targetWidth, targetHeight);
+        float tx = targetX + offsetX;
+        float ty = targetY + targetHeight - offsetY;
         sb.AppendLine($"{F(scaleX)} 0 0 {F(-scaleY)} {F(tx)} {F(ty)} cm");
 
         // Collect the <filter> definitions whose primitives are all supported
@@ -65,10 +57,13 @@ public static partial class SvgRenderer
         var viewBoxMatrix = new Matrix2D(scaleX, 0, 0, -scaleY, tx, ty);
         RenderChildren(svg, sb, pdfDoc, defs, usedImages, viewBoxMatrix);
 
-        // Restore graphics state
         sb.AppendLine("Q");
 
-        return (sb.ToString(), usedImages);
+        var result = new SvgRenderResult(sb.ToString(), usedImages, _usedFonts);
+        _usedFonts = null;
+        _gradientFallbackColors = null;
+        _elementsById = null;
+        return result;
     }
 
     private static void RenderChildren(SvgElement parent, StringBuilder sb, PdfDocument? pdfDoc,
@@ -144,7 +139,7 @@ public static partial class SvgRenderer
                 // Skip definitions (used by reference)
                 break;
             case "use":
-                // TODO: resolve use references
+                RenderUse(el, sb, pdfDoc, defs, usedImages, matrix);
                 break;
             default:
                 // Unknown element — render children
@@ -287,12 +282,11 @@ public static partial class SvgRenderer
         var text = el.TextContent;
         if (string.IsNullOrEmpty(text)) return;
 
-        // Set fill color for text
         SetFillColor(el, sb);
 
         sb.Append("BT ");
-        sb.Append($"/Helvetica {F(fontSize)} Tf ");
-        sb.Append($"{F(x)} {F(y)} Td ");
+        sb.Append($"/{StandardFontFor(el)} {F(fontSize)} Tf ");
+        sb.Append($"1 0 0 -1 {F(x)} {F(y)} Tm ");
         sb.Append($"({EscapePdfString(text)}) Tj ");
         sb.AppendLine("ET");
     }
@@ -445,9 +439,9 @@ public static partial class SvgRenderer
     private static void SetFillColor(SvgElement el, StringBuilder sb)
     {
         var fill = el.GetAttribute("fill");
-        if (string.IsNullOrEmpty(fill) || fill == "none") return;
+        if (fill == "none") return;
 
-        var (r, g, b) = ParseSvgColor(fill);
+        var (r, g, b) = string.IsNullOrEmpty(fill) ? (0f, 0f, 0f) : ParseSvgColor(ResolvePaint(fill));
         sb.AppendLine($"{F(r)} {F(g)} {F(b)} rg");
     }
 
@@ -456,7 +450,7 @@ public static partial class SvgRenderer
         var stroke = el.GetAttribute("stroke");
         if (string.IsNullOrEmpty(stroke) || stroke == "none") return;
 
-        var (r, g, b) = ParseSvgColor(stroke);
+        var (r, g, b) = ParseSvgColor(ResolvePaint(stroke));
         sb.AppendLine($"{F(r)} {F(g)} {F(b)} RG");
 
         var strokeWidth = el.GetAttribute("stroke-width");

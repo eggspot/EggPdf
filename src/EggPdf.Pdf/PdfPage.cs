@@ -457,6 +457,13 @@ public partial class PdfPage
             UsedImages.Add(imageName);
     }
 
+    /// <summary>
+    /// Mark a font as used on this page without emitting text, for content assembled externally
+    /// (e.g. SvgRenderer's text) that selects the font with its own <c>Tf</c> operator. A name that
+    /// is not an embedded font is written as a standard Type 1 font (Helvetica, Times-Roman, Courier, ...).
+    /// </summary>
+    public void RegisterUsedFont(string fontName) => UsedFonts.Add(fontName);
+
     /// <summary>Add a stroked line between two points.</summary>
     public void AddLine(float x1, float y1, float x2, float y2, float r, float g, float b, float lineWidth)
     {
