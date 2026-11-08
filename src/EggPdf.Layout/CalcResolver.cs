@@ -10,6 +10,11 @@ namespace EggPdf.Layout;
 /// </summary>
 public static class CalcResolver
 {
+    private const int MaxNestingDepth = 32;
+
+    [ThreadStatic]
+    private static int _nestingDepth;
+
     private static readonly string[] _mathFunctions = {
         "calc(", "min(", "max(", "clamp(",
         "sin(", "cos(", "tan(", "asin(", "acos(", "atan(", "atan2(",
@@ -52,11 +57,6 @@ public static class CalcResolver
             _nestingDepth--;
         }
     }
-
-    private const int MaxNestingDepth = 32;
-
-    [ThreadStatic]
-    private static int _nestingDepth;
 
     private static float ResolveFunctionOrTerm(string value, float containingSize, float fontSize)
     {
@@ -143,7 +143,7 @@ public static class CalcResolver
                 float rounded = strategy == "up" ? (float)Math.Ceiling(n) :
                                 strategy == "down" ? (float)Math.Floor(n) :
                                 strategy == "to-zero" ? (float)Math.Truncate(n) :
-                                (float)Math.Round(n, MidpointRounding.AwayFromZero);
+                                (float)Math.Floor(n + 0.5f);
                 return rounded * step;
             }
         }
@@ -404,12 +404,6 @@ public static class CalcResolver
         term = term.Trim();
         if (string.IsNullOrEmpty(term))
             return 0;
-
-        if (StartsWithIgnoreCase(term, "calc(") || StartsWithIgnoreCase(term, "min(") ||
-            StartsWithIgnoreCase(term, "max(") || StartsWithIgnoreCase(term, "clamp("))
-        {
-            return Resolve(term, containingSize, fontSize);
-        }
 
         if (term[term.Length - 1] == '%')
             return ParseFloat(term.Substring(0, term.Length - 1)) / 100f * containingSize;

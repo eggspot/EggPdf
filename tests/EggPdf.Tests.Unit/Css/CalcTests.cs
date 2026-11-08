@@ -152,7 +152,6 @@ public class CalcTests
         result.Should().BeApproximately(100f, 0.1f);
     }
 
-
     [Fact]
     public void Sin_Zero_ReturnsZero()
     {
@@ -188,7 +187,6 @@ public class CalcTests
         r.Should().BeApproximately(1f, 0.01f);
     }
 
-
     [Fact]
     public void Sqrt_Four_ReturnsTwo()
     {
@@ -209,7 +207,6 @@ public class CalcTests
         float r = CalcResolver.Resolve("hypot(3px, 4px)", 100, DefaultFontSize);
         r.Should().BeApproximately(5f, 0.01f);
     }
-
 
     [Fact]
     public void Abs_Negative_ReturnsPositive()
@@ -232,7 +229,6 @@ public class CalcTests
         r.Should().BeApproximately(15f, 0.001f);
     }
 
-
     [Fact]
     public void Log_E_ReturnsOne()
     {
@@ -248,7 +244,6 @@ public class CalcTests
         r.Should().BeApproximately((float)System.Math.E, 0.001f);
     }
 
-
     [Fact]
     public void Mod_TenThree_ReturnsOne()
     {
@@ -262,7 +257,6 @@ public class CalcTests
         float r = CalcResolver.Resolve("rem(10px, 3px)", 100, DefaultFontSize);
         r.Should().BeApproximately(1f, 0.001f);
     }
-
 
     [Fact]
     public void Calc_With_Sin()
@@ -372,5 +366,42 @@ public class CalcTests
     public void Round_StrategyAndDefaultStep(string expression, float expected)
     {
         CalcResolver.Resolve(expression, 0, DefaultFontSize).Should().BeApproximately(expected, 0.001f);
+    }
+
+    [Theory]
+    [InlineData("round(-2.5)", -2)]
+    [InlineData("round(-25px, 10px)", -20)]
+    [InlineData("round(nearest, 15px, 10px)", 20)]
+    public void Round_NearestTie_RoundsTowardPositiveInfinity(string expression, float expected)
+    {
+        CalcResolver.Resolve(expression, 0, DefaultFontSize).Should().BeApproximately(expected, 0.001f);
+    }
+
+    [Theory]
+    [InlineData("calc(-1 * 10px)", -10)]
+    [InlineData("calc(10px + -5px)", 5)]
+    [InlineData("calc(10px - -5px)", 15)]
+    [InlineData("calc(10px*-1)", -10)]
+    public void Calc_UnarySigns_ApplyToTheNumber(string expression, float expected)
+    {
+        CalcResolver.Resolve(expression, 0, DefaultFontSize).Should().BeApproximately(expected, 0.001f);
+    }
+
+    [Theory]
+    [InlineData("calc(100%-10px)", 100)]
+    [InlineData("calc(10px -5px)", 10)]
+    public void Calc_PlusMinusWithoutSurroundingWhitespace_IsNotSubtraction(string expression, float expected)
+    {
+        CalcResolver.Resolve(expression, 100, DefaultFontSize).Should().BeApproximately(expected, 0.001f);
+    }
+
+    [Theory]
+    [InlineData("calc(1px", 0)]
+    [InlineData("calc(10px *)", 0)]
+    [InlineData("round(,10px)", 0)]
+    [InlineData("log()", 0)]
+    public void MathFunction_Malformed_ReturnsZeroOrTheParsedPrefix(string expression, float expected)
+    {
+        CalcResolver.Resolve(expression, 100, DefaultFontSize).Should().BeApproximately(expected, 0.001f);
     }
 }
