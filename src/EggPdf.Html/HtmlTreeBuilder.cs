@@ -17,6 +17,7 @@ internal class HtmlTreeBuilder
     private readonly Stack<HtmlElement> _openElements = new();
     private HtmlElement? _headElement;
     private HtmlElement? _bodyElement;
+    private bool _ignoreNextLeadingNewline;
     private HtmlTokenizer? _tokenizer;
 
     private static readonly HashSet<string> VoidElements = new(StringComparer.OrdinalIgnoreCase)
@@ -62,6 +63,11 @@ internal class HtmlTreeBuilder
 
     private void ProcessToken(HtmlToken token)
     {
+        bool ignoreLeadingNewline = _ignoreNextLeadingNewline;
+        _ignoreNextLeadingNewline = false;
+        if (ignoreLeadingNewline && token.Type == HtmlTokenType.Character && token.Data != null)
+            token.Data = WithoutLeadingNewline(token.Data);
+
         switch (token.Type)
         {
             case HtmlTokenType.Doctype:
@@ -185,7 +191,19 @@ internal class HtmlTreeBuilder
         if (!VoidElements.Contains(tagName) && !token.SelfClosing)
         {
             _openElements.Push(element);
+            _ignoreNextLeadingNewline = IgnoresLeadingNewline(tagName);
         }
+    }
+
+    private static bool IgnoresLeadingNewline(string tagName) =>
+        string.Equals(tagName, "pre", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(tagName, "listing", StringComparison.OrdinalIgnoreCase);
+
+    private static string WithoutLeadingNewline(string text)
+    {
+        if (text.StartsWith("\r\n", StringComparison.Ordinal)) return text.Substring(2);
+        if (text.Length > 0 && (text[0] == '\n' || text[0] == '\r')) return text.Substring(1);
+        return text;
     }
 
     private void ProcessEndTag(HtmlToken token)
@@ -286,8 +304,11 @@ internal class HtmlTreeBuilder
                 textBuf.Append($"<{token.TagName}>");  // raw text: tags are text
         }
 
-        if (textBuf.Length > 0)
-            element.AppendChild(new HtmlTextNode(textBuf.ToString()));
+        var rawText = textBuf.ToString();
+        if (string.Equals(tagName, "textarea", StringComparison.OrdinalIgnoreCase))
+            rawText = WithoutLeadingNewline(rawText);
+        if (rawText.Length > 0)
+            element.AppendChild(new HtmlTextNode(rawText));
     }
 
     private void EnsureHtmlElement()
