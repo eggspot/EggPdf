@@ -756,6 +756,8 @@ public static partial class HtmlToPdf
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (byte[] raw, PdfImage? image, HtmlElement? svgRoot)>
         DataUriImageCache = new System.Collections.Concurrent.ConcurrentDictionary<string, (byte[], PdfImage?, HtmlElement?)>(StringComparer.Ordinal);
     private const int DataUriImageCacheMaxEntries = 32;
+    private const long DataUriImageCacheMaxBytes = 32L * 1024 * 1024;
+    private static long _dataUriImageCacheBytes;
 
     internal static int ImageCacheHits;
 
@@ -780,11 +782,17 @@ public static partial class HtmlToPdf
                 data = resources.Load(box.ImageSource, Core.Resources.ResourceType.Image);
                 pdfImage = data == null ? null : DecodeImage(box.ImageSource, data);
                 svgRoot = data != null && pdfImage == null ? SvgImages.ParseRoot(data) : null;
-                if (data != null && cacheable)
+                long entryBytes = data == null ? 0 : CachedImageBytes(data, pdfImage);
+                if (data != null && cacheable && entryBytes <= DataUriImageCacheMaxBytes)
                 {
-                    if (DataUriImageCache.Count >= DataUriImageCacheMaxEntries)
+                    if (DataUriImageCache.Count >= DataUriImageCacheMaxEntries ||
+                        System.Threading.Interlocked.Read(ref _dataUriImageCacheBytes) + entryBytes > DataUriImageCacheMaxBytes)
+                    {
                         DataUriImageCache.Clear();
-                    DataUriImageCache.TryAdd(box.ImageSource, (data, pdfImage, svgRoot));
+                        System.Threading.Interlocked.Exchange(ref _dataUriImageCacheBytes, 0);
+                    }
+                    if (DataUriImageCache.TryAdd(box.ImageSource, (data, pdfImage, svgRoot)))
+                        System.Threading.Interlocked.Add(ref _dataUriImageCacheBytes, entryBytes);
                 }
             }
 
@@ -802,6 +810,9 @@ public static partial class HtmlToPdf
         foreach (var child in box.Children)
             ResolveImages(child, pdfDoc, resources);
     }
+
+    private static long CachedImageBytes(byte[] raw, PdfImage? image) =>
+        raw.LongLength + (image == null ? 0 : image.Data.LongLength + (image.SMaskData?.LongLength ?? 0));
 
     private static PdfImage? DecodeImage(string source, byte[] data)
     {

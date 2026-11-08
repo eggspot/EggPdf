@@ -100,7 +100,8 @@ public static partial class BlockLayout
     /// <summary>Layout inline runs as word-level boxes with style-aware wrapping.</summary>
     private static void LayoutInlineRuns(List<InlineRun> runs, LayoutBox box, HtmlElement? wrapperElement,
         ref float inlineX, ref float childY, ref float inlineLineHeight, float containerWidth,
-        ComputedStyle parentStyle, float parentFontSize, FloatContext? floats = null, float floatOriginY = 0f)
+        ComputedStyle parentStyle, float parentFontSize, FloatContext? floats = null, float floatOriginY = 0f,
+        float lineStartX = 0f)
     {
         bool elementAssigned = false;
         bool prevRunTrailingSpace = false;
@@ -122,7 +123,8 @@ public static partial class BlockLayout
         // which don't use float at all), every helper below degenerates to exactly the
         // original flat-width behavior.
         bool floatsActive = floats != null;
-        bool atLineStart = inlineX <= 0f;
+        float lineStart = lineStartX;
+        bool atLineStart = inlineX <= lineStart;
         float absContainerLeft = box.X + box.PaddingLeft;
         float absContainerRight = absContainerLeft + containerWidth;
 
@@ -153,17 +155,19 @@ public static partial class BlockLayout
             if (run.Text == "\n")
             {
                 float lh = TextMeasurer.GetLineHeight(run.FontSize, run.Style.Get("line-height"));
-                if (!(floatsActive ? atLineStart : inlineX <= 0))
+                if (!(floatsActive ? atLineStart : inlineX <= lineStart))
                 {
+                    MarkForcedLineEnd(box);
                     childY += Math.Max(inlineLineHeight, lh);
-                    inlineX = 0;
                     inlineLineHeight = 0;
-                    atLineStart = true;
                 }
                 else
                 {
                     childY += lh;
                 }
+                inlineX = 0;
+                lineStart = 0;
+                atLineStart = true;
                 prevRunTrailingSpace = false;
                 continue;
             }
@@ -241,7 +245,7 @@ public static partial class BlockLayout
                 // A boundary space also comes from the PREVIOUS run's trailing
                 // whitespace ("đến <strong>bản</strong>": the space belongs to the
                 // text run, not the strong run).
-                bool notAtLineStart = floatsActive ? !atLineStart : inlineX > 0;
+                bool notAtLineStart = floatsActive ? !atLineStart : inlineX > lineStart;
                 bool needSpace = notAtLineStart && !joinNoSpace && (!firstWord || run.HasLeadingSpace || prevRunTrailingSpace);
                 var wordText = needSpace ? " " + word : word;
                 float wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
@@ -251,6 +255,7 @@ public static partial class BlockLayout
                 {
                     childY += inlineLineHeight;
                     inlineX = 0;
+                    lineStart = 0;
                     inlineLineHeight = 0;
                     atLineStart = true;
                     inlineX = ApplyLeftInsetIfNeeded(lhRun, inlineX, childY);
@@ -326,6 +331,7 @@ public static partial class BlockLayout
                         {
                             childY += inlineLineHeight > 0 ? inlineLineHeight : lhRun;
                             inlineX = 0;
+                            lineStart = 0;
                             inlineLineHeight = 0;
                             atLineStart = true;
                         }
@@ -380,27 +386,11 @@ public static partial class BlockLayout
         }
     }
 
-
     /// <summary>
-    /// Split a run into words on spaces, then split Thai words at syllable-boundary break
-    /// opportunities. Pieces after the first of a Thai word carry <c>noSpace</c> so they rejoin
+    /// Split a run into words on spaces, then split Thai/Lao/Khmer/Myanmar words at syllable-boundary
+    /// break opportunities. Pieces after the first of such a word carry <c>noSpace</c> so they rejoin
     /// the previous piece without a space.
     /// </summary>
-    private static string[] ExpandSpacelessWords(string[] words, out bool[] noSpace)
-    {
-        var pieces = new List<string>(words.Length + 8);
-        var flags = new List<bool>(words.Length + 8);
-        foreach (var word in words)
-        {
-            if (!EggPdf.Text.SpacelessLineBreaker.Contains(word)) { pieces.Add(word); flags.Add(false); continue; }
-            var segments = EggPdf.Text.SpacelessLineBreaker.Split(word);
-            for (int i = 0; i < segments.Count; i++) { pieces.Add(segments[i]); flags.Add(i > 0); }
-        }
-        noSpace = flags.ToArray();
-        return pieces.ToArray();
-    }
-
-    /// <summary>As <see cref="ExpandSpacelessWords"/> but for one run's text: split on spaces first.</summary>
     private static List<(string word, bool noSpace)> SplitSpacelessWords(string text)
     {
         var pieces = new List<(string, bool)>();
