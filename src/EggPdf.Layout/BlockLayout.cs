@@ -58,6 +58,10 @@ public static partial class BlockLayout
         public float FontSize;
         public bool HasLeadingSpace;
         public bool KeepsSpaces;
+        public float StartInset;
+        public float EndInset;
+        public float StartMargin;
+        public float EndMargin;
     }
 
     /// <summary>

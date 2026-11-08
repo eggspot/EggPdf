@@ -54,8 +54,8 @@ public static partial class BlockLayout
             var style = resolver(elem, parentStyle);
             if (style.Display == "none") return;
             float fontSize = ResolveFontSize(style.FontSize, parentFontSize);
+            int firstRunOfElement = runs.Count;
 
-            // ::before pseudo-element injection for inline elements
             if (TryResolvePseudoContent(elem, "before", style, out var beforeStyle, out var beforeContent))
             {
                 float bfs = ResolveFontSize(beforeStyle!.FontSize, fontSize);
@@ -65,13 +65,64 @@ public static partial class BlockLayout
             foreach (var child in elem.ChildNodes)
                 CollectInlineRuns(child, style, fontSize, resolver, runs);
 
-            // ::after pseudo-element injection for inline elements
             if (TryResolvePseudoContent(elem, "after", style, out var afterStyle, out var afterContent))
             {
                 float afs = ResolveFontSize(afterStyle!.FontSize, fontSize);
                 runs.Add(new InlineRun { Text = afterContent!, Style = afterStyle, Element = null, FontSize = afs, HasLeadingSpace = StartsWithCollapsibleWhitespace(afterContent!) });
             }
+
+            ApplyInlineBoxInsets(runs, firstRunOfElement, style, fontSize);
         }
+    }
+
+    private static void ApplyInlineBoxInsets(List<InlineRun> runs, int firstRunOfElement, ComputedStyle style, float fontSize)
+    {
+        float start = InlineEdgeInset(style, "left", fontSize);
+        float end = InlineEdgeInset(style, "right", fontSize);
+        float startMargin = ResolveLength(style.Get("margin-left"), 0, fontSize);
+        float endMargin = ResolveLength(style.Get("margin-right"), 0, fontSize);
+        if (start <= 0f && end <= 0f && startMargin == 0f && endMargin == 0f) return;
+
+        int first = firstRunOfElement;
+        while (first < runs.Count && runs[first].Text == "\n") first++;
+        int last = runs.Count - 1;
+        while (last >= first && runs[last].Text == "\n") last--;
+        if (first > last) return;
+
+        var firstRun = runs[first];
+        firstRun.StartInset += start;
+        firstRun.StartMargin += startMargin;
+        runs[first] = firstRun;
+        var lastRun = runs[last];
+        lastRun.EndInset += end;
+        lastRun.EndMargin += endMargin;
+        runs[last] = lastRun;
+    }
+
+    private static float InlineEdgeInset(ComputedStyle style, string side, float fontSize)
+    {
+        float inset = Math.Max(0f, ResolveLength(style.Get("padding-" + side), 0, fontSize));
+        var borderStyle = style.Get("border-" + side + "-style");
+        if (!string.IsNullOrEmpty(borderStyle) && borderStyle != "none" && borderStyle != "hidden")
+            inset += Math.Max(0f, ResolveLength(style.Get("border-" + side + "-width") ?? "medium", 0, fontSize));
+        return inset;
+    }
+
+    private static bool PaintsInlineDecoration(ComputedStyle style)
+    {
+        var background = style.Get("background-color");
+        if (!string.IsNullOrEmpty(background) && background != "transparent" && background != "rgba(0, 0, 0, 0)") return true;
+        var backgroundImage = style.Get("background-image");
+        if (!string.IsNullOrEmpty(backgroundImage) && backgroundImage != "none") return true;
+        var decoration = style.Get("text-decoration-line") ?? style.Get("text-decoration");
+        return !string.IsNullOrEmpty(decoration) && decoration != "none";
+    }
+
+    private static bool OnlySpacesFrom(string text, int index)
+    {
+        for (int i = index; i < text.Length; i++)
+            if (text[i] != ' ') return false;
+        return true;
     }
 
     /// <summary>
@@ -255,8 +306,12 @@ public static partial class BlockLayout
                 var wordText = needSpace ? " " + word : word;
                 float wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                 float rightLimit = RightLimit(Math.Max(inlineLineHeight, lhRun), childY);
+                bool lastWord = pieces != null ? pieceIndex >= pieces.Count : OnlySpacesFrom(text, wPos);
+                float leadInset = firstWord ? run.StartInset : 0f;
+                float trailInset = lastWord ? run.EndInset : 0f;
+                if (firstWord) inlineX += run.StartMargin;
 
-                if (!runNoWrap && notAtLineStart && inlineX + wordWidth > rightLimit)
+                if (!runNoWrap && notAtLineStart && inlineX + wordWidth + leadInset + trailInset > rightLimit)
                 {
                     if (joinNoSpace && previousEndsAtSoftHyphen && previousPieceBox != null)
                         AppendVisibleHyphen(previousPieceBox, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
@@ -349,16 +404,25 @@ public static partial class BlockLayout
                     continue;
                 }
 
+                if (firstWord && wordText.Length > word.Length && (leadInset > 0f || PaintsInlineDecoration(run.Style)))
+                {
+                    float wordOnlyWidth = TextMeasurer.MeasureWidth(word, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                    inlineX += wordWidth - wordOnlyWidth;
+                    wordText = word;
+                    wordWidth = wordOnlyWidth;
+                }
+
                 var textBox = new LayoutBox
                 {
                     Element = (!elementAssigned && wrapperElement != null) ? wrapperElement : null,
                     Style = run.Style,
                     InlineLineTop = childY,
                     X = box.X + box.PaddingLeft + inlineX,
-                    // See the chunkBox comment above about box.Y being provisional here.
                     Y = box.Y + box.PaddingTop + childY + baselineShift,
-                    Width = wordWidth,
+                    Width = wordWidth + leadInset + trailInset,
                     Height = lhRun,
+                    PaddingLeft = leadInset,
+                    PaddingRight = trailInset,
                     ContentWidth = wordWidth,
                     ContentHeight = lhRun,
                     Text = wordText
@@ -382,7 +446,7 @@ public static partial class BlockLayout
                 }
 
                 box.Children.Add(textBox);
-                inlineX += wordWidth;
+                inlineX += textBox.Width + (lastWord ? run.EndMargin : 0f);
                 atLineStart = false;
                 if (lhRun > inlineLineHeight)
                     inlineLineHeight = lhRun;

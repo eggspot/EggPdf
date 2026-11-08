@@ -44,6 +44,31 @@ public class InlineTextFlowTests
     }
 
     [Fact]
+    public void InlinePadding_TakesSpaceAndTheBackgroundStartsAfterTheBoundarySpace()
+    {
+        var root = Layout("<p id='p'>a <span id='s' style='padding:0 10px;background:yellow'>b</span> c</p>");
+        var span = root.FindById("s")!;
+        var c = TextBoxes(root.FindById("p")!).First(b => b.Text!.Trim() == "c");
+
+        span.Text.Should().Be("b");
+        span.PaddingLeft.Should().BeApproximately(10, 0.01f);
+        span.PaddingRight.Should().BeApproximately(10, 0.01f);
+        span.Width.Should().BeApproximately(TextMeasurer.MeasureWidth("b", 16, null) + 20, 0.5f);
+        c.X.Should().BeGreaterThanOrEqualTo(span.X + span.Width - 0.01f);
+    }
+
+    [Fact]
+    public void InlineMargin_AdvancesTheLineWithoutWideningTheBox()
+    {
+        var root = Layout("<p id='p'>a<span id='s' style='margin-left:30px'>b</span></p>");
+        var span = root.FindById("s")!;
+        var a = TextBoxes(root.FindById("p")!).First(b => b.Text == "a");
+
+        span.X.Should().BeApproximately(a.X + a.Width + 30, 0.5f);
+        span.PaddingLeft.Should().Be(0);
+    }
+
+    [Fact]
     public void FlexRowItem_DoesNotShrinkBelowItsLongestWord()
     {
         var root = Layout("<div style='display:flex;width:100px'><div id='a'>Supercalifragilistic</div><div style='width:200px'>x</div></div>");
