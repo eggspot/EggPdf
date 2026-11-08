@@ -133,7 +133,7 @@ public static class PageFragmenter
         while (pending.Count > 0)
         {
             var box = pending.Pop();
-            float childOpacity = box.AncestorOpacity * OwnOpacity(box.Style.Get("opacity"));
+            float childOpacity = box.AncestorOpacity * OwnOpacity(box.Style.Get("opacity")) * FilterOpacity(box.Style.Get("filter"));
             foreach (var child in box.Children)
             {
                 child.AncestorOpacity = childOpacity;
@@ -153,6 +153,24 @@ public static class PageFragmenter
             return 1f;
         if (percent) parsed /= 100f;
         return Math.Max(0f, Math.Min(1f, parsed));
+    }
+
+    private static float FilterOpacity(string? filter)
+    {
+        if (string.IsNullOrEmpty(filter)) return 1f;
+        float product = 1f;
+        int searchFrom = 0;
+        while (true)
+        {
+            int start = filter!.IndexOf("opacity(", searchFrom, StringComparison.OrdinalIgnoreCase);
+            if (start < 0) return product;
+            int argumentStart = start + "opacity(".Length;
+            int end = filter.IndexOf(')', argumentStart);
+            if (end < 0) return product;
+            var argument = filter.Substring(argumentStart, end - argumentStart);
+            if (argument.Trim().Length > 0) product *= OwnOpacity(argument);
+            searchFrom = end + 1;
+        }
     }
 
     public static void CollectPageBreaks(LayoutBox box, List<float> breakYs)

@@ -149,8 +149,8 @@ public static partial class BoxPainter
         return result;
     }
 
-    private static string ImageResourceName(string imageSource) =>
-        "Img" + imageSource.GetHashCode().ToString("X8", CultureInfo.InvariantCulture);
+    /// <summary>The PDF image resource name used for an image source (URL, path or data URI); the same in every run.</summary>
+    public static string ImageResourceName(string imageSource) => "Img" + StableHash.Hex(imageSource);
 
     /// <summary>The element id an internal <c>#fragment</c> href targets, percent-decoded like a browser does (<c>#sec%20one</c> -> "sec one"); malformed escapes are used as written.</summary>
     private static string AnchorIdFromHref(string href)

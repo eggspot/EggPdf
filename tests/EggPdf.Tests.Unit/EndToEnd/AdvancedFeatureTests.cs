@@ -548,9 +548,9 @@ public class AdvancedFeatureTests
         var html = "<table><caption>Table Title</caption>" +
                    "<tr><td>Cell</td></tr></table>";
         byte[] pdf = HtmlToPdf.Render(html);
-        var text = PdfAssert.ValidPdf(pdf, "(Table Title) Tj", "(Cell) Tj");
+        var text = PdfAssert.ValidPdf(pdf, "(Table) Tj", "(Cell) Tj");
 
-        PdfAssert.TextPosition(text, "Table Title").Y.Should().BeGreaterThan(PdfAssert.TextPosition(text, "Cell").Y,
+        PdfAssert.TextPosition(text, "Table").Y.Should().BeGreaterThan(PdfAssert.TextPosition(text, "Cell").Y,
             "the caption is placed above the table rows (PDF y grows upward)");
     }
 

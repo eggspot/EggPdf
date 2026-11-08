@@ -81,6 +81,37 @@ public static class SystemFontLocator
         }
     }
 
+    private static readonly string[] FaceSuffixes =
+    {
+        "", "regular", "bold", "italic", "bolditalic", "oblique", "light", "medium", "semibold", "black", "thin",
+        "book", "roman", "b", "i", "z", "bd", "bi", "it",
+    };
+
+    /// <summary>
+    /// True when a font file for exactly this family is installed: its file name is the family name
+    /// (spaces and hyphens ignored) optionally followed by a face suffix such as Regular, Bold or the
+    /// Windows short forms (verdanab, georgiaz). Unlike <see cref="FindFont"/>, a family name that only
+    /// appears inside another family's file name does not count.
+    /// </summary>
+    public static bool HasFamily(string familyName) => HasFamilyIn(GetAllFontFiles(), familyName);
+
+    internal static bool HasFamilyIn(IReadOnlyList<string> files, string familyName)
+    {
+        var family = Normalize(familyName);
+        if (family.Length == 0) return false;
+        foreach (var file in files)
+        {
+            var name = Normalize(Path.GetFileNameWithoutExtension(file));
+            if (!name.StartsWith(family, StringComparison.OrdinalIgnoreCase)) continue;
+            var suffix = name.Substring(family.Length);
+            foreach (var face in FaceSuffixes)
+                if (string.Equals(suffix, face, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    private static string Normalize(string name) => name.Replace(" ", "").Replace("-", "").Replace("_", "");
+
     /// <summary>Find a font file by family name. Returns null if not found.</summary>
     public static string? FindFont(string familyName)
     {

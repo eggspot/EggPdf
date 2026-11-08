@@ -254,6 +254,13 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   synthesized; `<pre>` with inline markup keeps its spaces and line breaks
 - Pagination splits containers between their lines instead of moving them whole, never leaves a
   `<thead>` alone at a page bottom, and leaves room for the repeated header
+- Tables: a real grid model (`rowspan` and `colspan` together, rows with fewer cells after a span),
+  auto column widths from each cell's min-/max-content in its own font, and tables without a width
+  shrink to their content like a browser
+- Installed system fonts (Segoe UI, Verdana, Georgia, Roboto, ...) named in `font-family` are measured
+  with their real metrics and embedded, instead of being replaced by a standard PDF font; `line-height:
+  normal` follows the font's own ascent, descent and line gap; multi-column content longer than a page
+  fills its columns a page at a time
 - Responsive images: `<img srcset>`/`<picture>` and CSS `image-set()` resolve to their best candidate (PDF is treated as a fixed 1x print context)
 - CSS Images Level 4 `image()`: resolves `ltr`/`rtl`-tagged candidates against the element's
   computed direction and paints a trailing `<color>` fallback when no image resolves. `paint()`

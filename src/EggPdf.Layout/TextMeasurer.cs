@@ -24,6 +24,53 @@ public static class TextMeasurer
     [ThreadStatic]
     public static Func<string?, string?, string?, EggPdf.Text.TrueType.FontData?>? FontDataProvider;
 
+    [ThreadStatic]
+    private static Func<string, string?>? _installedFamilyResolver;
+
+    [ThreadStatic]
+    private static Dictionary<(string Family, bool Bold, bool Italic), string>? _installedFontNames;
+
+    /// <summary>
+    /// Given a CSS font-family list, returns the installed system family the text should use (the first
+    /// family that is neither generic nor one of the standard-14 aliases and is installed), or null for the
+    /// standard fonts. Set by the render pipeline for the duration of a render; setting it clears the names
+    /// derived from the previous resolver.
+    /// </summary>
+    public static Func<string, string?>? InstalledFamilyResolver
+    {
+        get => _installedFamilyResolver;
+        set
+        {
+            _installedFamilyResolver = value;
+            _installedFontNames?.Clear();
+        }
+    }
+
+    internal static string? InstalledFontName(string? fontFamily, bool bold, bool italic)
+    {
+        var resolver = _installedFamilyResolver;
+        if (resolver == null || string.IsNullOrEmpty(fontFamily)) return null;
+        _installedFontNames ??= new Dictionary<(string, bool, bool), string>();
+        var key = (fontFamily!, bold, italic);
+        if (_installedFontNames.TryGetValue(key, out var known)) return known.Length == 0 ? null : known;
+
+        var family = resolver(fontFamily!);
+        string name = family == null ? "" : PdfSafeFamilyName(family) + StyleSuffix(bold, italic);
+        _installedFontNames[key] = name;
+        return name.Length == 0 ? null : name;
+    }
+
+    private static string PdfSafeFamilyName(string family)
+    {
+        var safe = new System.Text.StringBuilder(family.Length);
+        foreach (char c in family)
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) safe.Append(c);
+        return safe.Length == 0 ? "Font" : safe.ToString();
+    }
+
+    private static string StyleSuffix(bool bold, bool italic) =>
+        bold && italic ? "-BoldItalic" : bold ? "-Bold" : italic ? "-Italic" : "";
+
     /// <summary>
     /// Optional per-render provider resolving (font-family list, weight, style, text) to a real
     /// font able to shape that text's script (Thai, Indic, Arabic with marks). Consulted only for
@@ -224,8 +271,9 @@ public static class TextMeasurer
     }
 
     /// <summary>
-    /// Line height honouring font metrics for complex-script text: <c>line-height: normal</c> is the
-    /// shaping font's ascent + descent + line gap (as browsers compute it) instead of the fixed 1.2em.
+    /// Line height honouring font metrics: <c>line-height: normal</c> is the font's ascent + descent + line gap
+    /// (as browsers compute it) for complex-script text and for any real font the
+    /// <see cref="FontDataProvider"/> resolves; the built-in standard fonts keep the fixed 1.2em.
     /// Everything else defers to <see cref="GetLineHeight(float, string?)"/>.
     /// </summary>
     public static float GetLineHeight(float fontSize, string? lineHeight,
@@ -235,8 +283,21 @@ public static class TextMeasurer
         {
             var m = ComplexMetrics(fontFamily, fontWeight, fontStyle, text);
             if (m.HasValue) return fontSize * (m.Value.ascent + m.Value.descent + m.Value.lineGap);
+            var normal = NormalLineHeightEm(fontFamily, fontWeight, fontStyle);
+            if (normal.HasValue) return fontSize * normal.Value;
         }
         return GetLineHeight(fontSize, lineHeight);
+    }
+
+    private const float MinNormalLineHeightEm = 0.8f;
+    private const float MaxNormalLineHeightEm = 3f;
+
+    private static float? NormalLineHeightEm(string? fontFamily, string? fontWeight, string? fontStyle)
+    {
+        var fd = FontDataProvider?.Invoke(fontFamily, fontWeight, fontStyle);
+        if (fd == null || fd.UnitsPerEm <= 0 || fd.Ascent <= 0) return null;
+        float em = (fd.Ascent + Math.Abs((float)fd.Descent) + Math.Max(0, fd.LineGap)) / fd.UnitsPerEm;
+        return em >= MinNormalLineHeightEm && em <= MaxNormalLineHeightEm ? em : (float?)null;
     }
 
     /// <summary>Count glyphs (surrogate pairs form one glyph).</summary>

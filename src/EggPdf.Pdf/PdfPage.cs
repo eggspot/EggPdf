@@ -509,6 +509,30 @@ public partial class PdfPage
     /// </summary>
     public void RegisterUsedFont(string fontName) => UsedFonts.Add(fontName);
 
+    private const string StandardFontResourcePrefix = "Std-";
+
+    /// <summary>
+    /// A resource name for one of the 14 standard Type 1 fonts (<c>Helvetica</c>, <c>Times-Bold</c>, ...) that
+    /// can never be taken by an embedded font registered under the same family name, so WinAnsi text drawn
+    /// with it always selects the standard font. Register it with <see cref="RegisterUsedFont"/>.
+    /// </summary>
+    public static string StandardFontResourceName(string baseFont) => StandardFontResourcePrefix + baseFont;
+
+    internal static string StandardFontBaseName(string resourceName)
+    {
+        var name = resourceName.StartsWith(StandardFontResourcePrefix, StringComparison.Ordinal)
+            ? resourceName.Substring(StandardFontResourcePrefix.Length)
+            : resourceName;
+        switch (name)
+        {
+            case "Arial": return "Helvetica";
+            case "Arial-Bold": return "Helvetica-Bold";
+            case "Arial-Italic": return "Helvetica-Oblique";
+            case "Arial-BoldItalic": return "Helvetica-BoldOblique";
+            default: return name;
+        }
+    }
+
     /// <summary>
     /// Mark a graphics state as used on this page without emitting it, for content assembled externally
     /// that selects it with its own <c>gs</c> operator. Names come from <see cref="SeparateOpacityStateName"/>.

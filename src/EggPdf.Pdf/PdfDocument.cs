@@ -319,7 +319,7 @@ public partial class PdfDocument
             {
                 alloc.RecordOffset(kv.Value, writer.Position);
                 writer.WriteLine($"{kv.Value} 0 obj");
-                writer.WriteLine($"<< /Type /Font /Subtype /Type1 /BaseFont /{kv.Key} /Encoding /WinAnsiEncoding >>");
+                writer.WriteLine($"<< /Type /Font /Subtype /Type1 /BaseFont /{PdfPage.StandardFontBaseName(kv.Key)} /Encoding /WinAnsiEncoding >>");
                 writer.WriteLine("endobj");
             }
         }

@@ -16,7 +16,7 @@ public static partial class BoxPainter
     private static void PaintUrlBackground(PdfPage page, LayoutBox box, string url, byte[] data,
         float effectiveX, float pageHeightPx, float adjustedY)
     {
-        string imgName = "BgImg" + url.GetHashCode().ToString("X8", CultureInfo.InvariantCulture);
+        string imgName = "BgImg" + StableHash.Hex(url);
         var pdfImage = PdfImage.FromEncodedImage(imgName, data);
         var svgRoot = pdfImage == null ? SvgImageDocument.ParseRoot(data) : null;
         var svgTile = svgRoot == null ? null : SvgParser.Parse(svgRoot);
