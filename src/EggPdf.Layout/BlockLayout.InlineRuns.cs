@@ -7,7 +7,6 @@ namespace EggPdf.Layout;
 
 public static partial class BlockLayout
 {
-    /// <summary>Collect all text content from an element (no whitespace trimming beyond basic collapse).</summary>
     private static string CollectText(HtmlElement elem)
     {
         var sb = new System.Text.StringBuilder();
@@ -15,7 +14,6 @@ public static partial class BlockLayout
         return sb.ToString().Trim();
     }
 
-    /// <summary>Collect text runs from an inline element tree, preserving style per segment.</summary>
     private static void CollectInlineRuns(HtmlNode node, ComputedStyle parentStyle, float parentFontSize,
         Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, List<InlineRun> runs)
     {
@@ -48,7 +46,6 @@ public static partial class BlockLayout
                 return;
             }
 
-            // <rt> and <rp> are handled by LayoutRubyInline — skip them in normal inline flow
             if (elem.TagName == "rt" || elem.TagName == "rp") return;
 
             var style = resolver(elem, parentStyle);
@@ -122,12 +119,6 @@ public static partial class BlockLayout
         return true;
     }
 
-    /// <summary>
-    /// Resolve a ::before/::after pseudo-element for <paramref name="element"/>: its computed
-    /// style and the text produced by its `content` property. Returns false when no cascade
-    /// context is active, the pseudo-element has no matching rule, or `content` yields nothing; in
-    /// the last case <paramref name="pseudoStyle"/> is still set, so callers can lay out an empty box.
-    /// </summary>
     internal static bool TryResolvePseudoContent(HtmlElement element, string pseudo, ComputedStyle parentStyle,
         out ComputedStyle? pseudoStyle, out string? content)
     {
@@ -149,7 +140,6 @@ public static partial class BlockLayout
         return true;
     }
 
-    /// <summary>Layout inline runs as word-level boxes with style-aware wrapping.</summary>
     private static void LayoutInlineRuns(List<InlineRun> runs, LayoutBox box, HtmlElement? wrapperElement,
         ref float inlineX, ref float childY, ref float inlineLineHeight, float containerWidth,
         ComputedStyle parentStyle, float parentFontSize, FloatContext? floats = null, float floatOriginY = 0f,
@@ -158,30 +148,15 @@ public static partial class BlockLayout
         bool elementAssigned = false;
         bool prevRunTrailingSpace = false;
 
-        // Every word-fragment this call produces belongs to the same wrapperElement (see the
-        // call site in BlockLayout.cs -- one LayoutInlineRuns call per inline child element).
-        // currentSpan accumulates the union rect of fragments on one line; childY changing means
-        // a new line, so it starts a fresh span rather than extending across the line-break gap.
         InlineElementSpan? currentSpan = null;
         float currentSpanLineY = float.NaN;
 
-        // Float-aware wrapping (including shape-outside): when floats are active, the left
-        // inset and right wrap boundary are queried per line at that line's absolute Y
-        // instead of the flat containerWidth used otherwise. atLineStart tracks "nothing
-        // placed on the current line yet" explicitly rather than inferring it from
-        // inlineX > 0, since a float-inset line legitimately starts with inlineX > 0 (the
-        // classic case this whole mechanism exists for: text starting indented beside a
-        // floated image). When floats is null (the overwhelming majority of documents,
-        // which don't use float at all), every helper below degenerates to exactly the
-        // original flat-width behavior.
         bool floatsActive = floats != null;
         float lineStart = lineStartX;
         bool atLineStart = inlineX <= lineStart;
         float absContainerLeft = box.X + box.PaddingLeft;
         float absContainerRight = absContainerLeft + containerWidth;
 
-        // Local functions can't capture the ref parameters inlineX/childY, so the current
-        // value is passed in explicitly and (for the inset) returned back to the caller.
         float RightLimit(float lineHeight, float currentChildY)
         {
             if (!floatsActive) return containerWidth;
@@ -232,19 +207,12 @@ public static partial class BlockLayout
 
             if (text.Length == 0)
             {
-                // A run that normalizes to nothing was pure whitespace -- e.g. the newline +
-                // indentation HTML source formatting often leaves as its own text node between
-                // two sibling inline elements. CSS still collapses that into a single boundary
-                // space, so the NEXT run must still know a space belongs before it (mirrors the
-                // trailing-space bookkeeping below, which this skip would otherwise bypass).
                 char lastRunCharSkip = run.Text.Length > 0 ? run.Text[run.Text.Length - 1] : '\0';
                 prevRunTrailingSpace = lastRunCharSkip != NonBreakingSpace && char.IsWhiteSpace(lastRunCharSkip);
                 continue;
             }
 
-            // Measure the transformed text (uppercase is wider); the paint-time
-            // transform is idempotent so word boxes may carry it too.
-            text = ApplyTextTransformForMeasure(text, run.Style);
+            text =ApplyTextTransformForMeasure(text, run.Style);
 
             var fontFamily = run.Style.FontFamily;
             var fontWeight = run.Style.FontWeight;
@@ -291,13 +259,8 @@ public static partial class BlockLayout
                     wPos = wEnd;
                 }
 
-                // Apply the float-based left inset before measuring/placing, if this is a
-                // fresh, not-yet-indented line (no-op when floats is null).
                 inlineX = ApplyLeftInsetIfNeeded(Math.Max(inlineLineHeight, lhRun), inlineX, childY);
 
-                // A boundary space also comes from the PREVIOUS run's trailing
-                // whitespace ("đến <strong>bản</strong>": the space belongs to the
-                // text run, not the strong run).
                 bool notAtLineStart = floatsActive ? !atLineStart : inlineX > lineStart;
                 bool needSpace = notAtLineStart && !joinNoSpace && (!firstWord || run.HasLeadingSpace || prevRunTrailingSpace);
                 var wordText = needSpace ? " " + word : word;
@@ -318,16 +281,11 @@ public static partial class BlockLayout
                     inlineLineHeight = 0;
                     atLineStart = true;
                     inlineX = ApplyLeftInsetIfNeeded(lhRun, inlineX, childY);
-                    wordText = word; // no space prefix after wrap
+                    wordText = word;
                     wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                     rightLimit = RightLimit(lhRun, childY);
                 }
 
-                // break-all / break-word: a word wider than the line splits into
-                // character chunks that each fit (e.g. long URLs in captions). Uses the
-                // flat containerWidth even when floats are active -- a narrow enough edge
-                // case (long unbreakable text beside a float) that per-chunk float-aware
-                // re-querying isn't worth the added complexity here.
                 if (runBreakWord && wordWidth > containerWidth && wordText.Length > 1)
                 {
                     int start = 0;
@@ -351,12 +309,6 @@ public static partial class BlockLayout
                             Style = run.Style,
                             InlineLineTop = childY,
                             X = box.X + box.PaddingLeft + inlineX,
-                            // box.Y here is often still provisional (0) -- a block's final page
-                            // position is applied by its parent after this recursion returns, so
-                            // a negative shift can leave a momentarily-negative Y. That's fine: the
-                            // parent's later shift brings it back to a valid position except in the
-                            // (rare) case this content is genuinely the very first thing on page 1,
-                            // which PdfRenderer's page-assignment guards against dropping instead.
                             Y = box.Y + box.PaddingTop + childY + baselineShift,
                             Width = chunkWidth,
                             Height = lhRun,

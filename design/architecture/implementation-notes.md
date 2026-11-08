@@ -32,6 +32,35 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 - Checkbox and radio inputs get a fixed 13px native control size with no padding: they are painted
   as a vector square/circle (`BoxPainter.PaintCheckboxOrRadio`), not sized by glyph text.
 
+## EggPdf.Layout/StandardFontMetrics.cs
+
+- Widths are the PDF standard 14 AFM advances in 1/1000 em for WinAnsi 32–126; a no-break space
+  measures as a space, and characters outside the table measure 500.
+- Arial maps to the Helvetica tables: the two are metric-compatible. Arial and Segoe UI resolve to
+  "Arial" so the installed TrueType font gets embedded.
+- With a measurement provider active (web fonts), numeric weights other than 400 and 700 get their
+  own face name (`Arial-W600`), so each weight embeds and paints its matching variant.
+- `ResolveBaseFontName` runs for every measured word, so its result is memoized (capped at 512
+  entries).
+
+## EggPdf.Layout/BlockLayout.InlineRuns.cs
+
+- `<rt>` and `<rp>` are laid out by `LayoutRubyInline`, not by the normal inline flow.
+- `TryResolvePseudoContent` returns false when no cascade is active, no rule matches, or `content`
+  yields nothing; in that last case the style is still returned so callers can lay out an empty box.
+- One `LayoutInlineRuns` call lays out the runs of one inline child element; the element's span
+  rectangle restarts whenever the line (childY) changes.
+- With floats, the left inset and right wrap limit are queried per line at that line's absolute Y.
+  `atLineStart` records "nothing placed on this line yet", because a line beside a float starts with
+  `inlineX > 0`. Without floats every helper reduces to the flat container width.
+- A run that normalizes to nothing (the newline and indentation between two inline elements) still
+  marks a boundary space for the next run. A boundary space also comes from the previous run's
+  trailing whitespace ("đến <strong>bản</strong>").
+- Text is measured after `text-transform` (uppercase is wider); the transform is idempotent, so the
+  word boxes carry the transformed text.
+- A word box's Y is relative to a block whose final position is applied later by its parent, so it
+  can be negative for a moment.
+
 ## EggPdf.Layout/MultiColumnLayout.cs
 
 - With both `column-count` and `column-width`, the count is the maximum and the width lowers it when
