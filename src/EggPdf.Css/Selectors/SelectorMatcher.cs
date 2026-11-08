@@ -164,7 +164,11 @@ public static partial class SelectorMatcher
 
         while (i < len)
         {
-            // Skip inside brackets and parentheses
+            if (selector[i] == '\\')
+            {
+                i = CssStringEscapes.SkipEscape(selector, i);
+                continue;
+            }
             if (selector[i] == '[')
             {
                 i = AfterAttributeSelector(selector, i);
@@ -904,6 +908,11 @@ public static partial class SelectorMatcher
 
         for (int i = 0; i < selector.Length; i++)
         {
+            if (selector[i] == '\\')
+            {
+                i = CssStringEscapes.SkipEscape(selector, i) - 1;
+                continue;
+            }
             if (selector[i] == '[')
             {
                 i = FindAttributeSelectorEnd(selector, i);
@@ -924,14 +933,37 @@ public static partial class SelectorMatcher
 
     private static string ConsumeIdent(string s, ref int i)
     {
-        var sb = new System.Text.StringBuilder();
-        while (i < s.Length && (char.IsLetterOrDigit(s[i]) || s[i] == '-' || s[i] == '_'))
+        int start = i;
+        while (i < s.Length && IsIdentChar(s[i])) i++;
+        if (i >= s.Length || s[i] != '\\' || !IsValidEscapeStart(s, i))
+            return s.Substring(start, i - start);
+
+        var decoded = new System.Text.StringBuilder(s, start, i - start, i - start + 8);
+        while (i < s.Length)
         {
-            sb.Append(s[i]);
-            i++;
+            if (IsIdentChar(s[i]))
+            {
+                decoded.Append(s[i]);
+                i++;
+            }
+            else if (s[i] == '\\' && IsValidEscapeStart(s, i))
+            {
+                i++;
+                CssStringEscapes.AppendEscape(s, ref i, decoded);
+            }
+            else
+            {
+                break;
+            }
         }
-        return sb.ToString();
+        return decoded.ToString();
     }
+
+    private static bool IsIdentChar(char c) =>
+        (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c >= 0x80;
+
+    private static bool IsValidEscapeStart(string s, int backslash) =>
+        backslash + 1 < s.Length && s[backslash + 1] != '\n' && s[backslash + 1] != '\r' && s[backslash + 1] != '\f';
 
     private static string ConsumeUntilCloseParen(string s, ref int i)
     {
@@ -949,6 +981,11 @@ public static partial class SelectorMatcher
         while (i < s.Length)
         {
             char c = s[i];
+            if (c == '\\')
+            {
+                i = CssStringEscapes.SkipEscape(s, i);
+                continue;
+            }
             if (c == '[')
             {
                 i = AfterAttributeSelector(s, i);
@@ -976,6 +1013,11 @@ public static partial class SelectorMatcher
         int i = 0;
         while (i < selector.Length - 1)
         {
+            if (selector[i] == '\\')
+            {
+                i = CssStringEscapes.SkipEscape(selector, i);
+                continue;
+            }
             if (selector[i] == '[')
             {
                 i = AfterAttributeSelector(selector, i);

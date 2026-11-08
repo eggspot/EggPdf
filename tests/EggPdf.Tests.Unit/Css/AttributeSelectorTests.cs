@@ -127,6 +127,36 @@ public class AttributeSelectorTests
         SelectorMatcher.CalculateSpecificity("a[title='x]y'].c").Should().Be((0, 2, 1));
     }
 
+    private static string? ColorFromStylesheet(string bodyHtml, string css)
+    {
+        var doc = HtmlParser.Parse("<html><body>" + bodyHtml + "</body></html>");
+        var element = doc.Body!.ChildNodes.OfType<HtmlElement>().First();
+        var sheet = CssStyleSheetParser.Parse(css);
+        return new CascadeResolver(new[] { sheet }).Resolve(element, null).Color;
+    }
+
+    [Theory]
+    [InlineData("<div data-x='a b'>t</div>", "[data-x=a\\ b] { color: red; }")]
+    [InlineData("<div data-x=\"it's &quot;q&quot;\">t</div>", "[data-x='it\\'s \"q\"'] { color: red; }")]
+    [InlineData("<div data-state='Open'>t</div>", "[data-state='open' i] { color: red; }")]
+    [InlineData("<div class='md:flex'>t</div>", ".md\\:flex { color: red; }")]
+    [InlineData("<div class='w-1/2'>t</div>", ".w-1\\/2 { color: red; }")]
+    [InlineData("<div class='123'>t</div>", ".\\31 23 { color: red; }")]
+    [InlineData("<div id='a:b'>t</div>", "#a\\:b { color: red; }")]
+    [InlineData("<div class='a b'>t</div>", ".a.b { color: red; }")]
+    public void StylesheetSelector_EscapesQuotesAndFlags_RoundTripToTheMatcher(string html, string css)
+    {
+        ColorFromStylesheet(html, css).Should().Be("red");
+    }
+
+    [Theory]
+    [InlineData("<div class='md'>t</div>", ".md\\:flex { color: red; }")]
+    [InlineData("<div class='w-1'>t</div>", ".w-1\\/2 { color: red; }")]
+    public void StylesheetSelector_EscapedClass_DoesNotMatchItsPrefix(string html, string css)
+    {
+        ColorFromStylesheet(html, css).Should().NotBe("red");
+    }
+
     [Fact]
     public void Cascade_QuotedAttributeSelectorRule_Applies()
     {

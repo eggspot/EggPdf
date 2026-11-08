@@ -30,6 +30,35 @@ public static partial class SelectorMatcher
         return s.Length;
     }
 
+    internal static int RightmostCompoundStart(string selector)
+    {
+        int start = 0;
+        int i = 0;
+        while (i < selector.Length)
+        {
+            char c = selector[i];
+            if (c == '\\')
+            {
+                i = CssStringEscapes.SkipEscape(selector, i);
+            }
+            else if (c == '[')
+            {
+                i = AfterAttributeSelector(selector, i);
+            }
+            else if (c == '(')
+            {
+                int closeParen = FindMatchingParen(selector, i + 1);
+                i = closeParen < selector.Length ? closeParen + 1 : selector.Length;
+            }
+            else
+            {
+                if (c == ' ' || c == '>' || c == '+' || c == '~') start = i + 1;
+                i++;
+            }
+        }
+        return start;
+    }
+
     private static int AfterAttributeSelector(string s, int openBracket)
     {
         int end = FindAttributeSelectorEnd(s, openBracket);

@@ -365,7 +365,9 @@ public static class CssStyleSheetParser
             if (t.Type == CssTokenType.Whitespace)
                 selectorParts.Append(' ');
             else if (t.Type == CssTokenType.Hash)
-                selectorParts.Append('#').Append(t.Value ?? "");
+                CssStringEscapes.AppendIdentifier(selectorParts.Append('#'), t.Value ?? "");
+            else if (t.Type == CssTokenType.Ident)
+                CssStringEscapes.AppendIdentifier(selectorParts, t.Value ?? "");
             else if (t.Type == CssTokenType.Function)
                 selectorParts.Append(t.Value ?? "").Append('(');
             else if (t.Type == CssTokenType.String)
