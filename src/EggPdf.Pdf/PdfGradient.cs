@@ -6,108 +6,96 @@ using System.Text;
 namespace EggPdf.Pdf;
 
 /// <summary>
-/// Generates PDF shading patterns for CSS linear-gradient().
-/// Converts CSS gradient syntax to PDF Type 2 (axial) shading.
+/// Paints CSS <c>linear-gradient()</c> and <c>repeating-linear-gradient()</c> backgrounds as PDF
+/// content: thin bands perpendicular to the gradient line, clipped to the box.
 /// </summary>
 public static class PdfGradient
 {
+    private const int MinBands = 32;
+    private const int MaxBands = 256;
+    private const float PointsPerBand = 1.5f;
+
     /// <summary>
-    /// Parse a CSS linear-gradient() value and return PDF content stream commands
-    /// to render it as a filled rectangle with gradient shading.
+    /// Parse a CSS linear-gradient() value and return PDF content stream commands that fill the box
+    /// (PDF points, bottom-left origin) with it, or null when the value is not a valid gradient.
+    /// Translucent stops are drawn opaque; use the overload taking <c>usedExtGStates</c> to keep alpha.
     /// </summary>
-    public static string? RenderLinearGradient(string cssGradient, float x, float y, float width, float height)
+    public static string? RenderLinearGradient(string cssGradient, float x, float y, float width, float height) =>
+        RenderLinearGradient(cssGradient, x, y, width, height, null);
+
+    /// <summary>
+    /// Parse a CSS linear-gradient() value and return PDF content stream commands that fill the box
+    /// (PDF points, bottom-left origin) with it, or null when the value is not a valid gradient.
+    /// Translucent bands select opacity graphics states; their names are added to
+    /// <paramref name="usedExtGStates"/> for the caller to register on the page (see
+    /// <see cref="PdfPage.RegisterUsedExtGState"/>). When it is null, bands are drawn opaque.
+    /// </summary>
+    public static string? RenderLinearGradient(string cssGradient, float x, float y, float width, float height,
+        ICollection<string>? usedExtGStates)
     {
-        if (string.IsNullOrEmpty(cssGradient)) return null;
+        if (string.IsNullOrEmpty(cssGradient) || width <= 0f || height <= 0f) return null;
 
-        // Parse: linear-gradient(direction, color1, color2, ...)
         var inner = cssGradient.Trim();
-        if (inner.StartsWith("linear-gradient(", StringComparison.OrdinalIgnoreCase))
-            inner = inner.Substring(16, inner.Length - 17); // strip "linear-gradient(" and ")"
-        else if (inner.StartsWith("repeating-linear-gradient(", StringComparison.OrdinalIgnoreCase))
-            inner = inner.Substring(26, inner.Length - 27);
-        else
-            return null;
+        bool repeating;
+        if (inner.StartsWith("linear-gradient(", StringComparison.OrdinalIgnoreCase)) repeating = false;
+        else if (inner.StartsWith("repeating-linear-gradient(", StringComparison.OrdinalIgnoreCase)) repeating = true;
+        else return null;
+        int open = inner.IndexOf('(');
+        int close = inner.LastIndexOf(')');
+        if (close <= open) return null;
+        var parts = SplitGradientArgs(inner.Substring(open + 1, close - open - 1));
 
-        // Parse direction and color stops
-        var parts = SplitGradientArgs(inner);
-        if (parts.Count < 2) return null;
-
-        float angle = 180; // default: top to bottom
-        int colorStart = 0;
-
-        // Check if first part is a direction
+        float angleDegrees = 180f;
+        int firstStop = 0;
         var first = parts[0].Trim();
-        if (first.EndsWith("deg", StringComparison.OrdinalIgnoreCase))
+        if (TryParseAngle(first, out float parsedAngle))
         {
-            float.TryParse(first.Replace("deg", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out angle);
-            colorStart = 1;
+            angleDegrees = parsedAngle;
+            firstStop = 1;
         }
         else if (first.StartsWith("to ", StringComparison.OrdinalIgnoreCase))
         {
-            angle = ParseDirection(first);
-            colorStart = 1;
+            angleDegrees = DirectionAngle(first, width, height);
+            firstStop = 1;
         }
 
-        // Parse color stops
-        var stops = new List<(float r, float g, float b, float position)>();
-        int numColors = parts.Count - colorStart;
-        for (int i = colorStart; i < parts.Count; i++)
-        {
-            var stopStr = parts[i].Trim();
-            var (r, g, b) = ParseSimpleColor(stopStr);
-            float pos = numColors > 1 ? (float)(i - colorStart) / (numColors - 1) : 0;
-            stops.Add((r, g, b, pos));
-        }
+        double radians = angleDegrees * Math.PI / 180.0;
+        float sin = (float)Math.Sin(radians), cos = (float)Math.Cos(radians);
+        float lineLength = Math.Abs(width * sin) + Math.Abs(height * cos);
+        if (lineLength <= 0f) return null;
 
-        if (stops.Count < 2) return null;
+        var stops = GradientStops.Parse(parts, firstStop, lineLength);
+        if (stops == null) return null;
 
-        // Calculate gradient axis based on angle (CSS: 0deg = top, 90deg = right, 180deg = bottom)
-        // Convert to math angle: rad = (90 - angle) degrees
-        float rad = (90f - angle) * (float)Math.PI / 180f;
-        float cos = (float)Math.Cos(rad);
-        float sin = (float)Math.Sin(rad);
+        float centerX = x + width / 2f, centerY = y + height / 2f;
+        float reach = (float)Math.Sqrt(width * width + height * height);
+        int bands = Math.Max(MinBands, Math.Min(MaxBands, (int)(lineLength / PointsPerBand)));
+        float bandLength = lineLength / bands;
 
-        // Build PDF content: clip to rect, fill with gradient approximation (N color bands)
         var sb = new StringBuilder();
         sb.AppendOpLine("q");
         sb.AppendOpLine($"{F(x)} {F(y)} {F(width)} {F(height)} re W n");
-
-        // Determine dominant direction
-        bool horizontal = Math.Abs(cos) >= Math.Abs(sin);
-
-        int bands = 40; // more bands = smoother gradient
-        for (int i = 0; i <= bands; i++)
+        sb.AppendOpLine($"{FMatrix(sin)} {FMatrix(cos)} {FMatrix(-cos)} {FMatrix(sin)} {FMatrix(centerX)} {FMatrix(centerY)} cm");
+        string? currentState = null;
+        for (int i = 0; i < bands; i++)
         {
-            float t = (float)i / bands;
-            // Interpolate across all stops using t position
-            var (r, g, b) = InterpolateStops(stops, t);
-
-            float bandX, bandY, bandW, bandH;
-            if (horizontal)
+            float t = (float)i / (bands - 1);
+            var (r, g, b, a) = stops.ColorAt(t, repeating);
+            if (a <= 0f && usedExtGStates != null) continue;
+            if (usedExtGStates != null)
             {
-                // Horizontal: vertical strips varying in X direction
-                bool rightward = cos >= 0;
-                float tBand = rightward ? t : 1f - t;
-                bandX = x + width * tBand;
-                bandY = y;
-                bandW = width / bands + 0.5f;
-                bandH = height;
+                string state = OpacityStateName(a);
+                if (state != currentState)
+                {
+                    if (!usedExtGStates.Contains(state)) usedExtGStates.Add(state);
+                    sb.AppendOpLine($"/{state} gs");
+                    currentState = state;
+                }
             }
-            else
-            {
-                // Vertical: horizontal strips varying in Y direction
-                bool downward = sin <= 0; // In PDF y-axis, sin <= 0 means downward in page coords
-                float tBand = downward ? t : 1f - t;
-                bandX = x;
-                bandY = y + height * tBand;
-                bandW = width;
-                bandH = height / bands + 0.5f;
-            }
-
+            float start = -lineLength / 2f + i * bandLength;
             sb.AppendOpLine($"{F(r)} {F(g)} {F(b)} rg");
-            sb.AppendOpLine($"{F(bandX)} {F(bandY)} {F(bandW)} {F(bandH)} re f");
+            sb.AppendOpLine($"{F(start)} {F(-reach)} {F(bandLength + 0.1f)} {F(2f * reach)} re f");
         }
-
         sb.AppendOpLine("Q");
         return sb.ToString();
     }
@@ -119,38 +107,47 @@ public static class PdfGradient
     public static string? RenderRepeatingRadialGradient(string cssGradient, float x, float y, float width, float height)
     {
         if (string.IsNullOrEmpty(cssGradient)) return null;
-        // Re-map prefix so PdfRadialGradient.Render can parse the color stops
         var remapped = "radial-gradient(" +
             cssGradient.Substring("repeating-radial-gradient(".Length);
         return PdfRadialGradient.Render(remapped, x, y, width, height);
     }
 
-    /// <summary>Interpolate color at position t (0..1) across a multi-stop list.</summary>
-    private static (float r, float g, float b) InterpolateStops(List<(float r, float g, float b, float position)> stops, float t)
-    {
-        if (stops.Count == 1) return (stops[0].r, stops[0].g, stops[0].b);
-        if (t <= stops[0].position) return (stops[0].r, stops[0].g, stops[0].b);
-        if (t >= stops[stops.Count - 1].position) return (stops[stops.Count - 1].r, stops[stops.Count - 1].g, stops[stops.Count - 1].b);
+    private static string OpacityStateName(float alpha) =>
+        "GS" + ((int)Math.Round(Math.Max(0f, Math.Min(1f, alpha)) * 100f)).ToString(CultureInfo.InvariantCulture);
 
-        for (int i = 0; i < stops.Count - 1; i++)
-        {
-            var s0 = stops[i];
-            var s1 = stops[i + 1];
-            if (t >= s0.position && t <= s1.position)
-            {
-                float span = s1.position - s0.position;
-                float local = span > 0 ? (t - s0.position) / span : 0;
-                return (
-                    s0.r + (s1.r - s0.r) * local,
-                    s0.g + (s1.g - s0.g) * local,
-                    s0.b + (s1.b - s0.b) * local
-                );
-            }
-        }
-        return (stops[stops.Count - 1].r, stops[stops.Count - 1].g, stops[stops.Count - 1].b);
+    private static bool TryParseAngle(string value, out float degrees)
+    {
+        degrees = 0f;
+        value = value.Trim().ToLowerInvariant();
+        float factor;
+        string number;
+        if (value.EndsWith("deg", StringComparison.Ordinal)) { factor = 1f; number = value.Substring(0, value.Length - 3); }
+        else if (value.EndsWith("grad", StringComparison.Ordinal)) { factor = 0.9f; number = value.Substring(0, value.Length - 4); }
+        else if (value.EndsWith("rad", StringComparison.Ordinal)) { factor = (float)(180.0 / Math.PI); number = value.Substring(0, value.Length - 3); }
+        else if (value.EndsWith("turn", StringComparison.Ordinal)) { factor = 360f; number = value.Substring(0, value.Length - 4); }
+        else if (value == "0") { return true; }
+        else return false;
+        if (!float.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed)) return false;
+        degrees = parsed * factor;
+        return true;
     }
 
-    private static List<string> SplitGradientArgs(string args)
+    private static float DirectionAngle(string direction, float width, float height)
+    {
+        direction = direction.Trim().ToLowerInvariant();
+        int horizontal = direction.IndexOf("right", StringComparison.Ordinal) >= 0 ? 1
+            : direction.IndexOf("left", StringComparison.Ordinal) >= 0 ? -1 : 0;
+        int vertical = direction.IndexOf("bottom", StringComparison.Ordinal) >= 0 ? 1
+            : direction.IndexOf("top", StringComparison.Ordinal) >= 0 ? -1 : 0;
+        if (horizontal != 0 && vertical != 0)
+            return (float)(Math.Atan2(horizontal * height, -vertical * width) * 180.0 / Math.PI);
+        if (horizontal > 0) return 90f;
+        if (horizontal < 0) return 270f;
+        if (vertical < 0) return 0f;
+        return 180f;
+    }
+
+    internal static List<string> SplitGradientArgs(string args)
     {
         var result = new List<string>();
         int depth = 0;
@@ -169,34 +166,17 @@ public static class PdfGradient
         return result;
     }
 
-    private static float ParseDirection(string dir)
-    {
-        dir = dir.Trim().ToLowerInvariant();
-        if (dir.Contains("top") && dir.Contains("right")) return 45;
-        if (dir.Contains("bottom") && dir.Contains("right")) return 135;
-        if (dir.Contains("bottom") && dir.Contains("left")) return 225;
-        if (dir.Contains("top") && dir.Contains("left")) return 315;
-        if (dir.Contains("top")) return 0;
-        if (dir.Contains("right")) return 90;
-        if (dir.Contains("bottom")) return 180;
-        if (dir.Contains("left")) return 270;
-        return 180;
-    }
-
     internal static (float r, float g, float b) ParseSimpleColor(string color)
     {
-        color = color.Trim();
-        // Strip position hint if present (e.g. "red 20%", "blue 80px")
-        int spaceIdx = color.IndexOf(' ');
-        if (spaceIdx > 0) color = color.Substring(0, spaceIdx);
-
-        // Use the full EggPdf.Core color parser (handles all CSS color formats)
-        var parsed = EggPdf.Core.Color.TryParse(color);
+        var parsed = EggPdf.Core.Color.TryParse(GradientStops.ColorToken(color));
         if (parsed.HasValue)
             return (parsed.Value.R / 255f, parsed.Value.G / 255f, parsed.Value.B / 255f);
 
-        return (0, 0, 0); // fallback: black
+        return (0, 0, 0);
     }
 
     private static string F(float v) => v.ToString("F2", CultureInfo.InvariantCulture);
+
+    private static string FMatrix(float v) =>
+        Math.Abs(v) < 5e-7f ? "0" : v.ToString("0.######", CultureInfo.InvariantCulture);
 }

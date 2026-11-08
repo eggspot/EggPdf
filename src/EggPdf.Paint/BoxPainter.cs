@@ -1152,8 +1152,14 @@ public static partial class BoxPainter
             float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
             float pdfW = box.Width * PdfCoordinates.PxToPt;
             float pdfH = box.Height * PdfCoordinates.PxToPt;
-            var commands = PdfGradient.RenderLinearGradient(bgImage, pdfX, pdfY, pdfW, pdfH);
-            if (commands != null) page.AppendRawContent(commands);
+            var gradientStates = new List<string>();
+            var commands = PdfGradient.RenderLinearGradient(bgImage, pdfX, pdfY, pdfW, pdfH, gradientStates);
+            if (commands != null)
+            {
+                page.AppendRawContent(commands);
+                foreach (var state in gradientStates)
+                    page.RegisterUsedExtGState(state);
+            }
             return;
         }
         if (bgImage.StartsWith("radial-gradient(", StringComparison.OrdinalIgnoreCase))
