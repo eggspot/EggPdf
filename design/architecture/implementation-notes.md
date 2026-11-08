@@ -123,6 +123,20 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 - XML escaping also drops C0 controls other than tab, LF and CR, which XML 1.0 forbids: titles and
   authors come from arbitrary HTML and must not break the packet.
 
+## EggPdf.Pdf/PdfPage.cs
+
+- `AppendOpLine` always ends a line with LF: `StringBuilder.AppendLine` writes `Environment.NewLine`,
+  which would make Windows output differ from Linux for the same input, and the PDFs get hashed
+  and signed.
+- `SetOpacity(1)` still emits a reset state: the `gs` operator persists, so skipping it would leak
+  the previous alpha into later content.
+- Border lines: dashed is 3× the width on and off with butt caps; dotted is a zero-length dash
+  with round caps every 2× the width; double is two lines a third of the width wide with a third
+  between them.
+- Rounded-rectangle radii are clamped to half the width and height; the corners are cubic Béziers
+  with the circle kappa 0.5522847498.
+- Text outside WinAnsi is written as `?` for the standard 14 fonts.
+
 ## EggPdf.Pdf/PdfPrintProduction.cs
 
 - The MediaBox is the trim size plus bleed, plus the crop-mark area when marks are on; the TrimBox is

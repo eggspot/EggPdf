@@ -5,19 +5,11 @@ using System.Text;
 
 namespace EggPdf.Pdf;
 
-/// <summary>
-/// Content-stream helpers that keep PDF output byte-identical across
-/// platforms. StringBuilder.AppendLine emits Environment.NewLine, which would
-/// make Windows output differ from Linux for the same input — unacceptable for
-/// a library whose PDFs get hashed and signed.
-/// </summary>
 internal static class PdfContentStreamExtensions
 {
-    /// <summary>Append a line terminated by a literal LF, never CRLF.</summary>
     public static StringBuilder AppendOpLine(this StringBuilder sb, string value)
         => sb.Append(value).Append('\n');
 
-    /// <summary>Append a literal LF, never CRLF.</summary>
     public static StringBuilder AppendOpLine(this StringBuilder sb)
         => sb.Append('\n');
 }
@@ -70,7 +62,6 @@ public partial class PdfPage
         ContentStream.Append($"{F(letterSpacing)} Tc ");
         ContentStream.Append($"{F(wordSpacing)} Tw ");
         ContentStream.Append($"{F(x)} {F(y)} Td ");
-        // Encode glyph IDs as hex string: <001A002B003C>
         ContentStream.Append('<');
         foreach (var gid in glyphIds)
             ContentStream.Append(gid.ToString("X4"));
@@ -193,39 +184,33 @@ public partial class PdfPage
         switch (borderStyle)
         {
             case "dashed":
-                // Dash pattern: 3x line width on, 3x off
                 float dashLen = lineWidth * 3;
                 ContentStream.AppendOpLine($"[{F(dashLen)} {F(dashLen)}] 0 d");
-                ContentStream.AppendOpLine("0 J"); // butt cap
+                ContentStream.AppendOpLine(ButtCap);
                 ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
-                ContentStream.AppendOpLine("[] 0 d"); // reset dash
+                ContentStream.AppendOpLine(SolidDash);
                 break;
 
             case "dotted":
-                // Dotted: round cap with 0-length dash
                 ContentStream.AppendOpLine($"[0 {F(lineWidth * 2)}] 0 d");
-                ContentStream.AppendOpLine("1 J"); // round cap
+                ContentStream.AppendOpLine(RoundCap);
                 ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
-                ContentStream.AppendOpLine("[] 0 d"); // reset dash
-                ContentStream.AppendOpLine("0 J"); // reset cap
+                ContentStream.AppendOpLine(SolidDash);
+                ContentStream.AppendOpLine(ButtCap);
                 break;
 
             case "double":
             {
-                // Double: two lines at 1/3 width with 1/3 gap
                 float third = lineWidth / 3;
                 if (third < 0.5f) third = 0.5f;
                 ContentStream.AppendOpLine($"{F(third)} w");
 
-                // Calculate perpendicular offset for the two lines
                 float dx = x2 - x1, dy = y2 - y1;
                 float len = (float)Math.Sqrt(dx * dx + dy * dy);
                 if (len < 0.001f) break;
                 float nx = -dy / len * third, ny = dx / len * third;
 
-                // First line (offset outward)
                 ContentStream.AppendOpLine($"{F(x1 + nx)} {F(y1 + ny)} m {F(x2 + nx)} {F(y2 + ny)} l S");
-                // Second line (offset inward)
                 ContentStream.AppendOpLine($"{F(x1 - nx)} {F(y1 - ny)} m {F(x2 - nx)} {F(y2 - ny)} l S");
                 break;
             }
@@ -233,7 +218,6 @@ public partial class PdfPage
             case "groove":
             case "ridge":
             {
-                // 3D effect: two half-width lines with lighter/darker colors
                 float half = lineWidth / 2;
                 if (half < 0.5f) half = 0.5f;
 
@@ -260,7 +244,6 @@ public partial class PdfPage
             case "inset":
             case "outset":
             {
-                // Inset/outset: simple color adjustment
                 bool darken = borderStyle == "inset";
                 float adjR = darken ? r * 0.6f : Math.Min(r * 1.4f, 1f);
                 float adjG = darken ? g * 0.6f : Math.Min(g * 1.4f, 1f);
@@ -270,7 +253,7 @@ public partial class PdfPage
                 break;
             }
 
-            default: // solid
+            default:
                 ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
                 break;
         }
@@ -281,14 +264,6 @@ public partial class PdfPage
         float r, float g, float b,
         float tlr, float trr, float brr, float blr)
     {
-        // Clamp radii to half dimensions
-        float maxRadiusW = w / 2f;
-        float maxRadiusH = h / 2f;
-        tlr = Math.Min(tlr, Math.Min(maxRadiusW, maxRadiusH));
-        trr = Math.Min(trr, Math.Min(maxRadiusW, maxRadiusH));
-        brr = Math.Min(brr, Math.Min(maxRadiusW, maxRadiusH));
-        blr = Math.Min(blr, Math.Min(maxRadiusW, maxRadiusH));
-
         ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} rg");
         AppendRoundedRectPath(x, y, w, h, tlr, trr, brr, blr);
         ContentStream.AppendOpLine("h f");
@@ -300,9 +275,7 @@ public partial class PdfPage
     /// </summary>
     public void AddRoundedClip(float x, float y, float w, float h, float tlr, float trr, float brr, float blr)
     {
-        float maxRadius = Math.Min(w / 2f, h / 2f);
-        AppendRoundedRectPath(x, y, w, h, Math.Min(tlr, maxRadius), Math.Min(trr, maxRadius),
-            Math.Min(brr, maxRadius), Math.Min(blr, maxRadius));
+        AppendRoundedRectPath(x, y, w, h, tlr, trr, brr, blr);
         ContentStream.AppendOpLine("h W n");
     }
 
@@ -311,64 +284,51 @@ public partial class PdfPage
         float r, float g, float b, float lineWidth,
         float tlr, float trr, float brr, float blr)
     {
-        // Clamp radii to half dimensions
-        float maxRadiusW = w / 2f;
-        float maxRadiusH = h / 2f;
-        tlr = Math.Min(tlr, Math.Min(maxRadiusW, maxRadiusH));
-        trr = Math.Min(trr, Math.Min(maxRadiusW, maxRadiusH));
-        brr = Math.Min(brr, Math.Min(maxRadiusW, maxRadiusH));
-        blr = Math.Min(blr, Math.Min(maxRadiusW, maxRadiusH));
-
         ContentStream.AppendOpLine($"{F(lineWidth)} w");
         ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} RG");
         AppendRoundedRectPath(x, y, w, h, tlr, trr, brr, blr);
         ContentStream.AppendOpLine("h S");
     }
 
-    /// <summary>Appends the rounded rectangle path operators (m, l, c) to the content stream.</summary>
+    private const string ButtCap = "0 J";
+    private const string RoundCap = "1 J";
+    private const string SolidDash = "[] 0 d";
+    private const float BezierCircleKappa = 0.5522847498f;
+
     private void AppendRoundedRectPath(float x, float y, float w, float h,
         float tlr, float trr, float brr, float blr)
     {
-        // Kappa constant for approximating quarter-circle arcs with cubic Bézier curves
-        const float k = 0.5522847498f;
+        float maxRadius = Math.Min(w / 2f, h / 2f);
+        tlr = Math.Min(tlr, maxRadius);
+        trr = Math.Min(trr, maxRadius);
+        brr = Math.Min(brr, maxRadius);
+        blr = Math.Min(blr, maxRadius);
+        const float k = BezierCircleKappa;
 
-        // PDF coordinate system: Y increases upward
-        // Start at top-left corner (after TL radius), go clockwise
-
-        // Move to start of top edge (after TL radius)
         ContentStream.AppendOpLine($"{F(x + tlr)} {F(y + h)} m");
-
-        // Top edge line to start of TR radius
         ContentStream.AppendOpLine($"{F(x + w - trr)} {F(y + h)} l");
 
-        // TR corner curve
         if (trr > 0)
             ContentStream.AppendOpLine($"{F(x + w - trr + trr * k)} {F(y + h)} {F(x + w)} {F(y + h - trr + trr * k)} {F(x + w)} {F(y + h - trr)} c");
         else
             ContentStream.AppendOpLine($"{F(x + w)} {F(y + h)} l");
 
-        // Right edge line to start of BR radius
         ContentStream.AppendOpLine($"{F(x + w)} {F(y + brr)} l");
 
-        // BR corner curve
         if (brr > 0)
             ContentStream.AppendOpLine($"{F(x + w)} {F(y + brr - brr * k)} {F(x + w - brr + brr * k)} {F(y)} {F(x + w - brr)} {F(y)} c");
         else
             ContentStream.AppendOpLine($"{F(x + w)} {F(y)} l");
 
-        // Bottom edge line to start of BL radius
         ContentStream.AppendOpLine($"{F(x + blr)} {F(y)} l");
 
-        // BL corner curve
         if (blr > 0)
             ContentStream.AppendOpLine($"{F(x + blr - blr * k)} {F(y)} {F(x)} {F(y + blr - blr * k)} {F(x)} {F(y + blr)} c");
         else
             ContentStream.AppendOpLine($"{F(x)} {F(y)} l");
 
-        // Left edge line to start of TL radius
         ContentStream.AppendOpLine($"{F(x)} {F(y + h - tlr)} l");
 
-        // TL corner curve
         if (tlr > 0)
             ContentStream.AppendOpLine($"{F(x)} {F(y + h - tlr + tlr * k)} {F(x + tlr - tlr * k)} {F(y + h)} {F(x + tlr)} {F(y + h)} c");
         else
@@ -378,8 +338,6 @@ public partial class PdfPage
     /// <summary>Set fill and stroke opacity (0.0-1.0). Creates an ExtGState reference.</summary>
     public void SetOpacity(float opacity)
     {
-        // SetOpacity(1) must EMIT a reset state — the gs operator persists, so
-        // silently skipping it leaks the previous alpha into later content.
         if (opacity > 1.0f) opacity = 1.0f;
         if (opacity < 0f) opacity = 0f;
         var gsName = $"GS{(int)(opacity * 100)}";
@@ -634,8 +592,6 @@ public partial class PdfPage
 
             case "wavy":
             {
-                // Approximate wavy line with a cubic Bezier sine curve.
-                // Wave period = 4 × lineWidth; amplitude = lineWidth.
                 float amplitude = Math.Max(lineWidth * 1.5f, 0.5f);
                 float period = Math.Max(amplitude * 4f, 2f);
                 ContentStream.AppendOpLine($"{F(lineWidth)} w");
@@ -648,7 +604,6 @@ public partial class PdfPage
                     float segEnd = Math.Min(x + period, x2);
                     float halfPeriod = (segEnd - x) / 2f;
                     float cy = up ? y1 + amplitude : y1 - amplitude;
-                    // Two control points at 1/4 and 3/4 of segment
                     float cp1x = x + halfPeriod * 0.5f;
                     float cp2x = x + halfPeriod * 1.5f;
                     float midX = x + halfPeriod;
@@ -657,7 +612,6 @@ public partial class PdfPage
                     x = midX;
                     up = !up;
                     if (segEnd >= x2) break;
-                    // Second half of wave
                     cy = up ? y1 + amplitude : y1 - amplitude;
                     float segEnd2 = Math.Min(x + halfPeriod, x2);
                     float cp3x = x + (segEnd2 - x) * 0.5f;
@@ -731,54 +685,50 @@ public partial class PdfPage
             }
             else
             {
-                // Map Unicode to WinAnsiEncoding byte
                 byte b = MapToWinAnsi(c);
                 if (b >= 32)
                     sb.Append((char)b);
                 else
-                    sb.Append('?'); // unmappable
+                    sb.Append('?');
             }
         }
     }
 
-    /// <summary>Map common Unicode characters to WinAnsiEncoding byte values.</summary>
     private static byte MapToWinAnsi(char c)
     {
-        // Characters that map directly (Latin-1 Supplement, 0x80-0xFF)
         if (c >= 0xA0 && c <= 0xFF)
             return (byte)c;
 
-        // Common special characters in WinAnsiEncoding
         switch (c)
         {
-            case '\u2022': return 0x95; // bullet •
-            case '\u2013': return 0x96; // en-dash –
-            case '\u2014': return 0x97; // em-dash —
-            case '\u2018': return 0x91; // left single quote '
-            case '\u2019': return 0x92; // right single quote '
-            case '\u201C': return 0x93; // left double quote "
-            case '\u201D': return 0x94; // right double quote "
-            case '\u2026': return 0x85; // ellipsis …
-            case '\u2020': return 0x86; // dagger †
-            case '\u2021': return 0x87; // double dagger ‡
-            case '\u2030': return 0x89; // per mille ‰
-            case '\u2039': return 0x8B; // single left angle ‹
-            case '\u203A': return 0x9B; // single right angle ›
-            case '\u0152': return 0x8C; // OE ligature Œ
-            case '\u0153': return 0x9C; // oe ligature œ
-            case '\u0160': return 0x8A; // S caron Š
-            case '\u0161': return 0x9A; // s caron š
-            case '\u0178': return 0x9F; // Y diaeresis Ÿ
-            case '\u0192': return 0x83; // f hook ƒ
-            case '\u02C6': return 0x88; // circumflex ˆ
-            case '\u02DC': return 0x98; // tilde ˜
-            case '\u2122': return 0x99; // trademark ™
+            case '\u2022': return 0x95;
+            case '\u2013': return 0x96;
+            case '\u2014': return 0x97;
+            case '\u2018': return 0x91;
+            case '\u2019': return 0x92;
+            case '\u201C': return 0x93;
+            case '\u201D': return 0x94;
+            case '\u2026': return 0x85;
+            case '\u2020': return 0x86;
+            case '\u2021': return 0x87;
+            case '\u2030': return 0x89;
+            case '\u2039': return 0x8B;
+            case '\u203A': return 0x9B;
+            case '\u0152': return 0x8C;
+            case '\u0153': return 0x9C;
+            case '\u0160': return 0x8A;
+            case '\u0161': return 0x9A;
+            case '\u0178': return 0x9F;
+            case '\u0192': return 0x83;
+            case '\u02C6': return 0x88;
+            case '\u02DC': return 0x98;
+            case '\u2122': return 0x99;
             case (char)0x20AC: return 0x80;
             case (char)0x201A: return 0x82;
             case (char)0x201E: return 0x84;
             case (char)0x017D: return 0x8E;
             case (char)0x017E: return 0x9E;
-            default: return (byte)'?'; // unmappable
+            default: return (byte)'?';
         }
     }
 }
