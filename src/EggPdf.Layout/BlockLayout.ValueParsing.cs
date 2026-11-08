@@ -118,6 +118,14 @@ public static partial class BlockLayout
         return true;
     }
 
+    private static bool SuppressesLineWrap(ComputedStyle style)
+    {
+        var whiteSpace = style.Get("white-space");
+        if (whiteSpace == "nowrap" || whiteSpace == "pre") return true;
+        var wrapMode = style.Get("text-wrap-mode") ?? style.Get("text-wrap");
+        return wrapMode == "nowrap";
+    }
+
     private static bool StartsWithCollapsibleWhitespace(string s) => s.Length > 0 && IsCollapsibleWhitespace(s[0]);
 
     private static bool EndsWithCollapsibleWhitespace(string s) => s.Length > 0 && IsCollapsibleWhitespace(s[s.Length - 1]);
