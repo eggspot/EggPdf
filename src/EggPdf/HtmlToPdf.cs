@@ -781,6 +781,8 @@ public static partial class HtmlToPdf
                     var pdfImage = DecodeImage(box.ImageSource, data);
                     if (pdfImage != null)
                         pdfDoc.AddImage(pdfImage);
+                    else
+                        resources.WarnImageNotDecoded(box.ImageSource);
 
                     if (cacheable)
                     {
@@ -798,32 +800,8 @@ public static partial class HtmlToPdf
 
     private static PdfImage? DecodeImage(string source, byte[] data)
     {
-        string imgName = "Img" + source.GetHashCode().ToString("X8");
-
-        if (data.Length >= 8 &&
-            data[0] == 137 && data[1] == 80 && data[2] == 78 && data[3] == 71 &&
-            data[4] == 13 && data[5] == 10 && data[6] == 26 && data[7] == 10)
-        {
-            return PdfImage.FromPng(imgName, data);
-        }
-        if (data.Length >= 2 && data[0] == 0xFF && data[1] == 0xD8)
-        {
-            return PdfImage.FromJpeg(imgName, data);
-        }
-        if (data.Length >= 4 &&
-            data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x38)
-        {
-            return PdfImage.FromGif(imgName, data);
-        }
-        if (data.Length >= 2 && data[0] == 0x42 && data[1] == 0x4D)
-        {
-            return PdfImage.FromBmp(imgName, data);
-        }
-        if (WebPDecoder.IsWebP(data))
-        {
-            return PdfImage.FromWebP(imgName, data);
-        }
-        return null;
+        string imgName = "Img" + source.GetHashCode().ToString("X8", CultureInfo.InvariantCulture);
+        return PdfImage.FromEncodedImage(imgName, data);
     }
 
     private static void SubsetAndEmbedFonts(IReadOnlyList<LayoutBox> roots, PdfDocument pdfDoc,

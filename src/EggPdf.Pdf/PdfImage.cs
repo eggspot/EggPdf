@@ -123,6 +123,27 @@ public class PdfImage
             return FromRgb(name, result.Width, result.Height, result.PixelData);
     }
 
+    /// <summary>
+    /// Create an image from an encoded image file, detecting PNG, JPEG, GIF, BMP or WebP from its
+    /// leading bytes. Returns null when the format is not one of these or the data can't be decoded.
+    /// </summary>
+    public static PdfImage? FromEncodedImage(string name, byte[] data)
+    {
+        if (data == null) return null;
+        if (data.Length >= 8 && data[0] == 137 && data[1] == 80 && data[2] == 78 && data[3] == 71 &&
+            data[4] == 13 && data[5] == 10 && data[6] == 26 && data[7] == 10)
+            return FromPng(name, data);
+        if (data.Length >= 2 && data[0] == 0xFF && data[1] == 0xD8)
+            return FromJpeg(name, data);
+        if (data.Length >= 4 && data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x38)
+            return FromGif(name, data);
+        if (data.Length >= 2 && data[0] == 0x42 && data[1] == 0x4D)
+            return FromBmp(name, data);
+        if (WebPDecoder.IsWebP(data))
+            return FromWebP(name, data);
+        return null;
+    }
+
     /// <summary>Create image from BMP data (decoded to RGB or RGBA).</summary>
     public static PdfImage? FromBmp(string name, byte[] bmpData)
     {
