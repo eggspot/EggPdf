@@ -76,7 +76,7 @@ public class BasicStyleResolver
         ["tfoot"] = new() { ["display"] = "table-footer-group" },
         ["tr"] = new() { ["display"] = "table-row" },
         ["td"] = new() { ["display"] = "table-cell", ["padding-top"] = "1px", ["padding-right"] = "1px", ["padding-bottom"] = "1px", ["padding-left"] = "1px" },
-        ["th"] = new() { ["display"] = "table-cell", ["font-weight"] = "bold", ["padding-top"] = "1px", ["padding-right"] = "1px", ["padding-bottom"] = "1px", ["padding-left"] = "1px" },
+        ["th"] = new() { ["display"] = "table-cell", ["font-weight"] = "bold", ["text-align"] = "center", ["padding-top"] = "1px", ["padding-right"] = "1px", ["padding-bottom"] = "1px", ["padding-left"] = "1px" },
         ["caption"] = new() { ["display"] = "table-caption", ["text-align"] = "center" },
         ["img"] = new() { ["display"] = "inline" },
         ["br"] = new() { ["display"] = "inline" },
@@ -89,6 +89,20 @@ public class BasicStyleResolver
         ["center"] = new() { ["display"] = "block", ["text-align"] = "center" },
         ["figure"] = new() { ["display"] = "block", ["margin-top"] = "1em", ["margin-bottom"] = "1em", ["margin-left"] = "40px", ["margin-right"] = "40px" },
         ["figcaption"] = new() { ["display"] = "block" },
+        ["dl"] = new() { ["display"] = "block", ["margin-top"] = "1em", ["margin-bottom"] = "1em" },
+        ["dt"] = new() { ["display"] = "block" },
+        ["dd"] = new() { ["display"] = "block", ["margin-left"] = "40px" },
+        ["menu"] = new() { ["display"] = "block", ["margin-top"] = "1em", ["margin-bottom"] = "1em", ["padding-left"] = "40px", ["list-style-type"] = "disc" },
+        ["dir"] = new() { ["display"] = "block", ["margin-top"] = "1em", ["margin-bottom"] = "1em", ["padding-left"] = "40px", ["list-style-type"] = "disc" },
+        ["listing"] = new() { ["display"] = "block", ["font-family"] = "monospace", ["white-space"] = "pre", ["margin-top"] = "1em", ["margin-bottom"] = "1em" },
+        ["xmp"] = new() { ["display"] = "block", ["font-family"] = "monospace", ["white-space"] = "pre", ["margin-top"] = "1em", ["margin-bottom"] = "1em" },
+        ["plaintext"] = new() { ["display"] = "block", ["font-family"] = "monospace", ["white-space"] = "pre", ["margin-top"] = "1em", ["margin-bottom"] = "1em" },
+        ["hgroup"] = new() { ["display"] = "block" },
+        ["search"] = new() { ["display"] = "block" },
+        ["strike"] = new() { ["text-decoration"] = "line-through" },
+        ["tt"] = new() { ["font-family"] = "monospace" },
+        ["big"] = new() { ["font-size"] = "larger" },
+        ["nobr"] = new() { ["white-space"] = "nowrap" },
         // Semantic / interactive
         ["dialog"] = new() { ["display"] = "block", ["position"] = "absolute", ["background-color"] = "white", ["border-top-width"] = "2px", ["border-right-width"] = "2px", ["border-bottom-width"] = "2px", ["border-left-width"] = "2px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid", ["padding-top"] = "1em", ["padding-right"] = "1em", ["padding-bottom"] = "1em", ["padding-left"] = "1em" },
         ["details"] = new() { ["display"] = "block" },
@@ -301,10 +315,16 @@ public class BasicStyleResolver
         }
     }
 
-    /// <summary>
-    /// Apply legacy HTML presentational attributes as CSS equivalents.
-    /// These have the lowest priority -- any stylesheet or inline style overrides them.
-    /// </summary>
+    private static void ApplyAlignAttribute(HtmlElement element, string align, ComputedStyle style)
+    {
+        if (element.TagName == "caption" && (align == "top" || align == "bottom"))
+        {
+            style.Set("caption-side", align);
+            return;
+        }
+        style.Set("text-align", align);
+    }
+
     private static void ApplyPresentationalAttributes(HtmlElement element, ComputedStyle style)
     {
         // width / height attributes (img, table, td, th, col)
@@ -325,10 +345,9 @@ public class BasicStyleResolver
         if (!string.IsNullOrEmpty(bgcolor) && !style.Has("background-color"))
             style.Set("background-color", bgcolor);
 
-        // align
         var align = element.GetAttribute("align");
-        if (!string.IsNullOrEmpty(align) && !style.Has("text-align"))
-            style.Set("text-align", align.ToLowerInvariant());
+        if (!string.IsNullOrEmpty(align))
+            ApplyAlignAttribute(element, align.Trim().ToLowerInvariant(), style);
 
         // valign
         var valign = element.GetAttribute("valign");
