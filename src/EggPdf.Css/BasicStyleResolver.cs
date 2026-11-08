@@ -11,7 +11,6 @@ namespace EggPdf.Css;
 /// </summary>
 public partial class BasicStyleResolver
 {
-    // Inherited properties (child inherits from parent if not explicitly set)
     private static readonly HashSet<string> InheritedProperties = new(StringComparer.OrdinalIgnoreCase)
     {
         "color", "font-family", "font-size", "font-weight", "font-style",
@@ -31,7 +30,6 @@ public partial class BasicStyleResolver
         "hanging-punctuation"
     };
 
-    // UA defaults per element
     private static readonly Dictionary<string, Dictionary<string, string>> UaDefaults = new(StringComparer.OrdinalIgnoreCase)
     {
         ["html"] = new() { ["display"] = "block" },
@@ -104,11 +102,9 @@ public partial class BasicStyleResolver
         ["tt"] = new() { ["font-family"] = "monospace" },
         ["big"] = new() { ["font-size"] = "larger" },
         ["nobr"] = new() { ["white-space"] = "nowrap" },
-        // Semantic / interactive
         ["dialog"] = new() { ["display"] = "block", ["position"] = "absolute", ["background-color"] = "white", ["border-top-width"] = "2px", ["border-right-width"] = "2px", ["border-bottom-width"] = "2px", ["border-left-width"] = "2px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid", ["padding-top"] = "1em", ["padding-right"] = "1em", ["padding-bottom"] = "1em", ["padding-left"] = "1em" },
         ["details"] = new() { ["display"] = "block" },
         ["summary"] = new() { ["display"] = "list-item", ["cursor"] = "default" },
-        // Inline semantic
         ["q"] = new() { ["display"] = "inline" },
         ["cite"] = new() { ["display"] = "inline", ["font-style"] = "italic" },
         ["dfn"] = new() { ["display"] = "inline", ["font-style"] = "italic" },
@@ -118,17 +114,15 @@ public partial class BasicStyleResolver
         ["meter"] = new() { ["display"] = "inline-block", ["width"] = "5em", ["height"] = "1em", ["border-top-width"] = "1px", ["border-right-width"] = "1px", ["border-bottom-width"] = "1px", ["border-left-width"] = "1px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid" },
         ["progress"] = new() { ["display"] = "inline-block", ["width"] = "10em", ["height"] = "1em", ["border-top-width"] = "1px", ["border-right-width"] = "1px", ["border-bottom-width"] = "1px", ["border-left-width"] = "1px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid" },
         ["output"] = new() { ["display"] = "inline" },
-        // Ruby annotation elements
         ["ruby"] = new() { ["display"] = "inline" },
         ["rt"] = new() { ["display"] = "inline", ["font-size"] = "0.5em", ["line-height"] = "1" },
-        ["rp"] = new() { ["display"] = "none" }, // fallback parens hidden when ruby is supported
+        ["rp"] = new() { ["display"] = "none" },
         ["rb"] = new() { ["display"] = "inline" },
         ["rtc"] = new() { ["display"] = "inline", ["font-size"] = "0.5em" },
         ["datalist"] = new() { ["display"] = "none" },
         ["template"] = new() { ["display"] = "none" },
         ["wbr"] = new() { ["display"] = "inline" },
         ["noscript"] = new() { ["display"] = "inline" },
-        // Form elements
         ["form"] = new() { ["display"] = "block" },
         ["input"] = new() { ["display"] = "inline-block", ["border-top-width"] = "1px", ["border-right-width"] = "1px", ["border-bottom-width"] = "1px", ["border-left-width"] = "1px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid", ["padding-top"] = "2px", ["padding-right"] = "4px", ["padding-bottom"] = "2px", ["padding-left"] = "4px", ["min-height"] = "1.4em" },
         ["textarea"] = new() { ["display"] = "block", ["border-top-width"] = "1px", ["border-right-width"] = "1px", ["border-bottom-width"] = "1px", ["border-left-width"] = "1px", ["border-top-style"] = "solid", ["border-right-style"] = "solid", ["border-bottom-style"] = "solid", ["border-left-style"] = "solid", ["padding-top"] = "2px", ["padding-right"] = "4px", ["padding-bottom"] = "2px", ["padding-left"] = "4px", ["font-family"] = "monospace", ["white-space"] = "pre-wrap" },
@@ -145,94 +139,14 @@ public partial class BasicStyleResolver
     public ComputedStyle Resolve(HtmlElement element, ComputedStyle? parentStyle)
     {
         var style = new ComputedStyle();
-
-        // 1. Apply UA defaults
-        if (UaDefaults.TryGetValue(element.TagName, out var defaults))
-        {
-            foreach (var kv in defaults)
-                style.Set(kv.Key, kv.Value);
-        }
-
-        // 1a. checkbox/radio: fixed native control size, no padding -- painted as a real
-        // vector square/circle (see BoxPainter.PaintCheckboxOrRadio), not sized by glyph text.
-        if (element.TagName == "input")
-        {
-            var inputType = (element.GetAttribute("type") ?? "text").ToLowerInvariant();
-            if (inputType == "checkbox" || inputType == "radio")
-            {
-                style.Set("width", "13px");
-                style.Set("height", "13px");
-                style.Set("min-height", "0px");
-                style.Set("padding-top", "0px");
-                style.Set("padding-right", "0px");
-                style.Set("padding-bottom", "0px");
-                style.Set("padding-left", "0px");
-                style.Set("border-color", "#767676");
-                if (inputType == "radio")
-                    style.Set("border-radius", "50%");
-            }
-        }
-
-        // Default display for unknown elements
-        if (!style.Has("display"))
-            style.Set("display", "inline");
-
-        // 1b. Apply HTML presentational attributes (lowest priority, below UA)
+        ApplyUserAgentDefaults(element, style);
         ApplyPresentationalAttributes(element, style);
-
-        // 2. Inherit from parent
         if (parentStyle != null)
-        {
-            foreach (var prop in InheritedProperties)
-            {
-                if (!style.Has(prop))
-                {
-                    var parentVal = parentStyle.Get(prop);
-                    if (parentVal != null)
-                        style.Set(prop, parentVal);
-                }
-            }
-
-            // Inherit custom properties (all custom properties inherit per CSS spec)
-            foreach (var kv in parentStyle.All)
-            {
-                if (CssVariableResolver.IsCustomProperty(kv.Key) && !style.Has(kv.Key))
-                    style.Set(kv.Key, kv.Value);
-            }
-        }
-
-        // 3. Apply inline styles (highest priority)
-        var inlineCss = element.GetAttribute("style");
-        if (!string.IsNullOrEmpty(inlineCss))
-        {
-            var declarations = CssInlineParser.Parse(inlineCss);
-            foreach (var decl in declarations)
-            {
-                // Try expanding shorthands (margin, padding, border, background)
-                if (!CssShorthandExpander.TryExpand(decl.Property, decl.Value, style))
-                {
-                    style.Set(decl.Property, decl.Value);
-                }
-            }
-        }
-
-        // 4. Handle hidden attribute
-        if (element.HasAttribute("hidden"))
-            style.Set("display", "none");
-
-        // 4b. <details> collapsed state: hide non-<summary> children unless <details open>
-        if (element.TagName != "summary" && element.Parent is HtmlElement parentElem
-            && parentElem.TagName == "details"
-            && !parentElem.HasAttribute("open"))
-        {
-            style.Set("display", "none");
-        }
-
-        // 5. Resolve var() references in all non-custom property values
+            InheritFrom(parentStyle, style);
+        ApplyInlineStyle(element, style);
+        HideWhenNotRendered(element, style);
         ResolveCustomProperties(style);
 
-        // 6. Map logical properties (margin-inline-start, padding-block, inline-size, etc.)
-        //    to their physical counterparts based on writing direction.
         bool isRTL = style.Get("direction") == "rtl";
         bool isVertical = style.Get("writing-mode")?.IndexOf("vertical", System.StringComparison.OrdinalIgnoreCase) >= 0;
         LogicalPropertyResolver.Resolve(style, isRTL, isVertical);
@@ -248,12 +162,84 @@ public partial class BasicStyleResolver
 
     private float _rootFontSizePx = ComputedFontMetrics.InitialFontSizePx;
 
-    /// <summary>
-    /// Resolve all var() references in non-custom property values.
-    /// </summary>
+    private const string NativeControlSize = "13px";
+    private const string NativeControlBorderColor = "#767676";
+
+    private static void ApplyUserAgentDefaults(HtmlElement element, ComputedStyle style)
+    {
+        if (UaDefaults.TryGetValue(element.TagName, out var defaults))
+        {
+            foreach (var kv in defaults)
+                style.Set(kv.Key, kv.Value);
+        }
+
+        if (element.TagName == "input")
+        {
+            var inputType = (element.GetAttribute("type") ?? "text").ToLowerInvariant();
+            if (inputType == "checkbox" || inputType == "radio")
+            {
+                style.Set("width", NativeControlSize);
+                style.Set("height", NativeControlSize);
+                style.Set("min-height", "0px");
+                style.Set("padding-top", "0px");
+                style.Set("padding-right", "0px");
+                style.Set("padding-bottom", "0px");
+                style.Set("padding-left", "0px");
+                style.Set("border-color", NativeControlBorderColor);
+                if (inputType == "radio")
+                    style.Set("border-radius", "50%");
+            }
+        }
+
+        if (!style.Has("display"))
+            style.Set("display", "inline");
+    }
+
+    private static void InheritFrom(ComputedStyle parentStyle, ComputedStyle style)
+    {
+        foreach (var prop in InheritedProperties)
+        {
+            if (!style.Has(prop))
+            {
+                var parentVal = parentStyle.Get(prop);
+                if (parentVal != null)
+                    style.Set(prop, parentVal);
+            }
+        }
+
+        foreach (var kv in parentStyle.All)
+        {
+            if (CssVariableResolver.IsCustomProperty(kv.Key) && !style.Has(kv.Key))
+                style.Set(kv.Key, kv.Value);
+        }
+    }
+
+    private static void ApplyInlineStyle(HtmlElement element, ComputedStyle style)
+    {
+        var inlineCss = element.GetAttribute("style");
+        if (string.IsNullOrEmpty(inlineCss)) return;
+        foreach (var decl in CssInlineParser.Parse(inlineCss))
+        {
+            if (!CssShorthandExpander.TryExpand(decl.Property, decl.Value, style))
+                style.Set(decl.Property, decl.Value);
+        }
+    }
+
+    private static void HideWhenNotRendered(HtmlElement element, ComputedStyle style)
+    {
+        if (element.HasAttribute("hidden"))
+            style.Set("display", "none");
+
+        if (element.TagName != "summary" && element.Parent is HtmlElement parentElem
+            && parentElem.TagName == "details"
+            && !parentElem.HasAttribute("open"))
+        {
+            style.Set("display", "none");
+        }
+    }
+
     private static void ResolveCustomProperties(ComputedStyle style)
     {
-        // Lazy list + '(' gate: the common case has no var()/env() at all.
         List<KeyValuePair<string, string>>? toResolve = null;
         foreach (var kv in style.All)
         {

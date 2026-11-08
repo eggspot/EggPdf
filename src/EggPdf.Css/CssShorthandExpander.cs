@@ -114,7 +114,7 @@ public static class CssShorthandExpander
                 right = left = parts[1];
                 bottom = parts[2];
                 break;
-            default: // 4+
+            default:
                 top = parts[0];
                 right = parts[1];
                 bottom = parts[2];
@@ -179,8 +179,6 @@ public static class CssShorthandExpander
     private static void ExpandBackgroundShorthand(string value, ComputedStyle style)
     {
         var trimmed = value.Trim();
-
-        // "none" keyword — clear the image, leave color as transparent
         if (trimmed == "none")
         {
             style.Set("background-image", "none");
@@ -231,9 +229,7 @@ public static class CssShorthandExpander
 
     /// <summary>Parse one comma-separated layer of the background shorthand.</summary>
     private static (string? image, string? position, string? size, string? repeat, string? color) ExpandBackgroundLayer(string layerValue)
-    {
-        // Extract url(...) or gradient functions first (they may contain spaces/commas)
-        string? image = null;
+    {        string? image = null;
         string remaining = layerValue.Trim();
 
         int urlIdx = remaining.IndexOf("url(", StringComparison.OrdinalIgnoreCase);
@@ -247,14 +243,10 @@ public static class CssShorthandExpander
             }
         }
         else
-        {
-            // Check for CSS gradient functions
-            foreach (var fn in new[] { "linear-gradient(", "radial-gradient(", "conic-gradient(" })
+        {            foreach (var fn in new[] { "linear-gradient(", "radial-gradient(", "conic-gradient(" })
             {
                 int fnIdx = remaining.IndexOf(fn, StringComparison.OrdinalIgnoreCase);
                 if (fnIdx < 0) continue;
-
-                // Find matching closing paren (may contain nested parens)
                 int depth = 0;
                 int end = fnIdx;
                 for (int i = fnIdx; i < remaining.Length; i++)
@@ -267,8 +259,6 @@ public static class CssShorthandExpander
                 break;
             }
         }
-
-        // Now tokenize the remainder by spaces
         var parts = remaining.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
         var positionSb = new System.Text.StringBuilder();
@@ -280,8 +270,6 @@ public static class CssShorthandExpander
         {
             var part = parts[i].Trim('/');
             var raw  = parts[i];
-
-            // position/size split by slash: "center/cover" or "50%/contain"
             int slashIdx = raw.IndexOf('/');
             if (slashIdx >= 0)
             {
@@ -294,8 +282,6 @@ public static class CssShorthandExpander
             if (IsBackgroundRepeat(part))  { repeat = part; continue; }
             if (IsBackgroundPosition(part)) { if (positionSb.Length > 0) positionSb.Append(' '); positionSb.Append(part); continue; }
             if (IsBackgroundSize(part))    { size = part; continue; }
-
-            // Anything else at the end treated as color
             color = part;
         }
 
@@ -461,19 +447,14 @@ public static class CssShorthandExpander
     /// </list>
     /// </summary>
     private static void ExpandFlexShorthand(string value, ComputedStyle style)
-    {
-        // Keywords
-        if (value == "none")  { style.Set("flex-grow", "0"); style.Set("flex-shrink", "0"); style.Set("flex-basis", "auto"); return; }
+    {        if (value == "none")  { style.Set("flex-grow", "0"); style.Set("flex-shrink", "0"); style.Set("flex-basis", "auto"); return; }
         if (value == "auto")  { style.Set("flex-grow", "1"); style.Set("flex-shrink", "1"); style.Set("flex-basis", "auto"); return; }
         if (value == "initial") { style.Set("flex-grow", "0"); style.Set("flex-shrink", "1"); style.Set("flex-basis", "auto"); return; }
 
         var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
         if (parts.Length == 1)
-        {
-            // Single value: unitless number → flex-grow, flex-shrink=1, flex-basis=0
-            // Otherwise treat as flex-basis with grow=1, shrink=1
-            if (float.TryParse(parts[0], System.Globalization.NumberStyles.Float,
+        {            if (float.TryParse(parts[0], System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out _))
             {
                 style.Set("flex-grow", parts[0]);
@@ -494,22 +475,16 @@ public static class CssShorthandExpander
 
             style.Set("flex-grow", parts[0]);
             if (p1IsNumber)
-            {
-                // flex: <grow> <shrink> → flex-basis:0
-                style.Set("flex-shrink", parts[1]);
+            {                style.Set("flex-shrink", parts[1]);
                 style.Set("flex-basis", "0");
             }
             else
-            {
-                // flex: <grow> <basis>
-                style.Set("flex-shrink", "1");
+            {                style.Set("flex-shrink", "1");
                 style.Set("flex-basis", parts[1]);
             }
         }
         else
-        {
-            // 3 values: flex-grow flex-shrink flex-basis
-            style.Set("flex-grow", parts[0]);
+        {            style.Set("flex-grow", parts[0]);
             style.Set("flex-shrink", parts[1]);
             style.Set("flex-basis", parts[2]);
         }
@@ -539,9 +514,7 @@ public static class CssShorthandExpander
 
     /// <summary>Expand border-top/right/bottom/left: "1px solid red" -> width + style + color for one side.</summary>
     private static void ExpandBorderSideShorthand(string value, string property, ComputedStyle style)
-    {
-        // property is "border-top", "border-right", etc.
-        var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+    {        var parts = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
         string? width = null, borderStyle = null, color = null;
 
         foreach (var part in parts)
@@ -612,8 +585,6 @@ public static class CssShorthandExpander
         if (decoStyle != null) style.Set("text-decoration-style", decoStyle);
         if (color != null) style.Set("text-decoration-color", color);
         if (thickness != null) style.Set("text-decoration-thickness", thickness);
-
-        // Keep the original value on text-decoration for backward compat
         style.Set("text-decoration", value);
     }
 
@@ -661,9 +632,7 @@ public static class CssShorthandExpander
                 case 2:  tlV = brV = vParts[0]; trV = blV = vParts[1]; break;
                 case 3:  tlV = vParts[0]; trV = blV = vParts[1]; brV = vParts[2]; break;
                 default: tlV = vParts[0]; trV = vParts[1]; brV = vParts[2]; blV = vParts[3]; break;
-            }
-            // Store both radii as "H V" (two-value individual corner property)
-            style.Set("border-top-left-radius",     tlH + " " + tlV);
+            }            style.Set("border-top-left-radius",     tlH + " " + tlV);
             style.Set("border-top-right-radius",    trH + " " + trV);
             style.Set("border-bottom-right-radius", brH + " " + brV);
             style.Set("border-bottom-left-radius",  blH + " " + blV);
@@ -702,8 +671,6 @@ public static class CssShorthandExpander
 
         var parts = value.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0) return;
-
-        // Known text-emphasis-style keywords
         var styleKeywords = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "none", "filled", "open", "dot", "circle", "double-circle", "triangle", "sesame"
@@ -736,8 +703,6 @@ public static class CssShorthandExpander
         if (string.IsNullOrWhiteSpace(value)) return;
 
         var trimmed = value.Trim();
-
-        // Extract url(...) as mask-image
         int urlStart = trimmed.IndexOf("url(", StringComparison.OrdinalIgnoreCase);
         if (urlStart >= 0)
         {
@@ -746,16 +711,12 @@ public static class CssShorthandExpander
             {
                 string urlPart = trimmed.Substring(urlStart, urlEnd - urlStart + 1);
                 style.Set("mask-image", urlPart);
-
-                // Process remainder after url(...)
                 string remainder = trimmed.Substring(urlEnd + 1).Trim();
                 if (!string.IsNullOrEmpty(remainder))
                     ExpandMaskRemainder(remainder, style);
                 return;
             }
         }
-
-        // No url — try gradient or keyword
         if (trimmed.StartsWith("linear-gradient", StringComparison.OrdinalIgnoreCase) ||
             trimmed.StartsWith("radial-gradient", StringComparison.OrdinalIgnoreCase) ||
             trimmed.StartsWith("conic-gradient", StringComparison.OrdinalIgnoreCase))
@@ -769,8 +730,6 @@ public static class CssShorthandExpander
             style.Set("mask-image", "none");
             return;
         }
-
-        // Fallback: store as mask-image
         style.Set("mask-image", trimmed);
     }
 
@@ -808,8 +767,6 @@ public static class CssShorthandExpander
     private static void ExpandBorderImageShorthand(string value, ComputedStyle style)
     {
         if (string.IsNullOrWhiteSpace(value) || value == "none") return;
-
-        // Extract source: url(...) or gradient function
         string rest = value.Trim();
         string? source = null;
 
@@ -818,9 +775,7 @@ public static class CssShorthandExpander
             rest.IndexOf("radial-gradient(", StringComparison.OrdinalIgnoreCase) >= 0 ||
             rest.IndexOf("conic-gradient(", StringComparison.OrdinalIgnoreCase) >= 0 ||
             rest.IndexOf("none", StringComparison.OrdinalIgnoreCase) == 0)
-        {
-            // Find the end of the first function call (url(...) or gradient(...))
-            int funcStart = rest.IndexOf('(');
+        {            int funcStart = rest.IndexOf('(');
             if (funcStart >= 0)
             {
                 int depth = 0;
@@ -842,19 +797,13 @@ public static class CssShorthandExpander
 
         if (source != null)
             style.Set("border-image-source", source);
-
-        // Repeat keywords
         var repeatKw = new[] { "stretch", "repeat", "round", "space" };
-
-        // Find repeat at end of remaining value
         string? repeat = null;
         foreach (var kw in repeatKw)
         {
             int kwIdx = rest.IndexOf(kw, StringComparison.OrdinalIgnoreCase);
             if (kwIdx >= 0)
-            {
-                // Collect all repeat keywords
-                var repeatParts = new System.Text.StringBuilder();
+            {                var repeatParts = new System.Text.StringBuilder();
                 string[] tokens = rest.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
                 var nonRepeat = new System.Text.StringBuilder();
                 foreach (var tok in tokens)
@@ -879,8 +828,6 @@ public static class CssShorthandExpander
                 break;
             }
         }
-
-        // remaining: slice [/ width [/ outset]]
         rest = rest.Trim();
         if (string.IsNullOrEmpty(rest)) return;
 
