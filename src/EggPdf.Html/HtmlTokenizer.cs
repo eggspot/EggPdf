@@ -33,6 +33,11 @@ public class HtmlTokenizer
         {
             if (_pos == _input.Length)
             {
+                if (_state == TokenizerState.TagOpen || _state == TokenizerState.EndTagOpen)
+                {
+                    _buffer.Append(_state == TokenizerState.TagOpen ? "<" : "</");
+                    _state = TokenizerState.Data;
+                }
                 if (_buffer.Length > 0 && _state == TokenizerState.Data)
                 {
                     var textToken = new HtmlToken { Type = HtmlTokenType.Character, Data = _buffer.ToString() };
@@ -84,7 +89,7 @@ public class HtmlTokenizer
                         _pos++;
                         _state = TokenizerState.EndTagOpen;
                     }
-                    else if (char.IsLetter(c))
+                    else if (IsAsciiLetter(c))
                     {
                         _currentToken = new HtmlToken { Type = HtmlTokenType.StartTag };
                         _buffer.Clear();
@@ -103,16 +108,21 @@ public class HtmlTokenizer
                     break;
 
                 case TokenizerState.EndTagOpen:
-                    if (char.IsLetter(c))
+                    if (IsAsciiLetter(c))
                     {
                         _currentToken = new HtmlToken { Type = HtmlTokenType.EndTag };
                         _buffer.Clear();
                         _state = TokenizerState.TagName;
                     }
+                    else if (c == '>')
+                    {
+                        _pos++;
+                        _state = TokenizerState.Data;
+                    }
                     else
                     {
-                        _buffer.Append("</");
-                        _state = TokenizerState.Data;
+                        _buffer.Clear();
+                        _state = TokenizerState.BogusComment;
                     }
                     break;
 
@@ -578,7 +588,10 @@ public class HtmlTokenizer
     }
 
     private static bool IsAsciiAlphanumeric(char c) =>
-        (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+        IsAsciiLetter(c) || (c >= '0' && c <= '9');
+
+    private static bool IsAsciiLetter(char c) =>
+        (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 
     private const int MaxEntityNameLength = 32;
 
