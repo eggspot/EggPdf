@@ -387,7 +387,6 @@ internal class HtmlTreeBuilder
             case "optgroup":
                 if (CurrentNode()?.TagName == "option") _openElements.Pop();
                 CloseOpenElementInScope(OptionGroupTags, OptionTags);
-                if (CurrentNode()?.TagName == "optgroup") _openElements.Pop();
                 break;
         }
     }
