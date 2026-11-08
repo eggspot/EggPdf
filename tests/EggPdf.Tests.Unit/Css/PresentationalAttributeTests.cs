@@ -64,7 +64,7 @@ public class PresentationalAttributeTests
         var resolver = new BasicStyleResolver();
 
         var font = doc.Body!.ChildNodes.OfType<HtmlElement>().FirstOrDefault(e => e.TagName == "font");
-        if (font == null) return; // font element may not be in DOM depending on parser
+        if (font == null) return;
 
         var style = resolver.Resolve(font, null);
         style.Color.Should().Be("blue");
@@ -93,7 +93,6 @@ public class PresentationalAttributeTests
         var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
         var style = resolver.Resolve(div, null);
 
-        // Inline style should win over presentational attribute
         style.BackgroundColor.Should().Be("blue");
     }
 
