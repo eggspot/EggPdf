@@ -238,6 +238,74 @@ public class CssShorthandExpanderTests
     }
 
     [Fact]
+    public void Font_Shorthand_ResetsOmittedParts()
+    {
+        var style = new ComputedStyle();
+        style.Set("font-weight", "bold");
+        style.Set("font-style", "italic");
+        style.Set("line-height", "1.5");
+
+        CssShorthandExpander.TryExpand("font", "12px Arial", style).Should().BeTrue();
+
+        style.FontWeight.Should().Be("normal");
+        style.Get("font-style").Should().Be("normal");
+        style.Get("line-height").Should().Be("normal");
+        style.Get("font-variant").Should().Be("normal");
+        style.FontSize.Should().Be("12px");
+    }
+
+    [Theory]
+    [InlineData("12px / 20px Arial", "20px")]
+    [InlineData("12px /20px Arial", "20px")]
+    [InlineData("12px/ 20px Arial", "20px")]
+    public void Font_Shorthand_SlashWithSpaces_ParsesLineHeight(string value, string expectedLineHeight)
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("font", value, style);
+
+        style.Get("line-height").Should().Be(expectedLineHeight);
+        style.FontFamily.Should().Be("Arial");
+    }
+
+    [Fact]
+    public void Font_Shorthand_NumericWeightAndStretch()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("font", "600 condensed 14px 'Segoe UI', sans-serif", style);
+
+        style.FontWeight.Should().Be("600");
+        style.Get("font-stretch").Should().Be("condensed");
+        style.FontFamily.Should().Be("'Segoe UI', sans-serif");
+    }
+
+    [Theory]
+    [InlineData("12px")]
+    [InlineData("bold")]
+    [InlineData("12px/")]
+    public void Font_Shorthand_Invalid_LeavesLonghandsUntouched(string value)
+    {
+        var style = new ComputedStyle();
+        style.Set("font-weight", "bold");
+        style.Set("font-size", "20px");
+
+        CssShorthandExpander.TryExpand("font", value, style);
+
+        style.FontWeight.Should().Be("bold");
+        style.FontSize.Should().Be("20px");
+    }
+
+    [Fact]
+    public void Font_Shorthand_Inherit_AppliesToEveryLonghand()
+    {
+        var style = new ComputedStyle();
+        CssShorthandExpander.TryExpand("font", "inherit", style);
+
+        style.FontSize.Should().Be("inherit");
+        style.FontWeight.Should().Be("inherit");
+        style.Get("line-height").Should().Be("inherit");
+    }
+
+    [Fact]
     public void ListStyle_Shorthand_TypeAndPosition()
     {
         var style = new ComputedStyle();
