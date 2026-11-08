@@ -62,8 +62,7 @@ public class CssTokenizer
             return ConsumeNumeric();
         }
 
-        // Ident or function or url
-        if (IsIdentStart(c) || c == '-')
+        if (IsIdentStart(c) || c == '-' || StartsValidEscape(_pos))
         {
             return ConsumeIdentLike();
         }
@@ -230,13 +229,30 @@ public class CssTokenizer
     private string ConsumeIdent()
     {
         var sb = new StringBuilder();
-        while (_pos < _input.Length && IsIdentChar(_input[_pos]))
+        while (_pos < _input.Length)
         {
-            sb.Append(_input[_pos]);
-            _pos++;
+            char c = _input[_pos];
+            if (IsIdentChar(c))
+            {
+                sb.Append(c);
+                _pos++;
+            }
+            else if (StartsValidEscape(_pos))
+            {
+                _pos++;
+                CssStringEscapes.AppendEscape(_input, ref _pos, sb);
+            }
+            else
+            {
+                break;
+            }
         }
         return sb.ToString();
     }
+
+    private bool StartsValidEscape(int pos) =>
+        pos + 1 < _input.Length && _input[pos] == '\\' &&
+        _input[pos + 1] != '\n' && _input[pos + 1] != '\r' && _input[pos + 1] != '\f';
 
     private static bool IsWhitespace(char c) => c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f';
     private static bool IsDigit(char c) => c >= '0' && c <= '9';

@@ -896,10 +896,10 @@ public static partial class BoxPainter
             page.AddImage(imgName, pdfX, pdfY, pdfW, pdfH);
         }
 
-        // Paint inline SVG
-        if (box.Element?.TagName == "svg")
+        var svgRoot = box.Element?.TagName == "svg" ? box.Element : box.ImageSvgRoot;
+        if (svgRoot != null)
         {
-            var svgElement = SvgParser.Parse(box.Element);
+            var svgElement = SvgParser.Parse(svgRoot);
             if (svgElement != null)
             {
                 float pdfX = effectiveX * PdfCoordinates.PxToPt;

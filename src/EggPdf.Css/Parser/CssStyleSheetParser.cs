@@ -642,8 +642,11 @@ public static class CssStyleSheetParser
     private static string UnquoteString(string value)
     {
         value = value.Trim();
-        if (value.Length >= 2 && (value[0] == '"' || value[0] == '\'') && value[value.Length - 1] == value[0])
-            return value.Substring(1, value.Length - 2);
+        if (value.Length >= 2 && (value[0] == '"' || value[0] == '\''))
+        {
+            int pos = 0;
+            return CssStringEscapes.ReadQuoted(value, ref pos);
+        }
         return value;
     }
 

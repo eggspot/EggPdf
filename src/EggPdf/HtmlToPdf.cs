@@ -764,32 +764,41 @@ public static partial class HtmlToPdf
         if (!string.IsNullOrEmpty(box.ImageSource))
         {
             bool cacheable = box.ImageSource.StartsWith("data:", StringComparison.OrdinalIgnoreCase);
+            byte[]? data;
+            PdfImage? pdfImage;
+            (byte[] raw, PdfImage? image) cached = default;
+            bool fromCache = cacheable && DataUriImageCache.TryGetValue(box.ImageSource, out cached);
 
-            if (cacheable && DataUriImageCache.TryGetValue(box.ImageSource, out var cached))
+            if (fromCache)
             {
                 System.Threading.Interlocked.Increment(ref ImageCacheHits);
-                box.ImageData = cached.raw;
-                if (cached.image != null)
-                    pdfDoc.AddImage(cached.image);
+                data = cached.raw;
+                pdfImage = cached.image;
             }
             else
             {
-                var data = resources.Load(box.ImageSource, Core.Resources.ResourceType.Image);
-                if (data != null)
+                data = resources.Load(box.ImageSource, Core.Resources.ResourceType.Image);
+                pdfImage = data == null ? null : DecodeImage(box.ImageSource, data);
+                if (data != null && cacheable)
                 {
-                    box.ImageData = data;
-                    var pdfImage = DecodeImage(box.ImageSource, data);
-                    if (pdfImage != null)
-                        pdfDoc.AddImage(pdfImage);
-                    else
-                        resources.WarnImageNotDecoded(box.ImageSource);
+                    if (DataUriImageCache.Count >= DataUriImageCacheMaxEntries)
+                        DataUriImageCache.Clear();
+                    DataUriImageCache.TryAdd(box.ImageSource, (data, pdfImage));
+                }
+            }
 
-                    if (cacheable)
-                    {
-                        if (DataUriImageCache.Count >= DataUriImageCacheMaxEntries)
-                            DataUriImageCache.Clear();
-                        DataUriImageCache.TryAdd(box.ImageSource, (data, pdfImage));
-                    }
+            if (data != null)
+            {
+                box.ImageData = data;
+                if (pdfImage != null)
+                {
+                    pdfDoc.AddImage(pdfImage);
+                }
+                else
+                {
+                    box.ImageSvgRoot = SvgImages.ParseRoot(data);
+                    if (box.ImageSvgRoot == null)
+                        resources.WarnImageNotDecoded(box.ImageSource);
                 }
             }
         }

@@ -89,10 +89,8 @@ public static partial class SelectorMatcher
     private static bool MatchAttributeSelector(string s, int start, int close, HtmlElement element)
     {
         int p = SkipSelectorWhitespace(s, start, close);
-        int nameStart = p;
-        while (p < close && IsAttributeNameChar(s[p])) p++;
-        if (p == nameStart) return false;
-        var name = s.Substring(nameStart, p - nameStart);
+        var name = ReadAttributeName(s, ref p, close);
+        if (name.Length == 0) return false;
 
         p = SkipSelectorWhitespace(s, p, close);
         if (p >= close) return element.HasAttribute(name);
@@ -128,6 +126,34 @@ public static partial class SelectorMatcher
         var actual = element.GetAttribute(name);
         return actual != null &&
             AttributeValueMatches(operatorKind, actual, expected, ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+
+    private static string ReadAttributeName(string s, ref int p, int close)
+    {
+        int start = p;
+        while (p < close && IsAttributeNameChar(s[p]) && s[p] != '\\') p++;
+        if (p >= close || s[p] != '\\')
+            return s.Substring(start, p - start);
+
+        var name = new StringBuilder(s, start, p - start, p - start + 8);
+        while (p < close)
+        {
+            if (s[p] == '\\' && p + 1 < close)
+            {
+                p++;
+                CssStringEscapes.AppendEscape(s, ref p, name);
+            }
+            else if (IsAttributeNameChar(s[p]) && s[p] != '\\')
+            {
+                name.Append(s[p]);
+                p++;
+            }
+            else
+            {
+                break;
+            }
+        }
+        return name.ToString();
     }
 
     private static string ReadAttributeSelectorValue(string s, ref int p, int close)

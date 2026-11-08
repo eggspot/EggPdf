@@ -235,7 +235,7 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   wiring. A filtered shape, `<text>` (glyph outlines from the installed font), `<use>` or `<g>` is
   rasterized (fills incl. linear/radial gradients, strokes), filtered and re-embedded as an image,
   since PDF has no vector filter primitive. Filtered `<image>` elements and pattern paints paint unfiltered
-- All image formats (JPEG, PNG incl. 1-bit QR codes, GIF, WebP -- lossy VP8 incl. alpha, lossless VP8L, extended VP8X containers, first frame of animations --, SVG, Base64)
+- Images: JPEG, PNG (incl. 1-bit QR codes and Adam7-interlaced files), GIF, BMP, WebP (lossy VP8 incl. alpha, lossless VP8L, extended VP8X containers, first frame of animations) and SVG (an `<img>` pointing at an .svg file or `data:image/svg+xml` is painted as vectors), from files, URLs or Base64 data URIs. An image that can't be decoded is left out with an `IMAGE_LOAD_FAILED` warning, never a broken PDF. SVG as a CSS `background-image` is not painted yet
 - Responsive images: `<img srcset>`/`<picture>` and CSS `image-set()` resolve to their best candidate (PDF is treated as a fixed 1x print context)
 - CSS Images Level 4 `image()`: resolves `ltr`/`rtl`-tagged candidates against the element's
   computed direction and paints a trailing `<color>` fallback when no image resolves. `paint()`
@@ -258,6 +258,7 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - PDF 1.4 / 1.5 / 1.7 / 2.0
 - Clickable hyperlinks, and internal links: `<a href="#id">` jumps to the page and position of the element with that `id` (forward or backward, any page; a link to a missing id is dropped rather than written dead; `#` and `#top` jump to the top of the document)
 - Auto-generated bookmarks from headings
+- Unicode metadata and outlines: a non-ASCII title, author, bookmark, alt text or signature name/reason/location is written as a UTF-16 PDF string (not `?`), and non-ASCII link URLs are percent-encoded as UTF-8
 - Table of contents with page numbers
 - Running headers/footers
 - Page numbers (Page X of Y)

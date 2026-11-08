@@ -49,11 +49,11 @@ public static class PdfSigner
         int sigValObj = FindNextObjNumber(pdfBytes) + 1;
         sb.AppendLine($"{sigValObj} 0 obj");
         sb.Append("<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached");
-        sb.Append($" /Name ({EscapePdf(name)})");
+        sb.Append($" /Name {PdfTextStrings.Encode(name)}");
         if (!string.IsNullOrEmpty(options.Reason))
-            sb.Append($" /Reason ({EscapePdf(options.Reason!)})");
+            sb.Append($" /Reason {PdfTextStrings.Encode(options.Reason!)}");
         if (!string.IsNullOrEmpty(options.Location))
-            sb.Append($" /Location ({EscapePdf(options.Location!)})");
+            sb.Append($" /Location {PdfTextStrings.Encode(options.Location!)}");
         sb.Append($" /M ({PdfDates.PdfDate(DateTime.UtcNow)})");
         sb.Append($" /ByteRange {byteRangePlaceholder}");
         sb.Append($" /Contents <{new string('0', ContentsHexLength)}>");
@@ -146,11 +146,11 @@ public static class PdfSigner
         int sigValObj = FindNextObjNumber(pdfBytes) + 1;
         sb.AppendLine($"{sigValObj} 0 obj");
         sb.Append("<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached");
-        sb.Append($" /Name ({EscapePdf(name)})");
+        sb.Append($" /Name {PdfTextStrings.Encode(name)}");
         if (!string.IsNullOrEmpty(reason))
-            sb.Append($" /Reason ({EscapePdf(reason)})");
+            sb.Append($" /Reason {PdfTextStrings.Encode(reason)}");
         if (!string.IsNullOrEmpty(location))
-            sb.Append($" /Location ({EscapePdf(location)})");
+            sb.Append($" /Location {PdfTextStrings.Encode(location)}");
         sb.Append($" /M ({PdfDates.PdfDate(DateTime.UtcNow)})");
         sb.Append($" /Contents <{new string('0', 16384)}>");
         sb.Append($" /ByteRange [0 {pdfBytes.Length} {pdfBytes.Length} 0]");
@@ -226,7 +226,4 @@ public static class PdfSigner
         }
         return maxObj;
     }
-
-    private static string EscapePdf(string text)
-        => text.Replace("\\", "\\\\").Replace("(", "\\(").Replace(")", "\\)");
 }

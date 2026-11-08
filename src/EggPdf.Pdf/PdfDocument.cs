@@ -876,9 +876,6 @@ public partial class PdfDocument
 
     private static string F(float value) => value.ToString("F2", CultureInfo.InvariantCulture);
 
-    private static string EscapePdfString(string text)
-        => text.Replace("\\", "\\\\").Replace("(", "\\(").Replace(")", "\\)");
-
     private static byte[] EncryptBytes(EncryptionParams? enc, byte[] data, int objNum)
         => enc == null ? data : PdfEncryption.EncryptForObject(enc.EncryptionKey, objNum, 0, data);
 
@@ -898,7 +895,7 @@ public partial class PdfDocument
             }
             return $" /Dest [{pageObjs[0].pageDict} 0 R /Fit]";
         }
-        return $" /A << /Type /Action /S /URI /URI {PdfString(enc, link.Url, objNum)} >>";
+        return $" /A << /Type /Action /S /URI /URI {PdfString(enc, PdfTextStrings.UriToAscii(link.Url), objNum)} >>";
     }
 
     /// <summary>
@@ -915,14 +912,10 @@ public partial class PdfDocument
 
     private static string PdfString(EncryptionParams? enc, string text, int objNum)
     {
-        if (enc == null) return "(" + EscapePdfString(text) + ")";
+        if (enc == null) return PdfTextStrings.Encode(text);
 
-        var cipher = PdfEncryption.EncryptForObject(enc.EncryptionKey, objNum, 0, Latin1Encoding.GetBytes(text));
-        var sb = new StringBuilder(cipher.Length * 2 + 2);
-        sb.Append('<');
-        for (int i = 0; i < cipher.Length; i++) sb.Append(cipher[i].ToString("X2"));
-        sb.Append('>');
-        return sb.ToString();
+        var cipher = PdfEncryption.EncryptForObject(enc.EncryptionKey, objNum, 0, PdfTextStrings.TextStringBytes(text));
+        return PdfTextStrings.Hex(cipher);
     }
 }
 
