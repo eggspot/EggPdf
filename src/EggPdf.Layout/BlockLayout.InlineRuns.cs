@@ -197,8 +197,10 @@ public static partial class BlockLayout
 
             var runOverflowWrap = run.Style.Get("overflow-wrap") ?? run.Style.Get("word-wrap");
             var runWordBreak = run.Style.Get("word-break");
-            bool runBreakWord = runOverflowWrap == "break-word" || runOverflowWrap == "anywhere" ||
-                                runWordBreak == "break-all" || runWordBreak == "break-word";
+            bool runNoWrap = SuppressesLineWrap(run.Style);
+            bool runBreakWord = !runNoWrap &&
+                                (runOverflowWrap == "break-word" || runOverflowWrap == "anywhere" ||
+                                 runWordBreak == "break-all" || runWordBreak == "break-word");
 
             // vertical-align: baseline (default) — every run sits on the parent line's
             // baseline, not the line top (ascent approximated at 0.8em). A smaller run
@@ -244,8 +246,7 @@ public static partial class BlockLayout
                 float wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                 float rightLimit = RightLimit(Math.Max(inlineLineHeight, lhRun), childY);
 
-                // Wrap to next line if doesn't fit
-                if (notAtLineStart && inlineX + wordWidth > rightLimit)
+                if (!runNoWrap && notAtLineStart && inlineX + wordWidth > rightLimit)
                 {
                     childY += inlineLineHeight;
                     inlineX = 0;

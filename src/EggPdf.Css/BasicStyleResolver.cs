@@ -19,6 +19,7 @@ public partial class BasicStyleResolver
         "font-variant-ligatures", "font-variant-alternates",
         "line-height", "text-align", "text-indent", "text-transform",
         "letter-spacing", "word-spacing", "white-space", "direction",
+        "white-space-collapse", "text-wrap", "text-wrap-mode", "text-wrap-style",
         "word-break", "overflow-wrap", "word-wrap", "hyphens",
         "visibility", "list-style-type", "list-style-position",
         "border-collapse", "border-spacing", "caption-side", "empty-cells",
