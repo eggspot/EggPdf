@@ -3,8 +3,7 @@ using System.Collections.Generic;
 namespace EggPdf.Svg;
 
 /// <summary>
-/// Parses an HTML <svg> element tree into SvgElement objects.
-/// Works with EggPdf's HtmlElement DOM.
+/// Converts a parsed HTML <c>&lt;svg&gt;</c> element tree into <see cref="SvgElement"/> objects.
 /// </summary>
 public static class SvgParser
 {
