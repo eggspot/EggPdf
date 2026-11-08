@@ -72,6 +72,40 @@ public class InlineFlowFeatureTests
     }
 
     [Fact]
+    public void IndentedMixedParagraphBesideLeftFloat_IndentStartsAfterTheFloat()
+    {
+        var root = Layout("p{text-indent:20px}", "<div><img style='float:left;width:100px;height:100px' src='x.png'><p id='p'>Text <b>beside</b> the float</p></div>");
+
+        Words(root.FindById("p")!).First().X.Should().BeApproximately(120, 0.5f);
+    }
+
+    [Fact]
+    public void JustifiedMixedLineBeforeBlockChild_IsNotStretched()
+    {
+        var root = Layout("div{text-align:justify;width:400px}", "<div id='d'>Intro <b>x</b><div>Block</div>Tail</div>");
+
+        var intro = Words(root.FindById("d")!).Where(w => w.Text!.Trim() == "x").Single();
+        (intro.X + intro.Width).Should().BeLessThan(100, "the line before a block child is the last line of an anonymous block");
+    }
+
+    [Fact]
+    public void IndentWithBlockBefore_TextIsNotIndented()
+    {
+        var root = Layout("p{text-indent:30px} p::before{content:'Title';display:block} p::after{content:'.'}", "<p id='p'>Body text</p>");
+
+        Words(root.FindById("p")!).First(w => w.Text!.Contains("Body")).X.Should().BeApproximately(0, 0.5f);
+    }
+
+    [Fact]
+    public void IndentedBlockWithLeadingBlockChild_LaterTextIsNotIndentedOrGlued()
+    {
+        var root = Layout("div{text-indent:30px}", "<div id='d'><div style='height:0'></div>one <b>two</b> three</div>");
+
+        var words = Words(root.FindById("d")!);
+        words.Should().Contain(w => w.Text!.StartsWith(" two") || w.Text!.StartsWith(" three"), "words after the first keep their separating spaces");
+    }
+
+    [Fact]
     public void MixedParagraphBesideFloat_TextAvoidsTheFloat()
     {
         var root = Layout("", "<div><img style='float:left;width:100px;height:100px' src='x.png'><p id='p'>Text <b>beside</b> the float</p></div>");

@@ -304,7 +304,8 @@ public static partial class BlockLayout
         float firstLineIndent = 0f;
         float firstLineIndentY = float.NaN;
         float positiveTextIndent = PositiveTextIndent(style, childContainingWidth, fontSize);
-        if (positiveTextIndent > 0f && !PreservesWhitespace(style))
+        bool firstLineIsBlockBefore = hasBefore && !beforeIsInline;
+        if (positiveTextIndent > 0f && !PreservesWhitespace(style) && !firstLineIsBlockBefore)
         {
             childrenFlowInline ??= HasInlineElementSiblings(element, style, resolver);
             if (childrenFlowInline.Value || beforeIsInline || afterIsInline)
@@ -375,13 +376,14 @@ public static partial class BlockLayout
 
                 if (IsBlockLevel(childStyle.Display) && !isImageElement)
                 {
-                    // Flush any pending inline content
                     if (inlineX > 0)
                     {
+                        MarkForcedLineEnd(box);
                         childY += inlineLineHeight;
                         inlineX = 0;
                         inlineLineHeight = 0;
                     }
+                    firstLineIndentY = float.NaN;
 
                     // Table row layout: cells go side-by-side (horizontal). A display:table
                     // box acts as an implicit single row for direct table-cell children that
@@ -663,6 +665,7 @@ public static partial class BlockLayout
                     {
                         if (inlineX > 0)
                         {
+                            MarkForcedLineEnd(box);
                             childY += inlineLineHeight;
                             inlineX = 0;
                             inlineLineHeight = 0;
@@ -681,6 +684,7 @@ public static partial class BlockLayout
                     // Check if image fits on current inline line
                     if (inlineX > 0 && (imgIsBlock || inlineX + imgWidth > childContainingWidth))
                     {
+                        if (imgIsBlock) MarkForcedLineEnd(box);
                         childY += inlineLineHeight;
                         inlineX = 0;
                         inlineLineHeight = 0;
@@ -710,6 +714,7 @@ public static partial class BlockLayout
                         childY += imgHeight;
                         inlineX = 0;
                         inlineLineHeight = 0;
+                        firstLineIndentY = float.NaN;
                         hasBlockChild = true;
                     }
                     else
@@ -769,6 +774,7 @@ public static partial class BlockLayout
 
                     if (inlineX > 0 && (svgIsBlock || inlineX + svgWidth > childContainingWidth))
                     {
+                        if (svgIsBlock) MarkForcedLineEnd(box);
                         childY += inlineLineHeight;
                         inlineX = 0;
                         inlineLineHeight = 0;
@@ -793,6 +799,7 @@ public static partial class BlockLayout
                         childY += svgHeight;
                         inlineX = 0;
                         inlineLineHeight = 0;
+                        firstLineIndentY = float.NaN;
                         hasBlockChild = true;
                     }
                     else

@@ -141,11 +141,11 @@ public static partial class BlockLayout
 
         float ApplyLeftInsetIfNeeded(float lineHeight, float currentInlineX, float currentChildY)
         {
-            if (!floatsActive || !atLineStart || currentInlineX > 0) return currentInlineX;
+            if (!floatsActive || !atLineStart || currentInlineX > lineStart) return currentInlineX;
             float absY = floatOriginY + box.PaddingTop + currentChildY;
             float startX = floats!.GetContentStartX(absY, lineHeight, absContainerLeft);
             float inset = startX - absContainerLeft;
-            return inset > 0 ? inset : currentInlineX;
+            return inset > 0 ? inset + lineStart : currentInlineX;
         }
 
         for (int ri = 0; ri < runs.Count; ri++)
