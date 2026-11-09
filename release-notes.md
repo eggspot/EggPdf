@@ -1,5 +1,5 @@
 ## What's Changed
-* fix: grid negative lines and minmax, flex reverse and wrap, relative offsets, translate percentages, outlines, shadows, border colours and faster pagination by @cloud-hai-vo in https://github.com/eggspot/EggPdf/pull/294
+* fix: scannable QR codes, full Code 128, radial and conic gradient stops, shapes and alpha, Times bold and italic widths by @cloud-hai-vo in https://github.com/eggspot/EggPdf/pull/295
 
 
-**Full Changelog**: https://github.com/eggspot/EggPdf/compare/v2.0.3...v2.0.4
+**Full Changelog**: https://github.com/eggspot/EggPdf/compare/v2.0.4...v2.0.5
