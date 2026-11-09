@@ -246,7 +246,12 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   (`cover`, `contain`, one or two lengths/percentages), `background-position` keywords, lengths and
   percentages, `background-repeat` per axis, clipped to the box; `linear-gradient()` and
   `repeating-linear-gradient()` at any angle or side/corner direction, with stop positions and
+  translucent stops; `radial-gradient()` (circle or ellipse, size keywords or radii, `at` position)
+  and `conic-gradient()` (`from` angle, `at` position), both also repeating, with stop positions and
   translucent stops
+- Borders: `border-radius` per corner with elliptical radii (`50%`, `20px / 10px`), scaled down
+  together when they overflow a side; `inset`, `outset`, `groove` and `ridge` shade each side the way
+  Chrome does
 - `opacity` fades the element and everything inside it (nested opacities multiply); borders take
   layout space (`box-sizing` aware, `medium` when no width is given); margins collapse between
   siblings and between a parent and its first/last child (negative margins included); inline
