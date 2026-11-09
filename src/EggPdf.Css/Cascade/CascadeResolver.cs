@@ -123,24 +123,7 @@ public partial class CascadeResolver
 
         var inlineCss = element.GetAttribute("style");
         if (!string.IsNullOrEmpty(inlineCss))
-        {
-            var inlineDecls = CssInlineParser.Parse(inlineCss);
-            foreach (var decl in inlineDecls)
-            {
-                if (decl.Important || importantProperties.Count == 0)
-                {
-                    if (!CssShorthandExpander.TryExpand(decl.Property, decl.Value, style))
-                        style.Set(decl.Property, decl.Value);
-                    continue;
-                }
-                if (importantProperties.Contains(decl.Property)) continue;
-                foreach (var kv in Expanded(decl.Property, decl.Value).All)
-                {
-                    if (!importantProperties.Contains(kv.Key))
-                        style.Set(kv.Key, kv.Value);
-                }
-            }
-        }
+            ApplyInlineStyle(inlineCss!, style, importantProperties);
 
         if (element.HasAttribute("hidden"))
             style.Set("display", "none");

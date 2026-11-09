@@ -50,6 +50,10 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 - `revert` takes the user-agent value (UA default plus inheritance), or removes the property when the
   UA has none.
 - The per-element scratch collections are reused: a resolver serves one render on one thread.
+- `Resolve` runs for every element and enumerates `ComputedStyle.All` (an `IEnumerable`) for the
+  inherited custom properties; .NET 10 stack-allocates that boxed enumerator only while the method has
+  no second such loop. Inline-style handling lives in `ApplyInlineStyle` for that reason: inlining it
+  into `Resolve` cost ~40 KB per render of a 100-row table (measured with `GetAllocatedBytesForCurrentThread`).
 
 ## EggPdf.Css/Selectors/SelectorMatcher.cs
 

@@ -81,6 +81,25 @@ public partial class CascadeResolver
         return importantProperties;
     }
 
+    private static void ApplyInlineStyle(string inlineCss, ComputedStyle style, HashSet<string> importantProperties)
+    {
+        foreach (var decl in CssInlineParser.Parse(inlineCss))
+        {
+            if (decl.Important || importantProperties.Count == 0)
+            {
+                if (!CssShorthandExpander.TryExpand(decl.Property, decl.Value, style))
+                    style.Set(decl.Property, decl.Value);
+                continue;
+            }
+            if (importantProperties.Contains(decl.Property)) continue;
+            foreach (var kv in Expanded(decl.Property, decl.Value).All)
+            {
+                if (!importantProperties.Contains(kv.Key))
+                    style.Set(kv.Key, kv.Value);
+            }
+        }
+    }
+
     private static ComputedStyle Expanded(string property, string value)
     {
         var expanded = new ComputedStyle();
