@@ -43,7 +43,7 @@ public static partial class BlockLayout
 
             var visible = run.Text.Substring(start);
             int length = FirstLetterLength(visible);
-            var letterStyle = FirstLetterStyle(run.Style, blockStyle, firstLetterStyle);
+            var letterStyle = StyleForFirstLetter(run.Style, blockStyle, firstLetterStyle);
             float letterFontSize = initialLetterScale > 0f
                 ? run.FontSize * initialLetterScale
                 : ResolveFontSize(letterStyle.FontSize, run.FontSize);
@@ -75,7 +75,7 @@ public static partial class BlockLayout
         return false;
     }
 
-    private static ComputedStyle FirstLetterStyle(ComputedStyle runStyle, ComputedStyle blockStyle, ComputedStyle? firstLetterStyle)
+    private static ComputedStyle StyleForFirstLetter(ComputedStyle runStyle, ComputedStyle blockStyle, ComputedStyle? firstLetterStyle)
     {
         var style = new ComputedStyle();
         foreach (var kv in runStyle.All)
