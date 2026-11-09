@@ -72,7 +72,7 @@ internal static class SfntWriter
         foreach (int e in ends) U16w(e);
         U16w(0);
 
-        for (int i = 0; i < n; i++) w.Add((byte)(flags[i] & 0x01)); // on-curve bit only; 16-bit coordinates
+        for (int i = 0; i < n; i++) w.Add((byte)(flags[i] & 0x01));
         int prev = 0;
         for (int i = 0; i < n; i++) { U16w(xs[i] - prev); prev = xs[i]; }
         prev = 0;
