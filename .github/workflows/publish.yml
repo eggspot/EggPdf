@@ -159,9 +159,16 @@ jobs:
       - name: Create GitHub Release
         if: steps.bump.outputs.type != 'none' && steps.tag_check.outputs.exists == 'false'
         run: |
-          gh release create "v${{ steps.version.outputs.version }}" \
-            --title "EggPdf v${{ steps.version.outputs.version }}" \
-            --generate-notes \
+          tag="v${{ steps.version.outputs.version }}"
+          gh api "repos/${{ github.repository }}/releases/generate-notes" -f tag_name="$tag" --jq .body > release-notes.md
+          sed -E -i \
+            -e 's/(^|[^`A-Za-z0-9_.])@([A-Za-z][A-Za-z0-9-]*)/\1`@\2`/g' \
+            -e 's/ by `@([A-Za-z0-9-]+)`(\[bot\])? in / by @\1\2 in /g' \
+            -e 's/^\* `@([A-Za-z0-9-]+)` made /* @\1 made /' \
+            release-notes.md
+          gh release create "$tag" \
+            --title "EggPdf $tag" \
+            --notes-file release-notes.md \
             ./artifacts/*.nupkg
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
