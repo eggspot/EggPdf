@@ -1,5 +1,5 @@
 ## What's Changed
-* fix: the body's top margin collapses with its first child like Chrome, so content starts 8px down by default by @cloud-hai-vo in https://github.com/eggspot/EggPdf/pull/297
+* fix: dashed, dotted, double, 3D and multi-colour borders follow rounded corners by @cloud-hai-vo in https://github.com/eggspot/EggPdf/pull/298
 
 
-**Full Changelog**: https://github.com/eggspot/EggPdf/compare/v2.0.6...v2.0.7
+**Full Changelog**: https://github.com/eggspot/EggPdf/compare/v2.0.7...v2.0.8
