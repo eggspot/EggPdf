@@ -77,4 +77,30 @@ public class PictureElementTests
         var root = LayoutTestHelper.Layout("<picture></picture>", 400, 600);
         root.Should().NotBeNull();
     }
+
+    [Fact]
+    public void Picture_FloatRight_PinsTheImageToTheRightEdgeLikeAnImg()
+    {
+        var picture = LayoutTestHelper.Layout(
+            "<div style='width:300px'><picture style='float:right'><img src='a.png' width='100' height='80'></picture>text</div>", 400, 600)
+            .FindAll(b => b.ImageSource != null).Single();
+        var img = LayoutTestHelper.Layout(
+            "<div style='width:300px'><img style='float:right' src='a.png' width='100' height='80'>text</div>", 400, 600)
+            .FindAll(b => b.ImageSource != null).Single();
+
+        picture.X.Should().BeApproximately(img.X, 0.01f);
+        picture.Y.Should().BeApproximately(img.Y, 0.01f);
+    }
+
+    [Fact]
+    public void Picture_DisplayBlock_StartsItsOwnLine()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<div>Hello <picture style='display:block'><img src='a.png' width='50' height='40'></picture></div>", 400, 600);
+        var text = root.FindAll(b => b.Text != null && b.Text.Contains("Hello")).First();
+        var img = root.FindAll(b => b.ImageSource != null).Single();
+
+        img.Y.Should().BeGreaterThan(text.Y);
+        img.X.Should().BeApproximately(text.X, 0.01f);
+    }
 }

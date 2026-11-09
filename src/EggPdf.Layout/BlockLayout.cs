@@ -580,15 +580,29 @@ public static partial class BlockLayout
                     inlineX = 0;
                     lastWasTextNode = false;
                 }
-                else if (childElem.TagName == "img")
+                else if (childElem.TagName == "img" || childElem.TagName == "picture")
                 {
-                    string? imgSrc = ResolveSrcset(childElem.GetAttribute("srcset"),
-                            ExplicitImageWidth(childStyle, childElem, childContainingWidth, fontSize) ?? DefaultImageWidthPx)
-                        ?? childElem.GetAttribute("src");
-                    var (imgWidth, imgHeight) = ResolveImageBoxSize(childStyle, childElem, imgSrc, childContainingWidth, fontSize);
+                    var imgElem = childElem;
+                    var imgStyle = childStyle;
+                    string? imgSrc;
+                    if (childElem.TagName == "picture")
+                    {
+                        var (picSrc, picElem) = ResolvePicture(childElem);
+                        if (picSrc == null || picElem == null) continue;
+                        imgElem = picElem;
+                        imgStyle = resolver != null ? resolver(picElem, childStyle) : childStyle;
+                        imgSrc = picSrc;
+                    }
+                    else
+                    {
+                        imgSrc = ResolveSrcset(childElem.GetAttribute("srcset"),
+                                ExplicitImageWidth(childStyle, childElem, childContainingWidth, fontSize) ?? DefaultImageWidthPx)
+                            ?? childElem.GetAttribute("src");
+                    }
+                    var (imgWidth, imgHeight) = ResolveImageBoxSize(imgStyle, imgElem, imgSrc, childContainingWidth, fontSize);
 
-                    var imgFloatSide = childStyle.Get("float");
-                    if (imgFloatSide == "left" || imgFloatSide == "right")
+                    var imgFloatSide = FloatedImageSide(childStyle, imgStyle);
+                    if (imgFloatSide != null)
                     {
                         if (LineHasContent())
                         {
@@ -597,14 +611,15 @@ public static partial class BlockLayout
                             inlineX = 0;
                             inlineLineHeight = 0;
                         }
-                        AddFloatedImage(box, childElem, childStyle, imgFloatSide, imgWidth, imgHeight, imgSrc,
+                        AddFloatedImage(box, imgElem, imgStyle, imgFloatSide, imgWidth, imgHeight, imgSrc,
                             childContainingWidth, fontSize, floatCtx, floatOriginY, ref childY,
                             ref leftFloatBottom, ref rightFloatBottom);
                         lastWasTextNode = false;
                         continue;
                     }
 
-                    bool imgIsBlock = IsBlockLevel(childStyle.Display);
+                    bool imgIsBlock = IsBlockLevel(childStyle.Display) ||
+                                      (imgElem != childElem && IsBlockLevel(imgStyle.Display));
 
                     if (LineHasContent() && (imgIsBlock || inlineX + imgWidth > childContainingWidth))
                     {
@@ -616,8 +631,8 @@ public static partial class BlockLayout
 
                     var childBox = new LayoutBox
                     {
-                        Element = childElem,
-                        Style = childStyle,
+                        Element = imgElem,
+                        Style = imgStyle,
                         InlineLineTop = imgIsBlock ? float.NaN : childY,
                         X = box.X + box.PaddingLeft + inlineX,
                         Y = box.Y + box.PaddingTop + childY,
@@ -639,40 +654,6 @@ public static partial class BlockLayout
                     }
                     else
                     {
-                        inlineX += imgWidth;
-                        if (imgHeight > inlineLineHeight)
-                            inlineLineHeight = imgHeight;
-                    }
-                }
-                else if (childElem.TagName == "picture")
-                {
-                    var (picSrc, picElem) = ResolvePicture(childElem);
-                    if (picSrc != null && picElem != null)
-                    {
-                        var picStyle = resolver != null ? resolver(picElem, childStyle) : childStyle;
-                        var (imgWidth, imgHeight) = ResolveImageBoxSize(picStyle, picElem, picSrc, childContainingWidth, fontSize);
-
-                        if (LineHasContent() && inlineX + imgWidth > childContainingWidth)
-                        {
-                            childY += inlineLineHeight;
-                            inlineX = 0;
-                            inlineLineHeight = 0;
-                        }
-
-                        var childBox = new LayoutBox
-                        {
-                            Element = picElem,
-                            Style = picStyle,
-                            InlineLineTop = childY,
-                            X = box.X + box.PaddingLeft + inlineX,
-                            Y = box.Y + box.PaddingTop + childY,
-                            Width = imgWidth,
-                            Height = imgHeight,
-                            ContentWidth = imgWidth,
-                            ContentHeight = imgHeight,
-                            ImageSource = picSrc
-                        };
-                        box.Children.Add(childBox);
                         inlineX += imgWidth;
                         if (imgHeight > inlineLineHeight)
                             inlineLineHeight = imgHeight;

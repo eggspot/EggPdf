@@ -6,10 +6,14 @@ namespace EggPdf.Layout;
 
 public static partial class BlockLayout
 {
-    /// <summary>
-    /// Lay out a <c>float: left|right</c> image: honour <c>clear</c>, pin it to the container edge inside its margins,
-    /// and register its exclusion (margin box, or its <c>shape-outside</c>) so text laid out afterwards wraps around it.
-    /// </summary>
+    private static string? FloatedImageSide(ComputedStyle elementStyle, ComputedStyle imageStyle)
+    {
+        var side = elementStyle.Get("float");
+        if (side == "left" || side == "right") return side;
+        side = imageStyle.Get("float");
+        return side == "left" || side == "right" ? side : null;
+    }
+
     private static void AddFloatedImage(LayoutBox box, HtmlElement element, ComputedStyle style, string side,
         float width, float height, string? source, float containingWidth, float fontSize, FloatContext floatCtx,
         float floatOriginY, ref float childY, ref float leftFloatBottom, ref float rightFloatBottom)
