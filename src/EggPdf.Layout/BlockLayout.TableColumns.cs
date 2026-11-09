@@ -13,7 +13,6 @@ public static partial class BlockLayout
     private static bool IsTableCell(string display)
         => display == "table-cell";
 
-    /// <summary>Check if a table row (tr) is the first row in its table.</summary>
     private static bool IsFirstRowInTable(HtmlElement row)
     {
         var parent = row.Parent as HtmlElement;
@@ -67,12 +66,6 @@ public static partial class BlockLayout
         return true;
     }
 
-    /// <summary>
-    /// Compute auto column widths by measuring content across all rows in the table.
-    /// Walks up from the row to find the table, scans all rows, measures text width
-    /// per column, then distributes available width proportionally.
-    /// Results are cached per table element to avoid re-computation for each row.
-    /// </summary>
     [ThreadStatic]
     private static System.Collections.Generic.Dictionary<HtmlElement, float[]>? _tableColumnWidthCache;
 
@@ -81,28 +74,24 @@ public static partial class BlockLayout
     {
         if (totalColumns <= 0) return new float[] { availableWidth };
 
-        // Find the table element (walk up through thead/tbody/tfoot)
         HtmlElement? tableElement = row.Parent as HtmlElement;
         while (tableElement != null && tableElement.TagName != "table")
             tableElement = tableElement.Parent as HtmlElement;
 
         if (tableElement == null)
         {
-            // Fallback: equal distribution
             float eq = availableWidth / totalColumns;
             var eqWidths = new float[totalColumns];
             for (int i = 0; i < totalColumns; i++) eqWidths[i] = eq;
             return eqWidths;
         }
 
-        // Check cache
         if (_tableColumnWidthCache == null)
             _tableColumnWidthCache = new System.Collections.Generic.Dictionary<HtmlElement, float[]>();
 
         if (_tableColumnWidthCache.TryGetValue(tableElement, out var cached))
             return cached;
 
-        // table-layout: fixed — widths determined by first row only (no content scanning)
         var tableStyle = resolver(tableElement, parentStyle);
         if (tableStyle.Get("table-layout") == "fixed")
         {
@@ -121,11 +110,6 @@ public static partial class BlockLayout
         return result;
     }
 
-    /// <summary>
-    /// table-layout:fixed — determine column widths from the first row only.
-    /// Explicit cell widths (from width attribute/style on first-row cells or &lt;col&gt;) are used;
-    /// remaining columns share the leftover width equally.
-    /// </summary>
     private static float[] ComputeFixedColumnWidths(HtmlElement tableElement, int totalColumns,
         float availableWidth, float fontSize,
         Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver, ComputedStyle? parentStyle)
@@ -133,7 +117,6 @@ public static partial class BlockLayout
         var explicitWidths = new float[totalColumns];
         var hasExplicit = new bool[totalColumns];
 
-        // 1. Check <colgroup>/<col> elements first
         foreach (var child in tableElement.ChildNodes)
         {
             var group = child as HtmlElement;
@@ -154,14 +137,12 @@ public static partial class BlockLayout
             }
         }
 
-        // 2. Scan only the first row for explicit cell widths
         HtmlElement? firstRow = null;
         foreach (var child in TableRowGroupsInRenderOrder(tableElement))
         {
             var group = child as HtmlElement;
             if (group == null) continue;
             if (group.TagName == "tr") { firstRow = group; break; }
-            // thead/tbody/tfoot
             if (group.TagName == "thead" || group.TagName == "tbody" || group.TagName == "tfoot")
             {
                 foreach (var rowNode in group.ChildNodes)
@@ -195,7 +176,6 @@ public static partial class BlockLayout
             }
         }
 
-        // 3. Distribute remaining width equally among columns with no explicit width
         float usedWidth = 0;
         int flexCols = 0;
         for (int i = 0; i < totalColumns; i++)

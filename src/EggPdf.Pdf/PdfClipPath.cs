@@ -44,13 +44,12 @@ public static class PdfClipPath
             return null;
         }
 
-        sb.AppendOpLine("W n"); // Set clipping path, then clear path
+        sb.AppendOpLine("W n");
         return sb.ToString();
     }
 
     private static void GenerateCircleClip(string value, float x, float y, float w, float h, StringBuilder sb)
     {
-        // circle(50% at 50% 50%) or circle(100px)
         var inner = value.Substring(7, value.Length - 8).Trim();
 
         float radius = Math.Min(w, h) / 2;

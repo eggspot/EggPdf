@@ -21,12 +21,28 @@ namespace EggPdf.Paint;
 /// </summary>
 public static partial class BoxPainter
 {
-    // Static arrays to avoid per-call heap allocations in hot paths
-    private static readonly string[] BorderSides = { "top", "right", "bottom", "left" };
+    private const ushort NotdefGlyph = 0;
+    private const float SuperscriptRaiseEm = 0.4f;
+    private const float SubscriptLowerEm = 0.2f;
+    private const float DecorationThicknessEm = 0.05f;
+    private const float MinDecorationThicknessPx = 0.5f;
+    private const float UnderlineDropEm = 0.15f;
+    private const float LineThroughRiseEm = 0.3f;
+    private const float OverlineRiseEm = 0.85f;
+    private const float EmphasisMarkScale = 0.5f;
+    private const float EmphasisOverRiseEm = 0.8f;
+    private const float EmphasisUnderDropEm = 0.3f;
+    private const float IndeterminateProgressFill = 0.4f;
+    private static readonly (float R, float G, float B) DefaultAccentRgb = (0.26f, 0.55f, 0.96f);
+    private static readonly (float R, float G, float B) MeterOptimumRgb = (0.2f, 0.7f, 0.2f);
+    private static readonly (float R, float G, float B) MeterSuboptimumRgb = (0.9f, 0.8f, 0.1f);
+    private static readonly (float R, float G, float B) MeterEvenLessGoodRgb = (0.8f, 0.2f, 0.2f);
+
+    private static (float R, float G, float B) ToRgb(Color color) => (color.R / 255f, color.G / 255f, color.B / 255f);
+
     private static readonly char[] SpaceSep = { ' ' };
     private static readonly char[] CommaSpaceSep = { ',', ' ' };
 
-    // Pre-built border property keys indexed by side (0=top,1=right,2=bottom,3=left)
     private static readonly string[] BorderStyleKeys = { "border-top-style", "border-right-style", "border-bottom-style", "border-left-style" };
     private static readonly string[] BorderWidthKeys = { "border-top-width", "border-right-width", "border-bottom-width", "border-left-width" };
     private static readonly string[] BorderColorKeys = { "border-top-color", "border-right-color", "border-bottom-color", "border-left-color" };
@@ -84,7 +100,7 @@ public static partial class BoxPainter
         {
             var box = effectiveBoxes[i];
             if (box.Text == null && box.Style.Get("-eggpdf-margin-box-position") != null)
-                continue; // explicitly suppressed for this page type (content: none)
+                continue;
             string? originalText = box.Text;
             bool textSubstituted = false;
 
@@ -119,15 +135,6 @@ public static partial class BoxPainter
         }
     }
 
-    /// <summary>
-    /// Resolves, per physical page, which single box wins for each @page
-    /// margin-box position tagged by MarginBoxRenderer: page 1 prefers a
-    /// "first" box, even pages prefer "left", odd pages (other than 1)
-    /// prefer "right" -- falling back to the position's "all" (base @page
-    /// rule) box when no page-type-specific override was declared for it.
-    /// Boxes with no margin-box-position tag (ordinary position:fixed DOM
-    /// content) are untouched and always included.
-    /// </summary>
     private static List<LayoutBox> SelectEffectiveMarginBoxes(List<LayoutBox> fixedBoxes, int pageIndex)
     {
         bool anyTagged = false;
@@ -167,7 +174,6 @@ public static partial class BoxPainter
     /// <summary>The PDF image resource name used for an image source (URL, path or data URI); the same in every run.</summary>
     public static string ImageResourceName(string imageSource) => "Img" + StableHash.Hex(imageSource);
 
-    /// <summary>The element id an internal <c>#fragment</c> href targets, percent-decoded like a browser does (<c>#sec%20one</c> -> "sec one"); malformed escapes are used as written.</summary>
     private static string AnchorIdFromHref(string href)
     {
         var fragment = href.Substring(1);
@@ -190,23 +196,14 @@ public static partial class BoxPainter
     public static void PaintBox(PdfPage page, LayoutBox box,
         float pageHeightPt, float pageHeightPx, float adjustedY)
     {
-        // Internal-link destination: an element's id marks where "#id" links jump to. Registered
-        // before the visibility check below: a visibility:hidden element still occupies its box and a
-        // browser still scrolls to it, so its links must keep working.
         var anchorId = box.Element?.GetAttribute("id");
         if (!string.IsNullOrEmpty(anchorId) && CurrentPdfDoc != null)
             CurrentPdfDoc.RegisterAnchor(anchorId!, page.PageIndex, (pageHeightPx - adjustedY) * PdfCoordinates.PxToPt);
 
-        // Visibility:hidden - box takes space but is not painted
         var visibility = box.Style.Get("visibility");
         if (visibility == "hidden" || visibility == "collapse")
             return;
 
-        // PDF/UA-1 tagging: wrap this box's entire paint output in one BDC/EMC marked-content
-        // span, attributed to the structure element StructureTreeBuilder assigned it (its own
-        // element if it's a tagged HTML element, else the nearest tagged ancestor's -- see that
-        // class for why every reachable box gets an entry). Untagged renders (StructureMap null)
-        // skip straight to PaintBoxCore with no overhead.
         if (StructureMap != null && StructureMap.TryGetValue(box, out var structElem))
         {
             int mcid = page.BeginMarkedContent(structElem.Type);
@@ -229,26 +226,12 @@ public static partial class BoxPainter
     private static void PaintBoxCore(PdfPage page, LayoutBox box,
         float pageHeightPt, float pageHeightPx, float adjustedY)
     {
-        // Apply margin left offset: shift all X coordinates by the page margin
         float effectiveX = box.X + MarginLeftPx;
 
-
-        // CSS transform: wrap entire box painting in SaveState/cm/RestoreState
         bool hasTransform = ApplyTransform(page, box, pageHeightPx, adjustedY, effectiveX);
 
-        // writing-mode: vertical-rl / vertical-lr — rotate box 90° clockwise around its center
         bool hasWritingModeTransform = ApplyWritingModeTransform(page, box, pageHeightPx, adjustedY, effectiveX);
 
-        // Overflow:hidden clipping (also triggered by contain:paint/contain:strict, which
-        // implies paint containment -- descendant painting must not escape the box bounds).
-        // NOTE: PaintBox is invoked once per box from a flat, pre-collected paint list (see
-        // PageFragmenter.CollectPaintableBoxes / PdfRenderer's paint loop), not as a
-        // recursive tree walk -- this SaveState/AddClipRect/RestoreState pair opens and
-        // closes entirely within this one call, so it only clips content painted directly
-        // by THIS box (background, border, box-shadow, its own text/pseudo-content). It
-        // does not clip separately-painted child boxes, which is a real, pre-existing
-        // architectural limitation shared with plain overflow:hidden, not something new
-        // to contain:paint.
         var overflow = box.Style.Get("overflow");
         var containValue = box.Style.Get("contain");
         bool hasContainPaint = !string.IsNullOrEmpty(containValue) &&
@@ -265,7 +248,6 @@ public static partial class BoxPainter
             ClipToBox(page, box, clipX, clipY, clipW, clipH);
         }
 
-        // CSS clip-path — establish clipping region before painting box content
         var clipPathStr = box.Style.Get("clip-path");
         bool hasCssClipPath = false;
         if (!string.IsNullOrEmpty(clipPathStr) && clipPathStr != "none")
@@ -283,7 +265,6 @@ public static partial class BoxPainter
             }
         }
 
-        // CSS mix-blend-mode — set PDF blend mode for this element's painting
         var mixBlendMode = box.Style.Get("mix-blend-mode");
         bool hasBlendMode = !string.IsNullOrEmpty(mixBlendMode) && mixBlendMode != "normal";
         if (hasBlendMode)
@@ -292,37 +273,29 @@ public static partial class BoxPainter
             page.SetBlendMode(mixBlendMode!);
         }
 
-        // CSS filter effects — parse once and apply to colors throughout this box's painting
         var filterStr = box.Style.Get("filter");
         var filterParams = !string.IsNullOrEmpty(filterStr) && filterStr != "none"
             ? EggPdf.Pdf.PdfFilterEffects.Parse(filterStr) : null;
 
-
-        // Resolve border-radius values
         float tlr = ResolveBorderRadius(box.Style, "border-top-left-radius", box.Width);
         float trr = ResolveBorderRadius(box.Style, "border-top-right-radius", box.Width);
         float brr = ResolveBorderRadius(box.Style, "border-bottom-right-radius", box.Width);
         float blr = ResolveBorderRadius(box.Style, "border-bottom-left-radius", box.Width);
         bool hasRadius = tlr > 0 || trr > 0 || brr > 0 || blr > 0;
 
-        // Convert radii from px to pt
         float tlrPt = tlr * PdfCoordinates.PxToPt;
         float trrPt = trr * PdfCoordinates.PxToPt;
         float brrPt = brr * PdfCoordinates.PxToPt;
         float blrPt = blr * PdfCoordinates.PxToPt;
 
-        // Anonymous text boxes (no element) inherit parent's style but should not paint
-        // their own backgrounds or borders — those belong to the parent element box only.
         bool isAnonymousTextBox = box.Element == null && box.Text != null;
 
-        // empty-cells: hide — suppress background+border paint for empty td/th in separate border model
         bool suppressEmptyCell = false;
         if (!isAnonymousTextBox)
         {
             var tagName = box.Element?.TagName;
             if ((tagName == "td" || tagName == "th") && box.Style.Get("empty-cells") == "hide")
             {
-                // A cell is empty when it has no renderable content (no text, no images)
                 bool hasContent = false;
                 foreach (var child in box.Children)
                 {
@@ -339,14 +312,11 @@ public static partial class BoxPainter
             }
         }
 
-        // Paint box-shadow (before background)
         if (!isAnonymousTextBox && !suppressEmptyCell)
             PaintBoxShadow(page, box, effectiveX, pageHeightPx, adjustedY);
 
-        // Paint background
         if (!isAnonymousTextBox && !suppressEmptyCell)
         {
-            // background-blend-mode: apply blend mode around background painting
             var bgBlendMode = box.Style.Get("background-blend-mode");
             bool hasBgBlend = !string.IsNullOrEmpty(bgBlendMode) && bgBlendMode != "normal";
             if (hasBgBlend)
@@ -380,13 +350,11 @@ public static partial class BoxPainter
                     else
                         page.AddRectangle(pdfX, pdfY, pdfW, pdfH, bgR, bgG, bgB);
 
-                    // Reset opacity so it does not leak into subsequent content
                     if (bgAlpha < 1f)
                         SetPaintOpacity(page, 1f);
                 }
             }
 
-            // Paint background-image (supports multiple comma-separated layers; last = bottom)
             var bgImage = box.Style.Get("background-image");
             if (!string.IsNullOrEmpty(bgImage) && bgImage != "none" && CurrentPdfDoc != null)
             {
@@ -402,14 +370,9 @@ public static partial class BoxPainter
             if (hasBgBlend)
                 page.RestoreState();
 
-            // Paint border (per-side with style support)
-            // Suppressed for empty cells when empty-cells: hide
-            if (!suppressEmptyCell)
-                PaintBorders(page, box, effectiveX, pageHeightPt, pageHeightPx, adjustedY, hasRadius, tlrPt, trrPt, brrPt, blrPt);
+            PaintBorders(page, box, effectiveX, pageHeightPt, pageHeightPx, adjustedY, hasRadius, tlrPt, trrPt, brrPt, blrPt);
         }
 
-        // Paint native-style form controls: <progress>/<meter> fill bars, checkbox/radio
-        // vector square/circle indicators, and the <select> dropdown arrow.
         var elemTagName = box.Element?.TagName;
         if (elemTagName == "progress" || elemTagName == "meter")
         {
@@ -433,7 +396,6 @@ public static partial class BoxPainter
                 PaintSelectDropdownArrow(page, box, effectiveX, pageHeightPx, adjustedY);
         }
 
-        // Paint outline (outside border, doesn't affect layout)
         var outlineStyle = box.Style.Get("outline-style");
         if (!string.IsNullOrEmpty(outlineStyle) && outlineStyle != "none")
         {
@@ -444,16 +406,15 @@ public static partial class BoxPainter
 
             float outlineOffset = BlockLayout.ResolveLength(box.Style.Get("outline-offset"), 0, 16);
             float owPt = outlineWidth * PdfCoordinates.PxToPt;
-            float gap = outlineWidth + outlineOffset; // gap from element edge to outline outer edge
-            float olX = (effectiveX - gap) * PdfCoordinates.PxToPt;
-            float olY = (pageHeightPx - adjustedY - box.Height - gap) * PdfCoordinates.PxToPt;
-            float olW = (box.Width + gap * 2) * PdfCoordinates.PxToPt;
-            float olH = (box.Height + gap * 2) * PdfCoordinates.PxToPt;
+            float outlineOuterEdge = outlineWidth + outlineOffset;
+            float olX = (effectiveX - outlineOuterEdge) * PdfCoordinates.PxToPt;
+            float olY = (pageHeightPx - adjustedY - box.Height - outlineOuterEdge) * PdfCoordinates.PxToPt;
+            float olW = (box.Width + outlineOuterEdge * 2) * PdfCoordinates.PxToPt;
+            float olH = (box.Height + outlineOuterEdge * 2) * PdfCoordinates.PxToPt;
             page.AddStrokeRectangle(olX, olY, olW, olH,
                 outlineColor.R / 255f, outlineColor.G / 255f, outlineColor.B / 255f, owPt);
         }
 
-        // Paint column-rule between columns (multi-column layout)
         var colCountStr = box.Style.Get("column-count");
         if (!string.IsNullOrEmpty(colCountStr) && colCountStr != "auto" &&
             int.TryParse(colCountStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int colCount) && colCount > 1)
@@ -463,7 +424,6 @@ public static partial class BoxPainter
             var ruleStyle = box.Style.Get("column-rule-style");
             var ruleColorStr = box.Style.Get("column-rule-color");
 
-            // Parse shorthand if present: "2px solid red"
             if (!string.IsNullOrEmpty(ruleShorthand))
                 ParseColumnRuleShorthand(ruleShorthand, ref ruleWidth, ref ruleStyle, ref ruleColorStr);
 
@@ -473,12 +433,11 @@ public static partial class BoxPainter
             {
                 float rw = BlockLayout.ResolveLength(ruleWidth!, box.Width, 16);
                 var rc = ParseColor(ruleColorStr!);
-                if (rw > 0 && rc.HasValue && rw > 0)
+                if (rw > 0 && rc.HasValue)
                 {
                     float rwPt = rw * PdfCoordinates.PxToPt;
                     float topPt = (pageHeightPx - adjustedY) * PdfCoordinates.PxToPt;
                     float bottomPt = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
-                    // Find column boxes (element-less direct children positioned side by side)
                     float prevRight = float.MinValue;
                     for (int ci = 0; ci < box.Children.Count; ci++)
                     {
@@ -486,7 +445,6 @@ public static partial class BoxPainter
                         if (col.Element != null || col.Text != null) continue;
                         if (prevRight > float.MinValue)
                         {
-                            // Mid-point between previous column's right edge and this column's left edge
                             float midX = ((prevRight + col.X) / 2f) * PdfCoordinates.PxToPt;
                             page.AddLine(midX, bottomPt, midX, topPt,
                                 rc.Value.R / 255f, rc.Value.G / 255f, rc.Value.B / 255f, rwPt);
@@ -497,10 +455,8 @@ public static partial class BoxPainter
             }
         }
 
-        // Paint text
         if (!string.IsNullOrEmpty(box.Text))
         {
-            // Apply text-transform
             var textTransform = box.Style.Get("text-transform");
             var paintText = box.Text;
             if (!string.IsNullOrEmpty(textTransform))
@@ -515,15 +471,10 @@ public static partial class BoxPainter
             bool isSmallCaps = fontVariant == "small-caps" ||
                 fontVariantCaps == "small-caps" || fontVariantCaps == "all-small-caps";
 
-            // Arabic contextual shaping (isolated/initial/medial/final forms, lam-alef
-            // ligatures) -- must run on logical-order text, i.e. before the bidi reorder below.
             paintText = ArabicShaper.Shape(paintText);
 
-            // Complex scripts are shaped glyph-by-glyph from the logical text (bidi-ordered by the
-            // shaper itself); keep it before the visual reorder below, which serves the fallback path.
             string logicalPaintText = paintText;
 
-            // Apply BiDi reordering for RTL text
             if (BidiAlgorithm.ContainsRTL(paintText))
             {
                 var direction = box.Style.Get("direction");
@@ -540,7 +491,6 @@ public static partial class BoxPainter
                 if (resolved > 0) fontSize = resolved;
             }
 
-            // text-overflow: ellipsis — truncate text that overflows container
             var textOverflow = box.Style.Get("text-overflow");
             var ellipsisOverflow = box.Style.Get("overflow");
             if (textOverflow == "ellipsis" && (ellipsisOverflow == "hidden" || ellipsisOverflow == "clip"))
@@ -553,7 +503,6 @@ public static partial class BoxPainter
                     float ellipsisWidth = TextMeasurer.MeasureWidth("...", fontSize,
                         box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"));
                     float targetWidth = availWidth - ellipsisWidth;
-                    // Binary search for truncation point
                     int lo = 1, hi = paintText.Length;
                     while (lo < hi)
                     {
@@ -571,9 +520,6 @@ public static partial class BoxPainter
                 box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"),
                 box.Style.Get("font-feature-settings"));
 
-            // Complex-script text (Thai, Indic, Arabic with marks) paints from its own embedded
-            // script-capable font, registered under "<font>-CX<script>" at embed time. If that font
-            // wasn't embedded (no covering font installed), fall back to the normal path.
             string? complexSuffix = ComplexTextShaper.FontKeySuffix(logicalPaintText);
             FontData? complexShapingFont = null;
             if (complexSuffix != null && CurrentPdfDoc != null &&
@@ -586,7 +532,6 @@ public static partial class BoxPainter
             float pdfFontSize = fontSize * PdfCoordinates.PxToPt;
             float textX = effectiveX + box.PaddingLeft;
 
-            // Text alignment
             var textAlign = LogicalPropertyResolver.PhysicalTextAlign(box.Style);
             float justifyExtraWordSpacing = 0;
             if (!string.IsNullOrEmpty(textAlign) && box.ContentWidth < box.Width)
@@ -599,9 +544,6 @@ public static partial class BoxPainter
                     textX += availableWidth - textWidth;
                 else if (textAlign == "justify")
                 {
-                    // Distribute extra space between words on non-last lines.
-                    // A line is considered non-last when it fills ≥ 50% of the container.
-                    // (Last lines, which are typically short, are left-aligned.)
                     bool isLastLine = string.IsNullOrEmpty(box.Text) || textWidth < availableWidth * 0.5f;
                     if (!isLastLine)
                     {
@@ -616,42 +558,31 @@ public static partial class BoxPainter
                     }
                     else
                     {
-                        // Last line: apply text-align-last if specified
                         var textAlignLast = box.Style.Get("text-align-last");
                         if (textAlignLast == "center")
                             textX += (availableWidth - textWidth) / 2;
                         else if (textAlignLast == "right")
                             textX += availableWidth - textWidth;
-                        // left / auto / unset → left-aligned (default, no shift)
                     }
                 }
             }
 
             float pdfX = textX * PdfCoordinates.PxToPt;
 
-            // Baseline placement like browsers: half-leading above the ascent
-            // (real font metrics when available) instead of a full em below the
-            // line top — otherwise large fonts with tight line-height overlap the
-            // following line with their descenders.
             float lineBoxHeight = box.Height > 0 ? box.Height : fontSize * 1.2f;
             float baselineOffset = TextMeasurer.GetBaselineOffset(fontSize, lineBoxHeight,
                 box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"), box.Text);
             float pdfY = (pageHeightPx - adjustedY - box.PaddingTop - baselineOffset) * PdfCoordinates.PxToPt;
 
-            // Vertical-align baseline shift (sup/sub/super/sub)
             var verticalAlign = box.Style.Get("vertical-align");
             if (!string.IsNullOrEmpty(verticalAlign))
             {
                 if (verticalAlign == "super" || verticalAlign == "sup")
-                    pdfY += fontSize * 0.4f * PdfCoordinates.PxToPt; // shift up
+                    pdfY += fontSize * SuperscriptRaiseEm * PdfCoordinates.PxToPt;
                 else if (verticalAlign == "sub")
-                    pdfY -= fontSize * 0.2f * PdfCoordinates.PxToPt; // shift down
+                    pdfY -= fontSize * SubscriptLowerEm * PdfCoordinates.PxToPt;
             }
 
-            // Text color (with filter applied if present). Falls back to opaque black -- the CSS
-            // initial/default value ("canvastext" in a light theme) -- rather than leaving color
-            // null, so a `filter` still affects unstyled text instead of silently being skipped
-            // because color.HasValue was false.
             var textColor = box.Style.Color;
             Color? color = string.IsNullOrEmpty(textColor)
                 ? Color.FromRgb(0, 0, 0)
@@ -663,7 +594,6 @@ public static partial class BoxPainter
                 color = Color.FromRgba((byte)(fr * 255), (byte)(fg * 255), (byte)(fb * 255), color.Value.A);
             }
 
-            // Letter-spacing and word-spacing
             float letterSpacing = 0, wordSpacing = 0;
             var lsStr = box.Style.Get("letter-spacing");
             if (!string.IsNullOrEmpty(lsStr) && lsStr != "normal")
@@ -671,10 +601,8 @@ public static partial class BoxPainter
             var wsStr = box.Style.Get("word-spacing");
             if (!string.IsNullOrEmpty(wsStr) && wsStr != "normal")
                 wordSpacing = BlockLayout.ResolveLength(wsStr, 0, fontSize) * PdfCoordinates.PxToPt;
-            // Justify: add inter-word spacing to fill the line
             wordSpacing += justifyExtraWordSpacing;
 
-            // text-combine-upright: all — horizontally compress text to fit 1em in vertical writing mode
             bool hasCombineUpright = EggPdf.Layout.WritingModeLayout.ResolveCombineUpright(
                 box.Style.Get("text-combine-upright"));
             if (hasCombineUpright)
@@ -685,7 +613,6 @@ public static partial class BoxPainter
                 float emPt = fontSize * PdfCoordinates.PxToPt;
                 if (measuredW > emPt && emPt > 0f)
                 {
-                    // Scale X: compress to emPt, keep Y, translate X so the text stays anchored at pdfX
                     float sx = emPt / measuredW;
                     float tx = pdfX * (1f - sx);
                     page.SaveState();
@@ -693,11 +620,10 @@ public static partial class BoxPainter
                 }
                 else
                 {
-                    hasCombineUpright = false; // no compression needed
+                    hasCombineUpright = false;
                 }
             }
 
-            // Text shadow: render shadow text before the main text
             var textShadow = box.Style.Get("text-shadow");
             if (!string.IsNullOrEmpty(textShadow) && textShadow != "none")
             {
@@ -705,19 +631,17 @@ public static partial class BoxPainter
                 if (shA > 0)
                 {
                     float shadowPdfX = pdfX + shX * PdfCoordinates.PxToPt;
-                    float shadowPdfY = pdfY - shY * PdfCoordinates.PxToPt; // PDF Y is inverted
+                    float shadowPdfY = pdfY - shY * PdfCoordinates.PxToPt;
                     if (shA < 1f) SetPaintOpacity(page, shA);
                     page.AddText(paintText, shadowPdfX, shadowPdfY, fontName, pdfFontSize, shR, shG, shB, letterSpacing, wordSpacing);
                     if (shA < 1f) SetPaintOpacity(page, 1f);
                 }
             }
 
-            // Text alpha: rgba() color alpha combined with the element's css opacity
             float textAlpha = color?.A / 255f ?? 1f;
             if (textAlpha < 1f)
                 SetPaintOpacity(page, textAlpha);
 
-            // Use CIDFont glyph IDs for embedded fonts, or WinAnsi for built-in fonts
             if (complexShapingFont != null && CurrentPdfDoc != null)
             {
                 PaintShapedRun(page, CurrentPdfDoc, fontName, complexShapingFont, logicalPaintText,
@@ -726,9 +650,6 @@ public static partial class BoxPainter
             }
             else if (CurrentPdfDoc != null && CurrentPdfDoc.IsEmbeddedFont(fontName) && CurrentPdfDoc.ContainsColorGlyphs(fontName, paintText))
             {
-                // COLR/CPAL color-glyph (emoji) runs step one codepoint at a time: PDF's
-                // text-showing operator paints a whole string in one fill color, but a
-                // color glyph needs several same-position layers each in their own color.
                 PaintColorGlyphRun(page, paintText, pdfX, pdfY, fontName, pdfFontSize, letterSpacing,
                     color?.R / 255f ?? 0, color?.G / 255f ?? 0, color?.B / 255f ?? 0);
             }
@@ -746,8 +667,6 @@ public static partial class BoxPainter
             if (textAlpha < 1f)
                 SetPaintOpacity(page, 1f);
 
-            // Text decoration (underline, line-through, overline)
-            // Honour text-decoration-line, text-decoration-color, text-decoration-thickness longhands.
             var textDecorationLine = box.Style.Get("text-decoration-line")
                                   ?? box.Style.Get("text-decoration")
                                   ?? "";
@@ -758,8 +677,7 @@ public static partial class BoxPainter
                     box.Style.FontFamily, box.Style.FontWeight, box.Style.Get("font-style"));
                 float textWidth = measuredPx * PdfCoordinates.PxToPt;
 
-                // text-decoration-thickness: auto / from-font / <length>
-                float decoLineWidth = Math.Max(fontSize * 0.05f, 0.5f) * PdfCoordinates.PxToPt;
+                float decoLineWidth = Math.Max(fontSize * DecorationThicknessEm, MinDecorationThicknessPx) * PdfCoordinates.PxToPt;
                 var thicknessVal = box.Style.Get("text-decoration-thickness");
                 if (!string.IsNullOrEmpty(thicknessVal) && thicknessVal != "auto" && thicknessVal != "from-font")
                 {
@@ -767,7 +685,6 @@ public static partial class BoxPainter
                     if (resolved > 0) decoLineWidth = resolved * PdfCoordinates.PxToPt;
                 }
 
-                // text-decoration-color: defaults to text color
                 float dr = 0, dg = 0, db = 0;
                 var decoColorStr = box.Style.Get("text-decoration-color");
                 Color? decoColor = (!string.IsNullOrEmpty(decoColorStr) && decoColorStr != "currentColor")
@@ -787,30 +704,27 @@ public static partial class BoxPainter
                     var underlineOffsetVal = box.Style.Get("text-underline-offset");
                     if (!string.IsNullOrEmpty(underlineOffsetVal) && underlineOffsetVal != "auto")
                         underlineOffsetPx = BlockLayout.ResolveLength(underlineOffsetVal, fontSize, fontSize);
-                    lineY = pdfY - (fontSize * 0.15f + underlineOffsetPx) * PdfCoordinates.PxToPt;
+                    lineY = pdfY - (fontSize * UnderlineDropEm + underlineOffsetPx) * PdfCoordinates.PxToPt;
                     page.AddDecorationLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth, decoStyle);
                 }
                 if (textDecorationLine.IndexOf("line-through", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    lineY = pdfY + fontSize * 0.3f * PdfCoordinates.PxToPt;
+                    lineY = pdfY + fontSize * LineThroughRiseEm * PdfCoordinates.PxToPt;
                     page.AddDecorationLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth, decoStyle);
                 }
                 if (textDecorationLine.IndexOf("overline", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    lineY = pdfY + fontSize * 0.85f * PdfCoordinates.PxToPt;
+                    lineY = pdfY + fontSize * OverlineRiseEm * PdfCoordinates.PxToPt;
                     page.AddDecorationLine(pdfX, lineY, pdfX + textWidth, lineY, dr, dg, db, decoLineWidth, decoStyle);
                 }
             }
 
-            // text-emphasis: draw emphasis marks above (default) or below each character
             PaintTextEmphasis(page, box, paintText, pdfX, pdfY, fontSize, fontName, color);
 
-            // Restore text-combine-upright transform state
             if (hasCombineUpright)
                 page.RestoreState();
         }
 
-        // Paint image (with object-fit support)
         if (!string.IsNullOrEmpty(box.ImageSource) && box.ImageData != null && CurrentPdfDoc?.GetImage(ImageResourceName(box.ImageSource!)) != null)
         {
             var (contentX, contentTop, contentWidth, contentHeight) = ContentRect(box, effectiveX, adjustedY);
@@ -819,12 +733,10 @@ public static partial class BoxPainter
             float pdfW = contentWidth * PdfCoordinates.PxToPt;
             float pdfH = contentHeight * PdfCoordinates.PxToPt;
 
-            // Apply object-fit + object-position
             var objectFit = box.Style.Get("object-fit") ?? "fill";
             var objectPosition = box.Style.Get("object-position") ?? "50% 50%";
 
-            // Parse object-position: "x y" keywords or percentages
-            float posX = 0.5f, posY = 0.5f; // fractions of available offset space
+            float posX = 0.5f, posY = 0.5f;
             var posParts = objectPosition.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (posParts.Length >= 1) posX = ParseObjectPositionFraction(posParts[0], false);
             if (posParts.Length >= 2) posY = ParseObjectPositionFraction(posParts[1], true);
@@ -846,7 +758,6 @@ public static partial class BoxPainter
                 }
                 else if (objectFit == "scale-down")
                 {
-                    // smaller of none or contain
                     float scaleX2 = pdfW / Math.Max(natW, 1);
                     float scaleY2 = pdfH / Math.Max(natH, 1);
                     float scale2 = Math.Min(Math.Min(scaleX2, scaleY2), 1f);
@@ -860,16 +771,11 @@ public static partial class BoxPainter
                     fitW = natW * scale; fitH = natH * scale;
                 }
 
-                // object-position offsets within the box. X matches directly (both axes point
-                // right), but pdfY is already flipped to PDF's bottom-up space, so a CSS
-                // "top" (posY=0) must push the image to the TOP of the gap, i.e. add the whole
-                // gap; a CSS "bottom" (posY=1) adds none. That is the vertical mirror of posY.
                 pdfX += (pdfW - fitW) * posX;
                 pdfY += (pdfH - fitH) * (1f - posY);
                 pdfW = fitW;
                 pdfH = fitH;
             }
-            // object-fit: fill (default) uses the box dimensions unchanged
 
             string imgName = ImageResourceName(box.ImageSource!);
             page.SaveState();
@@ -943,46 +849,29 @@ public static partial class BoxPainter
             }
         }
 
-        // Restore mix-blend-mode state
         if (hasBlendMode)
             page.RestoreState();
 
-        // Restore CSS clip-path state
         if (hasCssClipPath)
             page.RestoreState();
 
-        // Restore overflow:hidden clipping state
         if (hasClip)
             page.RestoreState();
 
-        // Restore writing-mode transform state
         if (hasWritingModeTransform)
             page.RestoreState();
 
-        // Restore transform state
         if (hasTransform)
             page.RestoreState();
     }
 
-    /// <summary>
-    /// Strip a "-W###" weight suffix (and any trailing suffix after it, e.g. a
-    /// "-Feat-..." font-feature-settings marker) so built-in font fallbacks stay valid.
-    /// </summary>
     private static string StripWeightSuffix(string fontName)
     {
         int idx = fontName.LastIndexOf("-W", StringComparison.Ordinal);
         if (idx <= 0 || idx + 2 >= fontName.Length || !char.IsDigit(fontName[idx + 2])) return fontName;
-        int i = idx + 2;
-        while (i < fontName.Length && char.IsDigit(fontName[i])) i++;
         return fontName.Substring(0, idx);
     }
 
-    /// <summary>
-    /// Split text into consecutive runs of (fontName, glyphIds): codepoints the
-    /// main font covers stay in it; missing ones use the first fallback font that
-    /// has a glyph for them (or stay as .notdef in the main font when none does,
-    /// except invisible format characters, which are dropped).
-    /// </summary>
     private static List<(string fontName, ushort[] glyphIds)> BuildFontFallbackRuns(
         string text, string mainFont, IReadOnlyList<string> fallbackFonts)
     {
@@ -1000,7 +889,7 @@ public static partial class BoxPainter
             }
 
             string font = mainFont;
-            if (!CurrentPdfDoc!.TryGetGlyphId(mainFont, cp, out var gid) || gid == 0)
+            if (!CurrentPdfDoc!.TryGetGlyphId(mainFont, cp, out var gid) || gid == NotdefGlyph)
             {
                 if (TryFindFallbackGlyph(cp, fallbackFonts, out var fbFont, out var fbGid))
                 {
@@ -1010,17 +899,15 @@ public static partial class BoxPainter
                 else if (ArabicShaper.TryGetBaseForm(cp, out var baseText) &&
                          TryAppendBaseFormGlyphs(baseText, mainFont, fallbackFonts, runs, current, ref currentFont))
                 {
-                    // No font has this Arabic presentation-form glyph: the base letter(s)
-                    // were appended instead (disconnected but legible, not a .notdef box).
                     continue;
                 }
                 else if (UnicodeScripts.IsDefaultIgnorable(cp))
                 {
-                    continue; // zero-width format character no font draws: nothing to paint
+                    continue;
                 }
                 else
                 {
-                    gid = 0; // .notdef in the main font
+                    gid = NotdefGlyph;
                 }
             }
 
@@ -1061,12 +948,10 @@ public static partial class BoxPainter
 
     private static float ResolveBorderRadius(ComputedStyle style, string property, float boxWidth)
     {
-        // Try specific corner property first, then shorthand
         var value = style.Get(property) ?? style.Get("border-radius");
         if (string.IsNullOrEmpty(value) || value == "0" || value == "0px")
             return 0;
 
-        // Two-value "H V" from slash syntax — use horizontal (first) radius only for circular approximation
         var spaceIdx = value.IndexOf(' ');
         var hValue = spaceIdx > 0 ? value.Substring(0, spaceIdx) : value;
 
@@ -1074,33 +959,27 @@ public static partial class BoxPainter
         return Math.Max(0, resolved);
     }
 
-    /// <summary>
-    /// Paint CSS text-emphasis marks (dots, circles, etc.) above or below each character.
-    /// CSS spec: one mark is painted per character, centred over it.
-    /// </summary>
     private static void PaintTextEmphasis(PdfPage page, LayoutBox box, string text,
         float pdfX, float pdfY, float fontSize, string fontName, Color? textColor)
     {
         var emphasisStyle = box.Style.Get("text-emphasis-style") ?? box.Style.Get("text-emphasis");
         if (string.IsNullOrEmpty(emphasisStyle) || emphasisStyle == "none") return;
 
-        // Resolve the mark character
         bool isFilled = emphasisStyle.IndexOf("open", StringComparison.OrdinalIgnoreCase) < 0;
         string markChar;
 
         if (emphasisStyle.IndexOf("dot", StringComparison.OrdinalIgnoreCase) >= 0)
-            markChar = isFilled ? "\u2022" : "\u25E6"; // • ◦
+            markChar = isFilled ? "\u2022" : "\u25E6";
         else if (emphasisStyle.IndexOf("double-circle", StringComparison.OrdinalIgnoreCase) >= 0)
-            markChar = isFilled ? "\u25C9" : "\u25CE"; // ◉ ◎
+            markChar = isFilled ? "\u25C9" : "\u25CE";
         else if (emphasisStyle.IndexOf("circle", StringComparison.OrdinalIgnoreCase) >= 0)
-            markChar = isFilled ? "\u25CF" : "\u25CB"; // ● ○
+            markChar = isFilled ? "\u25CF" : "\u25CB";
         else if (emphasisStyle.IndexOf("triangle", StringComparison.OrdinalIgnoreCase) >= 0)
-            markChar = isFilled ? "\u25B2" : "\u25B3"; // ▲ △
+            markChar = isFilled ? "\u25B2" : "\u25B3";
         else if (emphasisStyle.IndexOf("sesame", StringComparison.OrdinalIgnoreCase) >= 0)
-            markChar = isFilled ? "\uFE45" : "\uFE46"; // ﹅ ﹆
+            markChar = isFilled ? "\uFE45" : "\uFE46";
         else
         {
-            // Custom string mark: extract quoted content
             var trimmed = emphasisStyle.Trim();
             if ((trimmed.StartsWith("\"") && trimmed.EndsWith("\"")) ||
                 (trimmed.StartsWith("'") && trimmed.EndsWith("'")))
@@ -1110,11 +989,9 @@ public static partial class BoxPainter
             if (string.IsNullOrEmpty(markChar)) return;
         }
 
-        // Determine position: "over" (above, default) or "under" (below)
         var emphasisPos = box.Style.Get("text-emphasis-position") ?? "over right";
         bool isOver = emphasisPos.IndexOf("under", StringComparison.OrdinalIgnoreCase) < 0;
 
-        // Resolve emphasis color (defaults to text color)
         float er = textColor?.R / 255f ?? 0f;
         float eg = textColor?.G / 255f ?? 0f;
         float eb = textColor?.B / 255f ?? 0f;
@@ -1125,17 +1002,14 @@ public static partial class BoxPainter
             if (ec.HasValue) { er = ec.Value.R / 255f; eg = ec.Value.G / 255f; eb = ec.Value.B / 255f; }
         }
 
-        // Mark font size: typically ~50% of the text font size
-        float markFontSize = fontSize * 0.5f * PdfCoordinates.PxToPt;
+        float markFontSize = fontSize * EmphasisMarkScale * PdfCoordinates.PxToPt;
 
-        // Hoist invariant lookups out of the per-character loop.
         string emphFontStyle = box.Style.Get("font-style") ?? "";
         string emphPdfFont = StandardFontMetrics.ResolvePdfFontName(box.Style.FontFamily, box.Style.FontWeight, emphFontStyle);
-        float markWidthPt = TextMeasurer.MeasureWidth(markChar, fontSize * 0.5f,
+        float markWidthPt = TextMeasurer.MeasureWidth(markChar, fontSize * EmphasisMarkScale,
             box.Style.FontFamily, box.Style.FontWeight, null)
             * PdfCoordinates.PxToPt;
 
-        // Paint one mark per character, centred above/below it.
         float charX = pdfX;
         for (int i = 0; i < text.Length; i++)
         {
@@ -1143,21 +1017,18 @@ public static partial class BoxPainter
                 * PdfCoordinates.PxToPt;
 
             float markX = charX + (charWidthPt - markWidthPt) / 2f;
-            // Place mark: above = baseline + ascent + small gap; below = baseline - descent - gap
             float markY = isOver
-                ? pdfY + fontSize * 0.8f * PdfCoordinates.PxToPt  // above the cap-height
-                : pdfY - fontSize * 0.3f * PdfCoordinates.PxToPt; // below the baseline
+                ? pdfY + fontSize * EmphasisOverRiseEm * PdfCoordinates.PxToPt
+                : pdfY - fontSize * EmphasisUnderDropEm * PdfCoordinates.PxToPt;
 
             page.AddText(markChar, markX, markY, fontName, markFontSize, er, eg, eb, 0, 0);
             charX += charWidthPt;
         }
     }
 
-    /// <summary>Paint a background-image: url(...) or gradient behind the element.</summary>
     private static void PaintBackgroundImage(PdfPage page, LayoutBox box, string bgImage,
         float effectiveX, float pageHeightPx, float adjustedY)
     {
-        // Handle CSS gradients
         if (bgImage.StartsWith("linear-gradient(", StringComparison.OrdinalIgnoreCase) ||
             bgImage.StartsWith("repeating-linear-gradient(", StringComparison.OrdinalIgnoreCase))
         {
@@ -1206,8 +1077,6 @@ public static partial class BoxPainter
             return;
         }
 
-        // Extract URL from "url(...)" or "url('...')" or "url("...")", or
-        // resolve an image-set(...) candidate list to its best URL.
         string? url = null;
         string? imageFunctionFallbackColor = null;
         if (bgImage.StartsWith("image-set(", StringComparison.OrdinalIgnoreCase) ||
@@ -1227,7 +1096,6 @@ public static partial class BoxPainter
             if (end > start)
             {
                 url = bgImage.Substring(start, end - start).Trim();
-                // Remove quotes
                 if (url.Length >= 2 && ((url[0] == '\'' && url[url.Length - 1] == '\'') ||
                     (url[0] == '"' && url[url.Length - 1] == '"')))
                     url = url.Substring(1, url.Length - 2);
@@ -1240,7 +1108,6 @@ public static partial class BoxPainter
             return;
         }
 
-        // Load image data
         var data = LoadBackgroundImageData(url);
         if (data == null || data.Length == 0)
         {
@@ -1282,34 +1149,25 @@ public static partial class BoxPainter
         return BlockLayout.ResolveLength(value, containingSize, 16);
     }
 
-    /// <summary>Paint all four borders with per-side style, width, and color support.</summary>
     private static void PaintBorders(PdfPage page, LayoutBox box, float effectiveX,
         float pageHeightPt, float pageHeightPx, float adjustedY,
         bool hasRadius, float tlrPt, float trrPt, float brrPt, float blrPt)
     {
-        // border-image: if a gradient source is set, render gradient across the full border area
-        // and skip the regular solid border painting.
         var borderImageSrc = box.Style.Get("border-image-source");
         if (!string.IsNullOrEmpty(borderImageSrc) && borderImageSrc != "none")
         {
             bool isGradient = borderImageSrc.IndexOf("gradient(", StringComparison.OrdinalIgnoreCase) >= 0;
             if (isGradient && CurrentPdfDoc != null)
             {
-                // Render the gradient over the full element rect (outer edge to outer edge)
-                // This creates a visible "border" frame effect.
                 PaintBackgroundImage(page, box, borderImageSrc, effectiveX, pageHeightPx, adjustedY);
-                return; // Replace normal border with border-image
+                return;
             }
-            // For URL-based border-image: fall through to normal border as fallback
         }
 
-        // Get common fallback values
         var fallbackStyle = box.Style.Get("border-style");
         var fallbackWidth = box.Style.Get("border-width");
         var fallbackColor = box.Style.Get("border-color");
 
-        // Per-side values
-        var sides = BorderSides;
         string[] sideStyles = new string[4];
         float[] sideWidths = new float[4];
         float[] sideR = new float[4], sideG = new float[4], sideB = new float[4], sideA = { 1f, 1f, 1f, 1f };
@@ -1411,14 +1269,6 @@ public static partial class BoxPainter
         if (translucent) SetPaintOpacity(page, 1f);
     }
 
-    // ===== writing-mode support =====
-
-    /// <summary>
-    /// Apply a 90° clockwise rotation for vertical writing modes.
-    /// The rotation is applied around the box's center so the content appears
-    /// rotated 90° within the same bounding region.
-    /// Returns true if a SaveState was pushed (caller must RestoreState).
-    /// </summary>
     private static bool ApplyWritingModeTransform(PdfPage page, LayoutBox box,
         float pageHeightPx, float adjustedY, float effectiveX)
     {
@@ -1426,14 +1276,9 @@ public static partial class BoxPainter
         if (writingMode != "vertical-rl" && writingMode != "vertical-lr")
             return false;
 
-        // Center of the box in PDF coordinate space (Y is up in PDF)
         float cx = (effectiveX + box.Width / 2f) * PdfCoordinates.PxToPt;
         float cy = (pageHeightPx - adjustedY - box.Height / 2f) * PdfCoordinates.PxToPt;
 
-        // 90° clockwise rotation matrix: [0, -1, 1, 0] with translation to keep center fixed
-        // The full composed matrix is: translate(cx,cy) * rotate(-90°) * translate(-cx,-cy)
-        // = [0, -1, 1, 0, cx + cy, cy - cx]  (cos-sin variant for clockwise)
-        // In PDF (Y-up), clockwise in CSS = counter-clockwise in PDF coords
         float pdfA = 0f, pdfB = 1f, pdfC = -1f, pdfD = 0f;
         float pdfE = cx + cy;
         float pdfF = cy - cx;
@@ -1443,9 +1288,6 @@ public static partial class BoxPainter
         return true;
     }
 
-    // ===== CSS Transform support =====
-
-    /// <summary>A 2D affine transform matrix [a, b, c, d, e, f].</summary>
     private struct Matrix2D
     {
         public float A, B, C, D, E, F;
@@ -1466,7 +1308,6 @@ public static partial class BoxPainter
         }
     }
 
-    /// <summary>Parse a CSS transform property value into a combined affine matrix.</summary>
     internal static bool TryParseTransformMatrix(string value, float boxWidth, float boxHeight,
         out float a, out float b, out float c, out float d, out float e, out float f)
     {
@@ -1489,7 +1330,7 @@ public static partial class BoxPainter
             if (pos >= value.Length) break;
 
             string funcName = value.Substring(nameStart, pos - nameStart).Trim();
-            pos++; // skip '('
+            pos++;
 
             int argsStart = pos;
             int depth = 1;
@@ -1502,7 +1343,7 @@ public static partial class BoxPainter
             if (pos > value.Length) break;
 
             string argsStr = value.Substring(argsStart, pos - argsStart);
-            if (pos < value.Length) pos++; // skip ')'
+            if (pos < value.Length) pos++;
 
             var args = ParseTransformArgs(argsStr);
             var m = EvaluateTransformFunction(funcName, args, boxWidth, boxHeight);
@@ -1643,10 +1484,8 @@ public static partial class BoxPainter
                     return new Matrix2D { A = args[0], B = args[1], C = args[2], D = args[3], E = args[4], F = args[5] };
                 return null;
             }
-            // ── 3D transform functions (flattened to 2D for PDF) ────────────────
             case "rotateZ":
             {
-                // rotateZ is identical to rotate in 2D
                 float angle = args.Length > 0 ? args[0] : 0;
                 float cos = (float)Math.Cos(angle);
                 float sin = (float)Math.Sin(angle);
@@ -1654,21 +1493,18 @@ public static partial class BoxPainter
             }
             case "rotateX":
             {
-                // Orthographic flatten: X axis unchanged, Y compressed by cos(angle)
                 float angle = args.Length > 0 ? args[0] : 0;
                 float cos = (float)Math.Abs(Math.Cos(angle));
                 return new Matrix2D { A = 1, B = 0, C = 0, D = cos, E = 0, F = 0 };
             }
             case "rotateY":
             {
-                // Orthographic flatten: Y axis unchanged, X compressed by cos(angle)
                 float angle = args.Length > 0 ? args[0] : 0;
                 float cos = (float)Math.Abs(Math.Cos(angle));
                 return new Matrix2D { A = cos, B = 0, C = 0, D = 1, E = 0, F = 0 };
             }
             case "rotate3d":
             {
-                // rotate3d(x, y, z, angle) — if axis is primarily Z, treat as rotateZ
                 float x = args.Length > 0 ? args[0] : 0;
                 float y = args.Length > 1 ? args[1] : 0;
                 float z = args.Length > 2 ? args[2] : 0;
@@ -1678,43 +1514,27 @@ public static partial class BoxPainter
                 float nz = z / len;
                 float cos = (float)Math.Cos(ang);
                 float sin = (float)Math.Sin(ang);
-                // Weight 2D rotation by Z component; flatten X/Y components
                 float a = cos + (1 - cos) * (1 - nz * nz) < 0 ? 0 : cos;
                 return new Matrix2D { A = a, B = nz * sin, C = -nz * sin, D = a, E = 0, F = 0 };
             }
             case "translateZ":
-            {
-                // Z translation has no 2D effect — return identity (not null, so hasTransform stays false)
+            case "scaleZ":
+            case "perspective":
                 return null;
-            }
             case "translate3d":
             {
                 float tx = args.Length > 0 ? args[0] : 0;
                 float ty = args.Length > 1 ? args[1] : 0;
-                // tz (args[2]) is ignored in 2D
                 return new Matrix2D { A = 1, B = 0, C = 0, D = 1, E = tx, F = ty };
-            }
-            case "scaleZ":
-            {
-                // Z scale has no 2D effect
-                return null;
             }
             case "scale3d":
             {
                 float sx = args.Length > 0 ? args[0] : 1;
                 float sy = args.Length > 1 ? args[1] : 1;
-                // sz (args[2]) is ignored in 2D
                 return new Matrix2D { A = sx, B = 0, C = 0, D = sy, E = 0, F = 0 };
-            }
-            case "perspective":
-            {
-                // perspective() in a transform list has no 2D flat equivalent
-                return null;
             }
             case "matrix3d":
             {
-                // CSS matrix3d is column-major 4x4. Extract the 2D affine subset:
-                // a=m[0], b=m[1], c=m[4], d=m[5], e=m[12], f=m[13]
                 if (args.Length >= 16)
                     return new Matrix2D { A = args[0], B = args[1], C = args[4], D = args[5], E = args[12], F = args[13] };
                 return null;
@@ -1774,9 +1594,6 @@ public static partial class BoxPainter
         }
     }
 
-    /// <summary>
-    /// Apply a CSS transform. Returns true if transform was applied (caller must RestoreState).
-    /// </summary>
     private static bool ApplyTransform(PdfPage page, LayoutBox box,
         float pageHeightPx, float adjustedY, float effectiveX)
     {
@@ -1791,17 +1608,14 @@ public static partial class BoxPainter
         ResolveTransformOrigin(box, pageHeightPx, adjustedY, effectiveX,
             out float oxPt, out float oyPt);
 
-        // Convert CSS translation (px) to PDF points, flip Y for PDF coordinate system
         float ePt = me * PdfCoordinates.PxToPt;
         float fPt = -mf * PdfCoordinates.PxToPt;
 
-        // Flip sin components for PDF coordinate system (Y up vs CSS Y down)
         float pdfA = ma;
         float pdfB = -mb;
         float pdfC = -mc;
         float pdfD = md;
 
-        // Compose: translate(origin) * matrix * translate(-origin)
         float finalE = oxPt + ePt - pdfA * oxPt - pdfC * oyPt;
         float finalF = oyPt + fPt - pdfB * oxPt - pdfD * oyPt;
 
@@ -1816,8 +1630,6 @@ public static partial class BoxPainter
     /// </summary>
     public static void SortByZIndex(List<LayoutBox> boxes)
     {
-        // Stable sort: tag each box with its original index, sort by (zIndex, originalIndex)
-        // to preserve document order for equal z-indices without LINQ allocation.
         var tagged = new (int z, int i)[boxes.Count];
         for (int i = 0; i < boxes.Count; i++)
             tagged[i] = (GetZIndex(boxes[i]), i);
@@ -1835,7 +1647,7 @@ public static partial class BoxPainter
         if (!string.IsNullOrEmpty(zStr) && zStr != "auto" &&
             int.TryParse(zStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int z))
             return z;
-        return 0; // auto = 0
+        return 0;
     }
 
     private static Color? ParseColor(string value)
@@ -1843,14 +1655,12 @@ public static partial class BoxPainter
         return Color.TryParse(value);
     }
 
-    /// <summary>Paint the fill bar for &lt;progress&gt; and &lt;meter&gt; elements.</summary>
     private static void PaintProgressOrMeter(PdfPage page, LayoutBox box, string tagName,
         float effectiveX, float pageHeightPx, float adjustedY, string? accentColorStr = null)
     {
         var elem = box.Element;
         if (elem == null) return;
 
-        // accent-color overrides the default fill color
         Color? accentColor = !string.IsNullOrEmpty(accentColorStr) ? ParseColor(accentColorStr) : null;
 
         float fraction = 0f;
@@ -1860,7 +1670,7 @@ public static partial class BoxPainter
             var valueStr = elem.GetAttribute("value");
             var maxStr = elem.GetAttribute("max");
             if (string.IsNullOrEmpty(valueStr))
-                fraction = 0.4f; // indeterminate — show partial fill
+                fraction = IndeterminateProgressFill;
             else
             {
                 float.TryParse(valueStr, System.Globalization.NumberStyles.Float,
@@ -1873,13 +1683,10 @@ public static partial class BoxPainter
                 fraction = Math.Max(0f, Math.Min(1f, value / max));
             }
 
-            // Default progress bar color: medium blue; overridden by accent-color
-            float r = accentColor.HasValue ? accentColor.Value.R / 255f : 0.26f;
-            float g = accentColor.HasValue ? accentColor.Value.G / 255f : 0.55f;
-            float b = accentColor.HasValue ? accentColor.Value.B / 255f : 0.96f;
-            PaintFillBar(page, box, effectiveX, pageHeightPx, adjustedY, fraction, r, g, b);
+            var fill = accentColor.HasValue ? ToRgb(accentColor.Value) : DefaultAccentRgb;
+            PaintFillBar(page, box, effectiveX, pageHeightPx, adjustedY, fraction, fill.R, fill.G, fill.B);
         }
-        else // meter
+        else
         {
             var valueStr = elem.GetAttribute("value");
             var minStr = elem.GetAttribute("min");
@@ -1902,7 +1709,6 @@ public static partial class BoxPainter
 
             fraction = Math.Max(0f, Math.Min(1f, (value - min) / (max - min)));
 
-            // Color: green=optimal, yellow=suboptimal, red=bad
             float low = min + (max - min) * 0.25f;
             float high = min + (max - min) * 0.75f;
             if (!string.IsNullOrEmpty(lowStr))
@@ -1912,28 +1718,23 @@ public static partial class BoxPainter
                 float.TryParse(highStr, System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out high);
 
-            float r, g, b;
+            (float R, float G, float B) fill;
             if (accentColor.HasValue)
-            {
-                r = accentColor.Value.R / 255f;
-                g = accentColor.Value.G / 255f;
-                b = accentColor.Value.B / 255f;
-            }
+                fill = ToRgb(accentColor.Value);
             else if (value >= low && value <= high)
-            { r = 0.2f; g = 0.7f; b = 0.2f; } // green
+                fill = MeterOptimumRgb;
             else if ((value < low && value >= min) || (value > high && value <= max))
-            { r = 0.9f; g = 0.8f; b = 0.1f; } // yellow
+                fill = MeterSuboptimumRgb;
             else
-            { r = 0.8f; g = 0.2f; b = 0.2f; } // red
+                fill = MeterEvenLessGoodRgb;
 
-            PaintFillBar(page, box, effectiveX, pageHeightPx, adjustedY, fraction, r, g, b);
+            PaintFillBar(page, box, effectiveX, pageHeightPx, adjustedY, fraction, fill.R, fill.G, fill.B);
         }
     }
 
     private static void PaintFillBar(PdfPage page, LayoutBox box, float effectiveX,
         float pageHeightPx, float adjustedY, float fraction, float r, float g, float b)
     {
-        // Inset inside borders (2px)
         const float inset = 2f;
         float barX = (effectiveX + inset) * PdfCoordinates.PxToPt;
         float barY = (pageHeightPx - adjustedY - box.Height + inset) * PdfCoordinates.PxToPt;
@@ -1945,15 +1746,6 @@ public static partial class BoxPainter
         page.AddRectangle(barX, barY, barW, barH, r, g, b);
     }
 
-    /// <summary>
-    /// Paint a text run that contains at least one COLR/CPAL color glyph (emoji), one
-    /// codepoint at a time. Non-color glyphs paint as a single normal CID glyph; color
-    /// glyphs paint via <see cref="PdfPage.AddColorGlyphLayers"/>. Each step advances by
-    /// the base glyph's own hmtx advance width (COLR layers are decorative, not real
-    /// advancing glyphs) plus letter-spacing. Word-spacing and cross-font glyph fallback
-    /// are not applied in this path -- both are edge cases for emoji-bearing runs, which
-    /// are already resolved by a single dedicated font/family in practice.
-    /// </summary>
     private static void PaintColorGlyphRun(PdfPage page, string text, float startX, float pdfY,
         string fontName, float pdfFontSize, float letterSpacing, float textR, float textG, float textB)
     {
@@ -1979,12 +1771,6 @@ public static partial class BoxPainter
         }
     }
 
-    /// <summary>
-    /// Paint the checked-state indicator for a checkbox (accent-filled square + white
-    /// checkmark) or radio button (accent-filled inner dot). The unchecked state needs no
-    /// extra painting -- it relies on the control's own CSS border/background (radio gets a
-    /// circular border via the UA default border-radius:50% on a square box).
-    /// </summary>
     private static void PaintCheckboxOrRadio(PdfPage page, LayoutBox box, string inputType,
         float effectiveX, float pageHeightPx, float adjustedY, string? accentColorStr,
         bool hasRadius, float tlrPt, float trrPt, float brrPt, float blrPt)
@@ -1993,9 +1779,7 @@ public static partial class BoxPainter
         if (box.Element == null || !box.Element.HasAttribute("checked")) return;
 
         Color? accentColor = !string.IsNullOrEmpty(accentColorStr) ? ParseColor(accentColorStr) : null;
-        float accR = accentColor.HasValue ? accentColor.Value.R / 255f : 0.26f;
-        float accG = accentColor.HasValue ? accentColor.Value.G / 255f : 0.55f;
-        float accB = accentColor.HasValue ? accentColor.Value.B / 255f : 0.96f;
+        var (accR, accG, accB) = accentColor.HasValue ? ToRgb(accentColor.Value) : DefaultAccentRgb;
 
         float pdfX = effectiveX * PdfCoordinates.PxToPt;
         float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
@@ -2011,8 +1795,6 @@ public static partial class BoxPainter
             return;
         }
 
-        // Checked checkbox: fill the whole control (respecting its own border-radius) with
-        // the accent color, then draw a white checkmark on top.
         if (hasRadius)
             page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH, accR, accG, accB, tlrPt, trrPt, brrPt, blrPt);
         else
@@ -2023,7 +1805,6 @@ public static partial class BoxPainter
         page.AddStrokedPolyline(xs, ys, 1f, 1f, 1f, Math.Max(1f, pdfW * 0.12f));
     }
 
-    /// <summary>Paint the small downward-pointing dropdown arrow on the right side of a &lt;select&gt; box.</summary>
     private static void PaintSelectDropdownArrow(PdfPage page, LayoutBox box, float effectiveX, float pageHeightPx, float adjustedY)
     {
         const float arrowW = 8f, arrowH = 5f, rightInset = 8f;
@@ -2045,23 +1826,19 @@ public static partial class BoxPainter
             0.35f, 0.35f, 0.35f);
     }
 
-    /// <summary>Parse column-rule shorthand: "2px solid red" -> width, style, color parts.</summary>
     private static void ParseColumnRuleShorthand(string shorthand,
         ref string? width, ref string? style, ref string? color)
     {
-        // Same format as border shorthand: each token is width, style keyword, or color
         var parts = shorthand.Split(SpaceSep, StringSplitOptions.RemoveEmptyEntries);
         foreach (var part in parts)
         {
             var p = part.Trim();
             if (string.IsNullOrEmpty(p)) continue;
-            // Style keywords
             if (p == "none" || p == "solid" || p == "dashed" || p == "dotted" ||
                 p == "double" || p == "groove" || p == "ridge" || p == "inset" || p == "outset")
             {
                 style = p;
             }
-            // Width: ends with px, em, pt, or is a keyword
             else if (p == "thin" || p == "medium" || p == "thick" ||
                      p.EndsWith("px", StringComparison.OrdinalIgnoreCase) ||
                      p.EndsWith("em", StringComparison.OrdinalIgnoreCase) ||
@@ -2069,7 +1846,6 @@ public static partial class BoxPainter
             {
                 width = p;
             }
-            // Otherwise treat as color
             else
             {
                 color = p;
@@ -2077,7 +1853,6 @@ public static partial class BoxPainter
         }
     }
 
-    /// <summary>Parse text-shadow: offsetX offsetY [blur] [color]</summary>
     private static void ParseTextShadow(string shadow, float fontSize,
         out float x, out float y, out float r, out float g, out float b, out float a)
     {
@@ -2091,19 +1866,16 @@ public static partial class BoxPainter
         for (int i = 0; i < parts.Length; i++)
         {
             var p = parts[i];
-            // Try as a length value
             if (p.EndsWith("px") || p.EndsWith("em") || p.EndsWith("rem") ||
                 (p.Length > 0 && (char.IsDigit(p[0]) || p[0] == '-' || p[0] == '.')))
             {
                 float val = BlockLayout.ResolveLength(p, 0, fontSize);
                 if (numIdx == 0) x = val;
                 else if (numIdx == 1) y = val;
-                // numIdx == 2 would be blur radius (ignored for now)
                 numIdx++;
             }
             else
             {
-                // Accumulate color tokens (might be "rgba(0, 0, 0, 0.3)" split across parts)
                 colorStr = colorStr == null ? p : colorStr + " " + p;
             }
         }
@@ -2120,11 +1892,10 @@ public static partial class BoxPainter
             }
         }
 
-        if (a <= 0 && x == 0 && y == 0) a = 0; // no shadow
-        else if (a <= 0) a = 0.5f; // default opacity
+        if (a <= 0 && x == 0 && y == 0) a = 0;
+        else if (a <= 0) a = 0.5f;
     }
 
-    /// <summary>Paint box-shadow behind an element (supports inset and multiple shadows).</summary>
     private static void PaintBoxShadow(PdfPage page, LayoutBox box, float effectiveX,
         float pageHeightPx, float adjustedY)
     {
@@ -2139,7 +1910,6 @@ public static partial class BoxPainter
             if (resolved > 0) fontSize = resolved;
         }
 
-        // Split into individual shadows on top-level commas (not commas inside rgba()/etc)
         var shadowList = SplitTopLevel(shadow, ',');
         foreach (var singleShadow in shadowList)
         {
@@ -2150,7 +1920,6 @@ public static partial class BoxPainter
     private static void PaintSingleBoxShadow(PdfPage page, LayoutBox box, float effectiveX,
         float pageHeightPx, float adjustedY, string shadow, float fontSize)
     {
-        // Parse: [inset] offsetX offsetY [blur] [spread] [color]
         var parts = shadow.Split(SpaceSep, StringSplitOptions.RemoveEmptyEntries);
         bool isInset = false;
         float sx = 0, sy = 0, blur = 0, spread = 0;
@@ -2198,14 +1967,11 @@ public static partial class BoxPainter
 
         if (isInset)
         {
-            // Inset shadow: draw a filled rect inside the element clipped to the element bounds.
-            // Strategy: clip to element, then draw offset/spread rect, restore.
             float elX = effectiveX * PdfCoordinates.PxToPt;
             float elY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
             float elW = box.Width * PdfCoordinates.PxToPt;
             float elH = box.Height * PdfCoordinates.PxToPt;
 
-            // Inset rect = shrunk by spread, shifted by offset
             float inX = (effectiveX + sx + spread) * PdfCoordinates.PxToPt;
             float inY = (pageHeightPx - adjustedY - box.Height + sy + spread) * PdfCoordinates.PxToPt;
             float inW = (box.Width - spread * 2) * PdfCoordinates.PxToPt;
@@ -2233,13 +1999,6 @@ public static partial class BoxPainter
         }
     }
 
-    /// <summary>
-    /// Resolve a CSS image-set(...) (or -webkit-image-set(...)) value to its
-    /// best candidate URL. Mirrors BlockLayout.ResolveSrcset's "PDF is a fixed
-    /// 1x print context" preference: picks the candidate whose density
-    /// descriptor is closest to 1x (a descriptor-less candidate counts as 1x).
-    /// Returns null if no candidate has a resolvable URL.
-    /// </summary>
     private static string? ResolveImageSet(string value)
     {
         int open = value.IndexOf('(');
@@ -2284,7 +2043,6 @@ public static partial class BoxPainter
         return bestUrl;
     }
 
-    /// <summary>Unwrap "url(...)" (with optional quotes) or a bare quoted string down to its raw URL.</summary>
     private static string ExtractUrlToken(string token)
     {
         token = token.Trim();
@@ -2296,7 +2054,6 @@ public static partial class BoxPainter
         return token;
     }
 
-    /// <summary>Split string on a delimiter character, ignoring delimiters inside parentheses or quotes.</summary>
     private static List<string> SplitTopLevel(string value, char delimiter)
     {
         var result = new List<string>();
@@ -2324,11 +2081,6 @@ public static partial class BoxPainter
         return result;
     }
 
-    /// <summary>
-    /// Parse an object-position component to a 0–1 fraction.
-    /// Keywords: left/top=0, center=0.5, right/bottom=1.
-    /// Percentage: "30%" → 0.3.
-    /// </summary>
     private static float ParseObjectPositionFraction(string value, bool isVertical)
     {
         if (string.IsNullOrEmpty(value)) return 0.5f;

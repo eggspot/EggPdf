@@ -9,6 +9,9 @@ namespace EggPdf.Pdf;
 /// </summary>
 public static class PdfACompliance
 {
+    private const int XmpPaddingLines = 20;
+    private const int XmpPaddingLineLength = 100;
+
     /// <summary>
     /// Generate XMP metadata for PDF/A and/or PDF/UA-1 conformance. This XML must be embedded as
     /// a metadata stream in the PDF catalog. <paramref name="conformance"/> is null for a
@@ -41,17 +44,12 @@ public static class PdfACompliance
             xmp.AppendOpLine("  xmlns:pdfuaid='http://www.aiim.org/pdfua/ns/id/'");
         xmp.AppendOpLine("  xmlns:pdf='http://ns.adobe.com/pdf/1.3/'>");
 
-        // PDF/A identification
         if (conformance != null)
         {
             xmp.AppendOpLine($"  <pdfaid:part>{conformance.Value.Part()}</pdfaid:part>");
             xmp.AppendOpLine($"  <pdfaid:conformance>{conformance.Value.Level()}</pdfaid:conformance>");
         }
 
-        // PDF/UA identification (part only -- neither UA-1 nor UA-2 has a conformance letter,
-        // unlike PDF/A). UA-2 (ISO 14289-2:2024) additionally requires pdfuaid:rev identifying
-        // the year of the referenced ISO 32000-2 edition, per the PDF Association's own
-        // "future-proofing XMP identification" guidance for versioned UA parts.
         if (includePdfUA)
         {
             xmp.AppendOpLine($"  <pdfuaid:part>{(isUa2 ? 2 : 1)}</pdfuaid:part>");
@@ -59,8 +57,6 @@ public static class PdfACompliance
                 xmp.AppendOpLine("  <pdfuaid:rev>2024</pdfuaid:rev>");
         }
 
-        // Dublin Core metadata. PDF/UA-1 requires a title (rule 7.1-8/7.1-9); default rather
-        // than silently omit it when the caller didn't set one.
         var effectiveTitle = includePdfUA && string.IsNullOrEmpty(title) ? "Untitled Document" : title;
         if (!string.IsNullOrEmpty(effectiveTitle))
         {
@@ -75,12 +71,10 @@ public static class PdfACompliance
             xmp.AppendOpLine("  </rdf:li></rdf:Seq></dc:creator>");
         }
 
-        // XMP basic
         xmp.AppendOpLine($"  <xmp:CreateDate>{now}</xmp:CreateDate>");
         xmp.AppendOpLine($"  <xmp:ModifyDate>{now}</xmp:ModifyDate>");
         xmp.AppendOpLine("  <xmp:CreatorTool>EggPdf</xmp:CreatorTool>");
 
-        // PDF info
         xmp.AppendOpLine("  <pdf:Producer>EggPdf</pdf:Producer>");
 
         xmp.AppendOpLine("</rdf:Description>");
@@ -91,9 +85,8 @@ public static class PdfACompliance
         xmp.AppendOpLine("</rdf:RDF>");
         xmp.AppendOpLine("</x:xmpmeta>");
 
-        // Padding (XMP spec recommends 2KB padding for in-place updates)
-        for (int i = 0; i < 20; i++)
-            xmp.AppendOpLine(new string(' ', 100));
+        for (int i = 0; i < XmpPaddingLines; i++)
+            xmp.AppendOpLine(new string(' ', XmpPaddingLineLength));
 
         xmp.AppendOpLine("<?xpacket end='w'?>");
         return xmp.ToString();
@@ -117,13 +110,6 @@ public static class PdfACompliance
         return sb.ToString();
     }
 
-    /// <summary>
-    /// Declare and populate the Factur-X PDF/A extension schema (namespace prefix <c>fx</c>,
-    /// <c>urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#</c>) -- the PDF/A Extension
-    /// Schema mechanism a validator uses to know what <c>fx:*</c> properties mean, plus the
-    /// actual property values identifying the embedded invoice attachment. Verified against the
-    /// reference schema published at github.com/atgp/factur-x (xmp/Factur-X_extension_schema.xmp).
-    /// </summary>
     private static void AppendFacturXExtensionSchema(StringBuilder xmp, string facturXFileName, string conformanceLevel)
     {
         xmp.AppendOpLine("<rdf:Description rdf:about=''");
@@ -168,11 +154,6 @@ public static class PdfACompliance
         xmp.AppendOpLine("            </rdf:li>");
     }
 
-    /// <summary>
-    /// Escape XML special characters and drop characters XML 1.0 disallows outright (C0 controls
-    /// other than tab/LF/CR) -- title/author come from arbitrary HTML and must not be able to
-    /// produce a non-well-formed XMP packet.
-    /// </summary>
     private static string EscapeXml(string text)
     {
         var sb = new StringBuilder(text.Length);

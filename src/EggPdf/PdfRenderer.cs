@@ -11,13 +11,8 @@ using EggPdf.Paint;
 
 namespace EggPdf;
 
-/// <summary>
-/// Renders layout boxes to PDF pages. Handles pagination (splitting content
-/// across multiple pages when it exceeds page height).
-/// </summary>
 internal static class PdfRenderer
 {
-    /// <summary>Page margin offsets in CSS pixels, applied when painting boxes.</summary>
     [ThreadStatic]
     private static float _marginTopPx;
     [ThreadStatic]
@@ -47,30 +42,14 @@ internal static class PdfRenderer
         }
     }
 
-    // Overload for backward compatibility
-    public static void Render(LayoutBox layoutRoot, PdfDocument pdfDoc,
-        float pageWidthPt, float pageHeightPt)
-    {
-        float pageHeightPx = pageHeightPt / PdfCoordinates.PxToPt;
-        Render(layoutRoot, pdfDoc, pageWidthPt, pageHeightPt, pageHeightPx);
-    }
-
     private static void RenderCore(LayoutBox layoutRoot, PdfDocument pdfDoc,
         float pageWidthPt, float pageHeightPt, float pageHeightPx,
         List<LayoutBox>? marginBoxes = null, int pageNumberOffset = 0, int? totalPagesOverride = null)
     {
-        // Collect all leaf boxes (boxes with text or background)
         var allPaintableBoxes = new List<LayoutBox>();
         PageFragmenter.PropagateAncestorOpacity(layoutRoot);
         PageFragmenter.CollectPaintableBoxes(layoutRoot, allPaintableBoxes);
 
-        // Ancestor map for clip-scope reconstruction (overflow:hidden / contain:paint,
-        // strict). Painting isn't a recursive tree walk -- allBoxes below gets z-index
-        // sorted, so a box's position in the paint list no longer reflects document
-        // nesting -- so a clipping ancestor must be looked up explicitly per box via this
-        // map (built from the real tree) rather than inferred from list order. Skipped
-        // entirely (a cheap allocation-free tree scan instead) for the common case of no
-        // clipping anywhere in the document, so documents without it don't pay for it.
         Dictionary<LayoutBox, LayoutBox>? ancestorMap = null;
         Dictionary<LayoutBox, List<LayoutBox>>? clipAncestorCache = null;
         if (TreeHasPaintClip(layoutRoot))
@@ -80,11 +59,6 @@ internal static class PdfRenderer
             clipAncestorCache = new Dictionary<LayoutBox, List<LayoutBox>>();
         }
 
-        // position:fixed content repeats identically on every physical page: its containing
-        // block is the page origin (0,0), not the document flow (see BlockLayout's
-        // LayoutAbsoluteChildren), so its Y/X are already page-local rather than document-
-        // absolute. Split these out from normal flow boxes so Y-band pagination below doesn't
-        // assign them to a single page — they're instead repainted once per page further down.
         var allBoxes = new List<LayoutBox>();
         var fixedBoxes = new List<LayoutBox>();
         var fixedBoxSet = new HashSet<LayoutBox>();
@@ -97,18 +71,12 @@ internal static class PdfRenderer
                 allBoxes.Add(allPaintableBoxes[fi]);
         }
 
-        // @page margin box content (@top-center, @bottom-right, etc.) repeats
-        // per physical page exactly like position:fixed content, including
-        // counter(page)/counter(pages) sentinel substitution.
         if (marginBoxes != null && marginBoxes.Count > 0)
             fixedBoxes.AddRange(marginBoxes);
 
-        // Sort by z-index stacking order: non-positioned first (doc order),
-        // then positioned elements sorted by z-index ascending (higher = painted later = on top)
         BoxPainter.SortByZIndex(allBoxes);
         BoxPainter.SortByZIndex(fixedBoxes);
 
-        // Also collect heading boxes for bookmarks
         var headings = new List<(string title, int level, float yPx)>();
         PageFragmenter.CollectHeadings(layoutRoot, headings);
 
@@ -121,21 +89,16 @@ internal static class PdfRenderer
             return;
         }
 
-        // Collect forced page break Y positions
         var pageBreakYs = new List<float>();
         PageFragmenter.CollectPageBreaks(layoutRoot, pageBreakYs);
         pageBreakYs.Sort();
 
-        // Collect boxes that must not be split across pages (break-inside: avoid).
-        // These may not be in allBoxes (no paint) but still need to be kept whole.
         var avoidBreakBoxes = new List<(float y, float height)>();
         PageFragmenter.CollectBreakInsideAvoid(layoutRoot, avoidBreakBoxes);
 
-        // Collect text blocks with explicit orphans/widows constraints.
         var orphanWidowBlocks = new List<PageFragmenter.OrphanWidowBlock>();
         PageFragmenter.CollectOrphansWidowsBlocks(layoutRoot, orphanWidowBlocks);
 
-        // Determine total content height
         float maxY = 0;
         for (int i = 0; i < allBoxes.Count; i++)
         {
@@ -143,15 +106,9 @@ internal static class PdfRenderer
             if (bottom > maxY) maxY = bottom;
         }
 
-        // Content area height for pagination (page height minus vertical margins).
-        // Both margins must be subtracted individually — asymmetric @page margins
-        // (e.g. a tall margin-top with a small margin-bottom) are common, and
-        // doubling one of them silently mis-sizes every page's content band.
         float paginationHeight = pageHeightPx - _marginTopPx - _marginBottomPx;
         if (paginationHeight <= 0) paginationHeight = pageHeightPx;
 
-        // Find body's margin-bottom so we can use it as a bottom snap zone:
-        // content should not start within this margin of the page bottom edge.
         float bodyMarginBottomPx = 0;
         foreach (var child in layoutRoot.Children)
         {
@@ -161,33 +118,14 @@ internal static class PdfRenderer
                 break;
             }
         }
-        // Clamp so the snap zone can't exceed half the page (degenerate case)
         if (bodyMarginBottomPx > paginationHeight / 2)
             bodyMarginBottomPx = 0;
 
-        // Real forced-break boundaries (page-break-after/before). A section bounded by one
-        // of these can itself be taller than one physical page — a long table or flowing
-        // text block inside a page-break-bounded <section> is a common case — so content
-        // must not be allowed to cross a forced break onto the same physical page below,
-        // but (unlike the document's natural end, maxY) a forced break IS a real constraint
-        // on how tall a single page's band can be, not just "where content happens to stop".
-        // Treating a whole oversized section as a single physical page (the previous
-        // behavior) doesn't just mis-paginate: content past the first page's-worth of
-        // that section gets painted at Y coordinates beyond the physical page canvas —
-        // present in the PDF's text objects but invisible in any viewer, which is exactly
-        // the "content silently vanishes past a certain point" table bug.
         var hardBoundaries = new List<float>();
         foreach (float breakY in pageBreakYs)
             if (breakY > 0 && breakY < maxY) hardBoundaries.Add(breakY);
         hardBoundaries.Sort();
 
-        // pageCapacityBottom tracks, per page, the true usable content-bottom edge (i.e.
-        // where this page's content area actually ends — a forced break, a full page's
-        // height, or wherever the next smart-break constraint lands) as opposed to
-        // pageBounds' bottom, which for the trailing page is clamped down to wherever the
-        // content happens to end (maxY). The two coincide except on the last page when its
-        // content doesn't fill the whole page — maxY must NOT cap naiveBottom below, or a
-        // page's true remaining capacity collapses to wherever content happens to stop.
         var pageBounds = new List<(float top, float bottom)>();
         var pageCapacityBottom = new List<float>();
         float currentTop = 0;
@@ -203,10 +141,6 @@ internal static class PdfRenderer
         }
         breakCandidates.Sort((a, b) => a.Top.CompareTo(b.Top));
 
-        // Fill pages using content area height, with smart page breaking that avoids
-        // cutting through content boxes OR placing content within the body's bottom
-        // margin zone (which would leave no visual padding at the page bottom) — bounded
-        // so a page's band never crosses into the next forced-break section.
         while (currentTop < maxY)
         {
             while (hardBoundaryIndex < hardBoundaries.Count && hardBoundaries[hardBoundaryIndex] <= currentTop)
@@ -242,7 +176,6 @@ internal static class PdfRenderer
                     smartBottom = theadTop;
             }
 
-            // break-inside: avoid — move page break before any avoid box that would be split
             for (int ai = 0; ai < avoidBreakBoxes.Count; ai++)
             {
                 float bTop    = avoidBreakBoxes[ai].y;
@@ -255,20 +188,17 @@ internal static class PdfRenderer
                 }
             }
 
-            // orphans / widows check for text blocks
             for (int oi = 0; oi < orphanWidowBlocks.Count; oi++)
             {
                 float bTop    = orphanWidowBlocks[oi].Y;
                 float bBottom = bTop + orphanWidowBlocks[oi].Height;
                 var   lineYs  = orphanWidowBlocks[oi].LineYs;
 
-                // Only check blocks that straddle this page boundary
                 if (bTop < currentTop || bTop >= naiveBottom || bBottom <= naiveBottom)
                     continue;
                 if (lineYs.Length < 2)
-                    continue; // nothing to balance
+                    continue;
 
-                // Count lines on current page (orphans) vs next page (widows)
                 int orphanCount = 0;
                 for (int li = 0; li < lineYs.Length; li++)
                 {
@@ -282,13 +212,11 @@ internal static class PdfRenderer
 
                 if (orphanCount > 0 && orphanCount < minOrphans)
                 {
-                    // Too few lines remain on current page: push break to before the block
                     if (bTop > currentTop && bTop < smartBottom)
                         smartBottom = bTop;
                 }
                 else if (widowCount > 0 && widowCount < minWidows && lineYs.Length > minWidows)
                 {
-                    // Too few lines go to next page: move break back so minWidows lines go over
                     int lastOnCurrentIdx = lineYs.Length - minWidows - 1;
                     if (lastOnCurrentIdx >= 0)
                     {
@@ -298,14 +226,12 @@ internal static class PdfRenderer
                     }
                     else
                     {
-                        // Can't satisfy widows without moving whole block: push block to next page
                         if (bTop > currentTop && bTop < smartBottom)
                             smartBottom = bTop;
                     }
                 }
             }
 
-            // Guard against degenerate case where smartBottom snapped to currentTop
             if (smartBottom <= currentTop)
                 smartBottom = naiveBottom;
 
@@ -321,11 +247,6 @@ internal static class PdfRenderer
             pageCapacityBottom.Add(maxY);
         }
 
-        // -eggpdf-pin-bottom: page — visually pin a box (and everything after it in
-        // document order on the same page) to that page's bottom content edge, but only
-        // when the marked box itself fits entirely within a single page. This is a paint-time
-        // offset only (box.Y in the tree is never mutated), so it can't affect pagination itself
-        // or how many pages dynamic/flowing content produces above it.
         var pinBottomBoxes = new List<LayoutBox>();
         PageFragmenter.CollectPinBottomBoxes(layoutRoot, pinBottomBoxes);
         var pageShiftThresholdY = new float[pageBounds.Count];
@@ -341,13 +262,11 @@ internal static class PdfRenderer
                 {
                     var (pTop, pBottom) = pageBounds[pi];
                     if (markBox.Y < pTop || markBox.Y >= pBottom) continue;
-                    if (markBox.Y + markBox.Height > pBottom) break; // doesn't fit this one page: leave in natural flow
+                    if (markBox.Y + markBox.Height > pBottom) break;
 
                     float pageBottomCapacity = pageCapacityBottom[pi];
                     float thresholdY = markBox.Y;
 
-                    // Extent of everything from the marked box through the end of the page,
-                    // in its original (unshifted) position.
                     float groupBottom = markBox.Y + markBox.Height;
                     foreach (var b in allBoxes)
                     {
@@ -369,12 +288,6 @@ internal static class PdfRenderer
             }
         }
 
-        // Repeat a <thead> at the top of every page a table's body continues onto.
-        // Independent of the pin-bottom shift above (applied additively): every box
-        // on a continuation page shifts down by the thead's height to make room,
-        // and the thead's own paintable boxes (cells/text/borders) are repainted
-        // there with a freshly computed page-local Y -- they still also paint once,
-        // normally, via allBoxes on the page they actually start on.
         var theadShiftDelta = new float[pageBounds.Count];
         var theadRepeatsByPage = new Dictionary<int, List<(LayoutBox box, float adjustedY)>>();
         foreach (var th in tableHeaders)
@@ -391,7 +304,7 @@ internal static class PdfRenderer
             for (int pi = theadPage + 1; pi < pageBounds.Count; pi++)
             {
                 var (pTop, _) = pageBounds[pi];
-                if (pTop >= th.TableBottom) break; // table already ended before this page starts
+                if (pTop >= th.TableBottom) break;
 
                 if (theadPaintables == null)
                 {
@@ -415,19 +328,12 @@ internal static class PdfRenderer
         {
             var page = pdfDoc.AddPage(pageWidthPt, pageHeightPt);
 
-            // Paint white page canvas background (matches browser default canvas color).
-            // Without this, PDF viewers render the transparent page as off-white, causing
-            // visible differences against explicitly white-background elements in browsers.
             page.AddRectangle(0, 0, pageWidthPt, pageHeightPt, 1f, 1f, 1f);
 
             float shiftThreshold = pageShiftThresholdY[renderPageIndex];
             float shiftDelta = pageShiftDelta[renderPageIndex];
             float theadDelta = theadShiftDelta[renderPageIndex];
 
-            // Paint a box wrapped in clip rects for each overflow:hidden/contain:paint,strict
-            // ancestor (see BuildAncestorMap/GetClipAncestors), each ancestor's own bounds
-            // reproduced with the same page-Y adjustment/clamping this loop applies to any
-            // box, so the clip lands where that ancestor is actually painted on this page.
             void PaintWithAncestorClips(LayoutBox target, float adjY, Action paint)
             {
                 if (ancestorMap == null)
@@ -437,7 +343,7 @@ internal static class PdfRenderer
                 }
 
                 if (!clipAncestorCache!.TryGetValue(target, out var clipAncestors))
-                    clipAncestorCache[target] = clipAncestors = GetClipAncestors(target, ancestorMap);
+                    clipAncestorCache[target] = clipAncestors = GetClipAncestorsOutermostFirst(target, ancestorMap);
 
                 if (clipAncestors.Count == 0)
                 {
@@ -455,7 +361,7 @@ internal static class PdfRenderer
                     float aVisibleTop = Math.Max(aEffectiveY, pageTopPx);
                     float aVisibleBottom = Math.Min(aEffectiveY + ancestor.Height, pageBottomPx);
                     float aClampedHeight = Math.Max(0f, aVisibleBottom - aVisibleTop);
-                    if (aClampedHeight <= 0) continue; // ancestor not visible on this page
+                    if (aClampedHeight <= 0) continue;
 
                     float aAdjustedY = aVisibleTop - pageTopPx + _marginTopPx;
                     float aEffectiveX = ancestor.X + BoxPainter.MarginLeftPx;
@@ -483,7 +389,6 @@ internal static class PdfRenderer
                 if (theadDelta > 0)
                     effectiveY += theadDelta;
 
-                // Adjust Y coordinate relative to this page, offset by top margin
                 float adjustedY = effectiveY - pageTopPx + _marginTopPx;
 
                 bool crossesPageEdge = string.IsNullOrEmpty(box.Text) &&
@@ -519,13 +424,11 @@ internal static class PdfRenderer
             renderPageIndex++;
         }
 
-        // Convert headings to PDF bookmarks
         if (headings.Count > 0)
         {
             var bookmarks = new List<PdfBookmark>();
             foreach (var (title, level, yPx) in headings)
             {
-                // Determine which page this heading falls on
                 int pageIndex = 0;
                 float localYPx = yPx;
                 for (int i = 0; i < pageBounds.Count; i++)
@@ -536,7 +439,6 @@ internal static class PdfRenderer
                         localYPx = yPx - pageBounds[i].top;
                         break;
                     }
-                    // If heading Y is beyond the last page, assign to last page
                     if (i == pageBounds.Count - 1)
                     {
                         pageIndex = i;
@@ -544,7 +446,6 @@ internal static class PdfRenderer
                     }
                 }
 
-                // Convert from CSS px (top-left origin) to PDF pt (bottom-left origin)
                 float topPt = (pageHeightPx - localYPx - _marginTopPx) * PdfCoordinates.PxToPt;
 
                 bookmarks.Add(new PdfBookmark
@@ -630,8 +531,7 @@ internal static class PdfRenderer
              contain.IndexOf("strict", StringComparison.OrdinalIgnoreCase) >= 0);
     }
 
-    /// <summary>Ancestors (outermost first) of <paramref name="box"/> that establish a paint clip.</summary>
-    private static List<LayoutBox> GetClipAncestors(LayoutBox box, Dictionary<LayoutBox, LayoutBox> ancestorMap)
+    private static List<LayoutBox> GetClipAncestorsOutermostFirst(LayoutBox box, Dictionary<LayoutBox, LayoutBox> ancestorMap)
     {
         var result = new List<LayoutBox>();
         var current = box;

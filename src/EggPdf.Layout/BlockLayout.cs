@@ -12,12 +12,12 @@ public static partial class BlockLayout
 {
     private const float DefaultFontSize = 16f;
 
-    /// <summary>U+00A0 — rendered content, never a collapsible boundary space.</summary>
     private const char NonBreakingSpace = (char)0x00A0;
     private const float DefaultLineHeight = 1.2f;
+    private const float UserAgentBodyMargin = 8f;
+    private const float UserAgentBorderSpacing = 2f;
+    private const int DefaultTabSize = 8;
 
-    // Thread-local context for ::before/::after and CSS counters.
-    // Set by LayoutDocumentInternal when a CascadeResolver is available.
     [System.ThreadStatic]
     private static Css.Cascade.CascadeResolver? _threadCascadeResolver;
     [System.ThreadStatic]
@@ -26,12 +26,6 @@ public static partial class BlockLayout
     private static float _viewportWidth;
     [System.ThreadStatic]
     private static float _viewportHeight;
-    // The TRUE physical page dimensions, as opposed to pageWidth/pageHeight above (which are
-    // the content area only, already reduced by @page margins). position:fixed's containing
-    // block must be the full physical page — a "bottom: 0" footer should reach the literal
-    // page edge (so it can occupy the @page margin-bottom area the author reserved for it),
-    // not the content area's own bottom edge. Defaults to the content dimensions when unset,
-    // matching prior behavior for callers (mostly tests) that never had a real @page margin.
     [System.ThreadStatic]
     private static float _fullPageWidthPx;
     [System.ThreadStatic]
@@ -49,7 +43,6 @@ public static partial class BlockLayout
     /// <summary>Current viewport height in pixels (for vh unit resolution). Set during layout.</summary>
     public static float ViewportHeight => _viewportHeight;
 
-    /// <summary>A segment of text with associated style for inline formatting.</summary>
     private struct InlineRun
     {
         public string Text;
@@ -105,8 +98,6 @@ public static partial class BlockLayout
     {
         _viewportWidth = pageWidth;
         _viewportHeight = pageHeight;
-        // Per-render cache: without clearing, a pooled thread retains every
-        // table element from every past render (unbounded growth).
         _tableColumnWidthCache?.Clear();
         _tableGridCache?.Clear();
         _tableColumnMeasureCache?.Clear();
@@ -121,7 +112,6 @@ public static partial class BlockLayout
 
         if (document.Body == null) return root;
 
-        // Resolve html (root) element style first so custom properties on :root are inherited
         ComputedStyle? htmlStyle = null;
         if (document.DocumentElement != null)
             htmlStyle = resolveStyle(document.DocumentElement, null);
@@ -133,12 +123,9 @@ public static partial class BlockLayout
         var bodyBox = CreateBox(document.Body, bodyStyle, root, pageWidth, resolveStyle, htmlStyle);
         root.Children.Add(bodyBox);
 
-        // Post-layout pass: convert all Y coordinates to absolute
         ResolveAbsolutePositions(root, 0, 0);
 
-        // Apply body's top margin: offset body and all normal-flow descendants down.
-        // Skip if margin is the UA default (8px) since existing tests expect no offset for it.
-        if (bodyBox.MarginTop > 8)
+        if (bodyBox.MarginTop > UserAgentBodyMargin)
         {
             OffsetBoxY(bodyBox, bodyBox.MarginTop);
         }
@@ -152,25 +139,13 @@ public static partial class BlockLayout
     {
         var box = new LayoutBox { Element = element, Style = style };
 
-        // Skip display:none
         if (style.Display == "none")
             return box;
 
-        // Resolve box model values: margins, padding, width (incl. min/max and
-        // auto-margin centering), and the X position/relative offset. Mutates
-        // box in place; returns the values later branches need (fontSize is
-        // needed to resolve every other length property on this element, not
-        // just the box model, so it flows out too).
         var (fontSize, borderBox, position) = ResolveBoxModel(box, element, style, parent, containingWidth, parentStyle);
         if (element.TagName == "table")
             ShrinkTableToContent(box, element, style, fontSize, resolver, parentStyle);
 
-        // content-visibility: hidden -- unlike display:none, the element's own box (size,
-        // background, border) still exists and is already resolved above; only its
-        // descendants are skipped (they contribute nothing to its size, matching the
-        // spec's implied size containment for an unsized element). Height still needs
-        // resolving here since normal flow/flex/grid child-layout (which usually does it)
-        // never runs.
         if (style.Get("content-visibility") == "hidden")
         {
             float? cvHeight = ResolveOptionalLength(style.Height, 0, fontSize);
@@ -219,7 +194,6 @@ public static partial class BlockLayout
                 position, fontSize, borderBox);
         }
 
-        // Grid layout: delegate to GridLayout when display is grid
         if (style.Display == "grid")
         {
             return LayoutGridContainer(box, element, style, parent, containingWidth, resolver, parentStyle,
@@ -229,34 +203,20 @@ public static partial class BlockLayout
         return LayoutNormalFlowChildren(box, element, style, parent, containingWidth, resolver, parentStyle, fontSize, borderBox, position, ambientFloats, floatOriginY, deferInlineAlignment);
     }
 
-    /// <summary>
-    /// Lays out an element's children in normal flow: block/inline formatting
-    /// context, floats, margin collapsing, CSS counters and ::first-line/
-    /// ::first-letter pseudo-styles, ::before content, multi-column, and
-    /// deferred absolutely/fixed positioned children. Split out of CreateBox
-    /// as its own stage. It stays one method rather than being decomposed
-    /// further: this is a single continuous stateful algorithm (childY,
-    /// inlineX, float tracking, absChildren and more all thread through the
-    /// entire child-node walk), so splitting it further would mean
-    /// restructuring how that state is carried between pieces — a real design
-    /// change with behavior risk, not a mechanical extraction.
-    /// </summary>
     private static LayoutBox LayoutNormalFlowChildren(LayoutBox box, HtmlElement element, ComputedStyle style,
         LayoutBox parent, float containingWidth, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver,
         ComputedStyle? parentStyle, float fontSize, bool borderBox, string? position, FloatContext? ambientFloats = null,
         float floatOriginY = 0f, bool deferInlineAlignment = false)
     {
-        // Check for multi-column layout
         bool isMultiColumn = MultiColumnLayout.IsMultiColumn(style);
         float multiColWidth = box.ContentWidth;
         if (isMultiColumn)
         {
             var (colCount, colWidth, colGap) = MultiColumnLayout.ResolveColumns(style, box.ContentWidth, fontSize);
             if (colCount > 1)
-                multiColWidth = colWidth; // lay out children at column width
+                multiColWidth = colWidth;
         }
 
-        // CSS counters: apply counter-reset, counter-set, and counter-increment for this element
         var counterCtx = _threadCounterCtx;
         var cascadeRes  = _threadCascadeResolver;
         if (counterCtx != null)
@@ -266,36 +226,25 @@ public static partial class BlockLayout
             counterCtx.ApplyIncrement(style.Get("counter-increment"));
         }
 
-        // Resolve ::first-line and ::first-letter pseudo-element styles (if any rules exist).
-        // These style existing content, not generated content, so no 'content' property is needed.
         ComputedStyle? firstLineStyle = cascadeRes?.ResolvePseudoElement(element, "first-line", style);
         ComputedStyle? firstLetterStyle = cascadeRes?.ResolvePseudoElement(element, "first-letter", style);
-        bool firstBlockLineEmitted = false; // tracks if the first text line of this block has been laid out
+        bool firstBlockLineEmitted = false;
 
-        // Layout children using inline formatting context awareness
         float childY = 0;
         float childContainingWidth = isMultiColumn ? multiColWidth : box.ContentWidth;
         float prevMarginBottom = 0;
         float childYAfterLastBlock = float.NaN;
         float marginCollapsedThroughTop = 0f;
         bool collapsesWithChildren = !isMultiColumn && CollapsesMarginsWithChildren(element, style, parentStyle);
-        float inlineX = 0; // current X offset within the inline line
-        float inlineLineHeight = 0; // max height of current inline line
-        bool lastWasTextNode = false; // track if previous child was a text node (for <br> handling)
-        bool hasBlockChild = false;   // for O(1) margin-collapse first-child check
+        float inlineX = 0;
+        float inlineLineHeight = 0;
+        bool lastWasTextNode = false;
+        bool hasBlockChild = false;
 
-        // Float tracking: record the bottom (relative to content area) of active floats
-        // so that clear: left/right/both and float stacking work correctly. floatCtx also
-        // narrows sibling text per line (see the shared-instance-through-ambientFloats
-        // reasoning below) -- floats reuse the ambient context from an outer, non-BFC-
-        // establishing block (this box's own inline content, plus normal-flow block
-        // children's own descendants, all see floats registered earlier in the same BFC),
-        // or start a fresh one when this box itself is a BFC root (no ambientFloats given).
         float leftFloatBottom = 0f;
         float rightFloatBottom = 0f;
         var floatCtx = ambientFloats ?? new FloatContext();
 
-        // Collect absolutely/fixed positioned children for deferred layout
         var absChildren = new System.Collections.Generic.List<(HtmlElement elem, ComputedStyle style, string pos)>();
 
         bool prevTextEndedWithSpace = false;
@@ -358,18 +307,9 @@ public static partial class BlockLayout
 
         childY = InjectFormElementContent(element, style, box, fontSize, childContainingWidth, childY);
 
-        // Table-row column geometry, computed once per row on first cell —
-        // the previous per-cell rescans were O(cells²) per row.
         Dictionary<HtmlElement, int>? rowCellColOffsets = null;
         int rowTotalColumns = 0;
 
-        // CSS 2.1 anonymous table-row generation (simplified): a display:table box whose
-        // direct children are display:table-cell, with no display:table-row wrapper between
-        // them, must still lay those cells out side-by-side as an implicit single row — the
-        // common "table div > cell divs" pattern used for equal-height columns without real
-        // <table> markup. Real UA stylesheets always insert a table-row layer for actual
-        // <table><tr><td> markup (see BasicStyleResolver's tr -> table-row mapping), so this
-        // only engages for synthetic table displays that skip the row element entirely.
         bool actsAsImplicitTableRow = false;
 
         foreach (var childNode in TableChildrenInRenderOrder(element, style))
@@ -382,7 +322,6 @@ public static partial class BlockLayout
                 if (childStyle.Display == "none")
                     continue;
 
-                // Absolutely/fixed positioned elements are removed from normal flow
                 var childPosition = childStyle.Get("position");
                 if (childPosition == "absolute" || childPosition == "fixed")
                 {
@@ -390,8 +329,6 @@ public static partial class BlockLayout
                     continue;
                 }
 
-                // Images must keep their dedicated branch even when display:block
-                // (the generic block path would lose ImageSource entirely).
                 bool isImageElement = childElem.TagName == "img" || childElem.TagName == "picture";
 
                 if (IsBlockLevel(childStyle.Display) && !isImageElement)
@@ -405,9 +342,6 @@ public static partial class BlockLayout
                     }
                     firstLineIndentY = float.NaN;
 
-                    // Table row layout: cells go side-by-side (horizontal). A display:table
-                    // box acts as an implicit single row for direct table-cell children that
-                    // have no table-row wrapper (anonymous row generation, simplified).
                     bool isImplicitRow = style.Display == "table" && IsTableCell(childStyle.Display);
                     if ((IsTableRow(style.Display) && IsTableCell(childStyle.Display)) || isImplicitRow)
                     {
@@ -423,18 +357,6 @@ public static partial class BlockLayout
                                 if (rowChild is HtmlElement rc)
                                 {
                                     rowCellColOffsets[rc] = running;
-                                    // Real <td>/<th> count towards the column total. For the
-                                    // implicit-row case, every direct element child counts too
-                                    // (rather than re-resolving each sibling's style here to
-                                    // confirm table-cell-ness): resolving the same element's
-                                    // style a second time, ahead of the normal per-child loop
-                                    // below, isn't reliable for stylesheet-driven CSS (selector
-                                    // matching state some resolvers keep isn't safe to query
-                                    // out of document order) even though it works for inline
-                                    // styles -- and a display:table box whose children aren't
-                                    // ALL cells is a degenerate case not worth the extra call.
-                                    // A div-based fake cell has no colspan attribute, so
-                                    // GetColspan naturally returns 1 for it.
                                     if (rc.TagName == "td" || rc.TagName == "th" || isImplicitRow)
                                         running += GetColspan(rc);
                                 }
@@ -457,23 +379,19 @@ public static partial class BlockLayout
                             rowspan = 1;
                         }
 
-                        // border-collapse inherits from <table> via CSS inheritance
                         var borderCollapse = style.Get("border-collapse") ?? parentStyle?.Get("border-collapse");
                         bool isCollapse = borderCollapse == "collapse";
 
-                        // border-spacing: 0 when collapsed, otherwise use inherited value
                         float borderSpacing = 0;
                         if (!isCollapse)
                         {
                             var spacingVal = style.Get("border-spacing") ?? parentStyle?.Get("border-spacing");
-                            borderSpacing = !string.IsNullOrEmpty(spacingVal) ? ResolveLength(spacingVal, 0, fontSize) : 2;
+                            borderSpacing = !string.IsNullOrEmpty(spacingVal) ? ResolveLength(spacingVal, 0, fontSize) : UserAgentBorderSpacing;
                         }
 
-                        // Subtract total border-spacing from available width for cells
                         float spacingTotal = totalColumns > 1 ? borderSpacing * (totalColumns - 1) : 0;
                         float availableForCells = childContainingWidth - spacingTotal;
 
-                        // Auto table layout: compute column widths based on content
                         var columnWidths = ComputeAutoColumnWidths(element, totalColumns, availableForCells, fontSize, resolver, style);
                         float colWidth = colOffset < columnWidths.Length ? columnWidths[colOffset] : availableForCells / Math.Max(totalColumns, 1);
 
@@ -489,10 +407,6 @@ public static partial class BlockLayout
                         if (childBox.ContentWidth < 0) childBox.ContentWidth = 0;
                         childBox.Y = box.Y + box.PaddingTop;
 
-                        // Calculate X from sum of preceding column widths. In an RTL table,
-                        // columns lay out right-to-left -- the first column in DOM/table-model
-                        // order (colOffset 0) renders at the right edge, not the left, so the
-                        // offset accumulated from preceding columns is measured from the right.
                         bool tableIsRTL = childStyle.Get("direction") == "rtl";
                         float cellX;
                         if (tableIsRTL)
@@ -508,16 +422,11 @@ public static partial class BlockLayout
                             for (int ci = 0; ci < colOffset && ci < columnWidths.Length; ci++)
                                 cellX += columnWidths[ci] + borderSpacing;
                         }
-                        // Update cell X and offset the whole subtree that was laid out with the
-                        // old X (grandchildren too -- a cell's content is rarely just one level
-                        // deep, e.g. nested divs of text, so a shift of only direct children
-                        // left everything below that level stuck at the pre-shift X).
                         float deltaX = cellX - childBox.X;
                         childBox.X = cellX;
                         if (Math.Abs(deltaX) > 0.01f)
                             FlexLayout.OffsetChildren(childBox, deltaX, 0);
 
-                        // border-collapse: remove interior borders on shared edges
                         if (isCollapse)
                         {
                             if (colOffset > 0)
@@ -533,17 +442,9 @@ public static partial class BlockLayout
                     }
                     else
                     {
-                        // Normal block layout: stack vertically
                         var floatValue = childStyle.Get("float");
                         bool isFloatChild = floatValue == "left" || floatValue == "right";
 
-                        // clear: resolved BEFORE recursing into the child (rather than after,
-                        // as previously) so floatOriginY -- passed into the child's own
-                        // recursive layout below -- reflects the post-clear Y. box.Y is
-                        // unreliable here (provisional/still 0 while this box's own ancestor
-                        // chain hasn't been fully positioned -- see ResolveAbsolutePositions),
-                        // so anything that needs this box's real position for a float lookup
-                        // must be threaded down explicitly via floatOriginY instead.
                         if (!isFloatChild)
                         {
                             var clearValue = childStyle.Get("clear");
@@ -553,14 +454,6 @@ public static partial class BlockLayout
                                 childY = Math.Max(childY, rightFloatBottom);
                         }
 
-                        // A float is a new BFC root: its own descendants must not see the
-                        // outer floats (isolated, fresh context if it turns out to need one),
-                        // but every other normal-flow child stays in the same BFC and must
-                        // see floats registered earlier in document order via floatCtx.
-                        // The child's own top margin (collapsed with the previous sibling's bottom margin)
-                        // is added to childY only after CreateBox returns, but its line wrapping consults
-                        // the float context while it is being created: fold the margin into the origin now,
-                        // or lines just below a float would still look like they sit beside it.
                         float predictedTopMargin = 0f;
                         if (!isFloatChild && floatCtx.HasFloats)
                         {
@@ -593,13 +486,6 @@ public static partial class BlockLayout
 
                             box.Children.Add(childBox);
 
-                            // Register with floatCtx so later sibling content's line-wrapping
-                            // narrows around it. shape-outside gives it a non-rectangular
-                            // exclusion (circle/ellipse/polygon/inset -- see ShapeOutsideParser);
-                            // unsupported/absent shapes keep the plain rectangular exclusion.
-                            // The registered Y uses the reliable floatOriginY-based origin, not
-                            // childBox.Y (which is only relative-to-box.Y, itself possibly still
-                            // provisional -- see the childFloatOriginY comment above).
                             float floatRegY = floatOriginY + box.PaddingTop + childY;
                             var shape = ShapeOutsideParser.Parse(childStyle.Get("shape-outside"),
                                 childBox.Width, childBox.Height, fontSize,
@@ -609,8 +495,6 @@ public static partial class BlockLayout
                             else
                                 floatCtx.AddRightFloat(childBox.X, floatRegY, childBox.Width, childBox.Height, shape);
 
-                            // Record float bottom (relative to content area) for clear tracking.
-                            // shape-margin expands the exclusion zone below the float.
                             float floatRelBottom = childBox.Y + childBox.Height - (box.Y + box.PaddingTop);
                             var shapeMarginStr = childStyle.Get("shape-margin");
                             if (!string.IsNullOrEmpty(shapeMarginStr))
@@ -625,9 +509,6 @@ public static partial class BlockLayout
                         }
                         else
                         {
-                            // clear was already resolved above (before CreateBox recursed into
-                            // this child), so childY here is already post-clear.
-
                             float effectiveTopMargin = hasBlockChild
                                 ? CollapseMargins(prevMarginBottom, childBox.MarginTop)
                                 : childBox.MarginTop;
@@ -640,9 +521,6 @@ public static partial class BlockLayout
                             childBox.Y = box.Y + box.PaddingTop + childY + effectiveTopMargin;
                             childBox.X = box.X + box.PaddingLeft + childBox.MarginLeft;
 
-                            // Apply relative/sticky position offset after normal-flow position is set.
-                            // These must be applied here (not inside CreateBox) because the parent's
-                            // childBox.Y assignment above would overwrite any offset set inside CreateBox.
                             var childPos = childStyle.Get("position");
                             if (childPos == "relative" || childPos == "sticky")
                             {
@@ -651,8 +529,6 @@ public static partial class BlockLayout
                                 childBox.X += ResolveLength(childStyle.Get("left"), 0, childFontSize);
                             }
 
-                            // visibility:collapse on table rows removes them from layout flow (no height).
-                            // On non-table elements it behaves like visibility:hidden (keeps space).
                             bool isCollapsedTableRow = childStyle.Get("visibility") == "collapse"
                                 && childStyle.Display == "table-row";
 
@@ -684,8 +560,6 @@ public static partial class BlockLayout
                     }
                     else if (!lastWasTextNode)
                     {
-                        // Only add line height for empty <br> lines (consecutive <br> or leading <br>)
-                        // After text nodes, childY already advanced past the last line
                         childY += lineHeight;
                     }
                     lastWasTextNode = false;
@@ -697,8 +571,6 @@ public static partial class BlockLayout
                         ?? childElem.GetAttribute("src");
                     var (imgWidth, imgHeight) = ResolveImageBoxSize(childStyle, childElem, imgSrc, childContainingWidth, fontSize);
 
-                    // A floated <img> leaves normal flow: pinned to the container edge, registered so
-                    // following text wraps around it (also around its shape-outside)
                     var imgFloatSide = childStyle.Get("float");
                     if (imgFloatSide == "left" || imgFloatSide == "right")
                     {
@@ -716,10 +588,8 @@ public static partial class BlockLayout
                         continue;
                     }
 
-                    // display:block images occupy their own line
                     bool imgIsBlock = IsBlockLevel(childStyle.Display);
 
-                    // Check if image fits on current inline line
                     if (inlineX > 0 && (imgIsBlock || inlineX + imgWidth > childContainingWidth))
                     {
                         if (imgIsBlock) MarkForcedLineEnd(box);
@@ -760,7 +630,6 @@ public static partial class BlockLayout
                 }
                 else if (childElem.TagName == "picture")
                 {
-                    // <picture>: find best <source> or fall back to inner <img>
                     var (picSrc, picElem) = ResolvePicture(childElem);
                     if (picSrc != null && picElem != null)
                     {
@@ -795,11 +664,6 @@ public static partial class BlockLayout
                 }
                 else if (childElem.TagName == "svg")
                 {
-                    // <svg> is a replaced element like <img>: width/height attributes size
-                    // it even though it has no UA default beyond display:inline (no "svg"
-                    // entry in BasicStyleResolver), and its "text content" (circle/rect/...)
-                    // isn't HTML the generic inline-text path would ever find.
-                    // SVG's own default viewport (no width/height given) is 300x150.
                     var (svgWidth, svgHeight) = ResolveSvgBoxSize(childStyle, childElem, childContainingWidth, fontSize);
 
                     bool svgIsBlock = IsBlockLevel(childStyle.Display);
@@ -885,13 +749,11 @@ public static partial class BlockLayout
                 }
                 else if (childElem.TagName == "ruby")
                 {
-                    // Ruby: lay out base text with annotation (<rt>) above it
                     LayoutRubyInline(childElem, childStyle, box, resolver, style, fontSize,
                         ref inlineX, ref childY, ref inlineLineHeight, childContainingWidth);
                 }
                 else
                 {
-                    // Inline elements: collect text runs with style info and lay out word-by-word
                     var runs = new System.Collections.Generic.List<InlineRun>();
                     CollectInlineRuns(childElem, style, fontSize, resolver, runs);
                     if (runs.Count > 0 && prevTextEndedWithSpace)
@@ -936,7 +798,6 @@ public static partial class BlockLayout
                     continue;
                 }
 
-                // Check if parent has mixed inline content (inline elements + text)
                 childrenFlowInline ??= HasInlineElementSiblings(element, style, resolver);
                 bool hasInlineSiblings = hasInlinePseudoContent || childrenFlowInline.Value;
 
@@ -976,12 +837,6 @@ public static partial class BlockLayout
                     continue;
                 }
 
-                // Float-aware fallback: TextMeasurer.WrapText below wraps this whole text
-                // node at one flat width, which can't express a per-line boundary that
-                // varies with active floats/shape-outside. When floats are active, place
-                // words one at a time instead (skipping this branch's secondary features --
-                // first-letter/initial-letter, line-clamp, text-wrap:balance, hyphenation --
-                // a documented simplification for the rare combination of those with floats).
                 if (floatCtx.HasFloats)
                 {
                     var fatFontFamily = style.FontFamily;
@@ -997,11 +852,6 @@ public static partial class BlockLayout
                     float absContainerLeft = box.X + box.PaddingLeft;
                     float absContainerRight = absContainerLeft + childContainingWidth;
 
-                    // Words on the same visual line are accumulated into ONE LayoutBox
-                    // (flushed on wrap/end) rather than one box per word -- callers that
-                    // search rendered PDF text for a multi-word phrase (e.g. "Cleared
-                    // content") must find it as one contiguous string, matching how the
-                    // non-float WrapText path emits a single string per line.
                     string fatLineText = "";
                     float fatLineBoxX = 0f, fatLineBoxY = 0f;
                     bool fatLineHasContent = false;
@@ -1086,7 +936,6 @@ public static partial class BlockLayout
                     continue;
                 }
 
-                // Text content with line wrapping
                 var fontFamily = style.FontFamily;
                 var fontWeight = style.FontWeight;
                 var fontStyle = style.Get("font-style");
@@ -1095,11 +944,10 @@ public static partial class BlockLayout
                 float textIndent = ResolveLength(style.Get("text-indent"), childContainingWidth, fontSize);
                 var textData = preserveWhitespace ? textNode.Data : TrimHtmlText(textNode.Data);
 
-                // tab-size: expand \t to spaces when preserving whitespace (pre/pre-wrap)
                 if (preserveWhitespace && textData.IndexOf('\t') >= 0)
                 {
                     var tabSizeStr = style.Get("tab-size");
-                    int tabSize = 8; // CSS default
+                    int tabSize = DefaultTabSize;
                     if (!string.IsNullOrEmpty(tabSizeStr) &&
                         int.TryParse(tabSizeStr, System.Globalization.NumberStyles.Integer,
                             System.Globalization.CultureInfo.InvariantCulture, out int ts) && ts > 0)
@@ -1107,7 +955,6 @@ public static partial class BlockLayout
                     textData = TextMeasurer.ExpandTabs(textData, tabSize);
                 }
 
-                // Check overflow-wrap/word-break for character-level breaking
                 var overflowWrap = style.Get("overflow-wrap") ?? style.Get("word-wrap");
                 var wordBreak = style.Get("word-break");
                 bool breakWord = overflowWrap == "break-word" || overflowWrap == "anywhere" ||
@@ -1115,29 +962,23 @@ public static partial class BlockLayout
                 bool enableHyphenation = style.Get("hyphens") == "auto";
                 float blockLetterSpacing = ResolveLength(style.Get("letter-spacing"), 0, fontSize);
 
-                // Wrap and measure the transformed text (uppercase is wider); the
-                // paint-time transform is idempotent, so storing it in the box is safe.
                 textData = ApplyTextTransformForMeasure(textData, style);
 
-                // text-wrap: balance — compute an optimal balanced width before wrapping
                 float balanceWidth = childContainingWidth;
                 var textWrapProp = style.Get("text-wrap");
                 if (textWrapProp == "balance")
                 {
                     float totalTextWidth = TextMeasurer.MeasureWidth(textData, fontSize, fontFamily, fontWeight, fontStyle);
-                    // First pass: wrap at full width to count lines
                     var preWrapLines = TextMeasurer.WrapText(textData, fontSize, fontFamily, fontWeight, fontStyle,
                         childContainingWidth, whiteSpaceProp, breakWord, enableHyphenation);
                     if (TextWrapBalance.ShouldBalance(textWrapProp, preWrapLines.Count))
                         balanceWidth = TextWrapBalance.CalculateBalancedWidth(totalTextWidth, childContainingWidth, preWrapLines.Count);
                 }
 
-                // For text-indent, reduce first line's available width
                 float firstLineWidth = textIndent > 0 ? balanceWidth - textIndent : balanceWidth;
                 var lines = TextMeasurer.WrapText(textData, fontSize, fontFamily, fontWeight, fontStyle,
                     firstLineWidth > 0 ? firstLineWidth : balanceWidth, whiteSpaceProp, breakWord, enableHyphenation, blockLetterSpacing);
 
-                // If indent caused wrapping and there are remaining lines, re-wrap with full width
                 if (textIndent > 0 && lines.Count > 1)
                 {
                     var firstLine = lines[0];
@@ -1150,20 +991,17 @@ public static partial class BlockLayout
                     }
                 }
 
-                // Apply -webkit-line-clamp / line-clamp: limit to N lines, truncate last with ellipsis
                 var lineClampStr = style.Get("line-clamp") ?? style.Get("-webkit-line-clamp");
                 if (!string.IsNullOrEmpty(lineClampStr) && lineClampStr != "none" &&
                     int.TryParse(lineClampStr, System.Globalization.NumberStyles.Integer,
                         System.Globalization.CultureInfo.InvariantCulture, out int lineClampN) &&
                     lineClampN > 0 && lines.Count > lineClampN)
                 {
-                    // Truncate to lineClampN lines; make the last line fit with "…"
                     while (lines.Count > lineClampN) lines.RemoveAt(lines.Count - 1);
                     const string ellipsis = "\u2026";
                     var lastLine = lines[lines.Count - 1];
                     float ellipsisWidth = TextMeasurer.MeasureWidth(ellipsis, fontSize, fontFamily, fontWeight, fontStyle);
                     float maxLastLineWidth = childContainingWidth - ellipsisWidth;
-                    // Track trim length to avoid Substring allocations inside the loop.
                     int trimLen = lastLine.Length;
                     if (maxLastLineWidth > 0)
                     {
@@ -1175,12 +1013,10 @@ public static partial class BlockLayout
                             trimLen = lastSpace > 0 ? lastSpace : trimLen - 1;
                         }
                     }
-                    // Trim trailing spaces then append ellipsis — single allocation.
                     while (trimLen > 0 && lastLine[trimLen - 1] == ' ') trimLen--;
                     lines[lines.Count - 1] = lastLine.Substring(0, trimLen) + ellipsis;
                 }
 
-                // hanging-punctuation: first — compute negative X offset for leading punctuation
                 float hangOffset = 0f;
                 var hangPunct = style.Get("hanging-punctuation");
                 if (!string.IsNullOrEmpty(hangPunct) &&
@@ -1188,11 +1024,10 @@ public static partial class BlockLayout
                     !string.IsNullOrEmpty(textData))
                 {
                     char firstChar = textData[0];
-                    // Leading punctuation that may hang: opening quotes, brackets, etc.
-                    if (firstChar == '\u0022' || firstChar == '\u0027' || // " '
-                        firstChar == '\u2018' || firstChar == '\u2019' || // ' '
-                        firstChar == '\u201C' || firstChar == '\u201D' || // " "
-                        firstChar == '\u00AB' || firstChar == '\u2039' || // « ‹
+                    if (firstChar == '\u0022' || firstChar == '\u0027' ||
+                        firstChar == '\u2018' || firstChar == '\u2019' ||
+                        firstChar == '\u201C' || firstChar == '\u201D' ||
+                        firstChar == '\u00AB' || firstChar == '\u2039' ||
                         firstChar == '(' || firstChar == '[' || firstChar == '{')
                     {
                         hangOffset = -TextMeasurer.MeasureWidth(
@@ -1220,7 +1055,6 @@ public static partial class BlockLayout
 
                     if (applyFirstLetter)
                     {
-                        // Split first character into its own box with ::first-letter style or initial-letter size.
                         var letterChar = line.Substring(0, 1);
                         var remainder = line.Length > 1 ? line.Substring(1) : "";
 
@@ -1230,11 +1064,9 @@ public static partial class BlockLayout
 
                         if (hasInitialLetter)
                         {
-                            // initial-letter: N — scale first letter to span N lines
                             float n = initialLetterN < 1f ? 1f : initialLetterN;
                             flFontSize = fontSize * n;
                             flLineHeight = lineHeight * n;
-                            // Build a synthetic style for the drop cap
                             flStyle = new ComputedStyle();
                             foreach (var kv in style.All) flStyle.Set(kv.Key, kv.Value);
                             flStyle.Set("font-size", flFontSize.ToString(System.Globalization.CultureInfo.InvariantCulture) + "px");
@@ -1327,15 +1159,12 @@ public static partial class BlockLayout
         else if (afterContent == null && IsBlockLevelEmptyStringPseudoElement(afterPseudoStyle))
             childY = LayoutEmptyPseudoElementBox(afterPseudoStyle!, box, childY, childContainingWidth, fontSize);
 
-        // CSS counters: pop scopes created by counter-reset on this element (after children processed)
         if (counterCtx != null)
             counterCtx.PopReset(style.Get("counter-reset"));
 
-        // Post-pass: caption-side:bottom — move caption boxes below all table rows
         if (style.Display == "table" && style.Get("caption-side") == "bottom")
         {
-            // Identify caption boxes and non-caption children
-            float rowBottom = box.Y + box.PaddingTop; // Y of the bottom of all non-caption children
+            float rowBottom = box.Y + box.PaddingTop;
             for (int ci = 0; ci < box.Children.Count; ci++)
             {
                 var child = box.Children[ci];
@@ -1349,7 +1178,6 @@ public static partial class BlockLayout
                 var child = box.Children[ci];
                 if (child.Element == null || child.Style.Display != "table-caption")
                     continue;
-                // Move this caption to rowBottom, adjusting all its children too
                 float deltaY = rowBottom - child.Y;
                 if (Math.Abs(deltaY) > 0.01f)
                 {
@@ -1360,7 +1188,6 @@ public static partial class BlockLayout
             }
         }
 
-        // Post-pass: equalize table cell heights and apply vertical-align
         if ((IsTableRow(style.Display) || actsAsImplicitTableRow) && childY > 0)
         {
             float rowHeight = childY;
@@ -1370,10 +1197,8 @@ public static partial class BlockLayout
                 if (cell.Element == null || RowSpanOf(cell.Element) > 1) continue;
 
                 float contentHeight = cell.ContentHeight;
-                // Equalize cell height to row height
                 cell.Height = rowHeight;
 
-                // Apply vertical-align within the cell
                 var vAlign = cell.Style.Get("vertical-align") ?? "top";
                 float offset = 0;
                 if (vAlign == "middle")
@@ -1383,24 +1208,20 @@ public static partial class BlockLayout
 
                 if (offset > 0)
                 {
-                    // Shift all children of this cell down by offset
                     for (int gi = 0; gi < cell.Children.Count; gi++)
                         cell.Children[gi].Y += offset;
                 }
             }
         }
 
-        // List marker for display:list-item
         if (style.Display == "list-item")
         {
-            // Resolve ::marker pseudo-element style if any rules target it.
             var markerCascadeRes = _threadCascadeResolver;
             var markerStyle = markerCascadeRes?.ResolvePseudoElement(element, "marker", style);
 
             var listStyleType = style.Get("list-style-type") ?? (parentStyle?.Get("list-style-type")) ?? "disc";
             string markerText = GetListMarkerText(listStyleType, element, parent.Element, counterCtx);
 
-            // ::marker content property overrides the auto-generated marker text.
             if (markerStyle != null && markerStyle.Has("content"))
             {
                 var counterCtxMarker = _threadCounterCtx;
@@ -1415,8 +1236,6 @@ public static partial class BlockLayout
             {
                 var effectiveMarkerStyle = markerStyle ?? style;
                 float markerWidth = TextMeasurer.MeasureWidth(markerText + " ", fontSize, null);
-                // An outside marker hangs off the side the text starts from: the left in LTR,
-                // but the right in RTL (direction is inherited, so `style` already carries it).
                 bool markerIsRTL = style.Get("direction") == "rtl";
                 var markerBox = new LayoutBox
                 {
@@ -1454,8 +1273,6 @@ public static partial class BlockLayout
         }
         else
         {
-            // Auto height: sum of children
-            // Apply multi-column redistribution if needed
             if (isMultiColumn && box.Children.Count > 0)
             {
                 var (colCount, colWidth, colGap) = MultiColumnLayout.ResolveColumns(style, box.ContentWidth, fontSize);
@@ -1465,7 +1282,6 @@ public static partial class BlockLayout
                     foreach (var c in box.Children)
                         if (c is LayoutBox lb) childList.Add(lb);
 
-                    // Split by column-span:all elements, distributing segments into columns
                     box.Children.Clear();
                     float currentY = box.Y + box.PaddingTop;
                     float containerX = box.X + box.PaddingLeft;
@@ -1481,7 +1297,6 @@ public static partial class BlockLayout
 
                         if (isSpanning || isLast)
                         {
-                            // Distribute accumulated segment into columns
                             if (segment.Count > 0)
                             {
                                 var columns = MultiColumnLayout.DistributeIntoColumns(
@@ -1498,14 +1313,11 @@ public static partial class BlockLayout
                                 segment.Clear();
                             }
 
-                            // Place the spanning element at full container width
                             if (isSpanning)
                             {
                                 child!.Width = box.ContentWidth;
                                 child.ContentWidth = box.ContentWidth - child.PaddingLeft - child.PaddingRight;
                                 if (child.ContentWidth < 0) child.ContentWidth = 0;
-                                // X is absolute: shift the whole subtree. Y is parent-relative
-                                // (resolved in the post-layout pass): only the spanning box moves.
                                 MultiColumnLayout.ShiftSubtreeX(child, containerX - child.X);
                                 child.Y = currentY;
                                 box.Children.Add(child);
@@ -1538,7 +1350,6 @@ public static partial class BlockLayout
         if (marginCollapsedThroughTop != 0f)
             box.MarginTop = CollapseMargins(box.MarginTop, marginCollapsedThroughTop);
 
-        // aspect-ratio: when height is auto (no explicit height), derive it from width and ratio
         if (!specifiedHeight.HasValue)
         {
             var aspectRatio = AspectRatioLayout.ParseAspectRatio(style.Get("aspect-ratio"));
@@ -1551,7 +1362,6 @@ public static partial class BlockLayout
             }
         }
 
-        // Min/max height constraints
         float? minHeight = ResolveOptionalLength(style.Get("min-height"), 0, fontSize);
         float? maxHeight = ResolveOptionalLength(style.Get("max-height"), 0, fontSize);
 
@@ -1560,10 +1370,8 @@ public static partial class BlockLayout
         if (maxHeight.HasValue && box.Height > maxHeight.Value)
             box.Height = maxHeight.Value;
 
-        // Layout absolutely/fixed positioned children (deferred from normal flow)
         LayoutAbsoluteChildren(absChildren, box, position, containingWidth, parent, fontSize, resolver, style);
 
-        // Apply relative/sticky position Y offset (sticky behaves like relative in PDF — no scrolling)
         if (position == "relative" || position == "sticky")
         {
             float offsetTop = ResolveLength(style.Get("top"), 0, fontSize);
@@ -1573,14 +1381,6 @@ public static partial class BlockLayout
         return box;
     }
 
-    /// <summary>
-    /// Resolves margins, padding, width (with min/max clamping and auto-margin
-    /// centering), and X position/relative offset for a box, mutating it in
-    /// place. Split out of CreateBox as the first self-contained stage: every
-    /// local it computes besides the three returned values (fontSize, whether
-    /// box-sizing is border-box, and the position value) is read only within
-    /// this stage and never again afterward.
-    /// </summary>
     private static (float fontSize, bool borderBox, string? position) ResolveBoxModel(
         LayoutBox box, HtmlElement element, ComputedStyle style, LayoutBox parent,
         float containingWidth, ComputedStyle? parentStyle)
@@ -1588,7 +1388,6 @@ public static partial class BlockLayout
         float parentFontSize = parentStyle != null ? ResolveFontSize(parentStyle.FontSize, DefaultFontSize) : DefaultFontSize;
         float fontSize = ResolveFontSize(style.FontSize, parentFontSize);
 
-        // Handle shorthand margin/padding (single value -> all 4 sides)
         var marginShort = style.Get("margin");
         string? rawMarginLeft  = style.MarginLeft  ?? marginShort;
         string? rawMarginRight = style.MarginRight ?? marginShort;
@@ -1612,18 +1411,12 @@ public static partial class BlockLayout
 
         bool borderBox = style.Get("box-sizing") == "border-box";
 
-        // Width
-        // For table cells (td/th), ignore the explicit width style — the column width has already
-        // been computed by the table layout algorithm and is passed in as containingWidth. Resolving
-        // a percentage width like "20%" relative to the cell's own containingWidth (which is already
-        // the column width) would give 20% of 20% = 4%, incorrectly shrinking the cell.
         bool isTableCell = element.TagName == "td" || element.TagName == "th";
         float? specifiedWidth = isTableCell ? null : ResolveOptionalLength(style.Width, containingWidth, fontSize);
         if (specifiedWidth.HasValue)
         {
             if (borderBox)
             {
-                // border-box: width includes padding
                 box.Width = specifiedWidth.Value;
                 box.ContentWidth = specifiedWidth.Value - box.PaddingLeft - box.PaddingRight;
                 if (box.ContentWidth < 0) box.ContentWidth = 0;
@@ -1636,12 +1429,10 @@ public static partial class BlockLayout
         }
         else
         {
-            // Auto width: fill containing block minus margins
             box.Width = containingWidth - box.MarginLeft - box.MarginRight;
             box.ContentWidth = box.Width - box.PaddingLeft - box.PaddingRight;
         }
 
-        // Min/max width constraints
         float? minWidth = ResolveOptionalLength(style.Get("min-width"), containingWidth, fontSize);
         float? maxWidth = ResolveOptionalLength(style.Get("max-width"), containingWidth, fontSize);
 
@@ -1656,8 +1447,6 @@ public static partial class BlockLayout
             box.ContentWidth = box.Width - box.PaddingLeft - box.PaddingRight;
         }
 
-        // Auto-margin centering (CSS spec: block elements with explicit width and auto margins).
-        // Only applies when width is specified; auto-width elements fill the container instead.
         if (specifiedWidth.HasValue)
         {
             bool leftAuto  = rawMarginLeft  == "auto";
@@ -1682,122 +1471,52 @@ public static partial class BlockLayout
             }
         }
 
-        // Position
         box.X = parent.X + parent.PaddingLeft + box.MarginLeft;
 
-        // Relative positioning offset
         var position = style.Get("position");
         if (position == "relative")
-        {
-            float offsetTop = ResolveLength(style.Get("top"), 0, fontSize);
-            float offsetLeft = ResolveLength(style.Get("left"), 0, fontSize);
-            box.X += offsetLeft;
-            // Y offset applied after layout (see below)
-        }
+            box.X += ResolveLength(style.Get("left"), 0, fontSize);
 
         return (fontSize, borderBox, position);
     }
 
-    /// <summary>
-    /// Finishes a flex container box: delegates to FlexLayout for children,
-    /// then resolves height from the specified value or children, applies
-    /// min/max-height, the relative-position Y offset, and out-of-flow
-    /// absolutely positioned children. Split out of CreateBox: this branch
-    /// returns early and shares no state with normal-flow child layout.
-    /// </summary>
     private static LayoutBox LayoutFlexContainer(LayoutBox box, HtmlElement element, ComputedStyle style,
         LayoutBox parent, float containingWidth, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver,
         ComputedStyle? parentStyle, string? position, float fontSize, bool borderBox)
     {
         FlexLayout.LayoutFlex(box, element, style, containingWidth, resolver, parentStyle);
-
-        // Compute height from flex children
-        float? specifiedHeightFlex = ResolveOptionalLength(style.Height, 0, fontSize);
-        if (specifiedHeightFlex.HasValue)
-        {
-            if (borderBox)
-            {
-                box.Height = specifiedHeightFlex.Value;
-                box.ContentHeight = specifiedHeightFlex.Value - box.PaddingTop - box.PaddingBottom;
-                if (box.ContentHeight < 0) box.ContentHeight = 0;
-            }
-            else
-            {
-                box.ContentHeight = specifiedHeightFlex.Value;
-                box.Height = specifiedHeightFlex.Value + box.PaddingTop + box.PaddingBottom;
-            }
-        }
-        else
-        {
-            // Auto height: compute from children
-            float maxChildBottom = 0;
-            for (int ci = 0; ci < box.Children.Count; ci++)
-            {
-                var child = box.Children[ci];
-                float childBottom = child.Y + child.Height - box.Y - box.PaddingTop;
-                if (childBottom > maxChildBottom)
-                    maxChildBottom = childBottom;
-            }
-            box.ContentHeight = maxChildBottom;
-            box.Height = maxChildBottom + box.PaddingTop + box.PaddingBottom;
-        }
-
-        // Min/max height constraints for flex
-        float? minHeightFlex = ResolveOptionalLength(style.Get("min-height"), 0, fontSize);
-        float? maxHeightFlex = ResolveOptionalLength(style.Get("max-height"), 0, fontSize);
-        if (minHeightFlex.HasValue && box.Height < minHeightFlex.Value)
-            box.Height = minHeightFlex.Value;
-        if (maxHeightFlex.HasValue && box.Height > maxHeightFlex.Value)
-            box.Height = maxHeightFlex.Value;
-
-        // Apply relative position Y offset
-        if (position == "relative")
-        {
-            float offsetTopFlex = ResolveLength(style.Get("top"), 0, fontSize);
-            box.Y += offsetTopFlex;
-        }
-
-        // Absolutely positioned children are out-of-flow (excluded from flex
-        // items); place them now that the container's final size is known.
-        var flexAbsChildren = CollectAbsoluteChildren(element, style, resolver);
-        if (flexAbsChildren.Count > 0)
-            LayoutAbsoluteChildren(flexAbsChildren, box, position, containingWidth, parent, fontSize, resolver, style);
-
-        return box;
+        return FinishItemContainer(box, element, style, parent, containingWidth, resolver, position, fontSize, borderBox);
     }
 
-    /// <summary>
-    /// Finishes a grid container box: delegates to GridLayout for children,
-    /// then resolves height from the specified value or children, applies
-    /// min/max-height, the relative-position Y offset, and out-of-flow
-    /// absolutely positioned children. Split out of CreateBox: this branch
-    /// returns early and shares no state with normal-flow child layout.
-    /// </summary>
     private static LayoutBox LayoutGridContainer(LayoutBox box, HtmlElement element, ComputedStyle style,
         LayoutBox parent, float containingWidth, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver,
         ComputedStyle? parentStyle, string? position, float fontSize, bool borderBox)
     {
         GridLayout.LayoutGrid(box, element, style, containingWidth, resolver, parentStyle);
+        return FinishItemContainer(box, element, style, parent, containingWidth, resolver, position, fontSize, borderBox);
+    }
 
-        // Compute height from grid children
-        float? specifiedHeightGrid = ResolveOptionalLength(style.Height, 0, fontSize);
-        if (specifiedHeightGrid.HasValue)
+    private static LayoutBox FinishItemContainer(LayoutBox box, HtmlElement element, ComputedStyle style,
+        LayoutBox parent, float containingWidth, Func<HtmlElement, ComputedStyle?, ComputedStyle> resolver,
+        string? position, float fontSize, bool borderBox)
+    {
+        float? specifiedHeight = ResolveOptionalLength(style.Height, 0, fontSize);
+        if (specifiedHeight.HasValue)
         {
             if (borderBox)
             {
-                box.Height = specifiedHeightGrid.Value;
-                box.ContentHeight = specifiedHeightGrid.Value - box.PaddingTop - box.PaddingBottom;
+                box.Height = specifiedHeight.Value;
+                box.ContentHeight = specifiedHeight.Value - box.PaddingTop - box.PaddingBottom;
                 if (box.ContentHeight < 0) box.ContentHeight = 0;
             }
             else
             {
-                box.ContentHeight = specifiedHeightGrid.Value;
-                box.Height = specifiedHeightGrid.Value + box.PaddingTop + box.PaddingBottom;
+                box.ContentHeight = specifiedHeight.Value;
+                box.Height = specifiedHeight.Value + box.PaddingTop + box.PaddingBottom;
             }
         }
         else
         {
-            // Auto height: compute from children
             float maxChildBottom = 0;
             for (int ci = 0; ci < box.Children.Count; ci++)
             {
@@ -1810,26 +1529,19 @@ public static partial class BlockLayout
             box.Height = maxChildBottom + box.PaddingTop + box.PaddingBottom;
         }
 
-        // Min/max height constraints for grid
-        float? minHeightGrid = ResolveOptionalLength(style.Get("min-height"), 0, fontSize);
-        float? maxHeightGrid = ResolveOptionalLength(style.Get("max-height"), 0, fontSize);
-        if (minHeightGrid.HasValue && box.Height < minHeightGrid.Value)
-            box.Height = minHeightGrid.Value;
-        if (maxHeightGrid.HasValue && box.Height > maxHeightGrid.Value)
-            box.Height = maxHeightGrid.Value;
+        float? minHeight = ResolveOptionalLength(style.Get("min-height"), 0, fontSize);
+        float? maxHeight = ResolveOptionalLength(style.Get("max-height"), 0, fontSize);
+        if (minHeight.HasValue && box.Height < minHeight.Value)
+            box.Height = minHeight.Value;
+        if (maxHeight.HasValue && box.Height > maxHeight.Value)
+            box.Height = maxHeight.Value;
 
-        // Apply relative position Y offset
         if (position == "relative")
-        {
-            float offsetTopGrid = ResolveLength(style.Get("top"), 0, fontSize);
-            box.Y += offsetTopGrid;
-        }
+            box.Y += ResolveLength(style.Get("top"), 0, fontSize);
 
-        // Absolutely positioned children are out-of-flow (excluded from grid
-        // items); place them now that the container's final size is known.
-        var gridAbsChildren = CollectAbsoluteChildren(element, style, resolver);
-        if (gridAbsChildren.Count > 0)
-            LayoutAbsoluteChildren(gridAbsChildren, box, position, containingWidth, parent, fontSize, resolver, style);
+        var absChildren = CollectAbsoluteChildren(element, style, resolver);
+        if (absChildren.Count > 0)
+            LayoutAbsoluteChildren(absChildren, box, position, containingWidth, parent, fontSize, resolver, style);
 
         return box;
     }

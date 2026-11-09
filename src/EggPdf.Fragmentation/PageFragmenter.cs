@@ -15,7 +15,6 @@ namespace EggPdf.Fragmentation;
 /// </summary>
 public static class PageFragmenter
 {
-    // Pre-built border-style property keys indexed by side (0=top,1=right,2=bottom,3=left).
     private static readonly string[] BorderStyleKeys = { "border-top-style", "border-right-style", "border-bottom-style", "border-left-style" };
 
     /// <summary>A table's &lt;thead&gt; box and the table's overall bottom Y, for repeat-on-continuation-page purposes.</summary>
@@ -84,7 +83,6 @@ public static class PageFragmenter
 
     public static void CollectPaintableBoxes(LayoutBox box, List<LayoutBox> result)
     {
-        // A box is paintable if it has text, background, image, border, or is a link
         bool hasBorder = false;
         var borderStyleFallback = box.Style.Get("border-style");
         for (int bsi = 0; bsi < 4; bsi++)
@@ -97,7 +95,6 @@ public static class PageFragmenter
         var bgImageStyle = box.Style.Get("background-image");
         bool hasBgImage = !string.IsNullOrEmpty(bgImageStyle) && bgImageStyle != "none";
 
-        // Check for column-rule (needs a paint pass even without background/border)
         var colRuleShorthand = box.Style.Get("column-rule");
         var colRuleStyle = box.Style.Get("column-rule-style");
         bool hasColumnRule = (!string.IsNullOrEmpty(colRuleStyle) && colRuleStyle != "none") ||
@@ -111,8 +108,6 @@ public static class PageFragmenter
                         box.Style.BackgroundColor != "transparent" ||
                         box.Element?.TagName == "a" ||
                         box.Element?.TagName == "svg" ||
-                        // an id is an internal-link destination: it paints nothing, but BoxPainter
-                        // registers its page/position when it runs for the box
                         box.Element?.HasAttribute("id") == true;
 
         if (hasPaint)
@@ -175,14 +170,12 @@ public static class PageFragmenter
 
     public static void CollectPageBreaks(LayoutBox box, List<float> breakYs)
     {
-        // Check page-break-before
         var breakBefore = box.Style.Get("page-break-before") ?? box.Style.Get("break-before");
         if (breakBefore == "always" || breakBefore == "page")
         {
             breakYs.Add(box.Y);
         }
 
-        // Check page-break-after
         var breakAfter = box.Style.Get("page-break-after") ?? box.Style.Get("break-after");
         if (breakAfter == "always" || breakAfter == "page")
         {
@@ -233,7 +226,6 @@ public static class PageFragmenter
             CollectFixedPositionedBoxes(child, nowInsideFixed, pageArea, result);
     }
 
-
     /// <summary>
     /// Collect boxes carrying the <c>-eggpdf-pin-bottom: page</c> extension property —
     /// an opt-in EggPdf-specific hook for pinning trailing content (e.g. a signature/acceptance
@@ -272,7 +264,6 @@ public static class PageFragmenter
                 int orphans = ParsePaginationInt(orphansStr, 2);
                 int widows  = ParsePaginationInt(widowsStr,  2);
 
-                // Gather text-line Y positions within this block
                 var lineYList = new List<float>();
                 CollectTextLineYs(box, lineYList);
 

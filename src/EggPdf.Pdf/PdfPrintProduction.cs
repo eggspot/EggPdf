@@ -34,19 +34,13 @@ public class PdfPrintProduction
     public (string mediaBox, string? trimBox, string? bleedBox) GetPageBoxes(float pageWidthPt, float pageHeightPt)
     {
         float bleed = BleedPt;
+        float trimOffset = CropMarks ? MarkLength + MarkOffset + bleed : bleed;
+        float mediaWidth = pageWidthPt + 2 * trimOffset;
+        float mediaHeight = pageHeightPt + 2 * trimOffset;
 
-        // MediaBox includes bleed + mark area
-        float markArea = CropMarks ? MarkLength + MarkOffset + bleed : bleed;
-        float mediaW = pageWidthPt + 2 * markArea;
-        float mediaH = pageHeightPt + 2 * markArea;
-
-        string mediaBox = $"/MediaBox [0 0 {F(mediaW)} {F(mediaH)}]";
-
-        // TrimBox = the intended final page size
-        string trimBox = $"/TrimBox [{F(markArea)} {F(markArea)} {F(markArea + pageWidthPt)} {F(markArea + pageHeightPt)}]";
-
-        // BleedBox = TrimBox expanded by bleed amount
-        string bleedBox = $"/BleedBox [{F(markArea - bleed)} {F(markArea - bleed)} {F(markArea + pageWidthPt + bleed)} {F(markArea + pageHeightPt + bleed)}]";
+        string mediaBox = $"/MediaBox [0 0 {F(mediaWidth)} {F(mediaHeight)}]";
+        string trimBox = $"/TrimBox [{F(trimOffset)} {F(trimOffset)} {F(trimOffset + pageWidthPt)} {F(trimOffset + pageHeightPt)}]";
+        string bleedBox = $"/BleedBox [{F(trimOffset - bleed)} {F(trimOffset - bleed)} {F(trimOffset + pageWidthPt + bleed)} {F(trimOffset + pageHeightPt + bleed)}]";
 
         return (mediaBox, trimBox, bleedBox);
     }
@@ -63,32 +57,26 @@ public class PdfPrintProduction
 
         var sb = new StringBuilder();
         sb.AppendOpLine("q");
-        sb.AppendOpLine("0 0 0 RG"); // Black stroke
-        sb.AppendOpLine("0.25 w");    // Thin line
+        sb.AppendOpLine(BlackStroke);
+        sb.AppendOpLine(HairlineWidth);
 
-        // Top-left corner
-        DrawCornerMark(sb, markArea, markArea + pageHeightPt, markArea, MarkLength, MarkOffset);
-
-        // Top-right corner
-        DrawCornerMark(sb, markArea + pageWidthPt, markArea + pageHeightPt, markArea, MarkLength, MarkOffset);
-
-        // Bottom-left corner
-        DrawCornerMark(sb, markArea, markArea, markArea, MarkLength, MarkOffset);
-
-        // Bottom-right corner
-        DrawCornerMark(sb, markArea + pageWidthPt, markArea, markArea, MarkLength, MarkOffset);
+        float left = markArea, right = markArea + pageWidthPt, bottom = markArea, top = markArea + pageHeightPt;
+        DrawCornerMark(sb, left, top, MarkLength, MarkOffset);
+        DrawCornerMark(sb, right, top, MarkLength, MarkOffset);
+        DrawCornerMark(sb, left, bottom, MarkLength, MarkOffset);
+        DrawCornerMark(sb, right, bottom, MarkLength, MarkOffset);
 
         sb.AppendOpLine("Q");
         return sb.ToString();
     }
 
-    private static void DrawCornerMark(StringBuilder sb, float x, float y, float offset, float length, float gap)
+    private const string BlackStroke = "0 0 0 RG";
+    private const string HairlineWidth = "0.25 w";
+
+    private static void DrawCornerMark(StringBuilder sb, float x, float y, float length, float gap)
     {
-        // Horizontal mark
         sb.AppendOpLine($"{F(x - gap - length)} {F(y)} m {F(x - gap)} {F(y)} l S");
         sb.AppendOpLine($"{F(x + gap)} {F(y)} m {F(x + gap + length)} {F(y)} l S");
-
-        // Vertical mark
         sb.AppendOpLine($"{F(x)} {F(y - gap - length)} m {F(x)} {F(y - gap)} l S");
         sb.AppendOpLine($"{F(x)} {F(y + gap)} m {F(x)} {F(y + gap + length)} l S");
     }

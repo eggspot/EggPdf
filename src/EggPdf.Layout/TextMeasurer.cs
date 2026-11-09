@@ -12,7 +12,6 @@ public static class TextMeasurer
 {
     private const float DefaultLineHeight = 1.2f;
 
-    /// <summary>Shared English hyphenator (thread-safe: immutable after construction).</summary>
     private static readonly Hyphenator _englishHyphenator = Hyphenator.CreateEnglish();
 
     /// <summary>
@@ -113,13 +112,8 @@ public static class TextMeasurer
     {
         if (string.IsNullOrEmpty(text)) return 0;
 
-        // Measure the contextual (shaped) form the renderer will paint -- Arabic medial forms
-        // are narrower than isolated ones and lam-alef ligatures merge two letters into one.
-        // No-op (single early-exit scan) for non-Arabic text.
         text = EggPdf.Text.ArabicShaper.Shape(text);
 
-        // Complex scripts (Thai, Indic, Arabic with marks): width is the sum of GSUB/GPOS-shaped
-        // advances (conjuncts collapse glyphs, marks are zero-width), not per-codepoint widths.
         if (ComplexFontProvider != null && EggPdf.Text.OpenType.ComplexTextShaper.NeedsShaping(text))
         {
             var complexFont = ComplexFontProvider(fontFamily, fontWeight, fontStyle, text);
@@ -140,7 +134,6 @@ public static class TextMeasurer
         var fontData = FontDataProvider?.Invoke(fontFamily, fontWeight, fontStyle);
         if (fontData != null && fontData.UnitsPerEm > 0)
         {
-            // Real font metrics (webfont) — matches what the PDF will paint
             var pdfFont = StandardFontMetrics.ResolvePdfFontName(fontFamily, fontWeight, fontStyle);
             float w = 0;
             for (int i = 0; i < text.Length; i++)
@@ -187,11 +180,6 @@ public static class TextMeasurer
         return width;
     }
 
-    /// <summary>
-    /// Correction to the built-in-font width estimate for characters above U+00FF: the table-based
-    /// estimate charges every such UTF-16 unit the same flat width, while the PDF paints each with the
-    /// real glyph advance <see cref="GlyphAdvanceProvider"/> reports.
-    /// </summary>
     private static float NonLatinAdjustment(string text, float fontSize, string? fontFamily,
         string? fontWeight, string? fontStyle, string pdfFont)
     {
@@ -252,11 +240,6 @@ public static class TextMeasurer
         return halfLeading + asc * fontSize;
     }
 
-    /// <summary>
-    /// Ascent/descent/line-gap (in em) of the font that shapes <paramref name="text"/>, for complex
-    /// scripts only. Tall fonts (Myanmar, Khmer, Indic) need far more than the 1.2em default line box
-    /// or consecutive lines collide; null for text that isn't shaped or has no shaping font.
-    /// </summary>
     private static (float ascent, float descent, float lineGap)? ComplexMetrics(
         string? fontFamily, string? fontWeight, string? fontStyle, string text)
     {
@@ -300,7 +283,6 @@ public static class TextMeasurer
         return em >= MinNormalLineHeightEm && em <= MaxNormalLineHeightEm ? em : (float?)null;
     }
 
-    /// <summary>Count glyphs (surrogate pairs form one glyph).</summary>
     private static int CountGlyphs(string text)
     {
         int count = 0;
@@ -419,7 +401,6 @@ public static class TextMeasurer
         return lines;
     }
 
-    /// <summary>Wrap a single line of text at word boundaries.</summary>
     private static List<string> WrapSingleLine(string text, float fontSize, string? fontFamily,
         string? fontWeight, string? fontStyle, float maxWidth, bool preserveSpaces,
         bool breakWord = false, bool enableHyphenation = false, float letterSpacing = 0f)
@@ -437,7 +418,6 @@ public static class TextMeasurer
             return lines;
         }
 
-        // Split into words — preserveSpaces path uses a dedicated helper.
         string[] words;
         if (preserveSpaces)
             words = SplitPreservingSpaces(text);
@@ -480,10 +460,8 @@ public static class TextMeasurer
         var currentLine = words[0];
         bool currentEndsAtSoftHyphen = softHyphenAfter != null && softHyphenAfter[0];
         float currentLineWidth = MeasureWidth(currentLine, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
-        // Measure separator width once; reused every iteration to avoid per-word allocation checks.
         float spaceWidth = preserveSpaces ? 0f : MeasureWidth(" ", fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
 
-        // If first word is too wide, try hyphenation then character-breaking
         if (currentLineWidth > maxWidth)
         {
             if (enableHyphenation)
@@ -516,7 +494,6 @@ public static class TextMeasurer
         {
             string word = words[i];
             float wordWidth = MeasureWidth(word, fontSize, fontFamily, fontWeight, fontStyle, letterSpacing);
-            // Check width without building candidate string — only concat when it fits.
             bool joinNoSpace = noSpaceBefore != null && noSpaceBefore[i];
             float candidateWidth = currentLineWidth + (joinNoSpace ? 0f : spaceWidth) + wordWidth;
 
@@ -550,7 +527,6 @@ public static class TextMeasurer
                     currentLineWidth = wordWidth;
                     currentEndsAtSoftHyphen = softHyphenAfter != null && softHyphenAfter[i];
 
-                    // If this word alone exceeds maxWidth, try hyphenation then character-breaking
                     if (currentLineWidth > maxWidth)
                     {
                         if (enableHyphenation)
@@ -588,10 +564,6 @@ public static class TextMeasurer
         return lines;
     }
 
-    /// <summary>
-    /// Try to fit a word (possibly with a prefix already on the line) by finding the best
-    /// hyphenation point. Returns (lineWithHyphen, remainder) or null if no point fits.
-    /// </summary>
     private static Tuple<string, string>? HyphenateWordToFit(string word, string linePrefix,
         float fontSize, string? fontFamily, string? fontWeight, string? fontStyle, float maxWidth,
         float letterSpacing = 0f)
@@ -599,7 +571,6 @@ public static class TextMeasurer
         var breakPoints = _englishHyphenator.Hyphenate(word);
         if (breakPoints.Length == 0) return null;
 
-        // Try break points from right to left — find the rightmost that fits
         string? bestLine = null;
         string? bestRemainder = null;
         for (int k = breakPoints.Length - 1; k >= 0; k--)
@@ -619,7 +590,6 @@ public static class TextMeasurer
         return Tuple.Create(bestLine, bestRemainder!);
     }
 
-    /// <summary>Break a single word into chunks that each fit within maxWidth.</summary>
     private static List<string> BreakWordByCharacter(string word, float fontSize,
         string? fontFamily, string? fontWeight, string? fontStyle, float maxWidth, float letterSpacing = 0f)
     {
@@ -630,8 +600,6 @@ public static class TextMeasurer
             return chunks;
         }
 
-        // Resolve font once; accumulate width char-by-char to avoid per-iteration Substring allocations.
-        var pdfFont = StandardFontMetrics.ResolvePdfFontName(fontFamily, fontWeight, fontStyle);
         int start = 0;
         float runWidth = 0f;
         for (int i = 0; i < word.Length; i++)
@@ -654,14 +622,13 @@ public static class TextMeasurer
         return chunks;
     }
 
-    /// <summary>Collapse sequences of whitespace into single spaces and trim.</summary>
     private static string CollapseWhitespace(string text)
     {
         if (string.IsNullOrEmpty(text)) return "";
 
         var result = new char[text.Length];
         int len = 0;
-        bool lastWasSpace = true; // trim leading
+        bool lastWasSpace = true;
 
         for (int i = 0; i < text.Length; i++)
         {
@@ -681,7 +648,6 @@ public static class TextMeasurer
             }
         }
 
-        // Trim trailing space
         if (len > 0 && result[len - 1] == ' ')
             len--;
 
@@ -695,7 +661,7 @@ public static class TextMeasurer
     public static string ExpandTabs(string text, int tabSize)
     {
         if (string.IsNullOrEmpty(text) || tabSize <= 0) return text;
-        if (text.IndexOf('\t') < 0) return text; // fast path: no tabs
+        if (text.IndexOf('\t') < 0) return text;
 
         var sb = new System.Text.StringBuilder(text.Length + tabSize);
         int col = 0;
@@ -722,7 +688,6 @@ public static class TextMeasurer
         return sb.ToString();
     }
 
-    /// <summary>Split text into chunks preserving spaces (for pre/pre-wrap).</summary>
     private static string[] SplitPreservingSpaces(string text)
     {
         var parts = new List<string>();
