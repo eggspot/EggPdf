@@ -20,7 +20,7 @@ public class ImageTests
         var text = PdfAssert.ValidPdf(pdf);
 
         text.Should().Contain("/Subtype /Image");
-        text.Should().Contain("75.00 0 0 75.00 6.00 766.89 cm", "100x100px image drawn as a 75pt square at the page margin");
+        text.Should().Contain("75.00 0 0 75.00 6.00 760.89 cm", "100x100px image drawn as a 75pt square inside the body's 8px margin");
     }
 
     private static byte[] BuildWebPLossless2x1RedThenYellow()
@@ -184,7 +184,7 @@ public class ImageTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "Gradient");
 
-        text.Should().Contain("6.00 766.89 150.00 75.00 re W n", "the gradient is clipped to the 200x100px box");
+        text.Should().Contain("6.00 760.89 150.00 75.00 re W n", "the gradient is clipped to the 200x100px box");
         text.Should().Contain("1.00 0.00 0.00 rg", "red start");
         text.Should().Contain("0.00 0.00 1.00 rg", "blue end");
     }

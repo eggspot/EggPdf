@@ -17,7 +17,7 @@ public class BlockLayoutCreateBoxSeamTests
 
         var flex = root.FindByTag("div")!.Children[1];
         var spacer = root.FindByTag("div")!.Children[0];
-        (flex.Y - spacer.Height).Should().BeApproximately(20, 1f,
+        (flex.Y - spacer.Y - spacer.Height).Should().BeApproximately(20, 1f,
             "top:20px applies on top of the normal flow position, not instead of it");
     }
 
@@ -32,7 +32,7 @@ public class BlockLayoutCreateBoxSeamTests
 
         var grid = root.FindByTag("div")!.Children[1];
         var spacer = root.FindByTag("div")!.Children[0];
-        (grid.Y - spacer.Height).Should().BeApproximately(15, 1f);
+        (grid.Y - spacer.Y - spacer.Height).Should().BeApproximately(15, 1f);
     }
 
     [Fact]

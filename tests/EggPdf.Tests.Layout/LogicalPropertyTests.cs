@@ -50,7 +50,7 @@ public class LogicalPropertyTests
             "<div style='height:20px'>B</div>", 400, 600);
         var divs = root.FindAllByTag("div");
         divs.Should().HaveCount(2);
-        divs[1].Y.Should().BeApproximately(35f, 1f,
+        (divs[1].Y - divs[0].Y).Should().BeApproximately(35f, 1f,
             "margin-block-end:15px should add 15px below first div");
     }
 

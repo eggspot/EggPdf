@@ -17,10 +17,9 @@ public class VisualEffectsTests
 
         text.Should().MatchRegex(@"/GS(29|30) gs", "the 0.3 alpha shadow must set a matching ExtGState");
         text.Should().Contain("/GS100 gs", "opacity is reset after the shadow");
-        // Shadow rect is the box offset by (2px,2px) = (1.5pt,-1.5pt); the box itself sits at 6,766.89
-        int shadow = text.IndexOf("7.50 765.39 150.00 75.00 re f");
-        int box = text.IndexOf("6.00 766.89 150.00 75.00 re f");
-        shadow.Should().BeGreaterThan(-1, "the offset shadow rect must be filled");
+        int shadow = text.IndexOf("7.50 759.39 150.00 75.00 re f");
+        int box = text.IndexOf("6.00 760.89 150.00 75.00 re f");
+        shadow.Should().BeGreaterThan(-1, "the shadow rect is the box at (6, 760.89) offset by 2px = (1.5pt, -1.5pt)");
         box.Should().BeGreaterThan(shadow, "the element background paints over the shadow");
     }
 
@@ -382,7 +381,7 @@ public class VisualEffectsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "Inset");
 
-        text.Should().Contain("6.00 766.89 150.00 75.00 re W n", "the inset shadow is clipped to the padding box");
+        text.Should().Contain("6.00 760.89 150.00 75.00 re W n", "the inset shadow is clipped to the padding box");
         text.Should().Contain("/GS50 gs");
     }
 
@@ -394,10 +393,10 @@ public class VisualEffectsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "I");
 
-        text.Should().Contain("6.00 766.89 150.00 75.00 re W n");
+        text.Should().Contain("6.00 760.89 150.00 75.00 re W n");
         text.Should().Contain("/GS80 gs");
         text.Should().Contain("1.00 0.00 0.00 rg");
-        text.Should().Contain("9.00 769.89 150.00 75.00 re f", "the shadow rect is shifted by the 4px offset");
+        text.Should().Contain("9.00 763.89 150.00 75.00 re f", "the shadow rect is shifted by the 4px offset");
     }
 
     [Fact]
@@ -408,9 +407,9 @@ public class VisualEffectsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "M");
 
-        int outer = text.IndexOf("0.00 0.00 0.00 rg\n7.50 802.89 75.00 37.50 re f");
-        int inset = text.IndexOf("1.00 1.00 1.00 rg\n6.75 805.14 75.00 37.50 re f");
-        int background = text.IndexOf("0.50 0.50 0.50 rg\n6.00 804.39 75.00 37.50 re f");
+        int outer = text.IndexOf("0.00 0.00 0.00 rg\n7.50 796.89 75.00 37.50 re f");
+        int inset = text.IndexOf("1.00 1.00 1.00 rg\n6.75 799.14 75.00 37.50 re f");
+        int background = text.IndexOf("0.50 0.50 0.50 rg\n6.00 798.39 75.00 37.50 re f");
         outer.Should().BeGreaterThan(-1, "outer black shadow");
         inset.Should().BeGreaterThan(outer, "inset white shadow follows the outer one");
         background.Should().BeGreaterThan(inset, "gray background painted last");
@@ -559,7 +558,7 @@ public class VisualEffectsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "X");
 
-        int parent = text.IndexOf("1.00 1.00 1.00 rg\n6.00 766.89 75.00 75.00 re f");
+        int parent = text.IndexOf("1.00 1.00 1.00 rg\n6.00 760.89 75.00 75.00 re f");
         int child = text.IndexOf("/GSBM_multiply gs\n1.00 0.00 0.00 rg");
         parent.Should().BeGreaterThan(-1, "the isolated white parent background is painted");
         child.Should().BeGreaterThan(parent, "the multiply-blended child paints over the parent background");
@@ -676,7 +675,7 @@ public class VisualEffectsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "X");
 
-        text.Should().Contain("6.00 766.89 150.00 75.00 re W n", "the gradient is clipped to the 200x100px box");
+        text.Should().Contain("6.00 760.89 150.00 75.00 re W n", "the gradient is clipped to the 200x100px box");
         text.Should().Contain("1.00 0.00 0.00 rg", "top layer starts red");
         text.Should().Contain("0.00 0.00 1.00 rg", "top layer ends blue");
         text.Should().Contain("0.00 0.50 0.00 rg", "second (bottom) layer -- green -- must also render");
@@ -730,7 +729,7 @@ public class VisualEffectsTests
         var text = PdfAssert.ValidPdf(pdf, "X");
 
         Regex.IsMatch(text, @"\n1 0 0 1 [\d.]+ [\d.]+ cm\n").Should().BeTrue("'to right' runs the gradient line along the x axis, so the bands are vertical strips");
-        text.Should().Contain("6.00 766.89 225.00 75.00 re W n", "clipped to the 300px-wide box");
+        text.Should().Contain("6.00 760.89 225.00 75.00 re W n", "clipped to the 300px-wide box");
     }
 
     private static bool HasIntermediateRedBlueBand(string text)
