@@ -232,12 +232,7 @@ public static partial class BoxPainter
 
         bool hasWritingModeTransform = ApplyWritingModeTransform(page, box, pageHeightPx, adjustedY, effectiveX);
 
-        var overflow = box.Style.Get("overflow");
-        var containValue = box.Style.Get("contain");
-        bool hasContainPaint = !string.IsNullOrEmpty(containValue) &&
-            (containValue!.IndexOf("paint", StringComparison.OrdinalIgnoreCase) >= 0 ||
-             containValue.IndexOf("strict", StringComparison.OrdinalIgnoreCase) >= 0);
-        bool hasClip = overflow == "hidden" || overflow == "clip" || hasContainPaint;
+        bool hasClip = ClipsDescendantPaint(box.Style);
         if (hasClip)
         {
             float clipX = effectiveX * PdfCoordinates.PxToPt;
@@ -406,11 +401,11 @@ public static partial class BoxPainter
 
             float outlineOffset = BlockLayout.ResolveLength(box.Style.Get("outline-offset"), 0, 16);
             float owPt = outlineWidth * PdfCoordinates.PxToPt;
-            float outlineOuterEdge = outlineWidth + outlineOffset;
-            float olX = (effectiveX - outlineOuterEdge) * PdfCoordinates.PxToPt;
-            float olY = (pageHeightPx - adjustedY - box.Height - outlineOuterEdge) * PdfCoordinates.PxToPt;
-            float olW = (box.Width + outlineOuterEdge * 2) * PdfCoordinates.PxToPt;
-            float olH = (box.Height + outlineOuterEdge * 2) * PdfCoordinates.PxToPt;
+            float strokeCentre = outlineOffset + outlineWidth / 2f;
+            float olX = (effectiveX - strokeCentre) * PdfCoordinates.PxToPt;
+            float olY = (pageHeightPx - adjustedY - box.Height - strokeCentre) * PdfCoordinates.PxToPt;
+            float olW = (box.Width + strokeCentre * 2) * PdfCoordinates.PxToPt;
+            float olH = (box.Height + strokeCentre * 2) * PdfCoordinates.PxToPt;
             page.AddStrokeRectangle(olX, olY, olW, olH,
                 outlineColor.R / 255f, outlineColor.G / 255f, outlineColor.B / 255f, owPt);
         }
@@ -626,7 +621,7 @@ public static partial class BoxPainter
             var textShadow = box.Style.Get("text-shadow");
             if (!string.IsNullOrEmpty(textShadow) && textShadow != "none")
             {
-                ParseTextShadow(textShadow, fontSize, out float shX, out float shY, out float shR, out float shG, out float shB, out float shA);
+                ParseTextShadow(textShadow, fontSize, color, out float shX, out float shY, out float shR, out float shG, out float shB, out float shA);
                 if (shA > 0)
                 {
                     float shadowPdfX = pdfX + shX * PdfCoordinates.PxToPt;
@@ -686,7 +681,7 @@ public static partial class BoxPainter
 
                 float dr = 0, dg = 0, db = 0;
                 var decoColorStr = box.Style.Get("text-decoration-color");
-                Color? decoColor = (!string.IsNullOrEmpty(decoColorStr) && decoColorStr != "currentColor")
+                Color? decoColor = !IsUnsetOrCurrentColor(decoColorStr)
                     ? Color.TryParse(decoColorStr) : color;
                 if (decoColor.HasValue)
                 {
@@ -995,7 +990,7 @@ public static partial class BoxPainter
         float eg = textColor?.G / 255f ?? 0f;
         float eb = textColor?.B / 255f ?? 0f;
         var emphasisColorStr = box.Style.Get("text-emphasis-color");
-        if (!string.IsNullOrEmpty(emphasisColorStr) && emphasisColorStr != "currentColor")
+        if (!IsUnsetOrCurrentColor(emphasisColorStr))
         {
             var ec = Color.TryParse(emphasisColorStr);
             if (ec.HasValue) { er = ec.Value.R / 255f; eg = ec.Value.G / 255f; eb = ec.Value.B / 255f; }
@@ -1158,7 +1153,21 @@ public static partial class BoxPainter
             bool isGradient = borderImageSrc.IndexOf("gradient(", StringComparison.OrdinalIgnoreCase) >= 0;
             if (isGradient && CurrentPdfDoc != null)
             {
+                float fontSize = BlockLayout.ResolveFontSize(box.Style.FontSize, 16f);
+                float ringLeft = BlockLayout.VisibleBorderWidth(box.Style, "left", fontSize);
+                float ringRight = BlockLayout.VisibleBorderWidth(box.Style, "right", fontSize);
+                float ringTop = BlockLayout.VisibleBorderWidth(box.Style, "top", fontSize);
+                float ringBottom = BlockLayout.VisibleBorderWidth(box.Style, "bottom", fontSize);
+                float outerY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+                page.SaveState();
+                ClipToRingBetween(page,
+                    effectiveX * PdfCoordinates.PxToPt, outerY,
+                    box.Width * PdfCoordinates.PxToPt, box.Height * PdfCoordinates.PxToPt,
+                    (effectiveX + ringLeft) * PdfCoordinates.PxToPt, outerY + ringBottom * PdfCoordinates.PxToPt,
+                    Math.Max(0f, box.Width - ringLeft - ringRight) * PdfCoordinates.PxToPt,
+                    Math.Max(0f, box.Height - ringTop - ringBottom) * PdfCoordinates.PxToPt);
                 PaintBackgroundImage(page, box, borderImageSrc, effectiveX, pageHeightPx, adjustedY);
+                page.RestoreState();
                 return;
             }
         }
@@ -1191,9 +1200,11 @@ public static partial class BoxPainter
             if (sideWidths[s] <= 0) { sideWidths[s] = 0; continue; }
 
             var colorStr = box.Style.Get(BorderColorKeys[s]) ?? fallbackColor;
+            if (IsUnsetOrCurrentColor(colorStr))
+                colorStr = box.Style.Color;
             if (!string.IsNullOrEmpty(colorStr))
             {
-                var bc = ParseColor(colorStr);
+                var bc = ParseColor(colorStr!);
                 if (bc.HasValue)
                 {
                     sideR[s] = bc.Value.R / 255f;
@@ -1344,7 +1355,7 @@ public static partial class BoxPainter
             string argsStr = value.Substring(argsStart, pos - argsStart);
             if (pos < value.Length) pos++;
 
-            var args = ParseTransformArgs(argsStr);
+            var args = ParseTransformArgs(argsStr, funcName, boxWidth, boxHeight);
             var m = EvaluateTransformFunction(funcName, args, boxWidth, boxHeight);
             if (m.HasValue)
             {
@@ -1365,7 +1376,7 @@ public static partial class BoxPainter
         return true;
     }
 
-    private static float[] ParseTransformArgs(string argsStr)
+    private static float[] ParseTransformArgs(string argsStr, string funcName, float boxWidth, float boxHeight)
     {
         var result = new List<float>();
         var parts = argsStr.Split(CommaSpaceSep, StringSplitOptions.RemoveEmptyEntries);
@@ -1373,10 +1384,20 @@ public static partial class BoxPainter
         {
             string part = parts[i].Trim();
             if (string.IsNullOrEmpty(part)) continue;
+            if (part.EndsWith("%", StringComparison.Ordinal) && IsTranslateFunction(funcName) &&
+                float.TryParse(part.Substring(0, part.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out float percent))
+            {
+                bool vertical = funcName == "translateY" || (funcName != "translateX" && result.Count == 1);
+                result.Add(percent / 100f * (vertical ? boxHeight : boxWidth));
+                continue;
+            }
             result.Add(ParseAngleOrLength(part));
         }
         return result.ToArray();
     }
+
+    private static bool IsTranslateFunction(string funcName) =>
+        funcName == "translate" || funcName == "translateX" || funcName == "translateY" || funcName == "translate3d";
 
     private static float ParseAngleOrLength(string value)
     {
@@ -1654,6 +1675,9 @@ public static partial class BoxPainter
         return Color.TryParse(value);
     }
 
+    private static bool IsUnsetOrCurrentColor(string? value) =>
+        string.IsNullOrEmpty(value) || string.Equals(value, "currentcolor", StringComparison.OrdinalIgnoreCase);
+
     private static void PaintProgressOrMeter(PdfPage page, LayoutBox box, string tagName,
         float effectiveX, float pageHeightPx, float adjustedY, string? accentColorStr = null)
     {
@@ -1852,10 +1876,12 @@ public static partial class BoxPainter
         }
     }
 
-    private static void ParseTextShadow(string shadow, float fontSize,
+    private static void ParseTextShadow(string shadow, float fontSize, Color? textColor,
         out float x, out float y, out float r, out float g, out float b, out float a)
     {
-        x = y = 0; r = g = b = 0; a = 0.5f;
+        x = y = 0;
+        var fallback = textColor ?? Color.Black;
+        r = fallback.R / 255f; g = fallback.G / 255f; b = fallback.B / 255f; a = fallback.A / 255f;
         if (string.IsNullOrEmpty(shadow) || shadow == "none") return;
 
         var parts = shadow.Trim().Split(SpaceSep, StringSplitOptions.RemoveEmptyEntries);
@@ -1879,9 +1905,9 @@ public static partial class BoxPainter
             }
         }
 
-        if (!string.IsNullOrEmpty(colorStr))
+        if (!IsUnsetOrCurrentColor(colorStr))
         {
-            var c = ParseColor(colorStr);
+            var c = ParseColor(colorStr!);
             if (c.HasValue)
             {
                 r = c.Value.R / 255f;
@@ -1890,9 +1916,6 @@ public static partial class BoxPainter
                 a = c.Value.A / 255f;
             }
         }
-
-        if (a <= 0 && x == 0 && y == 0) a = 0;
-        else if (a <= 0) a = 0.5f;
     }
 
     private static void PaintBoxShadow(PdfPage page, LayoutBox box, float effectiveX,
@@ -1991,11 +2014,36 @@ public static partial class BoxPainter
             float pdfY = (pageHeightPx - adjustedY - box.Height - sy - spread) * PdfCoordinates.PxToPt;
             float pdfW = (box.Width + spread * 2) * PdfCoordinates.PxToPt;
             float pdfH = (box.Height + spread * 2) * PdfCoordinates.PxToPt;
+            if (pdfW <= 0 || pdfH <= 0) return;
 
+            float boxX = effectiveX * PdfCoordinates.PxToPt;
+            float boxY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
+            float boxW = box.Width * PdfCoordinates.PxToPt;
+            float boxH = box.Height * PdfCoordinates.PxToPt;
+            float outerX = Math.Min(pdfX, boxX), outerY = Math.Min(pdfY, boxY);
+            float outerRight = Math.Max(pdfX + pdfW, boxX + boxW), outerTop = Math.Max(pdfY + pdfH, boxY + boxH);
+
+            page.SaveState();
+            ClipToRingBetween(page, outerX, outerY, outerRight - outerX, outerTop - outerY, boxX, boxY, boxW, boxH);
             if (sa < 1f) SetPaintOpacity(page, sa);
-            page.AddRectangle(pdfX, pdfY, pdfW, pdfH, sr, sg, sb);
+            float spreadPt = spread * PdfCoordinates.PxToPt;
+            float tl = ShadowCornerRadius(box, "border-top-left-radius", spreadPt);
+            float tr = ShadowCornerRadius(box, "border-top-right-radius", spreadPt);
+            float br = ShadowCornerRadius(box, "border-bottom-right-radius", spreadPt);
+            float bl = ShadowCornerRadius(box, "border-bottom-left-radius", spreadPt);
+            if (tl > 0f || tr > 0f || br > 0f || bl > 0f)
+                page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH, sr, sg, sb, tl, tr, br, bl);
+            else
+                page.AddRectangle(pdfX, pdfY, pdfW, pdfH, sr, sg, sb);
             if (sa < 1f) SetPaintOpacity(page, 1f);
+            page.RestoreState();
         }
+    }
+
+    private static float ShadowCornerRadius(LayoutBox box, string property, float spreadPt)
+    {
+        float radius = ResolveBorderRadius(box.Style, property, box.Width) * PdfCoordinates.PxToPt;
+        return radius > 0f ? Math.Max(0f, radius + spreadPt) : 0f;
     }
 
     private static string? ResolveImageSet(string value)

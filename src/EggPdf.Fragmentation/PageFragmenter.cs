@@ -81,6 +81,14 @@ public static class PageFragmenter
         return box.Children.Count == 0;
     }
 
+    private static bool HasShadowOrOutline(EggPdf.Css.ComputedStyle style)
+    {
+        var shadow = style.Get("box-shadow");
+        if (!string.IsNullOrEmpty(shadow) && shadow != "none") return true;
+        var outline = style.Get("outline-style");
+        return !string.IsNullOrEmpty(outline) && outline != "none";
+    }
+
     public static void CollectPaintableBoxes(LayoutBox box, List<LayoutBox> result)
     {
         bool hasBorder = false;
@@ -103,7 +111,7 @@ public static class PageFragmenter
 
         bool hasPaint = !string.IsNullOrEmpty(box.Text) ||
                         !string.IsNullOrEmpty(box.ImageSource) ||
-                        hasBorder || hasBgImage || hasColumnRule ||
+                        hasBorder || hasBgImage || hasColumnRule || HasShadowOrOutline(box.Style) ||
                         !string.IsNullOrEmpty(box.Style.BackgroundColor) &&
                         box.Style.BackgroundColor != "transparent" ||
                         box.Element?.TagName == "a" ||
