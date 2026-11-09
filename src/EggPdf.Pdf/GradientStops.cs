@@ -11,6 +11,16 @@ internal sealed class GradientStops
 
     private GradientStops(List<(float R, float G, float B, float A, float Position)> stops) => _stops = stops;
 
+    public bool HasTranslucentStop
+    {
+        get
+        {
+            foreach (var stop in _stops)
+                if (stop.A < 1f) return true;
+            return false;
+        }
+    }
+
     public static GradientStops? Parse(List<string> parts, int firstStop, float lineLength)
     {
         var colors = new List<(float R, float G, float B, float A)>();

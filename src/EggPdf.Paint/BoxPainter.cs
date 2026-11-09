@@ -1040,34 +1040,26 @@ public static partial class BoxPainter
             }
             return;
         }
-        if (bgImage.StartsWith("radial-gradient(", StringComparison.OrdinalIgnoreCase))
+        bool radial = bgImage.StartsWith("radial-gradient(", StringComparison.OrdinalIgnoreCase) ||
+                      bgImage.StartsWith("repeating-radial-gradient(", StringComparison.OrdinalIgnoreCase);
+        bool conic = bgImage.StartsWith("conic-gradient(", StringComparison.OrdinalIgnoreCase) ||
+                     bgImage.StartsWith("repeating-conic-gradient(", StringComparison.OrdinalIgnoreCase);
+        if (radial || conic)
         {
             float pdfX = effectiveX * PdfCoordinates.PxToPt;
             float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
             float pdfW = box.Width * PdfCoordinates.PxToPt;
             float pdfH = box.Height * PdfCoordinates.PxToPt;
-            var commands = PdfRadialGradient.Render(bgImage, pdfX, pdfY, pdfW, pdfH);
-            if (commands != null) page.AppendRawContent(commands);
-            return;
-        }
-        if (bgImage.StartsWith("repeating-radial-gradient(", StringComparison.OrdinalIgnoreCase))
-        {
-            float pdfX = effectiveX * PdfCoordinates.PxToPt;
-            float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
-            float pdfW = box.Width * PdfCoordinates.PxToPt;
-            float pdfH = box.Height * PdfCoordinates.PxToPt;
-            var commands = PdfGradient.RenderRepeatingRadialGradient(bgImage, pdfX, pdfY, pdfW, pdfH);
-            if (commands != null) page.AppendRawContent(commands);
-            return;
-        }
-        if (bgImage.StartsWith("conic-gradient(", StringComparison.OrdinalIgnoreCase))
-        {
-            float pdfX = effectiveX * PdfCoordinates.PxToPt;
-            float pdfY = (pageHeightPx - adjustedY - box.Height) * PdfCoordinates.PxToPt;
-            float pdfW = box.Width * PdfCoordinates.PxToPt;
-            float pdfH = box.Height * PdfCoordinates.PxToPt;
-            var commands = PdfConicGradient.Render(bgImage, pdfX, pdfY, pdfW, pdfH);
-            if (commands != null) page.AppendRawContent(commands);
+            var gradientStates = new List<string>();
+            var commands = radial
+                ? PdfRadialGradient.Render(bgImage, pdfX, pdfY, pdfW, pdfH, gradientStates, CurrentBoxOpacity)
+                : PdfConicGradient.Render(bgImage, pdfX, pdfY, pdfW, pdfH, gradientStates, CurrentBoxOpacity);
+            if (commands != null)
+            {
+                page.AppendRawContent(commands);
+                foreach (var state in gradientStates)
+                    page.RegisterUsedExtGState(state);
+            }
             return;
         }
 

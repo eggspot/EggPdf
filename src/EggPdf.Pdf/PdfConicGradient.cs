@@ -7,157 +7,125 @@ using EggPdf.Core;
 namespace EggPdf.Pdf;
 
 /// <summary>
-/// Renders CSS conic-gradient() as PDF filled pie sectors.
-/// PDF has no native conic gradient support; we approximate with N filled triangles
-/// centered on the element, each colored with the interpolated stop color at that angle.
+/// Paints CSS <c>conic-gradient()</c> and <c>repeating-conic-gradient()</c> backgrounds as PDF content: thin
+/// pie sectors around the gradient centre, starting at 12 o'clock (or the <c>from</c> angle) and going clockwise.
+/// Supports <c>at &lt;position&gt;</c>, stop positions in degrees, turns or percentages, and translucent stops.
 /// </summary>
 public static class PdfConicGradient
 {
-    private const int Sectors = 36; // 10° per sector — good balance of quality vs output size
+    private const int Sectors = 180;
+    private const float DegreesToRadians = (float)(Math.PI / 180.0);
 
     /// <summary>
-    /// Parse a CSS conic-gradient() and return PDF content stream commands.
+    /// Parse a CSS conic-gradient() or repeating-conic-gradient() value and return PDF content stream commands
+    /// that fill the box (PDF points, bottom-left origin), or null when the value is not a valid gradient.
+    /// Translucent stops are drawn opaque; use the overload taking <c>usedExtGStates</c> to keep alpha.
     /// </summary>
-    public static string? Render(string cssGradient, float x, float y, float width, float height)
+    public static string? Render(string cssGradient, float x, float y, float width, float height) =>
+        Render(cssGradient, x, y, width, height, null);
+
+    /// <summary>
+    /// Parse a CSS conic-gradient() or repeating-conic-gradient() value and return PDF content stream commands
+    /// that fill the box (PDF points, bottom-left origin), or null when the value is not a valid gradient.
+    /// Translucent sectors select opacity graphics states whose names are added to <paramref name="usedExtGStates"/>
+    /// (when it is null, sectors are drawn opaque); <paramref name="opacity"/> (0-1) multiplies every sector's alpha.
+    /// </summary>
+    public static string? Render(string cssGradient, float x, float y, float width, float height,
+        ICollection<string>? usedExtGStates, float opacity = 1f)
     {
-        if (string.IsNullOrEmpty(cssGradient)) return null;
+        if (string.IsNullOrEmpty(cssGradient) || width <= 0f || height <= 0f) return null;
 
-        var inner = cssGradient.Trim();
-        if (!inner.StartsWith("conic-gradient(", StringComparison.OrdinalIgnoreCase)) return null;
-        inner = inner.Substring(15, inner.Length - 16); // strip "conic-gradient(" and ")"
+        var value = cssGradient.Trim();
+        bool repeating;
+        if (value.StartsWith("conic-gradient(", StringComparison.OrdinalIgnoreCase)) repeating = false;
+        else if (value.StartsWith("repeating-conic-gradient(", StringComparison.OrdinalIgnoreCase)) repeating = true;
+        else return null;
+        int open = value.IndexOf('(');
+        int close = value.LastIndexOf(')');
+        if (close <= open) return null;
+        var parts = PdfGradient.SplitGradientArgs(value.Substring(open + 1, close - open - 1));
 
-        // Parse optional "from <angle>" prefix
-        float startDeg = 0f;
-        if (inner.StartsWith("from ", StringComparison.OrdinalIgnoreCase))
+        float startDegrees = 0f;
+        string? position = null;
+        int firstStop = 0;
+        if (!Color.TryParse(GradientStops.ColorToken(parts[0])).HasValue)
         {
-            int commaIdx = inner.IndexOf(',');
-            if (commaIdx > 0)
-            {
-                var fromClause = inner.Substring(0, commaIdx).Trim();
-                inner = inner.Substring(commaIdx + 1).Trim();
-                // "from 90deg" or "from 90deg at center"
-                var atIdx = fromClause.IndexOf(" at ", StringComparison.OrdinalIgnoreCase);
-                var fromPart = atIdx > 0 ? fromClause.Substring(0, atIdx) : fromClause;
-                fromPart = fromPart.Substring(5).Trim(); // strip "from "
-                if (fromPart.EndsWith("deg", StringComparison.OrdinalIgnoreCase))
-                    float.TryParse(fromPart.Substring(0, fromPart.Length - 3),
-                        NumberStyles.Float, CultureInfo.InvariantCulture, out startDeg);
-            }
+            ParseFromAndAt(parts[0], out startDegrees, out position);
+            firstStop = 1;
         }
 
-        // Parse color stops: "red", "blue 50%", "yellow 120deg"
-        var stops = ParseColorStops(inner);
-        if (stops.Count < 2) return null;
+        for (int i = firstStop; i < parts.Count; i++)
+            parts[i] = AnglesAsPercentages(parts[i]);
+        var stops = GradientStops.Parse(parts, firstStop, 1f);
+        if (stops == null) return null;
 
-        float cx = x + width / 2f;
-        float cy = y + height / 2f;
-        float radius = (float)Math.Sqrt(width * width + height * height) / 2f + 1f;
+        var (fromLeft, fromTop) = GradientGeometry.ParsePosition(position, width, height);
+        float cx = x + fromLeft, cy = y + height - fromTop;
+        float farX = Math.Max(Math.Abs(fromLeft), Math.Abs(width - fromLeft));
+        float farY = Math.Max(Math.Abs(fromTop), Math.Abs(height - fromTop));
+        float radius = (float)Math.Sqrt(farX * farX + farY * farY) + 1f;
 
         var sb = new StringBuilder();
         sb.AppendOpLine("q");
-        // Clip to bounding rectangle
         sb.AppendOpLine($"{F(x)} {F(y)} {F(width)} {F(height)} re W n");
-
+        string? currentState = null;
         for (int i = 0; i < Sectors; i++)
         {
-            float t1 = (float)i / Sectors;
-            float t2 = (float)(i + 1) / Sectors;
-            float tMid = (t1 + t2) / 2f;
+            float t0 = (float)i / Sectors, t1 = (float)(i + 1) / Sectors;
+            var color = stops.ColorAt((t0 + t1) / 2f, repeating);
+            float alpha = color.A * opacity;
+            if (usedExtGStates != null)
+            {
+                if (alpha <= 0f) continue;
+                string state = PdfGradient.OpacityStateName(alpha);
+                if (state != currentState)
+                {
+                    if (!usedExtGStates.Contains(state)) usedExtGStates.Add(state);
+                    sb.AppendOpLine($"/{state} gs");
+                    currentState = state;
+                }
+            }
 
-            var (r, g, b) = InterpolateStops(stops, tMid);
-
-            float angle1 = (startDeg + t1 * 360f) * (float)Math.PI / 180f;
-            float angle2 = (startDeg + t2 * 360f) * (float)Math.PI / 180f;
-
-            // Pie slice: move to center, line to arc start, arc end, close
-            float px1 = cx + radius * (float)Math.Cos(angle1);
-            float py1 = cy + radius * (float)Math.Sin(angle1);
-            float px2 = cx + radius * (float)Math.Cos(angle2);
-            float py2 = cy + radius * (float)Math.Sin(angle2);
-
-            sb.AppendOpLine($"{F(r)} {F(g)} {F(b)} rg");
-            sb.AppendOpLine($"{F(cx)} {F(cy)} m {F(px1)} {F(py1)} l {F(px2)} {F(py2)} l h f");
+            float a0 = (startDegrees + t0 * 360f) * DegreesToRadians;
+            float a1 = (startDegrees + t1 * 360f) * DegreesToRadians;
+            sb.AppendOpLine($"{F(color.R)} {F(color.G)} {F(color.B)} rg");
+            sb.AppendOpLine($"{F(cx)} {F(cy)} m {F(cx + radius * (float)Math.Sin(a0))} {F(cy + radius * (float)Math.Cos(a0))} l " +
+                            $"{F(cx + radius * (float)Math.Sin(a1))} {F(cy + radius * (float)Math.Cos(a1))} l h f");
         }
-
         sb.AppendOpLine("Q");
         return sb.ToString();
     }
 
-    private static List<(float r, float g, float b, float t)> ParseColorStops(string inner)
+    private static void ParseFromAndAt(string argument, out float startDegrees, out string? position)
     {
-        var result = new List<(float r, float g, float b, float t)>();
-        var parts = SplitArgs(inner);
-        int numStops = parts.Count;
-
-        for (int i = 0; i < parts.Count; i++)
+        startDegrees = 0f;
+        position = null;
+        var text = " " + argument.Trim().ToLowerInvariant();
+        int at = text.IndexOf(" at ", StringComparison.Ordinal);
+        if (at >= 0)
         {
-            var part = parts[i].Trim();
-
-            // Split off trailing position: "red 30%" or "blue 120deg"
-            float? position = null;
-            var spaceIdx = part.LastIndexOf(' ');
-            if (spaceIdx > 0)
-            {
-                var posPart = part.Substring(spaceIdx + 1);
-                if (posPart.EndsWith("%"))
-                {
-                    if (float.TryParse(posPart.TrimEnd('%'), NumberStyles.Float, CultureInfo.InvariantCulture, out float pct))
-                    { position = pct / 100f; part = part.Substring(0, spaceIdx).Trim(); }
-                }
-                else if (posPart.EndsWith("deg", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (float.TryParse(posPart.Substring(0, posPart.Length - 3), NumberStyles.Float, CultureInfo.InvariantCulture, out float deg))
-                    { position = deg / 360f; part = part.Substring(0, spaceIdx).Trim(); }
-                }
-            }
-
-            var c = Color.TryParse(part);
-            if (c == null) continue;
-
-            float t = position ?? (numStops > 1 ? (float)i / (numStops - 1) : 0f);
-            result.Add((c.Value.R / 255f, c.Value.G / 255f, c.Value.B / 255f, t));
+            position = text.Substring(at + 4);
+            text = text.Substring(0, at);
         }
-
-        return result;
+        int from = text.IndexOf(" from ", StringComparison.Ordinal);
+        if (from >= 0 && PdfGradient.TryParseAngle(text.Substring(from + 6), out float degrees))
+            startDegrees = degrees;
     }
 
-    private static (float r, float g, float b) InterpolateStops(
-        List<(float r, float g, float b, float t)> stops, float t)
+    private static string AnglesAsPercentages(string stop)
     {
-        if (stops.Count == 0) return (0, 0, 0);
-        if (t <= stops[0].t) return (stops[0].r, stops[0].g, stops[0].b);
-        if (t >= stops[stops.Count - 1].t) return (stops[stops.Count - 1].r, stops[stops.Count - 1].g, stops[stops.Count - 1].b);
-
-        for (int i = 0; i < stops.Count - 1; i++)
+        var colorToken = GradientStops.ColorToken(stop);
+        var rest = stop.Trim().Substring(colorToken.Length).Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        var result = new StringBuilder(colorToken);
+        foreach (var token in rest)
         {
-            var s1 = stops[i];
-            var s2 = stops[i + 1];
-            if (t >= s1.t && t <= s2.t)
-            {
-                float range = s2.t - s1.t;
-                float f = range > 0 ? (t - s1.t) / range : 0f;
-                return (
-                    s1.r + (s2.r - s1.r) * f,
-                    s1.g + (s2.g - s1.g) * f,
-                    s1.b + (s2.b - s1.b) * f);
-            }
+            result.Append(' ');
+            if (PdfGradient.TryParseAngle(token, out float degrees) && token != "0")
+                result.Append((degrees / 3.6f).ToString(CultureInfo.InvariantCulture)).Append('%');
+            else
+                result.Append(token);
         }
-        return (stops[stops.Count - 1].r, stops[stops.Count - 1].g, stops[stops.Count - 1].b);
-    }
-
-    private static List<string> SplitArgs(string args)
-    {
-        var result = new List<string>();
-        int depth = 0, start = 0;
-        for (int i = 0; i < args.Length; i++)
-        {
-            if (args[i] == '(') depth++;
-            else if (args[i] == ')') depth--;
-            else if (args[i] == ',' && depth == 0)
-            { result.Add(args.Substring(start, i - start)); start = i + 1; }
-        }
-        result.Add(args.Substring(start));
-        return result;
+        return result.ToString();
     }
 
     private static string F(float v) => v.ToString("F3", CultureInfo.InvariantCulture);
