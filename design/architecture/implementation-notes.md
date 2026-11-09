@@ -328,6 +328,10 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
   once on the dark side and twice on the light side. Groove paints the outer half of each side as
   inset and the inner half as outset; ridge the reverse. The public `AddBorderLine` without a side
   shades a 3D line as a top border.
+- On a rounded box, a border that isn't one uniform solid stroke is painted side by side
+  (`AddRoundedBorderSide`): each side is clipped to the trapezoid from the outer box corners to the
+  inner (padding-box) corners, and the whole rounded ring is stroked inside that clip with the side's
+  width, colour and style, so the corners split along the diagonal as in Chrome.
 - A wavy decoration is a chain of half waves, each one cubic Bézier with control points at a third
   and two thirds of it, raised 4/3 of the amplitude so the crest reaches the amplitude.
 - Text outside WinAnsi is written as `?` for the standard 14 fonts.
