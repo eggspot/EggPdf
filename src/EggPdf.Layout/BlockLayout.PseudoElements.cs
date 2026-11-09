@@ -22,7 +22,6 @@ public static partial class BlockLayout
         if (style.Get("hyphens") == "auto") return false;
         if (style.Get("line-clamp") != null || style.Get("-webkit-line-clamp") != null) return false;
         if (style.Get("initial-letter") != null) return false;
-        if (style.Get("text-indent")?.TrimStart().StartsWith("-", System.StringComparison.Ordinal) == true) return false;
 
         var textWrap = style.Get("text-wrap");
         if (textWrap == "balance" || textWrap == "pretty") return false;
@@ -31,12 +30,11 @@ public static partial class BlockLayout
         return string.IsNullOrEmpty(hangingPunctuation) || hangingPunctuation == "none";
     }
 
-    private static float PositiveTextIndent(ComputedStyle style, float containingWidth, float fontSize)
+    private static float FirstLineTextIndent(ComputedStyle style, float containingWidth, float fontSize)
     {
         var textIndent = style.Get("text-indent");
         if (string.IsNullOrEmpty(textIndent)) return 0f;
-        float indent = ResolveLength(textIndent, containingWidth, fontSize);
-        return indent > 0f ? indent : 0f;
+        return ResolveLength(textIndent, containingWidth, fontSize);
     }
 
     private static float LineStartFor(float childY, float firstLineIndentY, float firstLineIndent) =>

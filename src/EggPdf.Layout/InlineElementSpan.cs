@@ -70,6 +70,12 @@ public class InlineElementSpan
 
     internal void AddFragment(LayoutBox fragment) => _fragments?.Add(fragment);
 
+    internal void RemoveFragment(LayoutBox fragment)
+    {
+        if (_fragments == null || _fragments.Count <= 1) return;
+        _fragments.Remove(fragment);
+    }
+
     /// <summary>Extend a fixed-rectangle span to also cover another rectangle on the same line.</summary>
     public void Union(float x, float y, float width, float height)
     {

@@ -542,10 +542,9 @@ public static partial class BoxPainter
                     textX += (availableWidth - textWidth) / 2;
                 else if (textAlign == "right")
                     textX += availableWidth - textWidth;
-                else if (textAlign == "justify")
+                else if (textAlign == "justify" && !box.IsInlineFlowItem)
                 {
-                    bool isLastLine = string.IsNullOrEmpty(box.Text) || textWidth < availableWidth * 0.5f;
-                    if (!isLastLine)
+                    if (box.IsJustifiableLine)
                     {
                         int spaceCount = 0;
                         for (int si = 0; si < box.Text!.Length; si++)

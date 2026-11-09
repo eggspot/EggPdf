@@ -11,10 +11,47 @@ public static partial class BlockLayout
     {
         if (box.Children.Count == 0) return;
         var last = box.Children[box.Children.Count - 1];
-        if (last.IsInlineFlowItem) last.EndsLineAtForcedBreak = true;
+        if (last.IsInlineFlowItem) last.SkipsJustification = true;
     }
 
-    internal static void AlignInlineLines(LayoutBox box, float availableWidth, FloatContext? floats, float floatOriginY)
+    internal static void FinishInlineLines(LayoutBox box, float availableWidth, FloatContext? floats, float floatOriginY)
+    {
+        AlignInlineLines(box, availableWidth, floats, floatOriginY);
+        ReorderInlineLinesByBidiLevel(box);
+        LowerLinesWithItemsAboveTheirTop(box);
+    }
+
+    private static void LowerLinesWithItemsAboveTheirTop(LayoutBox box)
+    {
+        var children = box.Children;
+        float contentTop = box.Y + box.PaddingTop;
+        int lineStart = 0;
+        while (lineStart < children.Count)
+        {
+            if (!children[lineStart].IsInlineFlowItem)
+            {
+                lineStart++;
+                continue;
+            }
+
+            float lineTop = children[lineStart].InlineLineTop;
+            float highestTop = float.MaxValue;
+            int lineEnd = lineStart;
+            while (lineEnd < children.Count && children[lineEnd].IsInlineFlowItem && children[lineEnd].InlineLineTop == lineTop)
+            {
+                float itemTop = children[lineEnd].Y - contentTop - lineTop;
+                if (itemTop < highestTop) highestTop = itemTop;
+                lineEnd++;
+            }
+
+            if (highestTop < -MinAlignmentShift)
+                for (int i = lineStart; i < lineEnd; i++)
+                    children[i].Y -= highestTop;
+            lineStart = lineEnd;
+        }
+    }
+
+    private static void AlignInlineLines(LayoutBox box, float availableWidth, FloatContext? floats, float floatOriginY)
     {
         var align = LogicalPropertyResolver.PhysicalTextAlign(box.Style);
         bool justify = align == "justify";
@@ -45,7 +82,7 @@ public static partial class BlockLayout
 
             if (justify)
             {
-                bool justifiable = lineStart != lastLineStart && !children[lineEnd - 1].EndsLineAtForcedBreak;
+                bool justifiable = lineStart != lastLineStart && !children[lineEnd - 1].SkipsJustification;
                 if (justifiable)
                     JustifyLine(box, lineStart, lineEnd, availableWidth, floats, floatOriginY, lineTop, left, right, height);
             }

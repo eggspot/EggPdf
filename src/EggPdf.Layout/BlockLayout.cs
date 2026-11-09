@@ -229,9 +229,13 @@ public static partial class BlockLayout
         ComputedStyle? firstLineStyle = cascadeRes?.ResolvePseudoElement(element, "first-line", style);
         ComputedStyle? firstLetterStyle = cascadeRes?.ResolvePseudoElement(element, "first-letter", style);
         bool firstBlockLineEmitted = false;
+        float initialLetterScale = InitialLetterScale(style);
+        bool firstLetterPending = firstLetterStyle != null || initialLetterScale > 0f;
 
         float childY = 0;
         float childContainingWidth = isMultiColumn ? multiColWidth : box.ContentWidth;
+        float inlineWrapWidth = BalancedInlineWrapWidth(element, style, childContainingWidth, fontSize, resolver);
+        int lineClamp = LineClampCount(style);
         float prevMarginBottom = 0;
         float childYAfterLastBlock = float.NaN;
         float marginCollapsedThroughTop = 0f;
@@ -272,16 +276,28 @@ public static partial class BlockLayout
 
         float firstLineIndent = 0f;
         float firstLineIndentY = float.NaN;
-        float positiveTextIndent = PositiveTextIndent(style, childContainingWidth, fontSize);
+        float textIndent = FirstLineTextIndent(style, childContainingWidth, fontSize);
         bool firstLineIsBlockBefore = hasBefore && !beforeIsInline;
-        if (positiveTextIndent > 0f && !PreservesWhitespace(style) && !firstLineIsBlockBefore)
+        if (textIndent != 0f && !PreservesWhitespace(style) && !firstLineIsBlockBefore)
         {
             childrenFlowInline ??= HasInlineElementSiblings(element, style, resolver);
             if (childrenFlowInline.Value || beforeIsInline || afterIsInline)
             {
-                firstLineIndent = positiveTextIndent;
+                firstLineIndent = textIndent;
                 firstLineIndentY = childY;
-                inlineX = positiveTextIndent;
+                inlineX = textIndent;
+            }
+        }
+
+        bool LineHasContent() => inlineX > LineStartFor(childY, firstLineIndentY, firstLineIndent);
+
+        void SplitFirstLetterIfPending(System.Collections.Generic.List<InlineRun> runs)
+        {
+            if (!firstLetterPending || firstBlockLineEmitted || hasBlockChild) return;
+            if (SplitFirstLetterRun(runs, style, firstLetterStyle, initialLetterScale))
+            {
+                firstLetterPending = false;
+                firstBlockLineEmitted = true;
             }
         }
 
@@ -290,7 +306,7 @@ public static partial class BlockLayout
             if (beforeIsInline)
             {
                 LayoutInlinePseudoElement(beforeContent!, beforeStyle!, false, box, ref inlineX, ref childY, ref inlineLineHeight,
-                    childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
+                    inlineWrapWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
                     LineStartFor(childY, firstLineIndentY, firstLineIndent));
                 prevInlineElementEndedWithSpace = EndsWithCollapsibleWhitespace(beforeContent!);
             }
@@ -333,13 +349,13 @@ public static partial class BlockLayout
 
                 if (IsBlockLevel(childStyle.Display) && !isImageElement)
                 {
-                    if (inlineX > 0)
+                    if (LineHasContent())
                     {
                         MarkForcedLineEnd(box);
                         childY += inlineLineHeight;
-                        inlineX = 0;
                         inlineLineHeight = 0;
                     }
+                    inlineX = 0;
                     firstLineIndentY = float.NaN;
 
                     bool isImplicitRow = style.Display == "table" && IsTableCell(childStyle.Display);
@@ -551,17 +567,17 @@ public static partial class BlockLayout
                 else if (childElem.TagName == "br")
                 {
                     float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
-                    if (inlineX > 0)
+                    if (LineHasContent())
                     {
                         MarkForcedLineEnd(box);
                         childY += Math.Max(inlineLineHeight, lineHeight);
-                        inlineX = 0;
                         inlineLineHeight = 0;
                     }
                     else if (!lastWasTextNode)
                     {
                         childY += lineHeight;
                     }
+                    inlineX = 0;
                     lastWasTextNode = false;
                 }
                 else if (childElem.TagName == "img")
@@ -574,7 +590,7 @@ public static partial class BlockLayout
                     var imgFloatSide = childStyle.Get("float");
                     if (imgFloatSide == "left" || imgFloatSide == "right")
                     {
-                        if (inlineX > 0)
+                        if (LineHasContent())
                         {
                             MarkForcedLineEnd(box);
                             childY += inlineLineHeight;
@@ -590,7 +606,7 @@ public static partial class BlockLayout
 
                     bool imgIsBlock = IsBlockLevel(childStyle.Display);
 
-                    if (inlineX > 0 && (imgIsBlock || inlineX + imgWidth > childContainingWidth))
+                    if (LineHasContent() && (imgIsBlock || inlineX + imgWidth > childContainingWidth))
                     {
                         if (imgIsBlock) MarkForcedLineEnd(box);
                         childY += inlineLineHeight;
@@ -636,7 +652,7 @@ public static partial class BlockLayout
                         var picStyle = resolver != null ? resolver(picElem, childStyle) : childStyle;
                         var (imgWidth, imgHeight) = ResolveImageBoxSize(picStyle, picElem, picSrc, childContainingWidth, fontSize);
 
-                        if (inlineX > 0 && inlineX + imgWidth > childContainingWidth)
+                        if (LineHasContent() && inlineX + imgWidth > childContainingWidth)
                         {
                             childY += inlineLineHeight;
                             inlineX = 0;
@@ -668,7 +684,7 @@ public static partial class BlockLayout
 
                     bool svgIsBlock = IsBlockLevel(childStyle.Display);
 
-                    if (inlineX > 0 && (svgIsBlock || inlineX + svgWidth > childContainingWidth))
+                    if (LineHasContent() && (svgIsBlock || inlineX + svgWidth > childContainingWidth))
                     {
                         if (svgIsBlock) MarkForcedLineEnd(box);
                         childY += inlineLineHeight;
@@ -726,11 +742,11 @@ public static partial class BlockLayout
                             childBox.ContentWidth = shrunk - childBox.PaddingLeft - childBox.PaddingRight;
                             if (childBox.ContentWidth < 0) childBox.ContentWidth = 0;
                         }
-                        AlignInlineLines(childBox, childBox.ContentWidth, null, 0f);
+                        FinishInlineLines(childBox, childBox.ContentWidth, null, 0f);
                     }
 
                     float ibWidth = childBox.Width;
-                    if (inlineX > 0 && inlineX + ibWidth > childContainingWidth)
+                    if (LineHasContent() && inlineX + ibWidth > childContainingWidth)
                     {
                         childY += inlineLineHeight;
                         inlineX = 0;
@@ -765,8 +781,9 @@ public static partial class BlockLayout
                     prevTextEndedWithSpace = false;
                     if (runs.Count > 0)
                     {
+                        SplitFirstLetterIfPending(runs);
                         LayoutInlineRuns(runs, box, childElem, ref inlineX, ref childY, ref inlineLineHeight,
-                            childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
+                            inlineWrapWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
                             LineStartFor(childY, firstLineIndentY, firstLineIndent));
                         prevInlineElementEndedWithSpace = EndsWithCollapsibleWhitespace(runs[runs.Count - 1].Text);
                     }
@@ -805,8 +822,9 @@ public static partial class BlockLayout
                 {
                     var preservedRuns = new System.Collections.Generic.List<InlineRun>();
                     AddPreservedTextRuns(textNode.Data, style, fontSize, preservedRuns);
+                    SplitFirstLetterIfPending(preservedRuns);
                     LayoutInlineRuns(preservedRuns, box, null, ref inlineX, ref childY, ref inlineLineHeight,
-                        childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
+                        inlineWrapWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
                         LineStartFor(childY, firstLineIndentY, firstLineIndent));
                     prevTextEndedWithSpace = false;
                     prevInlineElementEndedWithSpace = false;
@@ -827,8 +845,9 @@ public static partial class BlockLayout
                                 || prevInlineElementEndedWithSpace || prevTextEndedWithSpace,
                         }
                     };
+                    SplitFirstLetterIfPending(textRuns);
                     LayoutInlineRuns(textRuns, box, null, ref inlineX, ref childY, ref inlineLineHeight,
-                        childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
+                        inlineWrapWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
                         LineStartFor(childY, firstLineIndentY, firstLineIndent));
 
                     char ilLastChar = textNode.Data.Length > 0 ? textNode.Data[textNode.Data.Length - 1] : '\0';
@@ -941,7 +960,6 @@ public static partial class BlockLayout
                 var fontStyle = style.Get("font-style");
                 float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"),
                     fontFamily, fontWeight, fontStyle, textNode.Data);
-                float textIndent = ResolveLength(style.Get("text-indent"), childContainingWidth, fontSize);
                 var textData = preserveWhitespace ? textNode.Data : TrimHtmlText(textNode.Data);
 
                 if (preserveWhitespace && textData.IndexOf('\t') >= 0)
@@ -975,11 +993,11 @@ public static partial class BlockLayout
                         balanceWidth = TextWrapBalance.CalculateBalancedWidth(totalTextWidth, childContainingWidth, preWrapLines.Count);
                 }
 
-                float firstLineWidth = textIndent > 0 ? balanceWidth - textIndent : balanceWidth;
+                float firstLineWidth = balanceWidth - textIndent;
                 var lines = TextMeasurer.WrapText(textData, fontSize, fontFamily, fontWeight, fontStyle,
                     firstLineWidth > 0 ? firstLineWidth : balanceWidth, whiteSpaceProp, breakWord, enableHyphenation, blockLetterSpacing);
 
-                if (textIndent > 0 && lines.Count > 1)
+                if (textIndent != 0f && lines.Count > 1)
                 {
                     var firstLine = lines[0];
                     var remaining = textData.Substring(firstLine.Length).TrimStart();
@@ -991,13 +1009,9 @@ public static partial class BlockLayout
                     }
                 }
 
-                var lineClampStr = style.Get("line-clamp") ?? style.Get("-webkit-line-clamp");
-                if (!string.IsNullOrEmpty(lineClampStr) && lineClampStr != "none" &&
-                    int.TryParse(lineClampStr, System.Globalization.NumberStyles.Integer,
-                        System.Globalization.CultureInfo.InvariantCulture, out int lineClampN) &&
-                    lineClampN > 0 && lines.Count > lineClampN)
+                if (lineClamp > 0 && lines.Count > lineClamp)
                 {
-                    while (lines.Count > lineClampN) lines.RemoveAt(lines.Count - 1);
+                    while (lines.Count > lineClamp) lines.RemoveAt(lines.Count - 1);
                     const string ellipsis = "\u2026";
                     var lastLine = lines[lines.Count - 1];
                     float ellipsisWidth = TextMeasurer.MeasureWidth(ellipsis, fontSize, fontFamily, fontWeight, fontStyle);
@@ -1036,27 +1050,26 @@ public static partial class BlockLayout
                 }
 
                 bool isFirstLine = true;
+                int lineIndex = 0;
                 foreach (var line in lines)
                 {
+                    bool isLastLine = lineIndex++ == lines.Count - 1;
                     float lineX = box.X + box.PaddingLeft;
-                    if (isFirstLine && textIndent > 0)
+                    if (isFirstLine)
                         lineX += textIndent;
                     if (isFirstLine && hangOffset != 0f)
                         lineX += hangOffset;
 
                     bool applyFirstLine = isFirstLine && !firstBlockLineEmitted && firstLineStyle != null;
-                    var initialLetterStr = style.Get("initial-letter");
-                    float initialLetterN = 1f;
-                    bool hasInitialLetter = !string.IsNullOrEmpty(initialLetterStr) &&
-                        initialLetterStr != "normal" &&
-                        TryParseFirstToken(initialLetterStr, out initialLetterN);
+                    bool hasInitialLetter = initialLetterScale > 0f;
                     bool applyFirstLetter = isFirstLine && !firstBlockLineEmitted &&
                         (firstLetterStyle != null || hasInitialLetter) && !string.IsNullOrEmpty(line);
 
                     if (applyFirstLetter)
                     {
-                        var letterChar = line.Substring(0, 1);
-                        var remainder = line.Length > 1 ? line.Substring(1) : "";
+                        int letterLength = FirstLetterLength(line);
+                        var letterChar = line.Substring(0, letterLength);
+                        var remainder = line.Substring(letterLength);
 
                         float flFontSize;
                         float flLineHeight;
@@ -1064,9 +1077,8 @@ public static partial class BlockLayout
 
                         if (hasInitialLetter)
                         {
-                            float n = initialLetterN < 1f ? 1f : initialLetterN;
-                            flFontSize = fontSize * n;
-                            flLineHeight = lineHeight * n;
+                            flFontSize = fontSize * initialLetterScale;
+                            flLineHeight = lineHeight * initialLetterScale;
                             flStyle = new ComputedStyle();
                             foreach (var kv in style.All) flStyle.Set(kv.Key, kv.Value);
                             flStyle.Set("font-size", flFontSize.ToString(System.Globalization.CultureInfo.InvariantCulture) + "px");
@@ -1106,7 +1118,8 @@ public static partial class BlockLayout
                                 Height = lineHeight,
                                 ContentWidth = remWidth,
                                 ContentHeight = lineHeight,
-                                Text = remainder
+                                Text = remainder,
+                                IsJustifiableLine = !isLastLine
                             };
                             box.Children.Add(remBox);
                         }
@@ -1121,11 +1134,12 @@ public static partial class BlockLayout
                             Style = lineStyle,
                             X = lineX,
                             Y = box.Y + box.PaddingTop + childY,
-                            Width = childContainingWidth,
+                            Width = isFirstLine ? childContainingWidth - textIndent : childContainingWidth,
                             Height = lineHeight,
                             ContentWidth = TextMeasurer.MeasureWidth(line, fontSize, fontFamily, fontWeight, fontStyle, blockLetterSpacing),
                             ContentHeight = lineHeight,
-                            Text = line
+                            Text = line,
+                            IsJustifiableLine = !isLastLine
                         };
                         box.Children.Add(textBox);
                         childY += lineHeight;
@@ -1142,17 +1156,20 @@ public static partial class BlockLayout
         if (afterContent != null && afterIsInline)
         {
             LayoutInlinePseudoElement(afterContent, afterPseudoStyle!, prevTextEndedWithSpace || prevInlineElementEndedWithSpace, box, ref inlineX, ref childY,
-                ref inlineLineHeight, childContainingWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
+                ref inlineLineHeight, inlineWrapWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
                 LineStartFor(childY, firstLineIndentY, firstLineIndent));
         }
 
-        if (inlineX > 0)
+        if (LineHasContent())
         {
             childY += inlineLineHeight;
         }
 
+        if (lineClamp > 0)
+            ClampInlineLines(box, lineClamp, childContainingWidth, ref childY);
+
         if (!deferInlineAlignment)
-            AlignInlineLines(box, childContainingWidth, floatCtx.HasFloats ? floatCtx : null, floatOriginY);
+            FinishInlineLines(box, childContainingWidth, floatCtx.HasFloats ? floatCtx : null, floatOriginY);
 
         if (afterContent != null && !afterIsInline)
             childY = LayoutPseudoElementLine(afterContent, afterPseudoStyle!, box, childY, childContainingWidth, fontSize);

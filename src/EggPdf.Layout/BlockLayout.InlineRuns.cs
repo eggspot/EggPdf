@@ -227,6 +227,8 @@ public static partial class BlockLayout
             bool runBreakWord = !runNoWrap &&
                                 (runOverflowWrap == "break-word" || runOverflowWrap == "anywhere" ||
                                  runWordBreak == "break-all" || runWordBreak == "break-word");
+            bool runHyphenates = !runNoWrap && !run.KeepsSpaces && run.Style.Get("hyphens") == "auto";
+            float visibleHyphenWidth = 0f;
 
             float baselineShift = run.FontSize == parentFontSize
                 ? 0f
@@ -270,8 +272,24 @@ public static partial class BlockLayout
                 float leadInset = firstWord ? run.StartInset : 0f;
                 float trailInset = lastWord ? run.EndInset : 0f;
                 float leadMargin = firstWord ? run.StartMargin : 0f;
+                if ((endsAtSoftHyphen || runHyphenates) && visibleHyphenWidth == 0f)
+                    visibleHyphenWidth = TextMeasurer.MeasureWidth(LineBreakOpportunities.VisibleHyphen, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                float hyphenReserve = endsAtSoftHyphen ? visibleHyphenWidth : 0f;
+                bool overflows = inlineX + leadMargin + wordWidth + leadInset + trailInset + hyphenReserve > rightLimit;
+                bool mayHyphenate = runHyphenates && !joinNoSpace && !endsAtSoftHyphen;
 
-                if (!runNoWrap && notAtLineStart && inlineX + leadMargin + wordWidth + leadInset + trailInset > rightLimit)
+                if (mayHyphenate && overflows && HyphenationSegments(word) is { } segmentsHere)
+                {
+                    string firstPiece = (needSpace ? " " : "") + segmentsHere[0].Text;
+                    float firstPieceWidth = TextMeasurer.MeasureWidth(firstPiece, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                    if (!notAtLineStart || inlineX + leadMargin + leadInset + firstPieceWidth + visibleHyphenWidth <= rightLimit)
+                    {
+                        ReplaceWordWithSegments(segmentsHere, text, wPos, ref pieces, ref pieceIndex);
+                        continue;
+                    }
+                }
+
+                if (!runNoWrap && notAtLineStart && overflows)
                 {
                     if (joinNoSpace && previousEndsAtSoftHyphen && previousPieceBox != null)
                         AppendVisibleHyphen(previousPieceBox, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
@@ -284,6 +302,12 @@ public static partial class BlockLayout
                     wordText = word;
                     wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                     rightLimit = RightLimit(lhRun, childY);
+                    if (mayHyphenate && inlineX + wordWidth + leadInset + trailInset > rightLimit &&
+                        HyphenationSegments(word) is { } segmentsAfterWrap)
+                    {
+                        ReplaceWordWithSegments(segmentsAfterWrap, text, wPos, ref pieces, ref pieceIndex);
+                        continue;
+                    }
                 }
 
                 if (runBreakWord && wordWidth > containerWidth && wordText.Length > 1)
@@ -442,6 +466,41 @@ public static partial class BlockLayout
         wordBox.Text += LineBreakOpportunities.VisibleHyphen;
         wordBox.Width += hyphenWidth;
         wordBox.ContentWidth += hyphenWidth;
+    }
+
+    private static List<(string Text, bool JoinsPrevious, bool EndsAtSoftHyphen)>? HyphenationSegments(string word)
+    {
+        var points = TextMeasurer.HyphenationPoints(word);
+        if (points.Length == 0) return null;
+
+        var segments = new List<(string Text, bool JoinsPrevious, bool EndsAtSoftHyphen)>(points.Length + 1);
+        int start = 0;
+        for (int i = 0; i < points.Length; i++)
+        {
+            segments.Add((word.Substring(start, points[i] - start), i > 0, true));
+            start = points[i];
+        }
+        segments.Add((word.Substring(start), true, false));
+        return segments;
+    }
+
+    private static void ReplaceWordWithSegments(List<(string Text, bool JoinsPrevious, bool EndsAtSoftHyphen)> segments,
+        string runText, int nextWordPosition,
+        ref List<(string Text, bool JoinsPrevious, bool EndsAtSoftHyphen)>? pieces, ref int pieceIndex)
+    {
+        if (pieces == null)
+        {
+            foreach (var rest in runText.Substring(nextWordPosition).Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                segments.Add((rest, false, false));
+            pieces = segments;
+            pieceIndex = 0;
+        }
+        else
+        {
+            pieceIndex--;
+            pieces.RemoveAt(pieceIndex);
+            pieces.InsertRange(pieceIndex, segments);
+        }
     }
 
     private static bool NeedsBreakablePieces(string text) =>
