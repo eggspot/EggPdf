@@ -392,7 +392,11 @@ public static partial class SelectorMatcher
             case "is":
             case "matches":
             case "where":
+            case "-webkit-any":
                 return Matches(arg.Trim(), element);
+
+            case "dir":
+                return string.Equals(DirectionOf(element), arg.Trim(), StringComparison.OrdinalIgnoreCase);
 
             case "nth-child":
                 return MatchNthChild(arg.Trim(), element, fromEnd: false);
@@ -426,7 +430,7 @@ public static partial class SelectorMatcher
                 return MatchesHas(element, arg.Trim());
 
             default:
-                return true;
+                return false;
         }
     }
 
@@ -456,37 +460,15 @@ public static partial class SelectorMatcher
         }
         if (s.Length > 0 && s[0] == '+')
         {
-            var sibSel = s.Substring(1).Trim();
-            var parent = element.Parent as HtmlElement;
-            if (parent == null) return false;
-            bool foundSelf = false;
-            foreach (var child in parent.ChildNodes)
-            {
-                if (child is HtmlElement ce)
-                {
-                    if (foundSelf)
-                        return Matches(sibSel, ce);
-                    if (ce == element)
-                        foundSelf = true;
-                }
-            }
-            return false;
+            var next = GetNextElementSibling(element);
+            return next != null && Matches(s.Substring(1).Trim(), next);
         }
         if (s.Length > 0 && s[0] == '~')
         {
             var sibSel = s.Substring(1).Trim();
-            var parent = element.Parent as HtmlElement;
-            if (parent == null) return false;
-            bool foundSelf = false;
-            foreach (var child in parent.ChildNodes)
+            for (var next = GetNextElementSibling(element); next != null; next = GetNextElementSibling(next))
             {
-                if (child is HtmlElement ce)
-                {
-                    if (foundSelf && Matches(sibSel, ce))
-                        return true;
-                    if (ce == element)
-                        foundSelf = true;
-                }
+                if (Matches(sibSel, next)) return true;
             }
             return false;
         }
@@ -604,19 +586,22 @@ public static partial class SelectorMatcher
             }
 
             case "root":
+            case "scope":
                 return element.TagName == "html";
 
             case "empty":
-                return element.ChildNodes.Count == 0;
+                return IsEmpty(element);
 
             case "link":
-                return element.TagName == "a" && element.HasAttribute("href");
+            case "any-link":
+            case "-webkit-any-link":
+                return IsHyperlink(element);
 
             case "enabled":
-                return !element.HasAttribute("disabled");
+                return IsFormControl(element) && !IsDisabled(element);
 
             case "disabled":
-                return element.HasAttribute("disabled");
+                return IsFormControl(element) && IsDisabled(element);
 
             case "checked":
                 return element.HasAttribute("checked") || element.HasAttribute("selected");
@@ -625,17 +610,16 @@ public static partial class SelectorMatcher
                 return element.HasAttribute("indeterminate");
 
             case "required":
-                return element.HasAttribute("required");
+                return IsRequirable(element) && element.HasAttribute("required");
 
             case "optional":
-                return !element.HasAttribute("required");
-
-            case "read-only":
-                return element.HasAttribute("readonly") || element.HasAttribute("disabled");
+                return IsRequirable(element) && !element.HasAttribute("required");
 
             case "read-write":
-                return !element.HasAttribute("readonly") && !element.HasAttribute("disabled") &&
-                       IsEditableElement(element);
+                return IsReadWrite(element);
+
+            case "read-only":
+                return !IsReadWrite(element);
 
             case "placeholder-shown":
                 return element.HasAttribute("placeholder") && string.IsNullOrEmpty(element.GetAttribute("value"));
@@ -644,20 +628,85 @@ public static partial class SelectorMatcher
                 return element.HasAttribute("checked") || element.HasAttribute("selected") ||
                        element.HasAttribute("default");
 
-            case "hover":
-            case "active":
-            case "focus":
-            case "focus-within":
-            case "focus-visible":
-            case "visited":
-                return false;
+            case "defined":
+                return true;
 
-            case "target":
-                return false;
+            case "valid":
+                return IsRequirable(element) && !IsMissingRequiredValue(element);
+
+            case "invalid":
+                return IsRequirable(element) && IsMissingRequiredValue(element);
+
+            case "paused":
+                return element.TagName == "audio" || element.TagName == "video";
 
             default:
-                return true;
+                return false;
         }
+    }
+
+    private static readonly HashSet<string> FormControlTags = new(StringComparer.Ordinal)
+    {
+        "button", "input", "select", "textarea", "optgroup", "option", "fieldset"
+    };
+
+    private static bool IsFormControl(HtmlElement element) => FormControlTags.Contains(element.TagName);
+
+    private static bool IsRequirable(HtmlElement element) =>
+        element.TagName == "input" || element.TagName == "select" || element.TagName == "textarea";
+
+    private static bool IsDisabled(HtmlElement element)
+    {
+        if (element.HasAttribute("disabled")) return true;
+        for (var ancestor = element.Parent as HtmlElement; ancestor != null; ancestor = ancestor.Parent as HtmlElement)
+        {
+            if (ancestor.TagName == "fieldset" && ancestor.HasAttribute("disabled")) return true;
+        }
+        return false;
+    }
+
+    private static bool IsReadWrite(HtmlElement element)
+    {
+        var contentEditable = element.GetAttribute("contenteditable");
+        if (contentEditable != null && !string.Equals(contentEditable, "false", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return IsEditableElement(element) && !element.HasAttribute("readonly") && !IsDisabled(element);
+    }
+
+    private static bool IsMissingRequiredValue(HtmlElement element)
+    {
+        if (!element.HasAttribute("required")) return false;
+        if (element.TagName == "textarea")
+            return element.ChildNodes.Count == 0;
+        var type = element.GetAttribute("type");
+        if (string.Equals(type, "checkbox", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(type, "radio", StringComparison.OrdinalIgnoreCase))
+            return !element.HasAttribute("checked");
+        return element.TagName == "input" && string.IsNullOrEmpty(element.GetAttribute("value"));
+    }
+
+    private static bool IsHyperlink(HtmlElement element) =>
+        (element.TagName == "a" || element.TagName == "area") && element.HasAttribute("href");
+
+    private static bool IsEmpty(HtmlElement element)
+    {
+        foreach (var child in element.ChildNodes)
+        {
+            if (child is HtmlElement) return false;
+            if (child is HtmlTextNode text && text.Data.Length > 0) return false;
+        }
+        return true;
+    }
+
+    private static string DirectionOf(HtmlElement element)
+    {
+        for (HtmlElement? current = element; current != null; current = current.Parent as HtmlElement)
+        {
+            var dir = current.GetAttribute("dir");
+            if (string.Equals(dir, "rtl", StringComparison.OrdinalIgnoreCase)) return "rtl";
+            if (string.Equals(dir, "ltr", StringComparison.OrdinalIgnoreCase)) return "ltr";
+        }
+        return "ltr";
     }
 
     /// <summary>Match :nth-child(An+B) or :nth-last-child(An+B).</summary>
@@ -781,6 +830,13 @@ public static partial class SelectorMatcher
     /// <summary>Get the 0-based index of an element among its element siblings.</summary>
     private static int GetElementIndex(HtmlNode parent, HtmlElement element, bool fromEnd)
     {
+        if (parent.ChildNodes.Count >= SiblingIndex.MinChildCount)
+        {
+            var index = SiblingIndex.Of(parent);
+            int position = index.PositionOf(element);
+            if (position < 0) return -1;
+            return fromEnd ? index.ElementCount - 1 - position : position;
+        }
         if (fromEnd)
         {
             int index = 0;
@@ -812,6 +868,14 @@ public static partial class SelectorMatcher
     private static int GetElementOfTypeIndex(HtmlNode parent, HtmlElement element, bool fromEnd)
     {
         string tagName = element.TagName;
+        if (parent.ChildNodes.Count >= SiblingIndex.MinChildCount)
+        {
+            var index = SiblingIndex.Of(parent);
+            int position = index.PositionOf(element);
+            if (position < 0) return -1;
+            int amongType = index.PositionAmongType(position);
+            return fromEnd ? index.CountOfType(tagName) - 1 - amongType : amongType;
+        }
         if (fromEnd)
         {
             int index = 0;
@@ -845,6 +909,13 @@ public static partial class SelectorMatcher
         var parent = element.Parent;
         if (parent == null) return null;
 
+        if (parent.ChildNodes.Count >= SiblingIndex.MinChildCount)
+        {
+            var index = SiblingIndex.Of(parent);
+            int position = index.PositionOf(element);
+            return position > 0 ? index.ElementAt(position - 1) : null;
+        }
+
         HtmlElement? prev = null;
         for (int i = 0; i < parent.ChildNodes.Count; i++)
         {
@@ -854,8 +925,30 @@ public static partial class SelectorMatcher
         return null;
     }
 
+    private static HtmlElement? GetNextElementSibling(HtmlElement element)
+    {
+        var parent = element.Parent;
+        if (parent == null) return null;
+
+        if (parent.ChildNodes.Count >= SiblingIndex.MinChildCount)
+        {
+            var index = SiblingIndex.Of(parent);
+            int position = index.PositionOf(element);
+            return position >= 0 ? index.ElementAt(position + 1) : null;
+        }
+
+        bool foundSelf = false;
+        foreach (var child in parent.ChildNodes)
+        {
+            if (!(child is HtmlElement sibling)) continue;
+            if (foundSelf) return sibling;
+            if (sibling == element) foundSelf = true;
+        }
+        return null;
+    }
+
     /// <summary>Split a selector list on commas, respecting parentheses.</summary>
-    private static List<string> SplitSelectorList(string selector)
+    internal static List<string> SplitSelectorList(string selector)
     {
         var result = new List<string>();
         int depth = 0;
