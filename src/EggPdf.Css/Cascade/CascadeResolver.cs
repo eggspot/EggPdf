@@ -30,9 +30,6 @@ public class CascadeResolver
     private static readonly string[] PseudoElementNames =
         { "before", "after", "marker", "first-line", "first-letter", "placeholder" };
 
-    // Reused per-element scratch: Resolve is called once per element on a
-    // single-threaded, per-render resolver; allocating these per call was
-    // measurable churn.
     private readonly List<(CssDeclaration decl, int specificity, int layerOrder, int order)> _matchScratch = new();
     private readonly Dictionary<string, (string value, bool important, int specificity, int layerOrder, int order)>
         _winnersScratch = new(StringComparer.OrdinalIgnoreCase);
@@ -47,10 +44,11 @@ public class CascadeResolver
         public string? Tag;
         public string? Id;
         public string? Class;
-        public bool AlwaysCheck; // no cheap rejection possible
-        public bool SkipAlways;  // '::' pseudo-element rule — Matches() is always false
+        public bool AlwaysCheck;
+        public bool SkipAlways;
     }
     private const float DefaultPageAspectRatio = 1.4142f;
+    private const int PseudoElementSpecificity = 1;
     private readonly float _pageWidth;
     /// <summary>@property initial-values keyed by custom property name.</summary>
     private readonly Dictionary<string, string> _propertyInitialValues =
@@ -68,30 +66,24 @@ public class CascadeResolver
 
         foreach (var sheet in stylesheets)
         {
-            // Direct rules
             AddRules(sheet.Rules);
 
-            // @media rules - include if media matches
             foreach (var mediaRule in sheet.MediaRules)
             {
                 if (media.Matches(mediaRule.MediaQuery))
                     AddRules(mediaRule.Rules);
             }
 
-            // @container rules — evaluate against page width (best approximation for PDF)
             foreach (var containerRule in sheet.ContainerRules)
             {
-                // Normalize: remove spaces around colon so "min-width : 400px" → "min-width:400px"
                 var rawCondition = containerRule.Condition.Trim('(', ')').Trim();
                 var condition = NormalizeCondition(rawCondition);
                 if (ContainerQueryResolver.Evaluate(condition, _pageWidth, 0f))
                     AddRules(containerRule.Rules);
             }
 
-            // @counter-style rules
             CounterStyleRules.AddRange(sheet.CounterStyleRules);
 
-            // @property initial-values
             foreach (var propRule in sheet.PropertyRules)
             {
                 if (!string.IsNullOrEmpty(propRule.Name) && propRule.InitialValue != null)
@@ -103,16 +95,11 @@ public class CascadeResolver
     /// <summary>Resolve computed style for an element.</summary>
     public ComputedStyle Resolve(HtmlElement element, ComputedStyle? parentStyle)
     {
-        // 1. Start with UA defaults + inheritance
         var style = _uaResolver.Resolve(element, parentStyle);
 
-        // 2. Collect matching author rules with specificity and layer order
-        // Tuple: (decl, specificity, layerOrder, sourceOrder)
-        // layerOrder: int.MaxValue = unlayered (wins), 0,1,2... = layer index (later wins)
         var matches = _matchScratch;
         matches.Clear();
 
-        // Per-element values the rule prefilter tests against
         string elemTag = element.TagName;
         string? elemId = element.GetAttribute("id");
         string? elemClass = element.GetAttribute("class");
@@ -132,10 +119,6 @@ public class CascadeResolver
             }
         }
 
-        // 3. Sort: !important first, then specificity, then layer order, then source order
-        // CSS cascade spec: unlayered > any layer (for non-!important rules).
-        // Within layers: later layer index wins over earlier.
-        // int.MaxValue (unlayered) naturally sorts after any layer index, so unlayered wins.
         matches.Sort((a, b) =>
         {
             int imp = (a.decl.Important ? 0 : 1).CompareTo(b.decl.Important ? 0 : 1);
@@ -147,8 +130,6 @@ public class CascadeResolver
             return a.order.CompareTo(b.order);
         });
 
-        // 4. Apply in order (later wins for same property at same importance level)
-        // Group by property, last one wins (unless !important overrides)
         var propertyWinners = _winnersScratch;
         propertyWinners.Clear();
 
@@ -156,14 +137,12 @@ public class CascadeResolver
         {
             if (propertyWinners.TryGetValue(decl.Property, out var existing))
             {
-                // !important always wins over non-important
                 if (decl.Important && !existing.important)
                 {
                     propertyWinners[decl.Property] = (decl.Value, decl.Important, spec, layerOrder, order);
                 }
                 else if (decl.Important == existing.important)
                 {
-                    // Same importance: higher specificity wins, then later layer, then later source order
                     bool wins = spec > existing.specificity
                         || (spec == existing.specificity && layerOrder > existing.layerOrder)
                         || (spec == existing.specificity && layerOrder == existing.layerOrder && order >= existing.order);
@@ -172,7 +151,6 @@ public class CascadeResolver
                         propertyWinners[decl.Property] = (decl.Value, decl.Important, spec, layerOrder, order);
                     }
                 }
-                // non-important cannot override !important
             }
             else
             {
@@ -180,35 +158,29 @@ public class CascadeResolver
             }
         }
 
-        // Apply winners to style (expand shorthands)
         foreach (var kv in propertyWinners)
         {
             if (!CssShorthandExpander.TryExpand(kv.Key, kv.Value.value, style))
                 style.Set(kv.Key, kv.Value.value);
         }
 
-        // 5. Apply inline styles (highest priority, except for !important in stylesheets)
         var inlineCss = element.GetAttribute("style");
         if (!string.IsNullOrEmpty(inlineCss))
         {
             var inlineDecls = CssInlineParser.Parse(inlineCss);
             foreach (var decl in inlineDecls)
             {
-                // Inline styles override author styles unless author has !important
                 if (propertyWinners.TryGetValue(decl.Property, out var existing) && existing.important && !decl.Important)
-                    continue; // author !important wins over inline non-important
+                    continue;
 
                 if (!CssShorthandExpander.TryExpand(decl.Property, decl.Value, style))
                     style.Set(decl.Property, decl.Value);
             }
         }
 
-        // 6. Handle hidden attribute
         if (element.HasAttribute("hidden"))
             style.Set("display", "none");
 
-        // 6.1. The dir attribute is the HTML UA rule `[dir=rtl] { direction: rtl }` (and ltr): it
-        //      sits below author/inline CSS, so it only applies when nothing declared `direction`.
         if (!style.Has("direction"))
         {
             var dirAttr = element.GetAttribute("dir");
@@ -218,10 +190,8 @@ public class CascadeResolver
                 style.Set("direction", "ltr");
         }
 
-        // 6.5. Resolve CSS-wide keywords: inherit, initial, unset, revert
         ResolveCssWideKeywords(style, parentStyle, element);
 
-        // 7. Inherit custom properties from parent (all custom properties inherit per spec)
         if (parentStyle != null)
         {
             foreach (var kv in parentStyle.All)
@@ -231,21 +201,15 @@ public class CascadeResolver
             }
         }
 
-        // 8a. Apply @property initial-values for custom properties not yet set
         foreach (var kv in _propertyInitialValues)
         {
             if (!style.Has(kv.Key))
                 style.Set(kv.Key, kv.Value);
         }
 
-        // 8. Resolve var() references in all non-custom property values
         ResolveCustomProperties(style);
-
-        // 8b. Variable-font axes (font-stretch, oblique angle, font-variation-settings) ride along in font-family
         FontVariationMarker.Apply(style);
 
-        // 9. Map logical properties (margin-inline-start, padding-block, inline-size, etc.)
-        //    to their physical counterparts based on writing direction.
         bool isRTL = style.Get("direction") == "rtl";
         bool isVertical = style.Get("writing-mode")?.IndexOf("vertical", System.StringComparison.OrdinalIgnoreCase) >= 0;
         LogicalPropertyResolver.Resolve(style, isRTL, isVertical);
@@ -262,8 +226,6 @@ public class CascadeResolver
     /// <summary>Resolve computed style for a pseudo-element (::before or ::after).</summary>
     public ComputedStyle? ResolvePseudoElement(HtmlElement element, string pseudo, ComputedStyle? parentStyle)
     {
-        // Indexed at AddRules time — no rules for this pseudo means no scan at all
-        // (this method runs ~6x per element).
         if (!_pseudoRules.TryGetValue(pseudo, out var candidates))
             return null;
 
@@ -279,11 +241,9 @@ public class CascadeResolver
 
         if (matches.Count == 0) return null;
 
-        // Build a style inheriting from parent
         var style = new ComputedStyle();
         if (parentStyle != null)
         {
-            // Inherit inheritable properties from parent
             foreach (var kv in parentStyle.All)
             {
                 if (IsInherited(kv.Key))
@@ -291,7 +251,6 @@ public class CascadeResolver
             }
         }
 
-        // Apply matched declarations (sorted by specificity then order)
         matches.Sort((a, b) =>
         {
             int spec = a.specificity.CompareTo(b.specificity);
@@ -303,8 +262,6 @@ public class CascadeResolver
                 style.Set(decl.Property, decl.Value);
         }
 
-        // ::before and ::after require a content property to generate a box.
-        // ::first-line, ::first-letter, ::marker, and ::placeholder style existing content — no content property needed.
         if (pseudo != "first-line" && pseudo != "first-letter" && pseudo != "marker" && pseudo != "placeholder")
         {
             if (!style.Has("content")) return null;
@@ -317,7 +274,6 @@ public class CascadeResolver
 
     private static bool IsInherited(string property)
     {
-        // Simplified set of inherited properties
         switch (property.ToLowerInvariant())
         {
             case "color":
@@ -378,8 +334,6 @@ public class CascadeResolver
     /// </summary>
     private static void ResolveCustomProperties(ComputedStyle style)
     {
-        // Collect properties that need resolution (avoid modifying during iteration).
-        // Lazy list + '(' gate: the common case has no var()/env() at all.
         List<KeyValuePair<string, string>>? toResolve = null;
         foreach (var kv in style.All)
         {
@@ -431,12 +385,12 @@ public class CascadeResolver
             if (string.IsNullOrEmpty(baseSelector)) continue;
 
             var spec = SelectorMatcher.CalculateSpecificity(baseSelector!);
-            int specScore = spec.A * 10000 + spec.B * 100 + spec.C + 1; // +1 for pseudo-element
+            int specScore = spec.A * 10000 + spec.B * 100 + spec.C + PseudoElementSpecificity;
 
             if (!_pseudoRules.TryGetValue(name, out var list))
                 _pseudoRules[name] = list = new List<(string, CssStyleRule, int, int)>();
             list.Add((baseSelector!, rule, specScore, order));
-            return; // a selector ends in at most one pseudo-element
+            return;
         }
     }
 
@@ -446,17 +400,12 @@ public class CascadeResolver
         var f = new RuleFilter();
         var sel = selectorText.Trim();
 
-        // Selector lists and escaped identifiers: just run the full matcher.
         if (sel.Length == 0 || sel.IndexOf(',') >= 0 || sel.IndexOf('\\') >= 0)
         {
             f.AlwaysCheck = true;
             return f;
         }
 
-        // Pseudo-element selectors never match an element directly — but only
-        // for the names the matcher itself recognizes. Mirror its detection
-        // exactly ("::" with an unknown ident, or inside an attribute value
-        // with a non-pseudo ident, still reaches the full matcher).
         if (sel.IndexOf("::", StringComparison.Ordinal) >= 0)
         {
             if (SelectorMatcher.HasPseudoElement(sel))
@@ -464,16 +413,12 @@ public class CascadeResolver
                 f.SkipAlways = true;
                 return f;
             }
-            // Unrecognized "::name": the matcher skips the token and matches
-            // the base compound — too irregular to extract requirements from.
             f.AlwaysCheck = true;
             return f;
         }
 
         int start = SelectorMatcher.RightmostCompoundStart(sel);
 
-        // Parse the compound's leading tag and '.class'/'#id' tokens; stop at
-        // '[' / ':' / anything else — later constraints only narrow the match.
         int p = start;
         if (p < sel.Length && sel[p] == '*')
         {
@@ -510,8 +455,6 @@ public class CascadeResolver
             return false;
         if (f.Id != null && !string.Equals(f.Id, id, StringComparison.OrdinalIgnoreCase))
             return false;
-        // Substring check may false-positive ("foo" in "foobar") — that only
-        // means the full matcher runs; it can never false-negative.
         if (f.Class != null && (classAttr == null ||
             classAttr.IndexOf(f.Class, StringComparison.OrdinalIgnoreCase) < 0))
             return false;
@@ -528,11 +471,9 @@ public class CascadeResolver
             char c = condition[i];
             if (c == ':')
             {
-                // Remove trailing space from sb
                 while (sb.Length > 0 && sb[sb.Length - 1] == ' ')
                     sb.Remove(sb.Length - 1, 1);
                 sb.Append(':');
-                // Skip leading spaces after colon
                 while (i + 1 < condition.Length && condition[i + 1] == ' ')
                     i++;
             }
@@ -544,7 +485,6 @@ public class CascadeResolver
         return sb.ToString();
     }
 
-    // Properties that are inherited by default per CSS spec
     private static readonly HashSet<string> _inheritedProps = new(StringComparer.OrdinalIgnoreCase)
     {
         "color", "font-family", "font-size", "font-weight", "font-style",
@@ -564,7 +504,6 @@ public class CascadeResolver
         "hanging-punctuation"
     };
 
-    // CSS spec initial values for commonly used properties
     private static readonly Dictionary<string, string> _initialValues = new(StringComparer.OrdinalIgnoreCase)
     {
         ["color"] = "canvastext",
@@ -611,7 +550,6 @@ public class CascadeResolver
 
     private static void ResolveCssWideKeywords(ComputedStyle style, ComputedStyle? parentStyle, HtmlElement element)
     {
-        // Collect keys that need updating (avoid modifying while iterating)
         List<(string key, string newValue)>? updates = null;
         List<string>? removals = null;
 
@@ -619,9 +557,6 @@ public class CascadeResolver
         {
             var val = kv.Value;
             if (val == null) continue;
-            // Cheap gate: the four CSS-wide keywords are 5-7 chars. Trim first
-            // (no allocation when there is nothing to trim) so padded values
-            // of any length still resolve like they always did.
             if (val.Length < 5) continue;
             var trimmed = val.Trim();
             if (trimmed.Length < 5 || trimmed.Length > 7) continue;
@@ -641,14 +576,14 @@ public class CascadeResolver
                 if (parentVal != null)
                     resolved = parentVal;
                 else
-                    remove = true; // no parent, treat as initial (unset)
+                    remove = true;
             }
             else if (lower == "initial")
             {
                 if (_initialValues.TryGetValue(kv.Key, out var init))
                     resolved = init;
                 else
-                    remove = true; // unrecognized property, remove the keyword
+                    remove = true;
             }
             else if (lower == "unset")
             {
@@ -679,7 +614,7 @@ public class CascadeResolver
                 }
                 else
                 {
-                    remove = true; // let UA defaults show through
+                    remove = true;
                 }
             }
 

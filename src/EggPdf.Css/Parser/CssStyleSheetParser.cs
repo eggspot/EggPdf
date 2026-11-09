@@ -11,23 +11,19 @@ namespace EggPdf.Css.Parser;
 /// </summary>
 public static class CssStyleSheetParser
 {
+    /// <summary>Parse <paramref name="css"/> into a stylesheet; invalid syntax is skipped, never thrown.</summary>
     public static CssStyleSheet Parse(string? css)
     {
         var sheet = new CssStyleSheet();
         if (string.IsNullOrWhiteSpace(css)) return sheet;
 
-        // Pre-process @scope rules — flatten to regular rules before tokenizing
         css = ScopeResolver.PreprocessScope(css);
-
-        // Pre-process CSS nesting (& selectors) — flatten to regular rules before tokenizing
         css = CssNestingResolver.PreprocessNesting(css);
 
         var tokenizer = new CssTokenizer(css);
         var tokens = ConsumeAllTokens(tokenizer);
         int pos = 0;
-        // layerCounter[0] tracks the next layer index; rules in layers get this value.
-        // Unlayered rules keep int.MaxValue (assigned by CssStyleRule default).
-        var layerCounter = new int[1]; // shared mutable counter via array reference
+        var layerCounter = new int[1];
 
         while (pos < tokens.Count)
         {
@@ -36,14 +32,12 @@ public static class CssStyleSheetParser
 
             var token = tokens[pos];
 
-            // At-rule
             if (token.Type == CssTokenType.AtKeyword)
             {
                 ParseAtRule(sheet, tokens, ref pos, layerCounter);
                 continue;
             }
 
-            // Style rule
             if (token.Type == CssTokenType.Ident || token.Type == CssTokenType.Hash ||
                 token.Type == CssTokenType.Delim || token.Type == CssTokenType.Colon ||
                 token.Type == CssTokenType.LeftBracket)
@@ -52,7 +46,6 @@ public static class CssStyleSheetParser
                 continue;
             }
 
-            // Skip unexpected tokens
             pos++;
         }
 
@@ -84,7 +77,6 @@ public static class CssStyleSheetParser
                 ParseSupportsRule(sheet, tokens, ref pos);
                 break;
             case "layer":
-                // @layer: include rules with layer priority ordering
                 ParseLayerRule(sheet, tokens, ref pos, layerCounter);
                 break;
             case "container":
@@ -97,7 +89,6 @@ public static class CssStyleSheetParser
                 ParsePropertyRule(sheet, tokens, ref pos);
                 break;
             default:
-                // Skip unknown at-rule: consume until { } or ;
                 SkipAtRule(tokens, ref pos);
                 break;
         }
@@ -105,16 +96,12 @@ public static class CssStyleSheetParser
 
     private static void ParseImportRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos)
     {
-        // @import url("...") [media];
-        // @import "...";
-        // @import url(...);
         string? url = null;
 
         if (pos >= tokens.Count) return;
 
         var token = tokens[pos];
 
-        // url("...") or url(...)
         if (token.Type == CssTokenType.Url)
         {
             url = token.Value;
@@ -123,16 +110,15 @@ public static class CssStyleSheetParser
         else if (token.Type == CssTokenType.Function &&
                  string.Equals(token.Value, "url", StringComparison.OrdinalIgnoreCase))
         {
-            pos++; // skip function token
+            pos++;
             SkipWhitespace(tokens, ref pos);
             if (pos < tokens.Count && tokens[pos].Type == CssTokenType.String)
             {
                 url = tokens[pos].Value;
                 pos++;
             }
-            // skip until closing paren
             while (pos < tokens.Count && tokens[pos].Type != CssTokenType.RightParen) pos++;
-            if (pos < tokens.Count) pos++; // skip )
+            if (pos < tokens.Count) pos++;
         }
         else if (token.Type == CssTokenType.String)
         {
@@ -142,7 +128,6 @@ public static class CssStyleSheetParser
 
         SkipWhitespace(tokens, ref pos);
 
-        // Optional media query (everything until ;)
         string? mediaQuery = null;
         if (pos < tokens.Count && tokens[pos].Type != CssTokenType.Semicolon)
         {
@@ -157,7 +142,6 @@ public static class CssStyleSheetParser
             if (mq.Length > 0) mediaQuery = mq;
         }
 
-        // Skip the semicolon
         if (pos < tokens.Count && tokens[pos].Type == CssTokenType.Semicolon) pos++;
 
         if (!string.IsNullOrEmpty(url))
@@ -168,7 +152,6 @@ public static class CssStyleSheetParser
 
     private static void ParseMediaRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos)
     {
-        // Consume media query (everything until {)
         var queryParts = new StringBuilder();
         while (pos < tokens.Count && tokens[pos].Type != CssTokenType.LeftCurly)
         {
@@ -178,17 +161,15 @@ public static class CssStyleSheetParser
         }
 
         if (pos >= tokens.Count) return;
-        pos++; // skip {
+        pos++;
 
         var rule = new CssMediaRule { MediaQuery = queryParts.ToString().Trim() };
 
-        // Parse inner rules until }
         while (pos < tokens.Count && tokens[pos].Type != CssTokenType.RightCurly)
         {
             SkipWhitespace(tokens, ref pos);
             if (pos >= tokens.Count || tokens[pos].Type == CssTokenType.RightCurly) break;
 
-            // Handle nested at-rules inside @media (e.g. @page { margin: 5mm; })
             if (tokens[pos].Type == CssTokenType.AtKeyword)
             {
                 var innerKeyword = tokens[pos].Value?.ToLowerInvariant() ?? "";
@@ -206,7 +187,7 @@ public static class CssStyleSheetParser
                 rule.Rules.Add(innerRule);
         }
 
-        if (pos < tokens.Count) pos++; // skip }
+        if (pos < tokens.Count) pos++;
         sheet.MediaRules.Add(rule);
     }
 
@@ -218,7 +199,7 @@ public static class CssStyleSheetParser
             SkipAtRule(tokens, ref pos);
             return;
         }
-        pos++; // skip {
+        pos++;
 
         var rule = new CssFontFaceRule();
         ParseDeclarations(rule.Declarations, tokens, ref pos);
@@ -232,14 +213,12 @@ public static class CssStyleSheetParser
         SkipWhitespace(tokens, ref pos);
 
         string? pageSelector = null;
-        // Optional page selector: a page name (@page wide), a pseudo-class (:first, :left) or both
         if (pos < tokens.Count && tokens[pos].Type == CssTokenType.Ident)
         {
             pageSelector = tokens[pos].Value;
             pos++;
             SkipWhitespace(tokens, ref pos);
         }
-        // A named rule with a pseudo-class (@page wide:first) is not modelled -- skip it whole
         if (pageSelector != null && pos < tokens.Count && tokens[pos].Type == CssTokenType.Colon)
         {
             SkipAtRule(tokens, ref pos);
@@ -263,11 +242,10 @@ public static class CssStyleSheetParser
             SkipAtRule(tokens, ref pos);
             return;
         }
-        pos++; // skip {
+        pos++;
 
         var rule = new CssPageRule { PageSelector = pageSelector };
 
-        // Parse @page body: a mix of declarations and margin-box at-rules
         while (pos < tokens.Count && tokens[pos].Type != CssTokenType.RightCurly)
         {
             SkipWhitespace(tokens, ref pos);
@@ -275,36 +253,33 @@ public static class CssStyleSheetParser
 
             if (tokens[pos].Type == CssTokenType.AtKeyword)
             {
-                // Nested margin-box at-rule: @top-center { ... }, @bottom-left { ... }, etc.
                 string mbPosition = tokens[pos].Value?.ToLowerInvariant() ?? "";
                 pos++;
                 SkipWhitespace(tokens, ref pos);
 
                 if (pos < tokens.Count && tokens[pos].Type == CssTokenType.LeftCurly)
                 {
-                    pos++; // skip {
+                    pos++;
                     var mb = new CssPageMarginBox { Position = mbPosition };
                     ParseDeclarations(mb.Declarations, tokens, ref pos);
-                    if (pos < tokens.Count && tokens[pos].Type == CssTokenType.RightCurly) pos++; // skip }
+                    if (pos < tokens.Count && tokens[pos].Type == CssTokenType.RightCurly) pos++;
                     if (mb.Declarations.Count > 0)
                         rule.MarginBoxes.Add(mb);
                 }
                 else
                 {
-                    // No block — skip to ; or }
                     while (pos < tokens.Count && tokens[pos].Type != CssTokenType.Semicolon && tokens[pos].Type != CssTokenType.RightCurly) pos++;
                     if (pos < tokens.Count && tokens[pos].Type == CssTokenType.Semicolon) pos++;
                 }
             }
             else if (tokens[pos].Type == CssTokenType.Ident)
             {
-                // Regular declaration: property: value;
                 var property = tokens[pos].Value!.ToLowerInvariant();
                 pos++;
                 SkipWhitespace(tokens, ref pos);
                 if (pos < tokens.Count && tokens[pos].Type == CssTokenType.Colon)
                 {
-                    pos++; // skip :
+                    pos++;
                     SkipWhitespace(tokens, ref pos);
                     var valueParts = new StringBuilder();
                     bool important = false;
@@ -334,14 +309,12 @@ public static class CssStyleSheetParser
                 }
                 else
                 {
-                    // Malformed — skip to ; or }
                     while (pos < tokens.Count && tokens[pos].Type != CssTokenType.Semicolon && tokens[pos].Type != CssTokenType.RightCurly) pos++;
                     if (pos < tokens.Count && tokens[pos].Type == CssTokenType.Semicolon) pos++;
                 }
             }
             else
             {
-                // Unknown token — skip it to avoid infinite loop
                 pos++;
             }
         }
@@ -359,7 +332,6 @@ public static class CssStyleSheetParser
 
     private static CssStyleRule? ParseSingleStyleRule(List<CssToken> tokens, ref int pos)
     {
-        // Consume selector (everything until {)
         var selectorParts = new StringBuilder();
         while (pos < tokens.Count && tokens[pos].Type != CssTokenType.LeftCurly)
         {
@@ -380,7 +352,7 @@ public static class CssStyleSheetParser
         }
 
         if (pos >= tokens.Count) return null;
-        pos++; // skip {
+        pos++;
 
         var selector = selectorParts.ToString().Trim();
         if (string.IsNullOrEmpty(selector)) { SkipBlock(tokens, ref pos); return null; }
@@ -400,10 +372,8 @@ public static class CssStyleSheetParser
             SkipWhitespace(tokens, ref pos);
             if (pos >= tokens.Count || tokens[pos].Type == CssTokenType.RightCurly) break;
 
-            // Property name
             if (tokens[pos].Type != CssTokenType.Ident)
             {
-                // Skip to next ; or }
                 while (pos < tokens.Count && tokens[pos].Type != CssTokenType.Semicolon && tokens[pos].Type != CssTokenType.RightCurly) pos++;
                 if (pos < tokens.Count && tokens[pos].Type == CssTokenType.Semicolon) pos++;
                 continue;
@@ -413,17 +383,15 @@ public static class CssStyleSheetParser
             pos++;
             SkipWhitespace(tokens, ref pos);
 
-            // Expect colon
             if (pos >= tokens.Count || tokens[pos].Type != CssTokenType.Colon)
             {
                 while (pos < tokens.Count && tokens[pos].Type != CssTokenType.Semicolon && tokens[pos].Type != CssTokenType.RightCurly) pos++;
                 if (pos < tokens.Count && tokens[pos].Type == CssTokenType.Semicolon) pos++;
                 continue;
             }
-            pos++; // skip colon
+            pos++;
             SkipWhitespace(tokens, ref pos);
 
-            // Value: everything until ; or }
             var valueParts = new StringBuilder();
             bool important = false;
             bool hasControlCharacter = false;
@@ -448,7 +416,6 @@ public static class CssStyleSheetParser
 
             var value = hasControlCharacter ? "" : valueParts.ToString().Trim();
 
-            // Check !important
             if (value.EndsWith("!important", StringComparison.OrdinalIgnoreCase))
             {
                 important = true;
@@ -463,15 +430,8 @@ public static class CssStyleSheetParser
         }
     }
 
-    /// <summary>
-    /// @supports (condition) { rules }
-    /// Strategy: evaluate whether EggPdf supports the tested property.
-    /// Unknown or vendor-prefixed properties → false.
-    /// If condition evaluates true, include the nested rules; otherwise skip the block.
-    /// </summary>
     private static void ParseSupportsRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos)
     {
-        // Collect condition tokens up to the opening {
         var condBuilder = new StringBuilder();
         while (pos < tokens.Count && tokens[pos].Type != CssTokenType.LeftCurly)
         {
@@ -479,13 +439,12 @@ public static class CssStyleSheetParser
             pos++;
         }
         if (pos >= tokens.Count) return;
-        pos++; // skip {
+        pos++;
 
         bool supported = EvaluateSupportsCondition(condBuilder.ToString().Trim());
 
         if (supported)
         {
-            // Parse nested rules into the sheet directly (like a transparent wrapper)
             while (pos < tokens.Count && tokens[pos].Type != CssTokenType.RightCurly)
             {
                 SkipWhitespace(tokens, ref pos);
@@ -512,46 +471,36 @@ public static class CssStyleSheetParser
         if (pos < tokens.Count && tokens[pos].Type == CssTokenType.RightCurly) pos++;
     }
 
-    /// <summary>
-    /// @layer name { rules } — include rules unconditionally (cascade layers not tracked).
-    /// </summary>
     private static void ParseCounterStyleRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos)
     {
-        // @counter-style <name> { system: ...; symbols: ...; suffix: ...; prefix: ...; }
         SkipWhitespace(tokens, ref pos);
         if (pos >= tokens.Count) return;
 
-        // Read the name
         var name = tokens[pos].Type == CssTokenType.Ident ? tokens[pos].Value ?? "" : "";
         if (string.IsNullOrEmpty(name)) { SkipAtRule(tokens, ref pos); return; }
         pos++;
         SkipWhitespace(tokens, ref pos);
 
-        // Expect {
         if (pos >= tokens.Count || tokens[pos].Type != CssTokenType.LeftCurly)
         { SkipAtRule(tokens, ref pos); return; }
-        pos++; // skip {
+        pos++;
 
         var rule = new CssCounterStyleRule { Name = name };
 
-        // Parse declarations inside the block
         while (pos < tokens.Count && tokens[pos].Type != CssTokenType.RightCurly)
         {
             SkipWhitespace(tokens, ref pos);
             if (pos >= tokens.Count || tokens[pos].Type == CssTokenType.RightCurly) break;
 
-            // Read property name
             if (tokens[pos].Type != CssTokenType.Ident) { pos++; continue; }
             var propName = tokens[pos].Value?.ToLowerInvariant() ?? "";
             pos++;
             SkipWhitespace(tokens, ref pos);
 
-            // Expect :
             if (pos >= tokens.Count || tokens[pos].Type != CssTokenType.Colon) continue;
             pos++;
             SkipWhitespace(tokens, ref pos);
 
-            // Read value tokens until ; or }
             var valueSb = new StringBuilder();
             while (pos < tokens.Count &&
                    tokens[pos].Type != CssTokenType.Semicolon &&
@@ -576,7 +525,6 @@ public static class CssStyleSheetParser
                     else rule.System = value;
                     break;
                 case "symbols":
-                    // Parse space/comma-separated symbols; quoted strings are unquoted
                     ParseSymbolList(value, rule.Symbols);
                     break;
                 case "suffix":
@@ -595,7 +543,6 @@ public static class CssStyleSheetParser
         }
         if (pos < tokens.Count && tokens[pos].Type == CssTokenType.RightCurly) pos++;
 
-        // Default suffix is ". " if not specified and system is not cyclic/symbolic
         sheet.CounterStyleRules.Add(rule);
     }
 
@@ -637,8 +584,6 @@ public static class CssStyleSheetParser
 
     private static void ParseContainerRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos)
     {
-        // @container [name] (condition) { rules }
-        // Collect everything before the opening { as the header
         var headerSb = new StringBuilder();
         while (pos < tokens.Count &&
                tokens[pos].Type != CssTokenType.LeftCurly &&
@@ -650,12 +595,11 @@ public static class CssStyleSheetParser
         }
 
         if (pos >= tokens.Count || tokens[pos].Type == CssTokenType.Semicolon) { if (pos < tokens.Count) pos++; return; }
-        pos++; // skip {
+        pos++;
 
         var header = headerSb.ToString().Trim();
         var containerRule = new CssContainerRule();
 
-        // Parse header: may be "(condition)" or "name (condition)"
         int parenStart = header.IndexOf('(');
         int parenEnd = header.LastIndexOf(')');
         if (parenStart >= 0 && parenEnd > parenStart)
@@ -668,7 +612,6 @@ public static class CssStyleSheetParser
             containerRule.Condition = header;
         }
 
-        // Parse nested rules
         while (pos < tokens.Count && tokens[pos].Type != CssTokenType.RightCurly)
         {
             SkipWhitespace(tokens, ref pos);
@@ -693,21 +636,17 @@ public static class CssStyleSheetParser
     private static void ParseLayerRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos,
         int[]? layerCounter = null)
     {
-        // Skip layer name/order declaration until { or ;
         while (pos < tokens.Count &&
                tokens[pos].Type != CssTokenType.LeftCurly &&
                tokens[pos].Type != CssTokenType.Semicolon)
             pos++;
 
         if (pos >= tokens.Count) return;
-        if (tokens[pos].Type == CssTokenType.Semicolon) { pos++; return; } // @layer name; declaration
-        pos++; // skip {
+        if (tokens[pos].Type == CssTokenType.Semicolon) { pos++; return; }
+        pos++;
 
-        // Assign a layer order index to all rules inside this layer.
-        // Unlayered rules default to int.MaxValue; layered rules get a smaller number.
         int thisLayerOrder = layerCounter != null ? layerCounter[0]++ : 0;
 
-        // Parse nested rules and tag them with this layer's order
         while (pos < tokens.Count && tokens[pos].Type != CssTokenType.RightCurly)
         {
             SkipWhitespace(tokens, ref pos);
@@ -731,25 +670,17 @@ public static class CssStyleSheetParser
         if (pos < tokens.Count && tokens[pos].Type == CssTokenType.RightCurly) pos++;
     }
 
-    /// <summary>
-    /// Evaluate a @supports condition string.
-    /// Returns true if EggPdf claims to support the tested property/value.
-    /// Handles: (prop: val), not (...), (...) and (...), (...) or (...)
-    /// </summary>
     private static bool EvaluateSupportsCondition(string condition)
     {
         condition = condition.Trim();
         if (string.IsNullOrEmpty(condition)) return true;
 
-        // Handle "not (...)"
         if (condition.StartsWith("not ", StringComparison.OrdinalIgnoreCase))
             return !EvaluateSupportsCondition(condition.Substring(4).Trim());
 
-        // Handle "not(...)" without space
         if (condition.StartsWith("not(", StringComparison.OrdinalIgnoreCase))
             return !EvaluateSupportsCondition(StripOuterParens(condition.Substring(3)));
 
-        // Split by top-level " and " / " or "
         var andParts = SplitByKeyword(condition, " and ");
         if (andParts.Length > 1)
         {
@@ -766,23 +697,19 @@ public static class CssStyleSheetParser
             return false;
         }
 
-        // Strip outer parens
         condition = StripOuterParens(condition);
 
-        // At this point, expect "(property: value)" or "property: value"
         int colon = condition.IndexOf(':');
-        if (colon < 0) return true; // no colon — be permissive
+        if (colon < 0) return true;
 
         var propName = condition.Substring(0, colon).Trim().ToLowerInvariant();
 
-        // Vendor-prefixed properties → false
         if (propName.StartsWith("-webkit-", StringComparison.Ordinal) ||
             propName.StartsWith("-moz-", StringComparison.Ordinal) ||
             propName.StartsWith("-ms-", StringComparison.Ordinal) ||
             propName.StartsWith("-o-", StringComparison.Ordinal))
             return false;
 
-        // Known CSS properties → true (be permissive, assume we support standard props)
         return true;
     }
 
@@ -819,7 +746,6 @@ public static class CssStyleSheetParser
 
     private static void SkipAtRule(List<CssToken> tokens, ref int pos)
     {
-        // Skip until { } block or ;
         while (pos < tokens.Count)
         {
             if (tokens[pos].Type == CssTokenType.Semicolon) { pos++; return; }
@@ -861,19 +787,14 @@ public static class CssStyleSheetParser
         return tokens;
     }
 
-    /// <summary>
-    /// Parse: @property --name { syntax: '...'; inherits: true|false; initial-value: ...; }
-    /// </summary>
     private static void ParsePropertyRule(CssStyleSheet sheet, List<CssToken> tokens, ref int pos)
     {
         SkipWhitespace(tokens, ref pos);
         if (pos >= tokens.Count) return;
 
-        // Property name must start with "--"
         if (tokens[pos].Type != CssTokenType.Ident && tokens[pos].Type != CssTokenType.Delim)
         { SkipAtRule(tokens, ref pos); return; }
 
-        // Reconstruct the property name (may be tokenized as multiple tokens: "--" + ident)
         var nameSb = new StringBuilder();
         while (pos < tokens.Count &&
                tokens[pos].Type != CssTokenType.LeftCurly &&
@@ -888,7 +809,7 @@ public static class CssStyleSheetParser
 
         if (pos >= tokens.Count || tokens[pos].Type != CssTokenType.LeftCurly)
         { SkipAtRule(tokens, ref pos); return; }
-        pos++; // skip {
+        pos++;
 
         var rule = new CssPropertyRule { Name = propertyName };
 
@@ -903,7 +824,7 @@ public static class CssStyleSheetParser
             SkipWhitespace(tokens, ref pos);
 
             if (pos >= tokens.Count || tokens[pos].Type != CssTokenType.Colon) continue;
-            pos++; // skip :
+            pos++;
             SkipWhitespace(tokens, ref pos);
 
             var valueSb = new StringBuilder();
@@ -911,11 +832,7 @@ public static class CssStyleSheetParser
                    tokens[pos].Type != CssTokenType.Semicolon &&
                    tokens[pos].Type != CssTokenType.RightCurly)
             {
-                var t = tokens[pos];
-                if (t.Type == CssTokenType.String)
-                    valueSb.Append(t.Value ?? ""); // strip quotes from syntax value
-                else
-                    valueSb.Append(t.Value ?? "");
+                valueSb.Append(tokens[pos].Value ?? "");
                 pos++;
             }
             if (pos < tokens.Count && tokens[pos].Type == CssTokenType.Semicolon) pos++;
