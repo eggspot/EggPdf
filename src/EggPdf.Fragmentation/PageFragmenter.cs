@@ -226,7 +226,6 @@ public static class PageFragmenter
             CollectFixedPositionedBoxes(child, nowInsideFixed, pageArea, result);
     }
 
-
     /// <summary>
     /// Collect boxes carrying the <c>-eggpdf-pin-bottom: page</c> extension property —
     /// an opt-in EggPdf-specific hook for pinning trailing content (e.g. a signature/acceptance

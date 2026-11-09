@@ -212,7 +212,7 @@ public static partial class BlockLayout
                 continue;
             }
 
-            text =ApplyTextTransformForMeasure(text, run.Style);
+            text = ApplyTextTransformForMeasure(text, run.Style);
 
             var fontFamily = run.Style.FontFamily;
             var fontWeight = run.Style.FontWeight;
