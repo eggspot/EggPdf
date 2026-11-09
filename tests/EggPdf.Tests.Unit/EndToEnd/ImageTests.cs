@@ -9,8 +9,7 @@ namespace EggPdf.Tests.Unit.EndToEnd;
 
 public class ImageTests
 {
-    // 1x1 red pixel PNG as base64
-    private const string RedPixelPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+    private const string RedPixelPng ="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
 
     [Fact]
     public async Task ImgWithBase64_EmbedsImageDrawnAtRequestedSize()
@@ -24,27 +23,37 @@ public class ImageTests
         text.Should().Contain("75.00 0 0 75.00 6.00 766.89 cm", "100x100px image drawn as a 75pt square at the page margin");
     }
 
-    /// <summary>Builds a minimal RIFF/WEBP container wrapping a hand-constructed 2x1 VP8L (lossless) payload.</summary>
-    private static byte[] BuildWebPLossless2x1()
+    private static byte[] BuildWebPLossless2x1RedThenYellow()
     {
+        const uint widthMinusOne = 1, heightMinusOne = 0;
+        const uint alphaIsUsed = 0, version = 0;
+        const uint hasTransform = 0, hasColorCache = 0, hasMetaHuffmanCodes = 0;
+        const int greenOfRedPixel = 0, greenOfYellowPixel = 255;
+        const int red = 255, blue = 0, opaque = 255, unusedDistance = 0;
+        const int webpTagLength = 4, chunkHeaderLength = 8;
+
         var w = new Vp8LTestBitWriter();
-        w.WriteBits(1, 14); w.WriteBits(0, 14); // width-1=1 (width=2), height-1=0 (height=1)
-        w.WriteBits(0, 1); w.WriteBits(0, 3);   // alpha_is_used=0, version=0
-        w.WriteBits(0, 1); w.WriteBits(0, 1); w.WriteBits(0, 1); // no transforms, no color cache, no meta-huffman
+        w.WriteBits(widthMinusOne, 14);
+        w.WriteBits(heightMinusOne, 14);
+        w.WriteBits(alphaIsUsed, 1);
+        w.WriteBits(version, 3);
+        w.WriteBits(hasTransform, 1);
+        w.WriteBits(hasColorCache, 1);
+        w.WriteBits(hasMetaHuffmanCodes, 1);
 
-        var green = w.WriteSimpleTwoSymbol(0, 255); // pixel0=green0 (black), pixel1=green255
-        w.WriteSimpleSingleSymbol(255); // red: always 255
-        w.WriteSimpleSingleSymbol(0);   // blue: always 0
-        w.WriteSimpleSingleSymbol(255); // alpha: always opaque
-        w.WriteSimpleSingleSymbol(0);   // distance unused
+        var green = w.WriteSimpleTwoSymbol(greenOfRedPixel, greenOfYellowPixel);
+        w.WriteSimpleSingleSymbol(red);
+        w.WriteSimpleSingleSymbol(blue);
+        w.WriteSimpleSingleSymbol(opaque);
+        w.WriteSimpleSingleSymbol(unusedDistance);
 
-        w.WriteBits((uint)green.bitForA, 1); // pixel0: green=0 -> (R255,G0,B0,A255) = pure red
-        w.WriteBits((uint)green.bitForB, 1); // pixel1: green=255 -> (R255,G255,B0,A255) = yellow
+        w.WriteBits((uint)green.bitForA, 1);
+        w.WriteBits((uint)green.bitForB, 1);
 
         var vp8l = w.ToVp8LPayload();
         int chunkSize = vp8l.Length;
         bool pad = chunkSize % 2 == 1;
-        int riffSize = 4 /* "WEBP" */ + 8 /* "VP8L" + size */ + chunkSize + (pad ? 1 : 0);
+        int riffSize = webpTagLength + chunkHeaderLength + chunkSize + (pad ? 1 : 0);
 
         using var ms = new System.IO.MemoryStream();
         void WriteAscii(string s) => ms.Write(Encoding.ASCII.GetBytes(s), 0, s.Length);
@@ -63,7 +72,7 @@ public class ImageTests
     [Fact]
     public async Task ImgWithLosslessWebP_DecodesAndEmbedsRealPixels()
     {
-        var webp = BuildWebPLossless2x1();
+        var webp = BuildWebPLossless2x1RedThenYellow();
         var b64 = Convert.ToBase64String(webp);
         var html = $"<img src='data:image/webp;base64,{b64}' width='100' height='50'>";
 
@@ -127,10 +136,9 @@ public class ImageTests
     {
         var html = "<p>Before</p><img src='https://nonexistent.example.com/image.png' alt='Broken'><p>After</p>";
 
-        // Should not throw, should produce valid PDF without an embedded image
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "(Before) Tj", "(After) Tj");
-        text.Should().NotContain("/Subtype /Image");
+        text.Should().NotContain("/Subtype /Image", "an unreachable image is left out without failing the render");
     }
 
     [Fact]
@@ -151,21 +159,16 @@ public class ImageTests
     [Fact]
     public async Task SvgInline_WithoutWrapper_StillGetsPaintedNotCulled()
     {
-        // Regression: an <svg> box has no text/background/border of its own, so the
-        // page-fragmenter's "does this box paint anything" check must special-case it,
-        // or the whole element gets silently dropped before BoxPainter ever sees it.
         var html = "<svg width='50' height='50'><rect x='0' y='0' width='50' height='50' fill='blue'/></svg>";
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
-        Encoding.Latin1.GetString(pdf).Should().Contain("0.00 0.00 1.00 rg");
+        Encoding.Latin1.GetString(pdf).Should().Contain("0.00 0.00 1.00 rg",
+            "an svg box has no text, background or border of its own, yet the fragmenter must still keep it");
     }
 
     [Fact]
     public async Task SvgInline_WidthHeightAttributes_SizeTheBox()
     {
-        // Regression: <svg> has no UA display default beyond "inline" (no replaced-element
-        // handling), so its width/height attributes were previously ignored entirely,
-        // collapsing the box to 0x0 via the generic empty-inline-element fallback.
         var html = "<svg width='60' height='40'><rect x='0' y='0' width='60' height='40' fill='green'/></svg>";
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);

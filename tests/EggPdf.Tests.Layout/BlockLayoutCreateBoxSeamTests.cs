@@ -4,18 +4,8 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary>
-/// Characterization tests for BlockLayout.CreateBox's internal branch seams
-/// (flex/grid delegation, box-model resolution, auto-margin centering,
-/// table-cell width exemption). Written to pin exact current behavior before
-/// splitting CreateBox into smaller methods, so an accidental change to what
-/// a sub-method reads or returns during the split shows up as a failure here
-/// rather than only surfacing as a subtle rendering difference later.
-/// </summary>
 public class BlockLayoutCreateBoxSeamTests
 {
-    // ── flex/grid: relative-position offset applied inside their own branch ──
-
     [Fact]
     public void FlexContainer_PositionRelativeWithTop_OffsetsYAfterChildLayout()
     {
@@ -27,9 +17,8 @@ public class BlockLayoutCreateBoxSeamTests
 
         var flex = root.FindByTag("div")!.Children[1];
         var spacer = root.FindByTag("div")!.Children[0];
-        // The relative offset (top:20px) must be applied on top of the normal
-        // flow position, not instead of it.
-        (flex.Y - spacer.Height).Should().BeApproximately(20, 1f);
+        (flex.Y - spacer.Height).Should().BeApproximately(20, 1f,
+            "top:20px applies on top of the normal flow position, not instead of it");
     }
 
     [Fact]
@@ -49,15 +38,12 @@ public class BlockLayoutCreateBoxSeamTests
     [Fact]
     public void FlexContainer_AutoHeight_MinHeightAndMaxHeightBothApplied()
     {
-        // Min/max height constraints are applied AFTER the auto-height
-        // computed-from-children pass inside the flex branch; pin the
-        // ordering (min wins over a too-small auto height).
         var root = LayoutTestHelper.Layout(
             "<div style='display:flex; min-height:100px; width:200px'>" +
             "<div style='width:50px; height:10px'></div></div>", 600, 800);
 
         var flex = root.FindByTag("div")!;
-        flex.Height.Should().BeGreaterOrEqualTo(100);
+        flex.Height.Should().BeGreaterOrEqualTo(100, "min-height applies after the auto height computed from the children");
     }
 
     [Fact]
@@ -71,21 +57,16 @@ public class BlockLayoutCreateBoxSeamTests
         grid.Height.Should().BeLessOrEqualTo(21);
     }
 
-    // ── box model: min/max width interacting with border-box sizing ─────────
-
     [Fact]
     public void BorderBoxWidth_BelowMinWidth_ContentWidthRecomputedFromClampedWidth()
     {
-        // box.Width is clamped to min-width AFTER border-box's initial
-        // ContentWidth computation; ContentWidth must be recomputed from the
-        // clamped box.Width, not left stale from the pre-clamp value.
         var root = LayoutTestHelper.Layout(
             "<div style='box-sizing:border-box; width:50px; min-width:150px; padding:10px; height:20px'></div>",
             600, 800);
 
         var div = root.FindByTag("div")!;
         div.Width.Should().BeApproximately(150, 1f);
-        div.ContentWidth.Should().BeApproximately(130, 1f); // 150 - 10 - 10 padding
+        div.ContentWidth.Should().BeApproximately(130, 1f, "the content width comes from the clamped 150px minus 10px padding per side");
     }
 
     [Fact]
@@ -97,16 +78,12 @@ public class BlockLayoutCreateBoxSeamTests
 
         var div = root.FindByTag("div")!;
         div.Width.Should().BeApproximately(100, 1f);
-        div.ContentWidth.Should().BeApproximately(80, 1f); // 100 - 10 - 10 padding
+        div.ContentWidth.Should().BeApproximately(80, 1f, "the content width comes from the clamped 100px minus 10px padding per side");
     }
-
-    // ── auto-margin centering: only applies with a specified width ──────────
 
     [Fact]
     public void AutoMarginBoth_WithMinWidthClamp_CentersUsingClampedWidth()
     {
-        // Auto-margin centering reads box.Width AFTER the min/max clamp —
-        // pin that a min-width clamp changes the centering remainder too.
         var root = LayoutTestHelper.Layout(
             "<div id='wrap' style='width:400px; padding:0; margin:0'>" +
             "<div id='inner' style='width:50px; min-width:200px; margin:0 auto; height:10px'></div></div>",
@@ -114,7 +91,7 @@ public class BlockLayoutCreateBoxSeamTests
 
         var inner = root.FindByTag("div")!.Children[0];
         inner.Width.Should().BeApproximately(200, 1f);
-        inner.MarginLeft.Should().BeApproximately(100, 1f); // (400-200)/2
+        inner.MarginLeft.Should().BeApproximately(100, 1f, "centering uses the clamped width: (400 - 200) / 2");
     }
 
     [Fact]
@@ -126,35 +103,24 @@ public class BlockLayoutCreateBoxSeamTests
             600, 800);
 
         var inner = root.FindByTag("div")!.Children[0];
-        // remaining = 500 - 200 = 300; marginLeft = remaining - marginRight = 300 - 30 = 270
-        inner.MarginLeft.Should().BeApproximately(270, 1f);
+        inner.MarginLeft.Should().BeApproximately(270, 1f, "the left margin takes 500 - 200 - 30");
         inner.MarginRight.Should().BeApproximately(30, 1f);
     }
 
     [Fact]
     public void AutoWidth_MarginAuto_DoesNotCenter()
     {
-        // Auto-margin centering only fires when width is explicitly
-        // specified; an auto-width box ignores "margin: auto" for centering.
         var root = LayoutTestHelper.Layout(
             "<div id='wrap' style='width:400px; padding:0; margin:0'>" +
             "<div id='inner' style='margin:0 auto; height:10px'></div></div>", 600, 800);
 
         var inner = root.FindByTag("div")!.Children[0];
-        inner.Width.Should().BeApproximately(400, 1f); // fills container, not centered-with-margin
+        inner.Width.Should().BeApproximately(400, 1f, "an auto-width box fills its container instead of centering");
     }
-
-    // ── table cells ignore their own explicit width style ───────────────────
 
     [Fact]
     public void TableCell_FixedLayoutColumnWidth_OverridesConflictingCellWidthStyle()
     {
-        // Isolates CreateBox's own isTableCell branch (which resolves width from
-        // containingWidth, not the cell's own style) from the auto column-width
-        // algorithm's separate habit of reading a cell's width as a sizing hint:
-        // table-layout:fixed derives column widths from <col> alone, so a
-        // conflicting inline width on the cell can only be reflected if CreateBox
-        // resolved it directly — pin that it does not.
         var root = LayoutTestHelper.Layout(
             "<table style='table-layout:fixed; width:400px'>" +
             "<colgroup><col style='width:300px'><col style='width:100px'></colgroup>" +
@@ -162,6 +128,6 @@ public class BlockLayoutCreateBoxSeamTests
 
         var firstCell = root.FindByTag("td")!;
         firstCell.Width.Should().BeApproximately(300, 1f,
-            "the cell's own width:10px style must be ignored in favor of the column width");
+            "with table-layout:fixed the column widths come from <col> alone, so the cell's own width:10px is ignored");
     }
 }
