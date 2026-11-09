@@ -11,7 +11,7 @@ namespace EggPdf.Css.Cascade;
 /// UA defaults -> author stylesheets (by specificity) -> inline styles.
 /// Handles @media filtering, !important, inheritance.
 /// </summary>
-public class CascadeResolver
+public partial class CascadeResolver
 {
     private readonly List<CssStyleRule> _authorRules = new();
     private readonly List<int> _authorRuleSpecificities = new();
@@ -30,9 +30,10 @@ public class CascadeResolver
     private static readonly string[] PseudoElementNames =
         { "before", "after", "marker", "first-line", "first-letter", "placeholder" };
 
-    private readonly List<(CssDeclaration decl, int specificity, int layerOrder, int order)> _matchScratch = new();
-    private readonly Dictionary<string, (string value, bool important, int specificity, int layerOrder, int order)>
-        _winnersScratch = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<string> _authorRuleSelectors = new();
+    private readonly Dictionary<string, CascadeWinner> _winnersScratch = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<CascadeWinner> _orderedWinnersScratch = new();
+    private readonly HashSet<string> _importantPropertiesScratch = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Cheap per-rule rejection data derived from the rightmost compound.
@@ -64,14 +65,16 @@ public class CascadeResolver
         var media = new MediaQueryEvaluator(mediaType, pageWidth,
             pageHeight > 0f ? pageHeight : pageWidth * DefaultPageAspectRatio);
 
+        var sheetRules = new List<CssStyleRule>();
         foreach (var sheet in stylesheets)
         {
-            AddRules(sheet.Rules);
+            sheetRules.Clear();
+            sheetRules.AddRange(sheet.Rules);
 
             foreach (var mediaRule in sheet.MediaRules)
             {
                 if (media.Matches(mediaRule.MediaQuery))
-                    AddRules(mediaRule.Rules);
+                    sheetRules.AddRange(mediaRule.Rules);
             }
 
             foreach (var containerRule in sheet.ContainerRules)
@@ -79,8 +82,10 @@ public class CascadeResolver
                 var rawCondition = containerRule.Condition.Trim('(', ')').Trim();
                 var condition = NormalizeCondition(rawCondition);
                 if (ContainerQueryResolver.Evaluate(condition, _pageWidth, 0f))
-                    AddRules(containerRule.Rules);
+                    sheetRules.AddRange(containerRule.Rules);
             }
+
+            AddRulesInSourceOrder(sheetRules);
 
             CounterStyleRules.AddRange(sheet.CounterStyleRules);
 
@@ -97,8 +102,8 @@ public class CascadeResolver
     {
         var style = _uaResolver.Resolve(element, parentStyle);
 
-        var matches = _matchScratch;
-        matches.Clear();
+        var winners = _winnersScratch;
+        winners.Clear();
 
         string elemTag = element.TagName;
         string? elemId = element.GetAttribute("id");
@@ -110,59 +115,11 @@ public class CascadeResolver
             if (filter.SkipAlways) continue;
             if (!FilterMightMatch(in filter, elemTag, elemId, elemClass)) continue;
 
-            var rule = _authorRules[ri];
-            if (SelectorMatcher.Matches(rule.SelectorText, element))
-            {
-                int specScore = _authorRuleSpecificities[ri];
-                foreach (var decl in rule.Declarations)
-                    matches.Add((decl, specScore, rule.LayerOrder, ri));
-            }
+            if (SelectorMatcher.Matches(_authorRuleSelectors[ri], element))
+                AddCandidates(winners, _authorRules[ri], _authorRuleSpecificities[ri], ri);
         }
 
-        matches.Sort((a, b) =>
-        {
-            int imp = (a.decl.Important ? 0 : 1).CompareTo(b.decl.Important ? 0 : 1);
-            if (imp != 0) return imp;
-            int spec = a.specificity.CompareTo(b.specificity);
-            if (spec != 0) return spec;
-            int layer = a.layerOrder.CompareTo(b.layerOrder);
-            if (layer != 0) return layer;
-            return a.order.CompareTo(b.order);
-        });
-
-        var propertyWinners = _winnersScratch;
-        propertyWinners.Clear();
-
-        foreach (var (decl, spec, layerOrder, order) in matches)
-        {
-            if (propertyWinners.TryGetValue(decl.Property, out var existing))
-            {
-                if (decl.Important && !existing.important)
-                {
-                    propertyWinners[decl.Property] = (decl.Value, decl.Important, spec, layerOrder, order);
-                }
-                else if (decl.Important == existing.important)
-                {
-                    bool wins = spec > existing.specificity
-                        || (spec == existing.specificity && layerOrder > existing.layerOrder)
-                        || (spec == existing.specificity && layerOrder == existing.layerOrder && order >= existing.order);
-                    if (wins)
-                    {
-                        propertyWinners[decl.Property] = (decl.Value, decl.Important, spec, layerOrder, order);
-                    }
-                }
-            }
-            else
-            {
-                propertyWinners[decl.Property] = (decl.Value, decl.Important, spec, layerOrder, order);
-            }
-        }
-
-        foreach (var kv in propertyWinners)
-        {
-            if (!CssShorthandExpander.TryExpand(kv.Key, kv.Value.value, style))
-                style.Set(kv.Key, kv.Value.value);
-        }
+        var importantProperties = ApplyWinnersInCascadeOrder(winners, style);
 
         var inlineCss = element.GetAttribute("style");
         if (!string.IsNullOrEmpty(inlineCss))
@@ -170,11 +127,18 @@ public class CascadeResolver
             var inlineDecls = CssInlineParser.Parse(inlineCss);
             foreach (var decl in inlineDecls)
             {
-                if (propertyWinners.TryGetValue(decl.Property, out var existing) && existing.important && !decl.Important)
+                if (decl.Important || importantProperties.Count == 0)
+                {
+                    if (!CssShorthandExpander.TryExpand(decl.Property, decl.Value, style))
+                        style.Set(decl.Property, decl.Value);
                     continue;
-
-                if (!CssShorthandExpander.TryExpand(decl.Property, decl.Value, style))
-                    style.Set(decl.Property, decl.Value);
+                }
+                if (importantProperties.Contains(decl.Property)) continue;
+                foreach (var kv in Expanded(decl.Property, decl.Value).All)
+                {
+                    if (!importantProperties.Contains(kv.Key))
+                        style.Set(kv.Key, kv.Value);
+                }
             }
         }
 
@@ -229,17 +193,15 @@ public class CascadeResolver
         if (!_pseudoRules.TryGetValue(pseudo, out var candidates))
             return null;
 
-        var matches = new List<(CssDeclaration decl, int specificity, int order)>();
+        var winners = _winnersScratch;
+        winners.Clear();
         foreach (var (baseSelector, rule, specScore, order) in candidates)
         {
             if (SelectorMatcher.Matches(baseSelector, element))
-            {
-                foreach (var decl in rule.Declarations)
-                    matches.Add((decl, specScore, order));
-            }
+                AddCandidates(winners, rule, specScore, order);
         }
 
-        if (matches.Count == 0) return null;
+        if (winners.Count == 0) return null;
 
         var style = new ComputedStyle();
         if (parentStyle != null)
@@ -251,16 +213,7 @@ public class CascadeResolver
             }
         }
 
-        matches.Sort((a, b) =>
-        {
-            int spec = a.specificity.CompareTo(b.specificity);
-            return spec != 0 ? spec : a.order.CompareTo(b.order);
-        });
-        foreach (var (decl, _, _) in matches)
-        {
-            if (!CssShorthandExpander.TryExpand(decl.Property, decl.Value, style))
-                style.Set(decl.Property, decl.Value);
-        }
+        ApplyWinnersInCascadeOrder(winners, style);
 
         if (pseudo != "first-line" && pseudo != "first-letter" && pseudo != "marker" && pseudo != "placeholder")
         {
@@ -272,61 +225,8 @@ public class CascadeResolver
         return style;
     }
 
-    private static bool IsInherited(string property)
-    {
-        switch (property.ToLowerInvariant())
-        {
-            case "color":
-            case "font-family":
-            case "font-size":
-            case "font-weight":
-            case "font-style":
-            case "font-variant":
-            case "font-variant-caps":
-            case "font-variant-numeric":
-            case "font-variant-ligatures":
-            case "font-variant-alternates":
-            case "line-height":
-            case "text-align":
-            case "white-space":
-            case "white-space-collapse":
-            case "text-wrap":
-            case "text-wrap-mode":
-            case "text-wrap-style":
-            case "letter-spacing":
-            case "word-spacing":
-            case "word-break":
-            case "overflow-wrap":
-            case "word-wrap":
-            case "hyphens":
-            case "visibility":
-            case "text-transform":
-            case "direction":
-            case "list-style-type":
-            case "list-style-position":
-            case "border-collapse":
-            case "border-spacing":
-            case "caption-side":
-            case "empty-cells":
-            case "quotes":
-            case "tab-size":
-            case "font-feature-settings":
-            case "font-synthesis":
-            case "font-size-adjust":
-            case "font-kerning":
-            case "font-optical-sizing":
-            case "font-variation-settings":
-            case "print-color-adjust":
-            case "text-emphasis":
-            case "text-emphasis-style":
-            case "text-emphasis-color":
-            case "text-emphasis-position":
-            case "hanging-punctuation":
-                return true;
-            default:
-                return CssVariableResolver.IsCustomProperty(property);
-        }
-    }
+    private static bool IsInherited(string property) =>
+        _inheritedProps.Contains(property) || CssVariableResolver.IsCustomProperty(property);
 
     /// <summary>
     /// Resolve all var() references in non-custom property values.
@@ -355,23 +255,40 @@ public class CascadeResolver
         }
     }
 
-    private void AddRules(IEnumerable<CssStyleRule> rules)
+    private void AddRulesInSourceOrder(List<CssStyleRule> rules)
     {
-        foreach (var rule in rules)
+        var ordered = new (CssStyleRule Rule, int Sequence)[rules.Count];
+        for (int i = 0; i < rules.Count; i++) ordered[i] = (rules[i], i);
+        Array.Sort(ordered, (a, b) =>
         {
-            var spec = SelectorMatcher.CalculateSpecificity(rule.SelectorText);
-            _authorRuleSpecificities.Add(spec.A * 10000 + spec.B * 100 + spec.C);
+            int bySource = a.Rule.SourceIndex.CompareTo(b.Rule.SourceIndex);
+            return bySource != 0 ? bySource : a.Sequence.CompareTo(b.Sequence);
+        });
+        foreach (var (rule, _) in ordered)
+            AddRule(rule);
+    }
+
+    private void AddRule(CssStyleRule rule)
+    {
+        var selectors = SelectorMatcher.SplitSelectorList(rule.SelectorText);
+        foreach (var part in selectors)
+        {
+            var selector = part.Trim();
+            if (selector.Length == 0) continue;
+            var spec = SelectorMatcher.CalculateSpecificity(selector);
             int order = _authorRules.Count;
+            _authorRuleSpecificities.Add(SpecificityScore(spec));
             _authorRules.Add(rule);
-            _authorRuleFilters.Add(BuildFilter(rule.SelectorText));
-            IndexPseudoElementRule(rule, order);
+            _authorRuleSelectors.Add(selector);
+            _authorRuleFilters.Add(BuildFilter(selector));
+            IndexPseudoElementRule(rule, selector, order);
         }
     }
 
-    /// <summary>If the selector targets a pseudo-element, index it by pseudo name.</summary>
-    private void IndexPseudoElementRule(CssStyleRule rule, int order)
+    private static int SpecificityScore((int A, int B, int C) spec) => spec.A * 10000 + spec.B * 100 + spec.C;
+
+    private void IndexPseudoElementRule(CssStyleRule rule, string sel, int order)
     {
-        var sel = rule.SelectorText;
         foreach (var name in PseudoElementNames)
         {
             string? baseSelector = null;
@@ -385,7 +302,7 @@ public class CascadeResolver
             if (string.IsNullOrEmpty(baseSelector)) continue;
 
             var spec = SelectorMatcher.CalculateSpecificity(baseSelector!);
-            int specScore = spec.A * 10000 + spec.B * 100 + spec.C + PseudoElementSpecificity;
+            int specScore = SpecificityScore(spec) + PseudoElementSpecificity;
 
             if (!_pseudoRules.TryGetValue(name, out var list))
                 _pseudoRules[name] = list = new List<(string, CssStyleRule, int, int)>();
@@ -548,10 +465,11 @@ public class CascadeResolver
         ["clear"] = "none",
     };
 
-    private static void ResolveCssWideKeywords(ComputedStyle style, ComputedStyle? parentStyle, HtmlElement element)
+    private void ResolveCssWideKeywords(ComputedStyle style, ComputedStyle? parentStyle, HtmlElement element)
     {
         List<(string key, string newValue)>? updates = null;
         List<string>? removals = null;
+        ComputedStyle? userAgentStyle = null;
 
         foreach (var kv in style.All)
         {
@@ -603,19 +521,11 @@ public class CascadeResolver
                         remove = true;
                 }
             }
-            else // revert: treat as inherit for inherited props, remove (UA default) otherwise
+            else
             {
-                bool isInherited = _inheritedProps.Contains(kv.Key);
-                if (isInherited)
-                {
-                    var parentVal = parentStyle?.Get(kv.Key);
-                    if (parentVal != null) resolved = parentVal;
-                    else remove = true;
-                }
-                else
-                {
-                    remove = true;
-                }
+                userAgentStyle ??= _uaResolver.Resolve(element, parentStyle);
+                resolved = userAgentStyle.Get(kv.Key);
+                if (resolved == null) remove = true;
             }
 
             if (resolved != null)

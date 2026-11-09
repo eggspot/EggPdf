@@ -297,7 +297,7 @@ public class CssVariablesTests
     }
 
     [Fact]
-    public void Layer_HigherSpecificityInEarlierLayer_WinsOverLowerSpecificityUnlayered()
+    public void Layer_HigherSpecificityInALayer_LosesToLowerSpecificityUnlayered()
     {
         var css = "@layer base { #id { color: red; } } p { color: blue; }";
         var doc = HtmlParser.Parse("<p id='id'>Text</p>");
@@ -305,8 +305,8 @@ public class CssVariablesTests
         var resolver = new CascadeResolver(new[] { sheet });
         var p = doc.FindByTag("body")!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
         var style = resolver.Resolve(p, null);
-        style.Color.Should().Be("red",
-            "higher-specificity rule in an earlier layer wins over lower-specificity unlayered rule");
+        style.Color.Should().Be("blue",
+            "layer order is compared before specificity (CSS Cascade 5), so the unlayered rule wins");
     }
 
     [Fact]
