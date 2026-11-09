@@ -111,7 +111,7 @@ If something fails, fix it (show each fix), commit the fixes (`fix: ...`) and re
 2. `git push -u origin HEAD`. Never force-push.
 3. No open PR for the branch (step 1.6): `gh pr create --base main --title "{title}" --body-file <scratchpad file>`. An open PR already exists: `gh pr edit {n} --title "{title}" --body-file <scratchpad file>`, and `gh pr ready {n}` if it is a draft.
 
-**Title:** `{type}: {what the user gets}` in plain words, lowercase after the prefix, no trailing period, `!` after the type for a breaking change — the same style as the repo's history (`feat: stamp images onto pages of an existing PDF -- PdfStamper`). The title becomes the squash commit's subject, so its prefix decides the release: pick it for the whole PR, not the last commit.
+**Title:** `{type}: {what the user gets}` in plain words, lowercase after the prefix, no trailing period, `!` after the type for a breaking change — the same style as the repo's history (`feat: stamp images onto pages of an existing PDF -- PdfStamper`). The title becomes the squash commit's subject, so its prefix decides the release: pick it for the whole PR, not the last commit. The title is also copied into the release notes: write every CSS at-rule and code name in backticks (`` `@page` ``, `` `@media` ``), because a bare `@word` mentions and notifies the GitHub account of that name.
 
 **Body** — write from the actual diff, the plan and the review report. Omit sections that don't apply; keep sentences short and concrete:
 

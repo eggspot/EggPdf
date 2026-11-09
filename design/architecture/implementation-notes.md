@@ -266,6 +266,21 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 - `feImage` bitmaps are decoded from PNG, GIF, BMP and WebP data URIs only; JPEG stays DCT-compressed
   and is not used as a filter input.
 
+## .github/workflows/publish.yml
+
+- Publish runs are queued, never cancelled (`concurrency: publish`). Two merges seconds apart would
+  otherwise both read the same last tag, compute the same next version and race to create it:
+  NuGet's `--skip-duplicate` makes the second package push harmless, but `git tag` / `git push` of
+  the tag is not, so the second run would fail. A queued run re-reads the tag when its turn comes
+  and computes the version after the previous one.
+- `site/**/*.html` keeps the version as the literal placeholder `__EGGPDF_VERSION__`, which
+  `pages.yml` substitutes at deploy time without committing. Committing the substitution would
+  leave nothing to replace in the next release.
+- Release notes are generated from merged PR titles. Any `@word` in them except the author credits
+  (`by @user in`, `@user made their first contribution`) is wrapped in backticks before the release
+  is created: a PR title that mentions a CSS at-rule (`@page`, `@media`) would otherwise mention, and
+  notify, the GitHub account of that name and list it as a contributor.
+
 ## EggPdf.Text/SystemFontLocator.cs
 
 - The font file list is discovered once per process: the directory walk is expensive (hundreds of
