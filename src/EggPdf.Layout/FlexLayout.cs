@@ -189,17 +189,7 @@ public static partial class FlexLayout
             float lineH = TextMeasurer.GetLineHeight(fontSize, containerStyle.Get("line-height"));
             bool centerLines = containerStyle.Get("text-align") == "center";
 
-            var anonStyle = new ComputedStyle();
-            foreach (var kv in containerStyle.All)
-            {
-                if (kv.Key.StartsWith("border", StringComparison.Ordinal) ||
-                    kv.Key.StartsWith("background", StringComparison.Ordinal) ||
-                    kv.Key.StartsWith("box-shadow", StringComparison.Ordinal) ||
-                    kv.Key.StartsWith("outline", StringComparison.Ordinal) ||
-                    kv.Key.StartsWith("padding", StringComparison.Ordinal))
-                    continue;
-                anonStyle.Set(kv.Key, kv.Value);
-            }
+            var anonStyle = AnonymousBoxStyle.From(containerStyle);
 
             float maxW = 0;
             for (int li = 0; li < anonLines.Count; li++)
@@ -431,7 +421,9 @@ public static partial class FlexLayout
 
         for (int i = 0; i < items.Count; i++)
         {
-            float itemSize = items[i].HypotheticalMainSize;
+            var box = items[i].Box;
+            float itemSize = items[i].HypotheticalMainSize +
+                (isRow ? box.MarginLeft + box.MarginRight : box.MarginTop + box.MarginBottom);
             float gapBefore = currentLine.Items.Count > 0 ? mainGap : 0;
 
             if (currentLine.Items.Count > 0 && usedMain + gapBefore + itemSize > mainSize)
@@ -471,26 +463,7 @@ public static partial class FlexLayout
 
         if (freeSpace > 0)
         {
-            float totalGrow = 0;
-            for (int i = 0; i < line.Items.Count; i++)
-                totalGrow += line.Items[i].FlexGrow;
-
-            for (int i = 0; i < line.Items.Count; i++)
-            {
-                var item = line.Items[i];
-                if (totalGrow > 0 && item.FlexGrow > 0)
-                {
-                    float extraSpace = freeSpace * (item.FlexGrow / totalGrow);
-                    item.MainSize = item.HypotheticalMainSize + extraSpace;
-                }
-                else
-                {
-                    item.MainSize = item.HypotheticalMainSize;
-                }
-
-                if (item.MainSize < item.MinMain) item.MainSize = item.MinMain;
-                if (item.MainSize > item.MaxMain) item.MainSize = item.MaxMain;
-            }
+            GrowItemsHonoringLimits(line.Items, freeSpace);
         }
         else if (freeSpace < 0)
         {
@@ -517,6 +490,38 @@ public static partial class FlexLayout
                 item.Box.ContentHeight = item.MainSize - item.Box.PaddingTop - item.Box.PaddingBottom;
                 if (item.Box.ContentHeight < 0) item.Box.ContentHeight = 0;
             }
+        }
+    }
+
+    private static void GrowItemsHonoringLimits(List<FlexItem> items, float freeSpace)
+    {
+        bool[]? frozen = null;
+        for (int pass = 0; pass <= items.Count; pass++)
+        {
+            float totalGrow = 0f, takenByFrozen = 0f;
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (frozen != null && frozen[i]) takenByFrozen += items[i].MainSize - items[i].HypotheticalMainSize;
+                else totalGrow += items[i].FlexGrow;
+            }
+
+            float remaining = freeSpace - takenByFrozen;
+            bool anyClamped = false;
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (frozen != null && frozen[i]) continue;
+                var item = items[i];
+                float growth = totalGrow > 0f && item.FlexGrow > 0f ? remaining * item.FlexGrow / totalGrow : 0f;
+                item.MainSize = item.HypotheticalMainSize + growth;
+                if (item.MainSize > item.MaxMain || item.MainSize < item.MinMain)
+                {
+                    item.MainSize = item.MainSize > item.MaxMain ? item.MaxMain : item.MinMain;
+                    frozen ??= new bool[items.Count];
+                    frozen[i] = true;
+                    anyClamped = true;
+                }
+            }
+            if (!anyClamped) return;
         }
     }
 
@@ -608,7 +613,7 @@ public static partial class FlexLayout
                 for (int i = 0; i < lines.Count; i++)
                 {
                     offsets[i] = offset;
-                    offset += lines[i].CrossSize + gap;
+                    offset += lines[i].CrossSize + gap + crossGap;
                 }
                 break;
             }
@@ -619,7 +624,7 @@ public static partial class FlexLayout
                 for (int i = 0; i < lines.Count; i++)
                 {
                     offsets[i] = offset;
-                    offset += lines[i].CrossSize + gap;
+                    offset += lines[i].CrossSize + gap + crossGap;
                 }
                 break;
             }
@@ -630,7 +635,7 @@ public static partial class FlexLayout
                 for (int i = 0; i < lines.Count; i++)
                 {
                     offsets[i] = offset;
-                    offset += lines[i].CrossSize + gap;
+                    offset += lines[i].CrossSize + gap + crossGap;
                 }
                 break;
             }
@@ -742,15 +747,15 @@ public static partial class FlexLayout
         int count = line.Items.Count;
         for (int idx = 0; idx < count; idx++)
         {
-            int i = isReverse ? count - 1 - idx : idx;
-            var item = line.Items[i];
+            var item = line.Items[idx];
 
             if (isRow)
             {
                 if (autoMarginShare > 0 && item.Style.Get("margin-left") == "auto")
                     pos += autoMarginShare;
                 pos += item.Box.MarginLeft;
-                float newX = container.X + container.PaddingLeft + pos;
+                float start = isReverse ? mainSize - pos - item.MainSize : pos;
+                float newX = container.X + container.PaddingLeft + start;
                 float deltaX = newX - item.Box.X;
                 item.Box.X = newX;
                 if (Math.Abs(deltaX) > 0.01f)
@@ -764,7 +769,8 @@ public static partial class FlexLayout
                 if (autoMarginShare > 0 && item.Style.Get("margin-top") == "auto")
                     pos += autoMarginShare;
                 pos += item.Box.MarginTop;
-                item.Box.Y = container.Y + container.PaddingTop + pos;
+                float start = isReverse ? mainSize - pos - item.MainSize : pos;
+                item.Box.Y = container.Y + container.PaddingTop + start;
                 pos += item.MainSize + item.Box.MarginBottom;
                 if (autoMarginShare > 0 && item.Style.Get("margin-bottom") == "auto")
                     pos += autoMarginShare;
@@ -833,7 +839,7 @@ public static partial class FlexLayout
         for (int i = 0; i < line.Items.Count; i++)
         {
             var item = line.Items[i];
-            string alignment = item.AlignSelf ?? alignItems;
+            string alignment = item.AlignSelf == null || item.AlignSelf == "auto" ? alignItems : item.AlignSelf;
 
             float itemCross;
             float itemMarginBefore;
