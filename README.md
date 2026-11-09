@@ -353,6 +353,12 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   those listed above are not shaped
 - Browser-parity metrics: text measured with the real font, baselines like Chrome
 - Automatic hyphenation
+- Text that shares a line with inline elements (`<b>`, `<span>`, `<a>`, ...) keeps every text feature of a
+  plain paragraph: `text-align: justify`, `overflow-wrap: break-word`, bidi word order in `direction: rtl`
+  and in mixed Arabic/Hebrew lines, `::first-letter` and `initial-letter`, `line-clamp`, `hyphens: auto` and
+  `text-wrap: balance`; a larger inline run lowers the line's other text to a shared baseline instead of
+  overlapping the line above
+- Negative `text-indent` (hanging indents); a justified paragraph's last line is never stretched
 - Line breaks after hyphens (`enterprise-grade`, not before digits as in `2026-11-08`), at zero-width
   spaces, and at soft hyphens (`&shy;`, shown as `-` only when the line breaks there)
 - `font-feature-settings` (e.g. `"zero" 1`, `"smcp" 1`) applies single-glyph OpenType
