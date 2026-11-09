@@ -1,5 +1,5 @@
 ## What's Changed
-* fix: text beside inline elements gets bidi word order, `::first-letter`, line-clamp, hyphenation and balance; negative text-indent; justified last lines by @cloud-hai-vo in https://github.com/eggspot/EggPdf/pull/292
+* fix: grid negative lines and minmax, flex reverse and wrap, relative offsets, translate percentages, outlines, shadows, border colours and faster pagination by @cloud-hai-vo in https://github.com/eggspot/EggPdf/pull/294
 
 
-**Full Changelog**: https://github.com/eggspot/EggPdf/compare/v2.0.2...v2.0.3
+**Full Changelog**: https://github.com/eggspot/EggPdf/compare/v2.0.3...v2.0.4
