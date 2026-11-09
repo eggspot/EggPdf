@@ -70,4 +70,36 @@ public class DataUriResolverTests
         result.Should().NotBeNull();
         result!.Data.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task Resolve_MalformedBase64_ReturnsNullInsteadOfThrowing()
+    {
+        var result = await _resolver.ResolveAsync("data:image/png;base64,not*base64!", ResourceType.Image);
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void TryDecode_PercentEncodedSvg_DecodesTheMarkup()
+    {
+        DataUri.TryDecode("data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%2F%3E",
+            out var bytes, out var mimeType).Should().BeTrue();
+
+        mimeType.Should().Be("image/svg+xml;charset=utf-8");
+        System.Text.Encoding.UTF8.GetString(bytes).Should().Be("<svg xmlns='http://www.w3.org/2000/svg'/>");
+    }
+
+    [Fact]
+    public void TryDecode_PercentEncodedBase64_DecodesTheBytes()
+    {
+        DataUri.TryDecode("data:application/octet-stream;base64,%2B%2F8%3D", out var bytes, out _).Should().BeTrue();
+
+        bytes.Should().Equal(0xFB, 0xFF);
+    }
+
+    [Fact]
+    public void TryDecode_NoComma_ReturnsFalse()
+    {
+        DataUri.TryDecode("data:image/png;base64", out _, out _).Should().BeFalse();
+    }
 }

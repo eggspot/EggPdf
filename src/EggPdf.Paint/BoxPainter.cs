@@ -1110,14 +1110,7 @@ public static partial class BoxPainter
         if (loader != null) return loader(url);
 
         if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-        {
-            int comma = url.IndexOf(',');
-            if (comma > 0)
-            {
-                try { return Convert.FromBase64String(url.Substring(comma + 1)); }
-                catch { return null; }
-            }
-        }
+            return EggPdf.Core.Resources.DataUri.TryDecode(url, out var bytes, out _) ? bytes : null;
         try { if (System.IO.File.Exists(url)) return System.IO.File.ReadAllBytes(url); }
         catch { }
         return null;

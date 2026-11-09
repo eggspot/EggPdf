@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using EggPdf.Core;
@@ -196,20 +195,6 @@ internal sealed class ResourceLoader
     }
 
     /// <summary>Decode data:[&lt;mediatype&gt;][;base64],&lt;data&gt; to bytes (percent-decoded UTF-8 when not base64).</summary>
-    internal static byte[]? DecodeDataUri(string dataUri)
-    {
-        int comma = dataUri.IndexOf(',');
-        if (comma < 0) return null;
-
-        var header = dataUri.Substring(5, comma - 5);
-        var data = dataUri.Substring(comma + 1);
-        if (header.IndexOf("base64", StringComparison.OrdinalIgnoreCase) >= 0)
-        {
-            try { return Convert.FromBase64String(data); }
-            catch { return null; }
-        }
-
-        try { return Encoding.UTF8.GetBytes(Uri.UnescapeDataString(data)); }
-        catch { return Encoding.UTF8.GetBytes(data); }
-    }
+    internal static byte[]? DecodeDataUri(string dataUri) =>
+        DataUri.TryDecode(dataUri, out var bytes, out _) ? bytes : null;
 }
