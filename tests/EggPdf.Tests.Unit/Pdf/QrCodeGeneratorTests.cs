@@ -64,6 +64,23 @@ public class QrCodeGeneratorTests
     }
 
     [Fact]
+    public void EncodedSymbol_VersionSeven_BothVersionBlocksHoldTheSpecValue()
+    {
+        var modules = QrCodeGenerator.EncodeToModules(new string('x', 120))!;
+        int size = modules.GetLength(0);
+
+        int bottomLeft = 0, topRight = 0;
+        for (int i = 0; i < 18; i++)
+        {
+            if (modules[size - 11 + i % 3, i / 3]) bottomLeft |= 1 << i;
+            if (modules[i / 3, size - 11 + i % 3]) topRight |= 1 << i;
+        }
+
+        bottomLeft.Should().Be(0x07C94);
+        topRight.Should().Be(0x07C94);
+    }
+
+    [Fact]
     public void Generate_PayloadBeyondVersionTen_ReturnsEmpty()
     {
         QrCodeGenerator.Generate(new string('x', 300), 0, 0, 100).Should().BeEmpty();
