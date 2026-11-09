@@ -129,6 +129,42 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
   single-column cells; the remaining columns share the leftover width equally. Auto-layout widths
   are cached per table element for the whole layout run.
 
+## EggPdf.Paint/BoxPainter.cs
+
+- An element's `id` is registered as a link destination before the visibility check: a
+  `visibility: hidden` element still occupies its box and a browser still scrolls to it.
+- With PDF/UA tagging, each box's whole paint output is one BDC/EMC span attributed to the
+  structure element `StructureTreeBuilder` assigned it; untagged renders skip that entirely.
+- Anonymous text boxes inherit the parent's style but paint no background or border: those belong
+  to the parent element's box. `empty-cells: hide` suppresses both for a cell with no text or image.
+- Arabic is shaped on logical-order text, before the bidi reorder; complex scripts (Thai, Indic,
+  Arabic with marks) are shaped from the logical text and painted from their own embedded font,
+  registered as `<font>-CX<script>`, falling back to the normal path when it isn't embedded.
+- `text-align: justify` treats a line shorter than half the container as a paragraph's last line
+  and aligns it by `text-align-last`.
+- The baseline sits half the leading above the ascent (real font metrics when available), like a
+  browser; a full em below the line top made large fonts with tight line-height overlap the next
+  line.
+- Text with no colour paints opaque black (the CSS initial colour), so a `filter` still applies.
+- A run containing COLR/CPAL colour glyphs (emoji) paints one code point at a time: a PDF text
+  operator paints a whole string in one colour, but a colour glyph is several layers in their own
+  colours. Each step advances by the base glyph's advance plus letter-spacing; word-spacing and
+  cross-font fallback are not applied there.
+- Glyph fallback: a code point the main font lacks uses the first fallback font that has it; an
+  Arabic presentation form no font has is replaced by its base letters (disconnected but legible);
+  a default-ignorable format character is dropped; anything else is `.notdef` in the main font.
+- `object-position` Y is mirrored because the image rectangle is already in PDF's bottom-up space.
+- Margin boxes: page 1 prefers a `:first` box, even pages `:left`, other odd pages `:right`, each
+  falling back to the base `@page` box for that position; untagged fixed boxes always paint.
+- `image-set()` picks the candidate whose density is closest to 1x, like `ResolveSrcset`: a PDF is a
+  fixed 1x print context.
+- An internal `#fragment` href is percent-decoded like a browser (`#sec%20one` → "sec one").
+- The checked state of a checkbox is the accent colour over the whole control plus a white check;
+  a radio gets an accent dot. The unchecked state is just the control's own border and background.
+- 3D transforms are flattened to 2D: `rotateX`/`rotateY` compress one axis by the cosine, Z
+  translation and scale are dropped, `matrix3d` keeps its 2D affine part (m0, m1, m4, m5, m12, m13).
+- `z-index` sorting is stable, so equal z-indices keep document order.
+
 ## EggPdf/PdfRenderer.cs
 
 - Paint order is the z-index-sorted box list, not a tree walk, so a box's clipping ancestors
