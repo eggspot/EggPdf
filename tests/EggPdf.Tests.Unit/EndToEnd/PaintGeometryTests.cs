@@ -167,6 +167,37 @@ public class PaintGeometryTests
         StrokeGreys(content).Should().Equal("0.66", "0.33", "0.33", "0.66");
     }
 
+    private static int Count(string content, string pattern) => Regex.Matches(content, pattern).Count;
+
+    [Fact]
+    public void RoundedDashedBorder_FollowsTheCornersOnEverySide()
+    {
+        var content = Content("<div style='width:100px;height:50px;border:4px dashed #00f;border-radius:12px'></div>");
+
+        Count(content, @"l h W n").Should().Be(4, "each side is clipped to its own corner-to-corner trapezoid");
+        Count(content, @"\[9\.00 9\.00\] 0 d").Should().Be(4, "every side strokes the rounded ring with a 3x-width dash");
+        Count(content, @" c\n").Should().Be(16, "each side strokes the rounded ring, which has four curved corners");
+    }
+
+    [Fact]
+    public void RoundedGrooveBorder_ShadesBothHalvesAlongTheCorners()
+    {
+        var content = Content("<div style='width:100px;height:50px;border:4px groove rgb(128,128,128);border-radius:12px'></div>");
+
+        StrokeGreys(content).Should().Equal("0.17", "0.83", "0.83", "0.17", "0.83", "0.17", "0.17", "0.83");
+        Count(content, @"h S").Should().Be(8);
+    }
+
+    [Fact]
+    public void RoundedSolidBorder_WithDifferentSideColours_PaintsEachColourAlongTheCorners()
+    {
+        var content = Content("<div style='width:100px;height:50px;border:4px solid;border-color:#f00 #0f0 #00f #000;border-radius:12px'></div>");
+
+        content.Should().Contain("1.00 0.00 0.00 RG").And.Contain("0.00 1.00 0.00 RG").And.Contain("0.00 0.00 1.00 RG").And.Contain("0.00 0.00 0.00 RG");
+        Count(content, @"l h W n").Should().Be(4);
+        Count(content, @"h S").Should().Be(4);
+    }
+
     [Fact]
     public void GrooveBorder_PaintsTheOuterHalfInsetAndTheInnerHalfOutset()
     {

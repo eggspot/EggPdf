@@ -1240,6 +1240,21 @@ public static partial class BoxPainter
             return;
         }
 
+        if (!radii.IsSquare)
+        {
+            for (int s = 0; s < 4; s++)
+            {
+                if (sideWidths[s] <= 0) continue;
+                bool translucent = BeginStrokeAlpha(page, sideA[s]);
+                page.AddRoundedBorderSide(pdfX, pdfY, pdfW, pdfH, radii,
+                    sideWidths[0] * PdfCoordinates.PxToPt, sideWidths[1] * PdfCoordinates.PxToPt,
+                    sideWidths[2] * PdfCoordinates.PxToPt, sideWidths[3] * PdfCoordinates.PxToPt,
+                    (BorderSide)s, sideR[s], sideG[s], sideB[s], sideStyles[s]);
+                EndStrokeAlpha(page, translucent);
+            }
+            return;
+        }
+
         float top = pdfY + pdfH;
         float right = pdfX + pdfW;
         float topInset = sideWidths[0] * PdfCoordinates.PxToPt / 2f;

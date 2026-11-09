@@ -251,7 +251,8 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   translucent stops
 - Borders: `border-radius` per corner with elliptical radii (`50%`, `20px / 10px`), scaled down
   together when they overflow a side; `inset`, `outset`, `groove` and `ridge` shade each side the way
-  Chrome does
+  Chrome does; dashed, dotted, double and 3D borders, and sides of different colours, follow the
+  rounded corners
 - `opacity` fades the element and everything inside it (nested opacities multiply); borders take
   layout space (`box-sizing` aware, `medium` when no width is given); margins collapse between
   siblings and between a parent and its first/last child (negative margins included); inline
