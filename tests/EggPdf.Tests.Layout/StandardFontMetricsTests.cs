@@ -78,4 +78,36 @@ public class StandardFontMetricsTests
         var result = StandardFontMetrics.ResolvePdfFontName("Arial, sans-serif", "bold", null, "normal");
         result.Should().Be("Arial-Bold");
     }
+
+    [Theory]
+    [InlineData("Times-Bold", 'W', 1000f)]
+    [InlineData("Times-Bold", 'b', 556f)]
+    [InlineData("Times-Italic", 'm', 722f)]
+    [InlineData("Times-Italic", 'A', 611f)]
+    [InlineData("Times-BoldItalic", 'A', 667f)]
+    [InlineData("Times-Roman", 'W', 944f)]
+    public void MeasureCharWidth_TimesVariants_UseTheirOwnAfmWidths(string font, char ch, float expected)
+    {
+        StandardFontMetrics.MeasureCharWidth(ch, 1000f, font).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData((char)0x00E9, 'e')]
+    [InlineData((char)0x00C5, 'A')]
+    [InlineData((char)0x00F1, 'n')]
+    [InlineData((char)0x00DC, 'U')]
+    [InlineData((char)0x00A0, ' ')]
+    public void MeasureCharWidth_Latin1Letter_MeasuresAsItsBaseLetter(char accented, char baseLetter)
+    {
+        StandardFontMetrics.MeasureCharWidth(accented, 1000f, "Helvetica")
+            .Should().Be(StandardFontMetrics.MeasureCharWidth(baseLetter, 1000f, "Helvetica"));
+    }
+
+    [Fact]
+    public void MeasureWidth_AccentedWord_EqualsUnaccentedWord()
+    {
+        var accented = "caf" + (char)0x00E9;
+        StandardFontMetrics.MeasureWidth(accented, 12f, "Times-Bold")
+            .Should().Be(StandardFontMetrics.MeasureWidth("cafe", 12f, "Times-Bold"));
+    }
 }

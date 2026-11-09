@@ -398,7 +398,9 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   size (5 GB+) holding only the small update in memory.
   REST `POST /api/stamp`
 - JPEG images keep their colour space (grayscale, RGB, CMYK incl. Adobe-inverted) instead of always being tagged RGB
-- QR codes and barcodes
+- QR codes and barcodes as vector PDF content from C# (`QrCodeGenerator.Generate`: byte mode, UTF-8, error
+  correction level M, versions 1-10 up to 213 bytes; `BarcodeGenerator.GenerateCode128` and `GenerateEAN13`). These
+  return content-stream operators for the PDF writer; there is no HTML element for them, so in HTML use an image
 - ZUGFeRD/Factur-X e-invoicing (`HtmlToPdf.Render(html, PdfAConformance.PdfA3b, new FacturXInvoice {...})`,
   `PdfRenderOptions.Invoice`, the CLI's `--invoice <path>` flag, or the REST API's `options.invoice`
   field): embeds the UN/CEFACT CII invoice XML as a PDF/A-3 attachment with the Factur-X XMP

@@ -103,21 +103,15 @@ public static class PdfGradient
     }
 
     /// <summary>
-    /// Render a CSS repeating-radial-gradient() as PDF content stream commands.
-    /// Approximated as radial gradient bands (same as radial-gradient, patterns not repeated).
+    /// Render a CSS repeating-radial-gradient() as PDF content stream commands (see <see cref="PdfRadialGradient"/>).
     /// </summary>
-    public static string? RenderRepeatingRadialGradient(string cssGradient, float x, float y, float width, float height)
-    {
-        if (string.IsNullOrEmpty(cssGradient)) return null;
-        var remapped = "radial-gradient(" +
-            cssGradient.Substring("repeating-radial-gradient(".Length);
-        return PdfRadialGradient.Render(remapped, x, y, width, height);
-    }
+    public static string? RenderRepeatingRadialGradient(string cssGradient, float x, float y, float width, float height) =>
+        PdfRadialGradient.Render(cssGradient, x, y, width, height);
 
-    private static string OpacityStateName(float alpha) =>
+    internal static string OpacityStateName(float alpha) =>
         "GS" + ((int)Math.Round(Math.Max(0f, Math.Min(1f, alpha)) * 100f)).ToString(CultureInfo.InvariantCulture);
 
-    private static bool TryParseAngle(string value, out float degrees)
+    internal static bool TryParseAngle(string value, out float degrees)
     {
         degrees = 0f;
         value = value.Trim().ToLowerInvariant();
@@ -149,7 +143,7 @@ public static class PdfGradient
         return 180f;
     }
 
-    private static List<string> SplitGradientArgs(string args)
+    internal static List<string> SplitGradientArgs(string args)
     {
         var result = new List<string>();
         int depth = 0;
