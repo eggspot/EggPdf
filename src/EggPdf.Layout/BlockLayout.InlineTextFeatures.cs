@@ -160,7 +160,7 @@ public static partial class BlockLayout
             last.ContentWidth = TextMeasurer.MeasureWidth(last.Text, fontSize, last.Style.FontFamily,
                 last.Style.FontWeight, last.Style.Get("font-style"), letterSpacing);
             last.Width = last.ContentWidth + last.PaddingLeft + last.PaddingRight;
-            last.SkipsJustification = true;
+            last.Justification = LineJustification.NotJustifiable;
             return;
         }
     }

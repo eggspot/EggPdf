@@ -11,7 +11,7 @@ public static partial class BlockLayout
     {
         if (box.Children.Count == 0) return;
         var last = box.Children[box.Children.Count - 1];
-        if (last.IsInlineFlowItem) last.SkipsJustification = true;
+        if (last.IsInlineFlowItem) last.Justification = LineJustification.NotJustifiable;
     }
 
     internal static void FinishInlineLines(LayoutBox box, float availableWidth, FloatContext? floats, float floatOriginY)
@@ -82,7 +82,7 @@ public static partial class BlockLayout
 
             if (justify)
             {
-                bool justifiable = lineStart != lastLineStart && !children[lineEnd - 1].SkipsJustification;
+                bool justifiable = lineStart != lastLineStart && children[lineEnd - 1].Justification != LineJustification.NotJustifiable;
                 if (justifiable)
                     JustifyLine(box, lineStart, lineEnd, availableWidth, floats, floatOriginY, lineTop, left, right, height);
             }

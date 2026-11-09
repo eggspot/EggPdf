@@ -544,7 +544,7 @@ public static partial class BoxPainter
                     textX += availableWidth - textWidth;
                 else if (textAlign == "justify" && !box.IsInlineFlowItem)
                 {
-                    if (box.IsJustifiableLine)
+                    if (box.Justification == LineJustification.Justifiable)
                     {
                         int spaceCount = 0;
                         for (int si = 0; si < box.Text!.Length; si++)

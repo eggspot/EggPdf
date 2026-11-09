@@ -243,7 +243,7 @@ public class InlineFlowTextFeatureTests
 
         var lines = root.FindById("p")!.FindAll(b => !string.IsNullOrEmpty(b.Text) && b.Children.Count == 0).OrderBy(b => b.Y).ToList();
         lines.Should().HaveCountGreaterThan(1);
-        lines.Last().IsJustifiableLine.Should().BeFalse();
-        lines.Take(lines.Count - 1).Should().OnlyContain(l => l.IsJustifiableLine);
+        lines.Last().Justification.Should().Be(LineJustification.NotJustifiable);
+        lines.Take(lines.Count - 1).Should().OnlyContain(l => l.Justification == LineJustification.Justifiable);
     }
 }

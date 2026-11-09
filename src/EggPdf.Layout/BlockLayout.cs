@@ -1119,7 +1119,7 @@ public static partial class BlockLayout
                                 ContentWidth = remWidth,
                                 ContentHeight = lineHeight,
                                 Text = remainder,
-                                IsJustifiableLine = !isLastLine
+                                Justification = isLastLine ? LineJustification.NotJustifiable : LineJustification.Justifiable
                             };
                             box.Children.Add(remBox);
                         }
@@ -1139,7 +1139,7 @@ public static partial class BlockLayout
                             ContentWidth = TextMeasurer.MeasureWidth(line, fontSize, fontFamily, fontWeight, fontStyle, blockLetterSpacing),
                             ContentHeight = lineHeight,
                             Text = line,
-                            IsJustifiableLine = !isLastLine
+                            Justification = isLastLine ? LineJustification.NotJustifiable : LineJustification.Justifiable
                         };
                         box.Children.Add(textBox);
                         childY += lineHeight;
