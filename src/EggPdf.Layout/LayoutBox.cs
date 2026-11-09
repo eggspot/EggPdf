@@ -41,7 +41,7 @@ public class LayoutBox
 
     internal bool IsInlineFlowItem => !float.IsNaN(InlineLineTop);
 
-    internal bool EndsLineAtForcedBreak { get; set; }
+    internal LineJustification Justification { get; set; }
 
     public ComputedStyle Style { get; set; } = new();
     public string? Text { get; set; }

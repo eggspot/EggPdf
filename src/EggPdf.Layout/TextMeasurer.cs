@@ -14,6 +14,8 @@ public static class TextMeasurer
 
     private static readonly Hyphenator _englishHyphenator = Hyphenator.CreateEnglish();
 
+    internal static int[] HyphenationPoints(string word) => _englishHyphenator.Hyphenate(word);
+
     /// <summary>
     /// Optional per-render provider resolving (font-family list, weight, style)
     /// to a real parsed font whose advance widths are used for measurement.
