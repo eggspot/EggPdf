@@ -70,7 +70,7 @@ internal static class SfntWriter
         U16w(ends.Length);
         U16w(xMin); U16w(yMin); U16w(xMax); U16w(yMax);
         foreach (int e in ends) U16w(e);
-        U16w(0); // no instructions: the outline was rebuilt, so any original hinting no longer applies
+        U16w(0);
 
         for (int i = 0; i < n; i++) w.Add((byte)(flags[i] & 0x01)); // on-curve bit only; 16-bit coordinates
         int prev = 0;

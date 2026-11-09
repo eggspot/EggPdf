@@ -382,3 +382,8 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
   lsb shifts glyphs whose outline doesn't start at x = 0, most visibly zero-width combining marks.
 - The cmap uses format 4 (delta mapping only, so a segment must be contiguous in both code points and
   glyph IDs) unless a code point is outside the BMP, which needs format 12.
+
+## EggPdf.Text/TrueType/SfntWriter.cs
+
+- A rebuilt simple glyph is written with no hinting instructions: its outline was rebuilt (CFF conversion,
+  variable-font instancing), so the original instructions no longer apply.
