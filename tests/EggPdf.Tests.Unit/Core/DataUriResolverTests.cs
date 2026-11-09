@@ -8,35 +8,35 @@ namespace EggPdf.Tests.Unit.Core;
 
 public class DataUriResolverTests
 {
+    private const byte PngSignatureFirstByte = 0x89;
+
     private readonly DataUriResolver _resolver = new();
 
     [Fact]
     public async Task Resolve_Base64Png_DecodesCorrectly()
     {
-        // 1x1 red pixel PNG as base64
-        var url = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+        var onePixelRedPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
 
-        var result = await _resolver.ResolveAsync(url, ResourceType.Image);
+        var result = await _resolver.ResolveAsync(onePixelRedPng, ResourceType.Image);
 
         result.Should().NotBeNull();
         result!.MimeType.Should().Be("image/png");
         result.Data.Should().NotBeEmpty();
-        result.Data[0].Should().Be(0x89); // PNG magic byte
+        result.Data[0].Should().Be(PngSignatureFirstByte);
         result.Data[1].Should().Be((byte)'P');
     }
 
     [Fact]
     public async Task Resolve_Base64Jpeg_DecodesCorrectly()
     {
-        var bytes = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 }; // JPEG magic
-        var b64 = Convert.ToBase64String(bytes);
-        var url = $"data:image/jpeg;base64,{b64}";
+        var jpegSignature = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 };
+        var url = $"data:image/jpeg;base64,{Convert.ToBase64String(jpegSignature)}";
 
         var result = await _resolver.ResolveAsync(url, ResourceType.Image);
 
         result.Should().NotBeNull();
         result!.MimeType.Should().Be("image/jpeg");
-        result.Data.Should().BeEquivalentTo(bytes);
+        result.Data.Should().BeEquivalentTo(jpegSignature);
     }
 
     [Fact]

@@ -41,7 +41,6 @@ public static partial class BlockLayout
             : box.X + box.PaddingLeft + mLeft;
         box.Children.Add(image);
 
-        // Exclusion: the margin box for a plain float; a shape is defined on the border box
         var shape = ShapeOutsideParser.Parse(style.Get("shape-outside"), width, height, imgFontSize,
             ShapeOutsideParser.ParseThreshold(style.Get("shape-image-threshold")));
         float regY = floatOriginY + box.PaddingTop + childY + mTop;
@@ -51,7 +50,6 @@ public static partial class BlockLayout
         else
             floatCtx.AddRightFloat(image.X - (shape.HasValue ? 0f : mLeft), regY, width + (shape.HasValue ? 0f : mLeft), regHeight, shape);
 
-        // Where later `clear` content must start (relative to the content area), incl. shape-margin
         float bottom = image.Y + height + mBottom - (box.Y + box.PaddingTop);
         var shapeMargin = style.Get("shape-margin");
         if (!string.IsNullOrEmpty(shapeMargin))

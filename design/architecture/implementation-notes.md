@@ -323,3 +323,21 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 
 - The MediaBox is the trim size plus bleed, plus the crop-mark area when marks are on; the TrimBox is
   the final page size; the BleedBox is the TrimBox grown by the bleed.
+
+## EggPdf.Layout/BlockLayout.FloatedImage.cs
+
+- A floated image registers its margin box as the exclusion; a `shape-outside` shape is defined on the
+  border box, so the margin on the content side is left out for shapes.
+- The bottom that later `clear` content must start below is relative to the content area and includes
+  `shape-margin`.
+
+## EggPdf/ResourceLoader.cs
+
+- The per-render caches are created on first use: most renders load nothing external, and every
+  render builds a loader.
+- A caller's resolver runs off the calling thread, so a resolver that awaits without
+  `ConfigureAwait(false)` can't deadlock against the caller's synchronization context while the
+  render thread blocks on it. The timeout's token source is disposed only once the resolver is done
+  with it, even when the render stops waiting first. The wait is bounded even if the resolver ignores
+  its token, and it throws when the caller cancels.
+- A one-letter "scheme" is a Windows drive letter (`C:\...`), not a URL scheme.

@@ -24,7 +24,6 @@ internal sealed class ResourceLoader
     private readonly bool _allowLocalFileAccess;
     private readonly string? _basePath;
     private readonly WarningCollector? _warnings;
-    // Created on first use: most renders load nothing external, and every render builds a loader
     private ConcurrentDictionary<string, byte[]?>? _loaded;
     private ConcurrentDictionary<string, bool>? _warned;
     private ConcurrentDictionary<string, Text.TrueType.FontData?>? _parsedFonts;
@@ -110,14 +109,10 @@ internal sealed class ResourceLoader
         var timeout = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
         timeout.CancelAfter(limit);
 
-        // Off the calling thread, so a resolver that awaits without ConfigureAwait(false) can't deadlock
-        // against a caller's synchronization context while this thread blocks
         var task = Task.Run(() => resolver.ResolveAsync(url, type, timeout.Token));
-        // Disposed only once the resolver is done with its token, even if this render stops waiting first
         task.ContinueWith(_ => timeout.Dispose(), TaskScheduler.Default);
         try
         {
-            // Bounded wait even if the resolver ignores its token; throws if the caller cancels
             if (!task.Wait((int)Math.Min(limit.TotalMilliseconds, int.MaxValue), CancellationToken))
             {
                 WarnOnce(url, WarningCodes.ResourceTimeout, $"Resource '{url}' timed out after {FormatSeconds(limit)}s");
@@ -188,7 +183,6 @@ internal sealed class ResourceLoader
         }
     }
 
-    // A one-letter "scheme" is a Windows drive letter (C:\...), not a URL scheme
     private static bool HasScheme(string url)
     {
         int colon = url.IndexOf(':');
