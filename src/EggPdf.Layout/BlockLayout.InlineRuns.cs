@@ -310,11 +310,12 @@ public static partial class BlockLayout
                     }
                 }
 
-                if (runBreakWord && wordWidth > containerWidth && wordText.Length > 1)
+                if (runBreakWord && inlineX + wordWidth > rightLimit && wordText.Length > 1)
                 {
                     int start = 0;
                     while (start < wordText.Length)
                     {
+                        float chunkLimit = RightLimit(lhRun, childY);
                         int len = 1;
                         float chunkWidth = TextMeasurer.MeasureWidth(wordText.Substring(start, 1),
                             run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
@@ -322,7 +323,7 @@ public static partial class BlockLayout
                         {
                             float nextWidth = TextMeasurer.MeasureWidth(wordText.Substring(start, len + 1),
                                 run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
-                            if (inlineX + nextWidth > containerWidth) break;
+                            if (inlineX + nextWidth > chunkLimit) break;
                             len++;
                             chunkWidth = nextWidth;
                         }
@@ -369,6 +370,7 @@ public static partial class BlockLayout
                             lineStart = 0;
                             inlineLineHeight = 0;
                             atLineStart = true;
+                            inlineX = ApplyLeftInsetIfNeeded(lhRun, inlineX, childY);
                         }
                     }
                     firstWord = false;

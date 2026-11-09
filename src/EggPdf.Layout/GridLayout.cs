@@ -43,13 +43,14 @@ public static partial class GridLayout
 
         string? resolvedColumns = templateColumns;
         if (!string.IsNullOrEmpty(resolvedColumns) && HasAutoRepeat(resolvedColumns))
-            resolvedColumns = ExpandAutoRepeat(resolvedColumns, container.ContentWidth, items.Count);
+            resolvedColumns = ExpandAutoRepeat(resolvedColumns, container.ContentWidth, columnGap, fontSize, items.Count);
         string? resolvedRows = templateRows;
         if (!string.IsNullOrEmpty(resolvedRows) && HasAutoRepeat(resolvedRows))
-            resolvedRows = ExpandAutoRepeat(resolvedRows, container.ContentWidth, items.Count);
+            resolvedRows = ExpandAutoRepeat(resolvedRows, container.ContentWidth, rowGap, fontSize, items.Count);
 
         var columnTracks = ParseTrackList(resolvedColumns, container.ContentWidth, fontSize);
         var rowTracks = ParseTrackList(resolvedRows, container.ContentWidth, fontSize);
+        ResolveLineNumbers(items, columnTracks.Count, rowTracks.Count);
 
         var autoRowTracks = ParseTrackList(style.Get("grid-auto-rows"), 0, fontSize);
         var autoColumnTracks = ParseTrackList(style.Get("grid-auto-columns"), container.ContentWidth, fontSize);
@@ -173,17 +174,7 @@ public static partial class GridLayout
             LayoutBox childBox;
             if (item.PseudoContent != null)
             {
-                float pFontSize = BlockLayout.ResolveFontSize(item.Style.FontSize, fontSize);
-                float pLineHeight = TextMeasurer.GetLineHeight(pFontSize, item.Style.Get("line-height"));
-                childBox = new LayoutBox
-                {
-                    Style = item.Style,
-                    Width = itemWidth,
-                    Height = pLineHeight,
-                    ContentWidth = itemWidth,
-                    ContentHeight = pLineHeight,
-                    Text = item.PseudoContent
-                };
+                childBox = TextItemBox(item.PseudoContent, item.Style, BlockLayout.ResolveFontSize(item.Style.FontSize, fontSize), itemWidth);
             }
             else
             {
@@ -333,12 +324,21 @@ public static partial class GridLayout
         var beforeItem = TryCreatePseudoItem(element, containerStyle, "before");
         if (beforeItem != null) items.Add(beforeItem);
 
+        var pendingText = new System.Text.StringBuilder();
+        int pendingTextIndex = -1;
         for (int i = 0; i < element.ChildNodes.Count; i++)
         {
             var childNode = element.ChildNodes[i];
+            if (childNode is HtmlTextNode textNode)
+            {
+                if (pendingTextIndex < 0) pendingTextIndex = i;
+                pendingText.Append(textNode.Data);
+                continue;
+            }
             if (!(childNode is HtmlElement childElem))
                 continue;
 
+            AddAnonymousTextItem(items, element, containerStyle, pendingText, ref pendingTextIndex);
             var childStyle = resolver(childElem, containerStyle);
             if (childStyle.Display == "none")
                 continue;
@@ -358,13 +358,10 @@ public static partial class GridLayout
                 RowSpan = 1
             };
 
-            ParseGridPlacement(childStyle.Get("grid-column-start"), childStyle.Get("grid-column-end"),
-                childStyle.Get("grid-column"),
-                out item.ColumnStart, out item.ColumnSpan);
-
-            ParseGridPlacement(childStyle.Get("grid-row-start"), childStyle.Get("grid-row-end"),
-                childStyle.Get("grid-row"),
-                out item.RowStart, out item.RowSpan);
+            item.ColumnLines = ParseGridPlacement(childStyle.Get("grid-column-start"), childStyle.Get("grid-column-end"),
+                childStyle.Get("grid-column"));
+            item.RowLines = ParseGridPlacement(childStyle.Get("grid-row-start"), childStyle.Get("grid-row-end"),
+                childStyle.Get("grid-row"));
 
             var gridArea = childStyle.Get("grid-area");
             if (!string.IsNullOrEmpty(gridArea))
@@ -374,11 +371,53 @@ public static partial class GridLayout
 
             items.Add(item);
         }
+        AddAnonymousTextItem(items, element, containerStyle, pendingText, ref pendingTextIndex);
 
         var afterItem = TryCreatePseudoItem(element, containerStyle, "after");
         if (afterItem != null) items.Add(afterItem);
 
         return items;
+    }
+
+    private static void AddAnonymousTextItem(List<GridItem> items, HtmlElement element, ComputedStyle containerStyle,
+        System.Text.StringBuilder pendingText, ref int pendingTextIndex)
+    {
+        if (pendingText.Length == 0) return;
+        var text = CollapseWhitespace(pendingText.ToString());
+        int sourceIndex = pendingTextIndex;
+        pendingText.Clear();
+        pendingTextIndex = -1;
+        if (text.Length == 0) return;
+
+        items.Add(new GridItem
+        {
+            Element = element,
+            Style = AnonymousBoxStyle.From(containerStyle),
+            SourceIndex = sourceIndex,
+            ColumnStart = AutoPlaced,
+            RowStart = AutoPlaced,
+            ColumnSpan = 1,
+            RowSpan = 1,
+            PseudoContent = text
+        });
+    }
+
+    private static string CollapseWhitespace(string text)
+    {
+        var collapsed = new System.Text.StringBuilder(text.Length);
+        bool pendingSpace = false;
+        foreach (char c in text)
+        {
+            if (char.IsWhiteSpace(c) && c != (char)0x00A0)
+            {
+                pendingSpace = collapsed.Length > 0;
+                continue;
+            }
+            if (pendingSpace) collapsed.Append(' ');
+            pendingSpace = false;
+            collapsed.Append(c);
+        }
+        return collapsed.ToString();
     }
 
     private const int AutoPlaced = -1;
@@ -401,80 +440,87 @@ public static partial class GridLayout
         };
     }
 
-    private static void ParseGridPlacement(string? start, string? end, string? shorthand,
-        out int startLine, out int span)
+    private const int NoLine = 0;
+
+    private static GridLinePlacement ParseGridPlacement(string? start, string? end, string? shorthand)
     {
-        startLine = AutoPlaced;
-        span = 1;
+        var placement = new GridLinePlacement { StartLine = NoLine, EndLine = NoLine, Span = 1 };
 
         if (!string.IsNullOrEmpty(shorthand))
         {
-            var trimmed = shorthand.Trim();
-            if (trimmed.StartsWith("span", StringComparison.OrdinalIgnoreCase))
-            {
-                span = ParseSpanValue(trimmed);
-                return;
-            }
-
+            var trimmed = shorthand!.Trim();
             int slashIdx = trimmed.IndexOf('/');
             if (slashIdx >= 0)
             {
-                var startPart = trimmed.Substring(0, slashIdx).Trim();
-                var endPart = trimmed.Substring(slashIdx + 1).Trim();
-
-                if (int.TryParse(startPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out int s))
-                    startLine = s - 1;
-
-                if (endPart.StartsWith("span", StringComparison.OrdinalIgnoreCase))
-                {
-                    span = ParseSpanValue(endPart);
-                }
-                else if (int.TryParse(endPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out int e))
-                {
-                    if (startLine >= 0)
-                        span = e - (startLine + 1);
-                    if (span < 1) span = 1;
-                }
-                return;
+                ApplyPlacementPart(trimmed.Substring(0, slashIdx).Trim(), true, ref placement);
+                ApplyPlacementPart(trimmed.Substring(slashIdx + 1).Trim(), false, ref placement);
             }
-
-            if (int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out int singleVal))
+            else
             {
-                startLine = singleVal - 1;
-                return;
+                ApplyPlacementPart(trimmed, true, ref placement);
             }
+            return placement;
         }
 
         if (!string.IsNullOrEmpty(start))
-        {
-            var trimmedStart = start.Trim();
-            if (trimmedStart.StartsWith("span", StringComparison.OrdinalIgnoreCase))
-            {
-                span = ParseSpanValue(trimmedStart);
-            }
-            else if (int.TryParse(trimmedStart, NumberStyles.Integer, CultureInfo.InvariantCulture, out int s))
-            {
-                startLine = s - 1;
-            }
-        }
-
+            ApplyPlacementPart(start!.Trim(), true, ref placement);
         if (!string.IsNullOrEmpty(end))
+            ApplyPlacementPart(end!.Trim(), false, ref placement);
+        return placement;
+    }
+
+    private static void ApplyPlacementPart(string part, bool isStart, ref GridLinePlacement placement)
+    {
+        if (part.StartsWith("span", StringComparison.OrdinalIgnoreCase))
         {
-            var trimmedEnd = end.Trim();
-            if (trimmedEnd.StartsWith("span", StringComparison.OrdinalIgnoreCase))
-            {
-                span = ParseSpanValue(trimmedEnd);
-            }
-            else if (int.TryParse(trimmedEnd, NumberStyles.Integer, CultureInfo.InvariantCulture, out int e))
-            {
-                if (startLine >= 0)
-                {
-                    span = e - (startLine + 1);
-                    if (span < 1) span = 1;
-                }
-            }
+            placement.Span = ParseSpanValue(part);
+            return;
+        }
+        if (int.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out int line) && line != 0)
+        {
+            if (isStart) placement.StartLine = line;
+            else placement.EndLine = line;
         }
     }
+
+    private static void ResolveLineNumbers(List<GridItem> items, int explicitColumns, int explicitRows)
+    {
+        for (int i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
+            ResolvePlacement(item.ColumnLines, explicitColumns, out item.ColumnStart, out item.ColumnSpan);
+            ResolvePlacement(item.RowLines, explicitRows, out item.RowStart, out item.RowSpan);
+        }
+    }
+
+    private static void ResolvePlacement(GridLinePlacement placement, int explicitTracks, out int start, out int span)
+    {
+        span = placement.Span;
+        int startLine = ToPositiveLine(placement.StartLine, explicitTracks);
+        int endLine = ToPositiveLine(placement.EndLine, explicitTracks);
+
+        if (startLine != NoLine && endLine != NoLine)
+        {
+            if (endLine < startLine) (startLine, endLine) = (endLine, startLine);
+            start = startLine - 1;
+            span = Math.Max(1, endLine - startLine);
+        }
+        else if (startLine != NoLine)
+        {
+            start = startLine - 1;
+        }
+        else if (endLine != NoLine)
+        {
+            start = Math.Max(0, endLine - 1 - span);
+        }
+        else
+        {
+            start = AutoPlaced;
+        }
+    }
+
+    private static int ToPositiveLine(int line, int explicitTracks) =>
+        line >= 0 ? line : Math.Max(1, line + explicitTracks + 2);
 
     private static int ParseSpanValue(string value)
     {
@@ -582,16 +628,18 @@ public static partial class GridLayout
             input = ExpandRepeat(input);
         }
 
-        input = ExpandMinmax(input);
-
-        var parts = input.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-
-        for (int i = 0; i < parts.Length; i++)
+        foreach (var part in SplitTopLevelTracks(input))
         {
-            var part = parts[i].Trim();
-            if (string.IsNullOrEmpty(part)) continue;
-
-            tracks.Add(ParseSingleTrack(part, containingSize, fontSize));
+            if (SplitMinmax(part, out var min, out var max))
+            {
+                var track = ParseSingleTrack(max, containingSize, fontSize);
+                track.MinSize = FixedTrackSize(min, containingSize, fontSize);
+                tracks.Add(track);
+            }
+            else
+            {
+                tracks.Add(ParseSingleTrack(part, containingSize, fontSize));
+            }
         }
 
         return tracks;
@@ -603,7 +651,7 @@ public static partial class GridLayout
                input.IndexOf("auto-fit", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
-    private static string ExpandAutoRepeat(string input, float containingSize, int itemCount)
+    private static string ExpandAutoRepeat(string input, float containingSize, float gap, float fontSize, int itemCount)
     {
         int idx = 0;
         while (idx < input.Length)
@@ -636,16 +684,16 @@ public static partial class GridLayout
 
             string trackStr = inner.Substring(commaIdx + 1).Trim();
 
-            float minSize = ExtractMinSizeFromTrack(trackStr);
+            float minSize = ExtractMinSizeFromTrack(trackStr, containingSize, fontSize);
             if (minSize <= 0) minSize = 1;
 
-            int count = (int)(containingSize / minSize);
+            int count = (int)((containingSize + gap) / (minSize + gap));
             if (count < 1) count = 1;
 
             if (isAutoFit)
                 count = Math.Min(count, Math.Max(1, itemCount));
 
-            string expandedTrack = ExtractMaxTrackValue(trackStr);
+            string expandedTrack = trackStr;
 
             var sb = new System.Text.StringBuilder();
             for (int i = 0; i < count; i++)
@@ -662,48 +710,50 @@ public static partial class GridLayout
         return input;
     }
 
-    private static float ExtractMinSizeFromTrack(string trackStr)
+    private static float ExtractMinSizeFromTrack(string trackStr, float containingSize, float fontSize) =>
+        FixedTrackSize(SplitMinmax(trackStr, out var min, out _) ? min : trackStr, containingSize, fontSize);
+
+    private static bool SplitMinmax(string track, out string min, out string max)
     {
-        if (trackStr.StartsWith("minmax(", StringComparison.OrdinalIgnoreCase))
-        {
-            int closeIdx = trackStr.IndexOf(')');
-            if (closeIdx > 7)
-            {
-                string inner = trackStr.Substring(7, closeIdx - 7);
-                int commaIdx = inner.IndexOf(',');
-                if (commaIdx >= 0)
-                    return ParseSimpleLength(inner.Substring(0, commaIdx).Trim());
-            }
-        }
-        return ParseSimpleLength(trackStr);
+        min = max = "";
+        track = track.Trim();
+        if (!track.StartsWith("minmax(", StringComparison.OrdinalIgnoreCase) || !track.EndsWith(")", StringComparison.Ordinal))
+            return false;
+        string inner = track.Substring(7, track.Length - 8);
+        int commaIdx = inner.IndexOf(',');
+        if (commaIdx < 0) return false;
+        min = inner.Substring(0, commaIdx).Trim();
+        max = inner.Substring(commaIdx + 1).Trim();
+        return true;
     }
 
-    private static string ExtractMaxTrackValue(string trackStr)
+    private static float FixedTrackSize(string value, float containingSize, float fontSize)
     {
-        if (trackStr.StartsWith("minmax(", StringComparison.OrdinalIgnoreCase))
-        {
-            int closeIdx = trackStr.IndexOf(')');
-            if (closeIdx > 7)
-            {
-                string inner = trackStr.Substring(7, closeIdx - 7);
-                int commaIdx = inner.IndexOf(',');
-                if (commaIdx >= 0)
-                    return inner.Substring(commaIdx + 1).Trim();
-            }
-        }
-        return trackStr;
+        value = value.Trim();
+        if (value.Length == 0 || value == "auto" || value.EndsWith("fr", StringComparison.OrdinalIgnoreCase) ||
+            value.IndexOf("content", StringComparison.OrdinalIgnoreCase) >= 0)
+            return 0f;
+        return BlockLayout.ResolveLength(value, containingSize, fontSize);
     }
 
-    private static float ParseSimpleLength(string value)
+    private static List<string> SplitTopLevelTracks(string input)
     {
-        if (string.IsNullOrEmpty(value)) return 0;
-        if (value.EndsWith("px", StringComparison.OrdinalIgnoreCase))
+        var tracks = new List<string>();
+        int depth = 0, start = -1;
+        for (int i = 0; i <= input.Length; i++)
         {
-            var numStr = value.Substring(0, value.Length - 2);
-            if (float.TryParse(numStr, NumberStyles.Float, CultureInfo.InvariantCulture, out float px))
-                return px;
+            char c = i < input.Length ? input[i] : ' ';
+            if (c == '(') depth++;
+            else if (c == ')') depth--;
+            bool separator = depth == 0 && char.IsWhiteSpace(c);
+            if (!separator && start < 0) start = i;
+            else if (separator && start >= 0)
+            {
+                tracks.Add(input.Substring(start, i - start));
+                start = -1;
+            }
         }
-        return 0;
+        return tracks;
     }
 
     private static string ExpandRepeat(string input)
@@ -759,44 +809,6 @@ public static partial class GridLayout
         return input;
     }
 
-    private static string ExpandMinmax(string input)
-    {
-        int idx = 0;
-        while (idx < input.Length)
-        {
-            int minmaxStart = input.IndexOf("minmax(", idx, StringComparison.OrdinalIgnoreCase);
-            if (minmaxStart < 0) break;
-
-            int parenDepth = 0;
-            int closeIdx = -1;
-            for (int i = minmaxStart + 7; i < input.Length; i++)
-            {
-                if (input[i] == '(') parenDepth++;
-                else if (input[i] == ')')
-                {
-                    if (parenDepth == 0)
-                    {
-                        closeIdx = i;
-                        break;
-                    }
-                    parenDepth--;
-                }
-            }
-
-            if (closeIdx < 0) break;
-
-            string inner = input.Substring(minmaxStart + 7, closeIdx - minmaxStart - 7);
-            int commaIdx = inner.IndexOf(',');
-            if (commaIdx < 0) { idx = closeIdx + 1; continue; }
-
-            string maxValue = inner.Substring(commaIdx + 1).Trim();
-            input = input.Substring(0, minmaxStart) + maxValue + input.Substring(closeIdx + 1);
-            idx = minmaxStart + maxValue.Length;
-        }
-
-        return input;
-    }
-
     private static TrackDefinition ParseSingleTrack(string value, float containingSize, float fontSize)
     {
         if (value == "auto")
@@ -816,6 +828,37 @@ public static partial class GridLayout
 
         float resolved = BlockLayout.ResolveLength(value, containingSize, fontSize);
         return new TrackDefinition { Type = TrackType.Fixed, Value = resolved };
+    }
+
+    private static void DistributeFractions(List<TrackDefinition> tracks, float[] sizes, float space)
+    {
+        bool[]? frozen = null;
+        for (int pass = 0; pass <= tracks.Count; pass++)
+        {
+            float fractions = 0f, spaceLeft = space;
+            for (int i = 0; i < tracks.Count; i++)
+            {
+                if (tracks[i].Type != TrackType.Fr) continue;
+                if (frozen != null && frozen[i]) spaceLeft -= sizes[i];
+                else fractions += tracks[i].Value;
+            }
+
+            float unit = fractions > 0f ? Math.Max(0f, spaceLeft) / fractions : 0f;
+            bool anyFrozen = false;
+            for (int i = 0; i < tracks.Count; i++)
+            {
+                if (tracks[i].Type != TrackType.Fr || (frozen != null && frozen[i])) continue;
+                sizes[i] = unit * tracks[i].Value;
+                if (sizes[i] < tracks[i].MinSize)
+                {
+                    sizes[i] = tracks[i].MinSize;
+                    frozen ??= new bool[tracks.Count];
+                    frozen[i] = true;
+                    anyFrozen = true;
+                }
+            }
+            if (!anyFrozen) return;
+        }
     }
 
     private static float[] ResolveTrackSizes(List<TrackDefinition> tracks, float availableSize, float gap, float fontSize,
@@ -853,16 +896,12 @@ public static partial class GridLayout
 
         if (totalFr > 0)
         {
-            float frUnit = remainingSpace / totalFr;
-            for (int i = 0; i < tracks.Count; i++)
-            {
-                if (tracks[i].Type == TrackType.Fr)
-                {
-                    sizes[i] = frUnit * tracks[i].Value;
-                }
-            }
+            DistributeFractions(tracks, sizes, remainingSpace);
             remainingSpace = 0;
         }
+
+        for (int i = 0; i < tracks.Count; i++)
+            if (sizes[i] < tracks[i].MinSize) sizes[i] = tracks[i].MinSize;
 
         if (autoCount > 0)
         {
@@ -938,14 +977,84 @@ public static partial class GridLayout
             var specifiedWidth = item.Style.Width;
             bool definiteWidth = !string.IsNullOrEmpty(specifiedWidth) && !specifiedWidth!.EndsWith("%", StringComparison.Ordinal);
             float? definite = definiteWidth ? BlockLayout.ResolveOptionalLength(specifiedWidth, 0, itemFontSize) : null;
-            float maxContent = definite ?? FlexLayout.MeasureMaxContentWidth(item.Element, item.Style, resolver, itemFontSize);
-            float minContent = definite ?? FlexLayout.MeasureMinContentWidth(item.Element, item.Style, resolver, itemFontSize, 0);
+            float maxContent, minContent;
+            if (definite.HasValue)
+            {
+                maxContent = minContent = definite.Value;
+            }
+            else if (item.PseudoContent != null)
+            {
+                (maxContent, minContent) = TextItemWidths(item.PseudoContent, item.Style, itemFontSize);
+            }
+            else
+            {
+                maxContent = FlexLayout.MeasureMaxContentWidth(item.Element, item.Style, resolver, itemFontSize);
+                minContent = FlexLayout.MeasureMinContentWidth(item.Element, item.Style, resolver, itemFontSize, 0);
+            }
             widths ??= new AutoTrackWidths(tracks.Count);
             int column = item.ColumnStart;
             if (maxContent > widths.MaxContent[column]) widths.MaxContent[column] = maxContent;
             if (minContent > widths.MinContent[column]) widths.MinContent[column] = minContent;
         }
         return widths;
+    }
+
+    private static LayoutBox TextItemBox(string text, ComputedStyle style, float fontSize, float width)
+    {
+        float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"));
+        var family = style.FontFamily;
+        var weight = style.FontWeight;
+        var fontStyle = style.Get("font-style");
+        var lines = TextMeasurer.WrapText(text, fontSize, family, weight, fontStyle, width);
+        if (lines.Count <= 1)
+            return new LayoutBox
+            {
+                Style = style,
+                Width = width,
+                Height = lineHeight,
+                ContentWidth = width,
+                ContentHeight = lineHeight,
+                Text = text
+            };
+
+        var box = new LayoutBox
+        {
+            Style = style,
+            Width = width,
+            Height = lineHeight * lines.Count,
+            ContentWidth = width,
+            ContentHeight = lineHeight * lines.Count
+        };
+        for (int i = 0; i < lines.Count; i++)
+        {
+            float lineWidth = TextMeasurer.MeasureWidth(lines[i], fontSize, family, weight, fontStyle);
+            box.Children.Add(new LayoutBox
+            {
+                Style = style,
+                Y = i * lineHeight,
+                Width = lineWidth,
+                Height = lineHeight,
+                ContentWidth = lineWidth,
+                ContentHeight = lineHeight,
+                Text = lines[i]
+            });
+        }
+        return box;
+    }
+
+    private static (float MaxContent, float MinContent) TextItemWidths(string text, ComputedStyle style, float fontSize)
+    {
+        var family = style.FontFamily;
+        var weight = style.FontWeight;
+        var fontStyle = style.Get("font-style");
+        float maxContent = TextMeasurer.MeasureWidth(text, fontSize, family, weight, fontStyle);
+        float minContent = 0f;
+        foreach (var word in text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            float width = TextMeasurer.MeasureWidth(word, fontSize, family, weight, fontStyle);
+            if (width > minContent) minContent = width;
+        }
+        return (maxContent, minContent);
     }
 
     private enum TrackType
@@ -959,6 +1068,7 @@ public static partial class GridLayout
     {
         public TrackType Type;
         public float Value;
+        public float MinSize;
     }
 
     private struct GridArea
@@ -981,5 +1091,16 @@ public static partial class GridLayout
         public int RowSpan;
         public string? AreaName;
         public string? PseudoContent;
+        public GridLinePlacement ColumnLines = GridLinePlacement.Auto;
+        public GridLinePlacement RowLines = GridLinePlacement.Auto;
+    }
+
+    private struct GridLinePlacement
+    {
+        public int StartLine;
+        public int EndLine;
+        public int Span;
+
+        public static GridLinePlacement Auto => new GridLinePlacement { StartLine = NoLine, EndLine = NoLine, Span = 1 };
     }
 }

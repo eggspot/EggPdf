@@ -294,15 +294,24 @@ public partial class PdfPage
     private const string RoundCap = "1 J";
     private const string SolidDash = "[] 0 d";
     private const float BezierCircleKappa = 0.5522847498f;
+    private const float BezierPeakToControlHeight = 4f / 3f;
+    private const float MinWaveSegment = 0.01f;
+
+    private static float RadiusScaleForSide(float scale, float sideLength, float radiiOnSide) =>
+        radiiOnSide > sideLength && radiiOnSide > 0f ? Math.Min(scale, sideLength / radiiOnSide) : scale;
 
     private void AppendRoundedRectPath(float x, float y, float w, float h,
         float tlr, float trr, float brr, float blr)
     {
-        float maxRadius = Math.Min(w / 2f, h / 2f);
-        tlr = Math.Min(tlr, maxRadius);
-        trr = Math.Min(trr, maxRadius);
-        brr = Math.Min(brr, maxRadius);
-        blr = Math.Min(blr, maxRadius);
+        float scale = 1f;
+        scale = RadiusScaleForSide(scale, w, tlr + trr);
+        scale = RadiusScaleForSide(scale, w, blr + brr);
+        scale = RadiusScaleForSide(scale, h, tlr + blr);
+        scale = RadiusScaleForSide(scale, h, trr + brr);
+        tlr *= scale;
+        trr *= scale;
+        brr *= scale;
+        blr *= scale;
         const float k = BezierCircleKappa;
 
         ContentStream.AppendOpLine($"{F(x + tlr)} {F(y + h)} m");
@@ -597,36 +606,25 @@ public partial class PdfPage
                 ContentStream.AppendOpLine($"{F(lineWidth)} w");
                 ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} RG");
                 ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m");
+                float halfWave = period / 2f;
+                float controlOffset = amplitude * BezierPeakToControlHeight;
                 float x = x1;
                 bool up = true;
-                while (x < x2)
+                while (x < x2 - MinWaveSegment)
                 {
-                    float segEnd = Math.Min(x + period, x2);
-                    float halfPeriod = (segEnd - x) / 2f;
-                    float cy = up ? y1 + amplitude : y1 - amplitude;
-                    float cp1x = x + halfPeriod * 0.5f;
-                    float cp2x = x + halfPeriod * 1.5f;
-                    float midX = x + halfPeriod;
+                    float end = Math.Min(x + halfWave, x2);
+                    float third = (end - x) / 3f;
+                    float cy = up ? y1 + controlOffset : y1 - controlOffset;
                     ContentStream.AppendOpLine(
-                        $"{F(cp1x)} {F(cy)} {F(cp2x)} {F(cy)} {F(midX)} {F(y1)} c");
-                    x = midX;
+                        $"{F(x + third)} {F(cy)} {F(end - third)} {F(cy)} {F(end)} {F(y1)} c");
+                    x = end;
                     up = !up;
-                    if (segEnd >= x2) break;
-                    cy = up ? y1 + amplitude : y1 - amplitude;
-                    float segEnd2 = Math.Min(x + halfPeriod, x2);
-                    float cp3x = x + (segEnd2 - x) * 0.5f;
-                    float cp4x = x + (segEnd2 - x) * 1.5f;
-                    ContentStream.AppendOpLine(
-                        $"{F(cp3x)} {F(cy)} {F(cp4x)} {F(cy)} {F(segEnd2)} {F(y1)} c");
-                    x = segEnd2;
-                    up = !up;
-                    if (x >= x2) break;
                 }
                 ContentStream.AppendOpLine("S");
                 break;
             }
 
-            default: // solid
+            default:
                 AddLine(x1, y1, x2, y2, r, g, b, lineWidth);
                 break;
         }

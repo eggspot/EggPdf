@@ -312,8 +312,11 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 - Border lines: dashed is 3× the width on and off with butt caps; dotted is a zero-length dash
   with round caps every 2× the width; double is two lines a third of the width wide with a third
   between them.
-- Rounded-rectangle radii are clamped to half the width and height; the corners are cubic Béziers
-  with the circle kappa 0.5522847498.
+- Rounded-rectangle radii are scaled down together, by one factor, when the two radii on any side add
+  up to more than that side (CSS Backgrounds 3 §5.5); the corners are cubic Béziers with the circle
+  kappa 0.5522847498.
+- A wavy decoration is a chain of half waves, each one cubic Bézier with control points at a third
+  and two thirds of it, raised 4/3 of the amplitude so the crest reaches the amplitude.
 - Text outside WinAnsi is written as `?` for the standard 14 fonts.
 
 ## EggPdf.Pdf/PdfPrintProduction.cs

@@ -1,5 +1,6 @@
 using System;
 using EggPdf.Core;
+using EggPdf.Css;
 using EggPdf.Layout;
 using EggPdf.Pdf;
 
@@ -28,4 +29,31 @@ public static partial class BoxPainter
         else
             page.AddClipRect(x, y, width, height);
     }
+
+    internal static bool ClipsDescendantPaint(ComputedStyle style)
+    {
+        var overflow = style.Get("overflow");
+        if (overflow == "hidden" || overflow == "clip") return true;
+        var overflowX = style.Get("overflow-x");
+        var overflowY = style.Get("overflow-y");
+        if (overflowX == "hidden" || overflowY == "hidden" || (overflowX == "clip" && overflowY == "clip")) return true;
+
+        var contain = style.Get("contain");
+        return !string.IsNullOrEmpty(contain) &&
+            (contain!.IndexOf("paint", StringComparison.OrdinalIgnoreCase) >= 0 ||
+             contain.IndexOf("strict", StringComparison.OrdinalIgnoreCase) >= 0 ||
+             contain.IndexOf("content", StringComparison.OrdinalIgnoreCase) >= 0);
+    }
+
+    private static void ClipToRingBetween(PdfPage page,
+        float outerX, float outerY, float outerWidth, float outerHeight,
+        float innerX, float innerY, float innerWidth, float innerHeight)
+    {
+        page.AppendRawContent(
+            Pt(outerX) + " " + Pt(outerY) + " " + Pt(outerWidth) + " " + Pt(outerHeight) + " re\n" +
+            Pt(innerX) + " " + Pt(innerY) + " " + Pt(innerWidth) + " " + Pt(innerHeight) + " re\n" +
+            "W* n\n");
+    }
+
+    private static string Pt(float value) => value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
 }

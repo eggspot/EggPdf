@@ -541,8 +541,8 @@ public static partial class BlockLayout
                             if (childPos == "relative" || childPos == "sticky")
                             {
                                 float childFontSize = ResolveFontSize(childStyle.FontSize, fontSize);
-                                childBox.Y += ResolveLength(childStyle.Get("top"), 0, childFontSize);
-                                childBox.X += ResolveLength(childStyle.Get("left"), 0, childFontSize);
+                                childBox.Y += RelativeOffsetY(childStyle, childFontSize);
+                                childBox.X += RelativeOffsetX(childStyle, childFontSize);
                             }
 
                             bool isCollapsedTableRow = childStyle.Get("visibility") == "collapse"
@@ -1195,13 +1195,7 @@ public static partial class BlockLayout
                 var child = box.Children[ci];
                 if (child.Element == null || child.Style.Display != "table-caption")
                     continue;
-                float deltaY = rowBottom - child.Y;
-                if (Math.Abs(deltaY) > 0.01f)
-                {
-                    child.Y += deltaY;
-                    for (int gi = 0; gi < child.Children.Count; gi++)
-                        child.Children[gi].Y += deltaY;
-                }
+                child.Y = rowBottom;
             }
         }
 
@@ -1390,10 +1384,7 @@ public static partial class BlockLayout
         LayoutAbsoluteChildren(absChildren, box, position, containingWidth, parent, fontSize, resolver, style);
 
         if (position == "relative" || position == "sticky")
-        {
-            float offsetTop = ResolveLength(style.Get("top"), 0, fontSize);
-            box.Y += offsetTop;
-        }
+            box.Y += RelativeOffsetY(style, fontSize);
 
         return box;
     }
@@ -1492,7 +1483,7 @@ public static partial class BlockLayout
 
         var position = style.Get("position");
         if (position == "relative")
-            box.X += ResolveLength(style.Get("left"), 0, fontSize);
+            box.X += RelativeOffsetX(style, fontSize);
 
         return (fontSize, borderBox, position);
     }
@@ -1554,7 +1545,7 @@ public static partial class BlockLayout
             box.Height = maxHeight.Value;
 
         if (position == "relative")
-            box.Y += ResolveLength(style.Get("top"), 0, fontSize);
+            box.Y += RelativeOffsetY(style, fontSize);
 
         var absChildren = CollectAbsoluteChildren(element, style, resolver);
         if (absChildren.Count > 0)
