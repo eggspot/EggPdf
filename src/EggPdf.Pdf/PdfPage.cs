@@ -174,10 +174,24 @@ public partial class PdfPage
         ContentStream.AppendOpLine($"{cap} J");
     }
 
-    /// <summary>Add a stroked line between two points (border side).</summary>
+    /// <summary>
+    /// Add a stroked line between two points (border side). The 3D styles <c>inset</c>, <c>outset</c>,
+    /// <c>groove</c> and <c>ridge</c> are shaded as a top border, with the outside of the border to the left
+    /// of the direction from the first point to the second.
+    /// </summary>
     public void AddBorderLine(float x1, float y1, float x2, float y2,
         float r, float g, float b, float lineWidth, string borderStyle)
     {
+        if (IsThreeDimensionalBorder(borderStyle))
+        {
+            float dx = x2 - x1, dy = y2 - y1;
+            float length = (float)Math.Sqrt(dx * dx + dy * dy);
+            if (length < 0.001f) return;
+            AddThreeDimensionalBorderLine(x1, y1, x2, y2, r, g, b, lineWidth, borderStyle, BorderSide.Top,
+                -dy / length, dx / length);
+            return;
+        }
+
         ContentStream.AppendOpLine($"{F(lineWidth)} w");
         ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} RG");
 
@@ -215,44 +229,6 @@ public partial class PdfPage
                 break;
             }
 
-            case "groove":
-            case "ridge":
-            {
-                float half = lineWidth / 2;
-                if (half < 0.5f) half = 0.5f;
-
-                float dx = x2 - x1, dy = y2 - y1;
-                float len = (float)Math.Sqrt(dx * dx + dy * dy);
-                if (len < 0.001f) break;
-                float nx = -dy / len * (half / 2), ny = dx / len * (half / 2);
-
-                float darkR = r * 0.5f, darkG = g * 0.5f, darkB = b * 0.5f;
-                float lightR = Math.Min(r * 1.5f, 1f), lightG = Math.Min(g * 1.5f, 1f), lightB = Math.Min(b * 1.5f, 1f);
-
-                bool grooveFirst = borderStyle == "groove";
-                float r1 = grooveFirst ? darkR : lightR, g1 = grooveFirst ? darkG : lightG, b1 = grooveFirst ? darkB : lightB;
-                float r2 = grooveFirst ? lightR : darkR, g2 = grooveFirst ? lightG : darkG, b2 = grooveFirst ? lightB : darkB;
-
-                ContentStream.AppendOpLine($"{F(half)} w");
-                ContentStream.AppendOpLine($"{F(r1)} {F(g1)} {F(b1)} RG");
-                ContentStream.AppendOpLine($"{F(x1 + nx)} {F(y1 + ny)} m {F(x2 + nx)} {F(y2 + ny)} l S");
-                ContentStream.AppendOpLine($"{F(r2)} {F(g2)} {F(b2)} RG");
-                ContentStream.AppendOpLine($"{F(x1 - nx)} {F(y1 - ny)} m {F(x2 - nx)} {F(y2 - ny)} l S");
-                break;
-            }
-
-            case "inset":
-            case "outset":
-            {
-                bool darken = borderStyle == "inset";
-                float adjR = darken ? r * 0.6f : Math.Min(r * 1.4f, 1f);
-                float adjG = darken ? g * 0.6f : Math.Min(g * 1.4f, 1f);
-                float adjB = darken ? b * 0.6f : Math.Min(b * 1.4f, 1f);
-                ContentStream.AppendOpLine($"{F(adjR)} {F(adjG)} {F(adjB)} RG");
-                ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
-                break;
-            }
-
             default:
                 ContentStream.AppendOpLine($"{F(x1)} {F(y1)} m {F(x2)} {F(y2)} l S");
                 break;
@@ -262,10 +238,13 @@ public partial class PdfPage
     /// <summary>Add a filled rounded rectangle using Bézier curves for corners.</summary>
     public void AddRoundedRectangle(float x, float y, float w, float h,
         float r, float g, float b,
-        float tlr, float trr, float brr, float blr)
+        float tlr, float trr, float brr, float blr) =>
+        AddRoundedRectangle(x, y, w, h, r, g, b, CornerRadii.Circular(tlr, trr, brr, blr));
+
+    internal void AddRoundedRectangle(float x, float y, float w, float h, float r, float g, float b, CornerRadii radii)
     {
         ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} rg");
-        AppendRoundedRectPath(x, y, w, h, tlr, trr, brr, blr);
+        AppendRoundedRectPath(x, y, w, h, radii);
         ContentStream.AppendOpLine("h f");
     }
 
@@ -273,20 +252,27 @@ public partial class PdfPage
     /// Clip all subsequent drawing to a rounded rectangle (PDF points; radii per corner, clamped to
     /// half the width and height). Call <see cref="SaveState"/> first and <see cref="RestoreState"/> to end it.
     /// </summary>
-    public void AddRoundedClip(float x, float y, float w, float h, float tlr, float trr, float brr, float blr)
+    public void AddRoundedClip(float x, float y, float w, float h, float tlr, float trr, float brr, float blr) =>
+        AddRoundedClip(x, y, w, h, CornerRadii.Circular(tlr, trr, brr, blr));
+
+    internal void AddRoundedClip(float x, float y, float w, float h, CornerRadii radii)
     {
-        AppendRoundedRectPath(x, y, w, h, tlr, trr, brr, blr);
+        AppendRoundedRectPath(x, y, w, h, radii);
         ContentStream.AppendOpLine("h W n");
     }
 
     /// <summary>Add a stroked rounded rectangle using Bézier curves for corners.</summary>
     public void AddStrokeRoundedRectangle(float x, float y, float w, float h,
         float r, float g, float b, float lineWidth,
-        float tlr, float trr, float brr, float blr)
+        float tlr, float trr, float brr, float blr) =>
+        AddStrokeRoundedRectangle(x, y, w, h, r, g, b, lineWidth, CornerRadii.Circular(tlr, trr, brr, blr));
+
+    internal void AddStrokeRoundedRectangle(float x, float y, float w, float h,
+        float r, float g, float b, float lineWidth, CornerRadii radii)
     {
         ContentStream.AppendOpLine($"{F(lineWidth)} w");
         ContentStream.AppendOpLine($"{F(r)} {F(g)} {F(b)} RG");
-        AppendRoundedRectPath(x, y, w, h, tlr, trr, brr, blr);
+        AppendRoundedRectPath(x, y, w, h, radii);
         ContentStream.AppendOpLine("h S");
     }
 
@@ -297,51 +283,48 @@ public partial class PdfPage
     private const float BezierPeakToControlHeight = 4f / 3f;
     private const float MinWaveSegment = 0.01f;
 
-    private static float RadiusScaleForSide(float scale, float sideLength, float radiiOnSide) =>
-        radiiOnSide > sideLength && radiiOnSide > 0f ? Math.Min(scale, sideLength / radiiOnSide) : scale;
-
-    private void AppendRoundedRectPath(float x, float y, float w, float h,
-        float tlr, float trr, float brr, float blr)
+    private void AppendRoundedRectPath(float x, float y, float w, float h, CornerRadii radii)
     {
-        float scale = 1f;
-        scale = RadiusScaleForSide(scale, w, tlr + trr);
-        scale = RadiusScaleForSide(scale, w, blr + brr);
-        scale = RadiusScaleForSide(scale, h, tlr + blr);
-        scale = RadiusScaleForSide(scale, h, trr + brr);
-        tlr *= scale;
-        trr *= scale;
-        brr *= scale;
-        blr *= scale;
+        radii = radii.FittedTo(w, h);
         const float k = BezierCircleKappa;
+        bool topLeft = CornerRadii.IsRounded(radii.TopLeftX, radii.TopLeftY);
+        bool topRight = CornerRadii.IsRounded(radii.TopRightX, radii.TopRightY);
+        bool bottomRight = CornerRadii.IsRounded(radii.BottomRightX, radii.BottomRightY);
+        bool bottomLeft = CornerRadii.IsRounded(radii.BottomLeftX, radii.BottomLeftY);
+        float tlx = topLeft ? radii.TopLeftX : 0f, tly = topLeft ? radii.TopLeftY : 0f;
+        float trx = topRight ? radii.TopRightX : 0f, trY = topRight ? radii.TopRightY : 0f;
+        float brx = bottomRight ? radii.BottomRightX : 0f, bry = bottomRight ? radii.BottomRightY : 0f;
+        float blx = bottomLeft ? radii.BottomLeftX : 0f, bly = bottomLeft ? radii.BottomLeftY : 0f;
+        float top = y + h, right = x + w;
 
-        ContentStream.AppendOpLine($"{F(x + tlr)} {F(y + h)} m");
-        ContentStream.AppendOpLine($"{F(x + w - trr)} {F(y + h)} l");
+        ContentStream.AppendOpLine($"{F(x + tlx)} {F(top)} m");
+        ContentStream.AppendOpLine($"{F(right - trx)} {F(top)} l");
 
-        if (trr > 0)
-            ContentStream.AppendOpLine($"{F(x + w - trr + trr * k)} {F(y + h)} {F(x + w)} {F(y + h - trr + trr * k)} {F(x + w)} {F(y + h - trr)} c");
+        if (topRight)
+            ContentStream.AppendOpLine($"{F(right - trx + trx * k)} {F(top)} {F(right)} {F(top - trY + trY * k)} {F(right)} {F(top - trY)} c");
         else
-            ContentStream.AppendOpLine($"{F(x + w)} {F(y + h)} l");
+            ContentStream.AppendOpLine($"{F(right)} {F(top)} l");
 
-        ContentStream.AppendOpLine($"{F(x + w)} {F(y + brr)} l");
+        ContentStream.AppendOpLine($"{F(right)} {F(y + bry)} l");
 
-        if (brr > 0)
-            ContentStream.AppendOpLine($"{F(x + w)} {F(y + brr - brr * k)} {F(x + w - brr + brr * k)} {F(y)} {F(x + w - brr)} {F(y)} c");
+        if (bottomRight)
+            ContentStream.AppendOpLine($"{F(right)} {F(y + bry - bry * k)} {F(right - brx + brx * k)} {F(y)} {F(right - brx)} {F(y)} c");
         else
-            ContentStream.AppendOpLine($"{F(x + w)} {F(y)} l");
+            ContentStream.AppendOpLine($"{F(right)} {F(y)} l");
 
-        ContentStream.AppendOpLine($"{F(x + blr)} {F(y)} l");
+        ContentStream.AppendOpLine($"{F(x + blx)} {F(y)} l");
 
-        if (blr > 0)
-            ContentStream.AppendOpLine($"{F(x + blr - blr * k)} {F(y)} {F(x)} {F(y + blr - blr * k)} {F(x)} {F(y + blr)} c");
+        if (bottomLeft)
+            ContentStream.AppendOpLine($"{F(x + blx - blx * k)} {F(y)} {F(x)} {F(y + bly - bly * k)} {F(x)} {F(y + bly)} c");
         else
             ContentStream.AppendOpLine($"{F(x)} {F(y)} l");
 
-        ContentStream.AppendOpLine($"{F(x)} {F(y + h - tlr)} l");
+        ContentStream.AppendOpLine($"{F(x)} {F(top - tly)} l");
 
-        if (tlr > 0)
-            ContentStream.AppendOpLine($"{F(x)} {F(y + h - tlr + tlr * k)} {F(x + tlr - tlr * k)} {F(y + h)} {F(x + tlr)} {F(y + h)} c");
+        if (topLeft)
+            ContentStream.AppendOpLine($"{F(x)} {F(top - tly + tly * k)} {F(x + tlx - tlx * k)} {F(top)} {F(x + tlx)} {F(top)} c");
         else
-            ContentStream.AppendOpLine($"{F(x)} {F(y + h)} l");
+            ContentStream.AppendOpLine($"{F(x)} {F(top)} l");
     }
 
     /// <summary>Set fill and stroke opacity (0.0-1.0). Creates an ExtGState reference.</summary>

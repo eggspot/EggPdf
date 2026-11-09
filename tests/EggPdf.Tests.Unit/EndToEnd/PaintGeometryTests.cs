@@ -120,4 +120,58 @@ public class PaintGeometryTests
 
         content.Should().Contain("re W n");
     }
+
+    private static (float MoveX, float CornerHeight) FirstCorner(string content)
+    {
+        var path = Regex.Match(content, @"(\d+\.\d+) (\d+\.\d+) m\n\d+\.\d+ \d+\.\d+ l\n(?:\d+\.\d+ ){4}\d+\.\d+ (\d+\.\d+) c");
+        path.Success.Should().BeTrue("a rounded background path starts with its top edge and top-right corner");
+        return (F(path.Groups[1].Value), F(path.Groups[2].Value) - F(path.Groups[3].Value));
+    }
+
+    [Fact]
+    public void RoundedCorners_PercentRadiusOnAWideBox_IsElliptical()
+    {
+        var content = Content("<div style='width:200px;height:100px;background:#0f0;border-radius:50%'></div>");
+
+        var (moveX, cornerHeight) = FirstCorner(content);
+        moveX.Should().BeApproximately(75f, 0.01f, "50% of the 200px width is 100px = 75pt across");
+        cornerHeight.Should().BeApproximately(37.5f, 0.01f, "50% of the 100px height is 50px = 37.5pt down");
+    }
+
+    [Fact]
+    public void RoundedCorners_SlashSyntax_UsesTheVerticalRadius()
+    {
+        var content = Content("<div style='width:100px;height:60px;background:#0f0;border-radius:20px / 10px'></div>");
+
+        var (moveX, cornerHeight) = FirstCorner(content);
+        moveX.Should().BeApproximately(15f, 0.01f);
+        cornerHeight.Should().BeApproximately(7.5f, 0.01f);
+    }
+
+    private static string[] StrokeGreys(string content) =>
+        Regex.Matches(content, @"(\d+\.\d+) \1 \1 RG").Cast<Match>().Select(m => m.Groups[1].Value).ToArray();
+
+    [Fact]
+    public void InsetBorder_DarkensTopAndLeftAndLightensBottomAndRight()
+    {
+        var content = Content("<div style='width:50px;height:50px;border:4px inset rgb(128,128,128)'></div>");
+
+        StrokeGreys(content).Should().Equal("0.17", "0.83", "0.83", "0.17");
+    }
+
+    [Fact]
+    public void OutsetBorder_BlackLightensEverySideTheDarkSidesLess()
+    {
+        var content = Content("<div style='width:50px;height:50px;border:2px outset #000'></div>");
+
+        StrokeGreys(content).Should().Equal("0.66", "0.33", "0.33", "0.66");
+    }
+
+    [Fact]
+    public void GrooveBorder_PaintsTheOuterHalfInsetAndTheInnerHalfOutset()
+    {
+        var content = Content("<div style='width:50px;height:50px;border:4px groove rgb(128,128,128)'></div>");
+
+        StrokeGreys(content).Should().Equal("0.17", "0.83", "0.83", "0.17", "0.83", "0.17", "0.17", "0.83");
+    }
 }
