@@ -110,6 +110,61 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 - With both `column-count` and `column-width`, the count is the maximum and the width lowers it when
   fewer columns of that width fit.
 
+## EggPdf.Layout/BlockLayout.cs
+
+- `_fullPageWidthPx` / `_fullPageHeightPx` are the physical sheet, while the page width and height
+  passed to layout are the content area inside the `@page` margins. They default to the content
+  area for callers (mostly tests) with no real `@page` margin.
+- The table caches are cleared at the start of every layout: a pooled thread would otherwise keep
+  every table element of every past render.
+- The `<html>` style is resolved first so custom properties on `:root` are inherited.
+- After layout, `ResolveAbsolutePositions` turns parent-relative Y values into absolute ones. The
+  body's top margin is then applied, except for the UA default of 8px.
+- `content-visibility: hidden` keeps the element's own box (size, background, border) and skips
+  its descendants, which contribute nothing to its size; its height is resolved there because no
+  child layout runs.
+- `LayoutNormalFlowChildren` stays one method: childY, inlineX, the float context, the deferred
+  absolute children and more thread through the whole child walk, so splitting it would change how
+  that state is carried, not just move code.
+- Floats: an outer block that doesn't establish a BFC passes its float context down, so its inline
+  content and its block children's descendants see floats registered earlier in the same BFC; a
+  float is a new BFC root with a fresh context. `clear` is resolved before laying out the child so
+  the float origin passed down is the cleared Y; `box.Y` can still be provisional there, so the real
+  position travels as `floatOriginY`. The child's predicted top margin (collapsed with the previous
+  sibling's bottom margin) is folded into that origin, or lines just below a float would still wrap
+  beside it. A float registers with `shape-outside` when set, and `shape-margin` extends its bottom
+  for `clear`.
+- Table rows: cell column offsets are computed once per row (per-cell rescans were O(cells²)). A
+  `display: table` box whose children are table cells with no row wrapper acts as one anonymous row
+  (CSS 2.1, simplified): the "table div > cell divs" equal-height-columns pattern. There every direct
+  element child counts as a column, because resolving a sibling's style ahead of the normal loop isn't
+  reliable for stylesheet-driven selector state. In an RTL table, column 0 is at the right edge.
+  `border-spacing` defaults to 2px and is 0 with `border-collapse: collapse`, which also drops each
+  cell's left border after the first column and top border after the first row. A moved cell shifts
+  its whole subtree, because cell content is usually nested more than one level deep.
+- Relative and sticky offsets are applied after the parent sets the child's normal-flow Y, which
+  would otherwise overwrite them; sticky behaves like relative in a PDF. `visibility: collapse`
+  removes a table row's height; on other elements it behaves like `hidden`.
+- An empty `<br>` line (leading or repeated) adds a line height; after text, the line was already
+  advanced.
+- `<svg>` is a replaced element sized by its width/height attributes (300×150 by default); its
+  children are not HTML text the inline path could find.
+- With floats active, a text node is placed a word at a time against the per-line float limits
+  instead of `TextMeasurer.WrapText`'s single width, skipping first-letter, initial-letter,
+  line-clamp, `text-wrap: balance` and hyphenation there. Words on one line are still emitted as one
+  box, so a multi-word phrase is one contiguous string in the PDF, like the non-float path.
+- `text-wrap: balance` wraps once at full width to count lines, then wraps at the balanced width.
+  `text-indent` narrows only the first line; the rest is re-wrapped at full width.
+- `line-clamp` keeps N lines and trims the last one by words (characters as a last resort) until it
+  fits with "…"; `hanging-punctuation: first` hangs a leading quote or bracket outside the line.
+- Rows equalize their cells' heights, and `vertical-align: middle | bottom` shifts the cell's content.
+- An outside list marker hangs off the side the text starts from: left in LTR, right in RTL.
+- Table cells ignore their own `width` here: the column width from the table algorithm is passed in
+  as the containing width, and resolving "20%" against it again would give 4%.
+- Auto margins centre a block only when its width is specified; an auto-width block fills the
+  container.
+- `::marker { content }` replaces the generated marker text.
+
 ## EggPdf.Layout/BlockLayout.AbsolutePositioning.cs
 
 - `LayoutAbsoluteChildren` runs after the container's final size is known and appends the
