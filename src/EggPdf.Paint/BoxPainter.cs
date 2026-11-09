@@ -272,16 +272,8 @@ public static partial class BoxPainter
         var filterParams = !string.IsNullOrEmpty(filterStr) && filterStr != "none"
             ? EggPdf.Pdf.PdfFilterEffects.Parse(filterStr) : null;
 
-        float tlr = ResolveBorderRadius(box.Style, "border-top-left-radius", box.Width);
-        float trr = ResolveBorderRadius(box.Style, "border-top-right-radius", box.Width);
-        float brr = ResolveBorderRadius(box.Style, "border-bottom-right-radius", box.Width);
-        float blr = ResolveBorderRadius(box.Style, "border-bottom-left-radius", box.Width);
-        bool hasRadius = tlr > 0 || trr > 0 || brr > 0 || blr > 0;
-
-        float tlrPt = tlr * PdfCoordinates.PxToPt;
-        float trrPt = trr * PdfCoordinates.PxToPt;
-        float brrPt = brr * PdfCoordinates.PxToPt;
-        float blrPt = blr * PdfCoordinates.PxToPt;
+        var radii = ResolveCornerRadiiPt(box);
+        bool hasRadius = !radii.IsSquare;
 
         bool isAnonymousTextBox = box.Element == null && box.Text != null;
 
@@ -340,8 +332,7 @@ public static partial class BoxPainter
                     float pdfH = box.Height * PdfCoordinates.PxToPt;
 
                     if (hasRadius)
-                        page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH, bgR, bgG, bgB,
-                            tlrPt, trrPt, brrPt, blrPt);
+                        page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH, bgR, bgG, bgB, radii);
                     else
                         page.AddRectangle(pdfX, pdfY, pdfW, pdfH, bgR, bgG, bgB);
 
@@ -365,7 +356,7 @@ public static partial class BoxPainter
             if (hasBgBlend)
                 page.RestoreState();
 
-            PaintBorders(page, box, effectiveX, pageHeightPt, pageHeightPx, adjustedY, hasRadius, tlrPt, trrPt, brrPt, blrPt);
+            PaintBorders(page, box, effectiveX, pageHeightPt, pageHeightPx, adjustedY, radii);
         }
 
         var elemTagName = box.Element?.TagName;
@@ -381,7 +372,7 @@ public static partial class BoxPainter
                 var appearanceVal = box.Style.Get("appearance") ?? box.Style.Get("-webkit-appearance");
                 if (appearanceVal != "none")
                     PaintCheckboxOrRadio(page, box, inputTypeAttr, effectiveX, pageHeightPx, adjustedY,
-                        box.Style.Get("accent-color"), hasRadius, tlrPt, trrPt, brrPt, blrPt);
+                        box.Style.Get("accent-color"), radii);
             }
         }
         else if (elemTagName == "select")
@@ -940,17 +931,40 @@ public static partial class BoxPainter
         return new string(chars);
     }
 
-    private static float ResolveBorderRadius(ComputedStyle style, string property, float boxWidth)
+    private static CornerRadii ResolveCornerRadiiPt(LayoutBox box)
     {
-        var value = style.Get(property) ?? style.Get("border-radius");
+        var (tlX, tlY) = ResolveCornerRadius(box.Style, "border-top-left-radius", box.Width, box.Height);
+        var (trX, trY) = ResolveCornerRadius(box.Style, "border-top-right-radius", box.Width, box.Height);
+        var (brX, brY) = ResolveCornerRadius(box.Style, "border-bottom-right-radius", box.Width, box.Height);
+        var (blX, blY) = ResolveCornerRadius(box.Style, "border-bottom-left-radius", box.Width, box.Height);
+        return new CornerRadii(tlX, tlY, trX, trY, brX, brY, blX, blY).Scaled(PdfCoordinates.PxToPt);
+    }
+
+    private static (float X, float Y) ResolveCornerRadius(ComputedStyle style, string property, float boxWidth, float boxHeight)
+    {
+        var longhand = style.Get(property);
+        var value = longhand ?? style.Get("border-radius");
         if (string.IsNullOrEmpty(value) || value == "0" || value == "0px")
-            return 0;
+            return (0f, 0f);
 
-        var spaceIdx = value.IndexOf(' ');
-        var hValue = spaceIdx > 0 ? value.Substring(0, spaceIdx) : value;
+        int slash = value!.IndexOf('/');
+        var horizontal = (slash >= 0 ? value.Substring(0, slash) : value)
+            .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (horizontal.Length == 0) return (0f, 0f);
+        string horizontalValue = horizontal[0];
+        string verticalValue = horizontalValue;
+        if (slash >= 0)
+        {
+            var vertical = value.Substring(slash + 1).Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (vertical.Length > 0) verticalValue = vertical[0];
+        }
+        else if (longhand != null && horizontal.Length > 1)
+        {
+            verticalValue = horizontal[1];
+        }
 
-        float resolved = BlockLayout.ResolveLength(hValue, boxWidth, 16);
-        return Math.Max(0, resolved);
+        return (Math.Max(0f, BlockLayout.ResolveLength(horizontalValue, boxWidth, 16)),
+                Math.Max(0f, BlockLayout.ResolveLength(verticalValue, boxHeight, 16)));
     }
 
     private static void PaintTextEmphasis(PdfPage page, LayoutBox box, string text,
@@ -1110,14 +1124,7 @@ public static partial class BoxPainter
         if (loader != null) return loader(url);
 
         if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-        {
-            int comma = url.IndexOf(',');
-            if (comma > 0)
-            {
-                try { return Convert.FromBase64String(url.Substring(comma + 1)); }
-                catch { return null; }
-            }
-        }
+            return EggPdf.Core.Resources.DataUri.TryDecode(url, out var bytes, out _) ? bytes : null;
         try { if (System.IO.File.Exists(url)) return System.IO.File.ReadAllBytes(url); }
         catch { }
         return null;
@@ -1136,8 +1143,7 @@ public static partial class BoxPainter
     }
 
     private static void PaintBorders(PdfPage page, LayoutBox box, float effectiveX,
-        float pageHeightPt, float pageHeightPx, float adjustedY,
-        bool hasRadius, float tlrPt, float trrPt, float brrPt, float blrPt)
+        float pageHeightPt, float pageHeightPx, float adjustedY, CornerRadii radii)
     {
         var borderImageSrc = box.Style.Get("border-image-source");
         if (!string.IsNullOrEmpty(borderImageSrc) && borderImageSrc != "none")
@@ -1224,10 +1230,9 @@ public static partial class BoxPainter
             float widthPt = sideWidths[0] * PdfCoordinates.PxToPt;
             float half = Math.Min(widthPt / 2f, Math.Min(pdfW, pdfH) / 2f);
             bool translucent = BeginStrokeAlpha(page, sideA[0]);
-            if (hasRadius)
+            if (!radii.IsSquare)
                 page.AddStrokeRoundedRectangle(pdfX + half, pdfY + half, pdfW - 2f * half, pdfH - 2f * half,
-                    sideR[0], sideG[0], sideB[0], widthPt,
-                    Math.Max(0f, tlrPt - half), Math.Max(0f, trrPt - half), Math.Max(0f, brrPt - half), Math.Max(0f, blrPt - half));
+                    sideR[0], sideG[0], sideB[0], widthPt, radii.FittedTo(pdfW, pdfH).Expanded(-half));
             else
                 page.AddStrokeRectangle(pdfX + half, pdfY + half, pdfW - 2f * half, pdfH - 2f * half,
                     sideR[0], sideG[0], sideB[0], widthPt);
@@ -1255,7 +1260,8 @@ public static partial class BoxPainter
     {
         if (widths[side] <= 0) return;
         bool translucent = BeginStrokeAlpha(page, alpha[side]);
-        page.AddBorderLine(x1, y1, x2, y2, r[side], g[side], b[side], widths[side] * PdfCoordinates.PxToPt, styles[side]);
+        page.AddBorderLine(x1, y1, x2, y2, r[side], g[side], b[side], widths[side] * PdfCoordinates.PxToPt, styles[side],
+            (BorderSide)side);
         EndStrokeAlpha(page, translucent);
     }
 
@@ -1787,8 +1793,7 @@ public static partial class BoxPainter
     }
 
     private static void PaintCheckboxOrRadio(PdfPage page, LayoutBox box, string inputType,
-        float effectiveX, float pageHeightPx, float adjustedY, string? accentColorStr,
-        bool hasRadius, float tlrPt, float trrPt, float brrPt, float blrPt)
+        float effectiveX, float pageHeightPx, float adjustedY, string? accentColorStr, CornerRadii radii)
     {
         if (box.Width <= 0 || box.Height <= 0) return;
         if (box.Element == null || !box.Element.HasAttribute("checked")) return;
@@ -1810,8 +1815,8 @@ public static partial class BoxPainter
             return;
         }
 
-        if (hasRadius)
-            page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH, accR, accG, accB, tlrPt, trrPt, brrPt, blrPt);
+        if (!radii.IsSquare)
+            page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH, accR, accG, accB, radii);
         else
             page.AddRectangle(pdfX, pdfY, pdfW, pdfH, accR, accG, accB);
 
@@ -2018,24 +2023,14 @@ public static partial class BoxPainter
             page.SaveState();
             ClipToRingBetween(page, outerX, outerY, outerRight - outerX, outerTop - outerY, boxX, boxY, boxW, boxH);
             if (sa < 1f) SetPaintOpacity(page, sa);
-            float spreadPt = spread * PdfCoordinates.PxToPt;
-            float tl = ShadowCornerRadius(box, "border-top-left-radius", spreadPt);
-            float tr = ShadowCornerRadius(box, "border-top-right-radius", spreadPt);
-            float br = ShadowCornerRadius(box, "border-bottom-right-radius", spreadPt);
-            float bl = ShadowCornerRadius(box, "border-bottom-left-radius", spreadPt);
-            if (tl > 0f || tr > 0f || br > 0f || bl > 0f)
-                page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH, sr, sg, sb, tl, tr, br, bl);
+            var shadowRadii = ResolveCornerRadiiPt(box).Expanded(spread * PdfCoordinates.PxToPt);
+            if (!shadowRadii.IsSquare)
+                page.AddRoundedRectangle(pdfX, pdfY, pdfW, pdfH, sr, sg, sb, shadowRadii);
             else
                 page.AddRectangle(pdfX, pdfY, pdfW, pdfH, sr, sg, sb);
             if (sa < 1f) SetPaintOpacity(page, 1f);
             page.RestoreState();
         }
-    }
-
-    private static float ShadowCornerRadius(LayoutBox box, string property, float spreadPt)
-    {
-        float radius = ResolveBorderRadius(box.Style, property, box.Width) * PdfCoordinates.PxToPt;
-        return radius > 0f ? Math.Max(0f, radius + spreadPt) : 0f;
     }
 
     private static string? ResolveImageSet(string value)

@@ -78,8 +78,10 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 
 ## EggPdf.Layout/StandardFontMetrics.cs
 
-- Widths are the PDF standard 14 AFM advances in 1/1000 em for WinAnsi 32–126; a no-break space
-  measures as a space, and characters outside the table measure 500.
+- Widths are the PDF standard 14 AFM advances in 1/1000 em for WinAnsi 32–126 (Helvetica and Times
+  each have their own regular, bold, italic and bold-italic tables); a no-break space measures as a
+  space, an accented Latin-1 letter (U+00C0–U+00FF with a canonical decomposition) measures as its
+  base letter, and any other character measures 500.
 - Arial maps to the Helvetica tables: the two are metric-compatible. Arial and Segoe UI resolve to
   "Arial" so the installed TrueType font gets embedded.
 - With a measurement provider active (web fonts), numeric weights other than 400 and 700 get their
@@ -312,9 +314,18 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 - Border lines: dashed is 3× the width on and off with butt caps; dotted is a zero-length dash
   with round caps every 2× the width; double is two lines a third of the width wide with a third
   between them.
-- Rounded-rectangle radii are scaled down together, by one factor, when the two radii on any side add
-  up to more than that side (CSS Backgrounds 3 §5.5); the corners are cubic Béziers with the circle
-  kappa 0.5522847498.
+- Rounded-rectangle corners are elliptical (`CornerRadii`: a horizontal and a vertical radius per
+  corner; a corner with either radius 0 is square). All radii are scaled down together, by one factor,
+  when the radii on any side add up to more than that side (CSS Backgrounds 3 §5.5); the corners are
+  cubic Béziers with the circle kappa 0.5522847498 applied per axis.
+- `inset`, `outset`, `groove` and `ridge` borders follow Chromium's `box_border_painter.cc`
+  (`BorderShade`): a side is darkened when (it is the top or left side) equals (the style is inset);
+  darkening is `Color::Dark()` (the brightest channel drops by 0.33 and the others scale with it),
+  lightening is `Color::Light()` (black becomes rgb(84, 84, 84)), a colour lighter than luminance
+  0.83077 is left as is on the light side, and a colour darker than luminance 0.014443844 is lightened
+  once on the dark side and twice on the light side. Groove paints the outer half of each side as
+  inset and the inner half as outset; ridge the reverse. The public `AddBorderLine` without a side
+  shades a 3D line as a top border.
 - A wavy decoration is a chain of half waves, each one cubic Bézier with control points at a third
   and two thirds of it, raised 4/3 of the amplitude so the crest reaches the amplitude.
 - Text outside WinAnsi is written as `?` for the standard 14 fonts.
@@ -323,3 +334,21 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 
 - The MediaBox is the trim size plus bleed, plus the crop-mark area when marks are on; the TrimBox is
   the final page size; the BleedBox is the TrimBox grown by the bleed.
+
+## EggPdf.Layout/BlockLayout.FloatedImage.cs
+
+- A floated image registers its margin box as the exclusion; a `shape-outside` shape is defined on the
+  border box, so the margin on the content side is left out for shapes.
+- The bottom that later `clear` content must start below is relative to the content area and includes
+  `shape-margin`.
+
+## EggPdf/ResourceLoader.cs
+
+- The per-render caches are created on first use: most renders load nothing external, and every
+  render builds a loader.
+- A caller's resolver runs off the calling thread, so a resolver that awaits without
+  `ConfigureAwait(false)` can't deadlock against the caller's synchronization context while the
+  render thread blocks on it. The timeout's token source is disposed only once the resolver is done
+  with it, even when the render stops waiting first. The wait is bounded even if the resolver ignores
+  its token, and it throws when the caller cancels.
+- A one-letter "scheme" is a Windows drive letter (`C:\...`), not a URL scheme.

@@ -8,35 +8,35 @@ namespace EggPdf.Tests.Unit.Core;
 
 public class DataUriResolverTests
 {
+    private const byte PngSignatureFirstByte = 0x89;
+
     private readonly DataUriResolver _resolver = new();
 
     [Fact]
     public async Task Resolve_Base64Png_DecodesCorrectly()
     {
-        // 1x1 red pixel PNG as base64
-        var url = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+        var onePixelRedPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
 
-        var result = await _resolver.ResolveAsync(url, ResourceType.Image);
+        var result = await _resolver.ResolveAsync(onePixelRedPng, ResourceType.Image);
 
         result.Should().NotBeNull();
         result!.MimeType.Should().Be("image/png");
         result.Data.Should().NotBeEmpty();
-        result.Data[0].Should().Be(0x89); // PNG magic byte
+        result.Data[0].Should().Be(PngSignatureFirstByte);
         result.Data[1].Should().Be((byte)'P');
     }
 
     [Fact]
     public async Task Resolve_Base64Jpeg_DecodesCorrectly()
     {
-        var bytes = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 }; // JPEG magic
-        var b64 = Convert.ToBase64String(bytes);
-        var url = $"data:image/jpeg;base64,{b64}";
+        var jpegSignature = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 };
+        var url = $"data:image/jpeg;base64,{Convert.ToBase64String(jpegSignature)}";
 
         var result = await _resolver.ResolveAsync(url, ResourceType.Image);
 
         result.Should().NotBeNull();
         result!.MimeType.Should().Be("image/jpeg");
-        result.Data.Should().BeEquivalentTo(bytes);
+        result.Data.Should().BeEquivalentTo(jpegSignature);
     }
 
     [Fact]
@@ -69,5 +69,37 @@ public class DataUriResolverTests
 
         result.Should().NotBeNull();
         result!.Data.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Resolve_MalformedBase64_ReturnsNullInsteadOfThrowing()
+    {
+        var result = await _resolver.ResolveAsync("data:image/png;base64,not*base64!", ResourceType.Image);
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void TryDecode_PercentEncodedSvg_DecodesTheMarkup()
+    {
+        DataUri.TryDecode("data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%2F%3E",
+            out var bytes, out var mimeType).Should().BeTrue();
+
+        mimeType.Should().Be("image/svg+xml;charset=utf-8");
+        System.Text.Encoding.UTF8.GetString(bytes).Should().Be("<svg xmlns='http://www.w3.org/2000/svg'/>");
+    }
+
+    [Fact]
+    public void TryDecode_PercentEncodedBase64_DecodesTheBytes()
+    {
+        DataUri.TryDecode("data:application/octet-stream;base64,%2B%2F8%3D", out var bytes, out _).Should().BeTrue();
+
+        bytes.Should().Equal(0xFB, 0xFF);
+    }
+
+    [Fact]
+    public void TryDecode_NoComma_ReturnsFalse()
+    {
+        DataUri.TryDecode("data:image/png;base64", out _, out _).Should().BeFalse();
     }
 }
