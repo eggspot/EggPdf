@@ -121,7 +121,9 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
   every table element of every past render.
 - The `<html>` style is resolved first so custom properties on `:root` are inherited.
 - After layout, `ResolveAbsolutePositions` turns parent-relative Y values into absolute ones. The
-  body's top margin is then applied, except for the UA default of 8px.
+  body's top margin is then applied. It has already collapsed with its first child's top margin (as
+  in Chrome: content starts at max(8px, the child's margin) by default); the body's bottom margin does
+  not collapse with its last child, because `PdfRenderer` uses it as the bottom snap zone of every page.
 - `content-visibility: hidden` keeps the element's own box (size, background, border) and skips
   its descendants, which contribute nothing to its size; its height is resolved there because no
   child layout runs.

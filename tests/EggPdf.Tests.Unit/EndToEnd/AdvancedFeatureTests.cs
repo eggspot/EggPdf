@@ -501,7 +501,7 @@ public class AdvancedFeatureTests
         byte[] pdf = HtmlToPdf.Render(html);
         var text = PdfAssert.ValidPdf(pdf);
 
-        text.Should().MatchRegex(@"(?s)q\n[^\n]* m [^\n]* c [^\n]* c [^\n]* c [^\n]* c h\nW n\n0\.00 0\.00 1\.00 rg\n6\.00 766\.89 75\.00 75\.00 re f\nQ",
+        text.Should().MatchRegex(@"(?s)q\n[^\n]* m [^\n]* c [^\n]* c [^\n]* c [^\n]* c h\nW n\n0\.00 0\.00 1\.00 rg\n6\.00 760\.89 75\.00 75\.00 re f\nQ",
             "the circle path is a closed 4-arc curve installed as clip before the blue fill");
     }
 
@@ -512,7 +512,7 @@ public class AdvancedFeatureTests
         byte[] pdf = HtmlToPdf.Render(html);
         var text = PdfAssert.ValidPdf(pdf);
 
-        text.Should().Contain("43.50 766.89 m 81.00 841.89 l 6.00 841.89 l h\nW n", "triangle vertices are the box's bottom-center, top-right and top-left");
+        text.Should().Contain("43.50 760.89 m 81.00 835.89 l 6.00 835.89 l h\nW n", "triangle vertices are the box's bottom-center, top-right and top-left");
         text.Should().Contain("1.00 0.00 0.00 rg");
     }
 
@@ -525,7 +525,7 @@ public class AdvancedFeatureTests
         byte[] pdf = HtmlToPdf.Render(html);
         var text = PdfAssert.ValidPdf(pdf, "Column one content here.", "Column two content here.");
 
-        text.Should().Contain("0.75 w\n0.00 0.00 0.00 RG\n156.00 803.49 m 156.00 841.89 l S", "a vertical black rule is stroked between the columns");
+        text.Should().Contain("0.75 w\n0.00 0.00 0.00 RG\n156.00 797.49 m 156.00 835.89 l S", "a vertical black rule is stroked between the columns");
         PdfAssert.TextPosition(text, "Column two content here.").X.Should().BeGreaterThan(156f);
     }
 
@@ -563,7 +563,7 @@ public class AdvancedFeatureTests
         byte[] pdf = HtmlToPdf.Render(html);
         var text = PdfAssert.ValidPdf(pdf);
 
-        text.Should().Contain("6.38 827.27 149.25 14.25 re S", "the 200x20px track outline, stroked inside its edge");
+        text.Should().Contain("6.38 821.27 149.25 14.25 re S", "the 200x20px track outline, stroked inside its edge");
         text.Should().Contain("88.20 12.00 re f", "60% of the inner track width is filled");
     }
 
@@ -574,7 +574,7 @@ public class AdvancedFeatureTests
         byte[] pdf = HtmlToPdf.Render(html);
         var text = PdfAssert.ValidPdf(pdf);
 
-        text.Should().Contain("6.38 827.27 149.25 14.25 re S", "the track outline, stroked inside its edge");
+        text.Should().Contain("6.38 821.27 149.25 14.25 re S", "the track outline, stroked inside its edge");
         text.Should().Contain("58.80 12.00 re f", "the indeterminate bar covers a fixed portion of the track");
     }
 

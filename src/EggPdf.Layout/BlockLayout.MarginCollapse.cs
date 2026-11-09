@@ -21,7 +21,7 @@ public static partial class BlockLayout
     private static bool CollapsesMarginsWithChildren(HtmlElement element, ComputedStyle style, ComputedStyle? parentStyle)
     {
         var tag = element.TagName;
-        if (tag == "body" || tag == "html" || tag == "td" || tag == "th" || tag == "table" || tag == "caption") return false;
+        if (tag == "html" || tag == "td" || tag == "th" || tag == "table" || tag == "caption") return false;
 
         var display = style.Get("display");
         if (!string.IsNullOrEmpty(display) && display != "block" && display != "list-item") return false;

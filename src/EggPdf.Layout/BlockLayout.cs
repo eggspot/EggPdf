@@ -14,7 +14,6 @@ public static partial class BlockLayout
 
     private const char NonBreakingSpace = (char)0x00A0;
     private const float DefaultLineHeight = 1.2f;
-    private const float UserAgentBodyMargin = 8f;
     private const float UserAgentBorderSpacing = 2f;
     private const int DefaultTabSize = 8;
 
@@ -125,10 +124,8 @@ public static partial class BlockLayout
 
         ResolveAbsolutePositions(root, 0, 0);
 
-        if (bodyBox.MarginTop > UserAgentBodyMargin)
-        {
+        if (bodyBox.MarginTop != 0f)
             OffsetBoxY(bodyBox, bodyBox.MarginTop);
-        }
 
         return root;
     }
@@ -239,7 +236,8 @@ public static partial class BlockLayout
         float prevMarginBottom = 0;
         float childYAfterLastBlock = float.NaN;
         float marginCollapsedThroughTop = 0f;
-        bool collapsesWithChildren = !isMultiColumn && CollapsesMarginsWithChildren(element, style, parentStyle);
+        bool collapsesTopWithChildren = !isMultiColumn && CollapsesMarginsWithChildren(element, style, parentStyle);
+        bool collapsesBottomWithChildren = collapsesTopWithChildren && element.TagName != "body";
         float inlineX = 0;
         float inlineLineHeight = 0;
         bool lastWasTextNode = false;
@@ -477,7 +475,7 @@ public static partial class BlockLayout
                             predictedTopMargin = ResolveLength(childStyle.MarginTop ?? childStyle.Get("margin"),
                                 childContainingWidth, predictedFontSize);
                             if (hasBlockChild) predictedTopMargin = CollapseMargins(prevMarginBottom, predictedTopMargin);
-                            else if (childY == 0f && collapsesWithChildren && box.PaddingTop == 0f) predictedTopMargin = 0f;
+                            else if (childY == 0f && collapsesTopWithChildren && box.PaddingTop == 0f) predictedTopMargin = 0f;
                         }
                         float childFloatOriginY = floatOriginY + box.PaddingTop + childY + predictedTopMargin;
                         float childBoxContainingWidth = isFloatChild
@@ -528,7 +526,7 @@ public static partial class BlockLayout
                             float effectiveTopMargin = hasBlockChild
                                 ? CollapseMargins(prevMarginBottom, childBox.MarginTop)
                                 : childBox.MarginTop;
-                            if (!hasBlockChild && childY == 0f && collapsesWithChildren && box.PaddingTop == 0f)
+                            if (!hasBlockChild && childY == 0f && collapsesTopWithChildren && box.PaddingTop == 0f)
                             {
                                 marginCollapsedThroughTop = childBox.MarginTop;
                                 effectiveTopMargin = 0f;
@@ -1329,7 +1327,7 @@ public static partial class BlockLayout
 
             if (!isMultiColumn && hasBlockChild && childY == childYAfterLastBlock && prevMarginBottom != 0f)
             {
-                bool collapsesThroughBottom = collapsesWithChildren && box.PaddingBottom == 0f &&
+                bool collapsesThroughBottom = collapsesBottomWithChildren && box.PaddingBottom == 0f &&
                                               string.IsNullOrEmpty(style.Get("min-height"));
                 if (collapsesThroughBottom)
                     box.MarginBottom = CollapseMargins(box.MarginBottom, prevMarginBottom);

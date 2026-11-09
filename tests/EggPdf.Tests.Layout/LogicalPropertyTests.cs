@@ -4,11 +4,8 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary>Tests for CSS Logical Properties Level 1.</summary>
 public class LogicalPropertyTests
 {
-    // ===== margin-inline-start / margin-inline-end =====
-
     [Fact]
     public void MarginInlineStart_LTR_MapsToMarginLeft()
     {
@@ -16,15 +13,13 @@ public class LogicalPropertyTests
             "<body style='margin:0'><div style='margin-inline-start:30px; width:100px; height:20px'>A</div></body>", 400, 600);
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
-        // In LTR, margin-inline-start = margin-left → div.X should be 30
         div!.X.Should().BeApproximately(30f, 1f,
-            "margin-inline-start:30px in LTR should produce 30px left margin");
+            "margin-inline-start:30px in LTR is margin-left, so the div starts 30px in");
     }
 
     [Fact]
     public void MarginInlineEnd_LTR_MapsToMarginRight()
     {
-        // Two siblings: first has margin-inline-end:20px, second should be pushed right
         var root = LayoutTestHelper.Layout(
             "<body style='margin:0'><div style='display:flex'>" +
             "<span style='margin-inline-end:20px; width:50px'>A</span>" +
@@ -32,9 +27,8 @@ public class LogicalPropertyTests
             "</div></body>", 400, 600);
         var spans = root.FindAllByTag("span");
         spans.Should().HaveCount(2);
-        // Second span should start at 50 + 20 = 70
         spans[1].X.Should().BeApproximately(70f, 2f,
-            "margin-inline-end:20px in LTR should add 20px right margin to first span");
+            "margin-inline-end:20px in LTR adds a 20px right margin, so the second span starts at 50 + 20");
     }
 
     [Fact]
@@ -51,17 +45,14 @@ public class LogicalPropertyTests
     [Fact]
     public void MarginBlockEnd_MapsToMarginBottom()
     {
-        // Two block siblings: first has margin-block-end:15px
         var root = LayoutTestHelper.Layout(
             "<div style='height:20px; margin-block-end:15px'>A</div>" +
             "<div style='height:20px'>B</div>", 400, 600);
         var divs = root.FindAllByTag("div");
         divs.Should().HaveCount(2);
-        divs[1].Y.Should().BeApproximately(35f, 1f,
+        (divs[1].Y - divs[0].Y).Should().BeApproximately(35f, 1f,
             "margin-block-end:15px should add 15px below first div");
     }
-
-    // ===== padding-inline / padding-block =====
 
     [Fact]
     public void PaddingInlineStart_LTR_MapsToLeftPadding()
@@ -85,8 +76,6 @@ public class LogicalPropertyTests
             "padding-block-start:8px should set padding-top");
     }
 
-    // ===== inline-size / block-size =====
-
     [Fact]
     public void InlineSize_HorizontalWritingMode_MapsToWidth()
     {
@@ -108,8 +97,6 @@ public class LogicalPropertyTests
         div!.Height.Should().BeApproximately(45f, 2f,
             "block-size:45px in horizontal writing mode should set height");
     }
-
-    // ===== text-align: start / end =====
 
     [Fact]
     public void TextAlign_Start_LTR_MapsToLeft()
@@ -133,8 +120,6 @@ public class LogicalPropertyTests
             "text-align:end in LTR should resolve to right");
     }
 
-    // ===== direction:rtl ==========================================================
-
     [Fact]
     public void MarginInlineStart_RTL_MapsToMarginRight()
     {
@@ -143,11 +128,8 @@ public class LogicalPropertyTests
             "<div style='margin-inline-start:30px; width:100px; height:20px'>A</div></body>", 400, 600);
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
-        // In RTL, margin-inline-start = margin-right, so the block stays flush left but its
-        // right edge is pushed in by 30px -- verified via the resolved physical property
-        // rather than X (an RTL div's own position doesn't depend on its own margin-right).
         div!.Style.Get("margin-right").Should().Be("30px",
-            "margin-inline-start:30px in RTL should resolve to margin-right");
+            "margin-inline-start:30px in RTL resolves to margin-right (checked on the style: an RTL div's own X does not depend on its margin-right)");
     }
 
     [Fact]
@@ -158,22 +140,19 @@ public class LogicalPropertyTests
             "<div style='float:inline-start; width:100px; height:50px'>F</div></body>", 300, 600);
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
-        // float:inline-start in RTL resolves to float:right -- the box sits at the container's
-        // right edge (300 - 100 = 200), not the left.
         div!.X.Should().BeApproximately(200f, 1f,
-            "float:inline-start in RTL must resolve to float:right");
+            "float:inline-start in RTL must resolve to float:right, at the container's right edge (300 - 100)");
     }
 
     [Fact]
     public void TextAlign_Default_RTL_ResolvesToRight()
     {
-        // The initial text-align is `start`: right in an RTL subtree, even though the (LTR) root's
-        // computed value is what descendants inherit.
         var root = LayoutTestHelper.Layout(
             "<body dir='rtl'><p style='width:200px'>Hello</p></body>", 400, 600);
         var p = root.FindByTag("p");
         p.Should().NotBeNull();
-        EggPdf.Css.LogicalPropertyResolver.PhysicalTextAlign(p!.Style).Should().Be("right");
+        EggPdf.Css.LogicalPropertyResolver.PhysicalTextAlign(p!.Style).Should().Be("right",
+            "the initial text-align is start, which is right in an RTL subtree even though the LTR root's value is inherited");
     }
 
     [Fact]
@@ -190,9 +169,8 @@ public class LogicalPropertyTests
     public void TextAlign_Default_LTR_Unchanged()
     {
         var root = LayoutTestHelper.Layout("<p style='width:200px'>Hello</p>", 400, 600);
-        // Unset in LTR stays unset/left: no alignment shift is applied.
         var value = EggPdf.Css.LogicalPropertyResolver.PhysicalTextAlign(root.FindByTag("p")!.Style);
-        (value == null || value == "left").Should().BeTrue();
+        (value == null || value == "left").Should().BeTrue("an unset text-align in LTR applies no alignment shift");
     }
 
     [Fact]
