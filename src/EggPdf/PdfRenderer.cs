@@ -95,9 +95,11 @@ internal static class PdfRenderer
 
         var avoidBreakBoxes = new List<(float y, float height)>();
         PageFragmenter.CollectBreakInsideAvoid(layoutRoot, avoidBreakBoxes);
+        avoidBreakBoxes.Sort((a, b) => a.y.CompareTo(b.y));
 
         var orphanWidowBlocks = new List<PageFragmenter.OrphanWidowBlock>();
         PageFragmenter.CollectOrphansWidowsBlocks(layoutRoot, orphanWidowBlocks);
+        orphanWidowBlocks.Sort((a, b) => a.Y.CompareTo(b.Y));
 
         float maxY = 0;
         for (int i = 0; i < allBoxes.Count; i++)
@@ -176,25 +178,24 @@ internal static class PdfRenderer
                     smartBottom = theadTop;
             }
 
-            for (int ai = 0; ai < avoidBreakBoxes.Count; ai++)
+            for (int ai = FirstAvoidBoxBelow(avoidBreakBoxes, currentTop); ai < avoidBreakBoxes.Count; ai++)
             {
                 float bTop    = avoidBreakBoxes[ai].y;
+                if (bTop >= naiveBottom) break;
                 float bHeight = avoidBreakBoxes[ai].height;
                 float bBottom = bTop + bHeight;
-                if (bTop > currentTop && bTop < naiveBottom && bHeight <= paginationHeight)
-                {
-                    if (bBottom > naiveBottom && bTop < smartBottom)
-                        smartBottom = bTop;
-                }
+                if (bHeight <= paginationHeight && bBottom > naiveBottom && bTop < smartBottom)
+                    smartBottom = bTop;
             }
 
-            for (int oi = 0; oi < orphanWidowBlocks.Count; oi++)
+            for (int oi = FirstOrphanWidowBlockFrom(orphanWidowBlocks, currentTop); oi < orphanWidowBlocks.Count; oi++)
             {
                 float bTop    = orphanWidowBlocks[oi].Y;
+                if (bTop >= naiveBottom) break;
                 float bBottom = bTop + orphanWidowBlocks[oi].Height;
                 var   lineYs  = orphanWidowBlocks[oi].LineYs;
 
-                if (bTop < currentTop || bTop >= naiveBottom || bBottom <= naiveBottom)
+                if (bBottom <= naiveBottom)
                     continue;
                 if (lineYs.Length < 2)
                     continue;
@@ -429,22 +430,8 @@ internal static class PdfRenderer
             var bookmarks = new List<PdfBookmark>();
             foreach (var (title, level, yPx) in headings)
             {
-                int pageIndex = 0;
-                float localYPx = yPx;
-                for (int i = 0; i < pageBounds.Count; i++)
-                {
-                    if (yPx >= pageBounds[i].top && yPx < pageBounds[i].bottom)
-                    {
-                        pageIndex = i;
-                        localYPx = yPx - pageBounds[i].top;
-                        break;
-                    }
-                    if (i == pageBounds.Count - 1)
-                    {
-                        pageIndex = i;
-                        localYPx = yPx - pageBounds[i].top;
-                    }
-                }
+                int pageIndex = PageContaining(pageBounds, yPx);
+                float localYPx = yPx - pageBounds[pageIndex].top;
 
                 float topPt = (pageHeightPx - localYPx - _marginTopPx) * PdfCoordinates.PxToPt;
 
@@ -458,6 +445,30 @@ internal static class PdfRenderer
             }
             pdfDoc.AppendBookmarks(bookmarks);
         }
+    }
+
+    private static int FirstAvoidBoxBelow(List<(float y, float height)> boxes, float y)
+    {
+        int low = 0, high = boxes.Count;
+        while (low < high)
+        {
+            int mid = (low + high) >> 1;
+            if (boxes[mid].y > y) high = mid;
+            else low = mid + 1;
+        }
+        return low;
+    }
+
+    private static int FirstOrphanWidowBlockFrom(List<PageFragmenter.OrphanWidowBlock> blocks, float y)
+    {
+        int low = 0, high = blocks.Count;
+        while (low < high)
+        {
+            int mid = (low + high) >> 1;
+            if (blocks[mid].Y >= y) high = mid;
+            else low = mid + 1;
+        }
+        return low;
     }
 
     private static int FirstCandidateAfter(List<(float Top, float Bottom)> candidates, float y)
@@ -507,7 +518,7 @@ internal static class PdfRenderer
 
     private static bool TreeHasPaintClip(LayoutBox box)
     {
-        if (HasPaintClip(box.Style)) return true;
+        if (BoxPainter.ClipsDescendantPaint(box.Style)) return true;
         foreach (var child in box.Children)
             if (TreeHasPaintClip(child)) return true;
         return false;
@@ -520,24 +531,13 @@ internal static class PdfRenderer
             BuildAncestorMap(child, box, map);
     }
 
-    private static bool HasPaintClip(ComputedStyle style)
-    {
-        var overflow = style.Get("overflow");
-        if (overflow == "hidden" || overflow == "clip") return true;
-
-        var contain = style.Get("contain");
-        return !string.IsNullOrEmpty(contain) &&
-            (contain!.IndexOf("paint", StringComparison.OrdinalIgnoreCase) >= 0 ||
-             contain.IndexOf("strict", StringComparison.OrdinalIgnoreCase) >= 0);
-    }
-
     private static List<LayoutBox> GetClipAncestorsOutermostFirst(LayoutBox box, Dictionary<LayoutBox, LayoutBox> ancestorMap)
     {
         var result = new List<LayoutBox>();
         var current = box;
         while (ancestorMap.TryGetValue(current, out var parent))
         {
-            if (HasPaintClip(parent.Style)) result.Add(parent);
+            if (BoxPainter.ClipsDescendantPaint(parent.Style)) result.Add(parent);
             current = parent;
         }
         result.Reverse();
