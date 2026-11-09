@@ -7,7 +7,20 @@ namespace EggPdf.Layout;
 
 public static partial class BlockLayout
 {
-    private const float FallbackPageHeight = 841.89f;
+    private const float FallbackPageHeight = 1122.52f;
+
+    private static float RelativeOffsetX(ComputedStyle style, float fontSize) =>
+        RelativeOffset(style.Get("left"), style.Get("right"), fontSize);
+
+    private static float RelativeOffsetY(ComputedStyle style, float fontSize) =>
+        RelativeOffset(style.Get("top"), style.Get("bottom"), fontSize);
+
+    private static float RelativeOffset(string? start, string? end, float fontSize)
+    {
+        if (!string.IsNullOrEmpty(start) && start != "auto") return ResolveLength(start, 0, fontSize);
+        if (!string.IsNullOrEmpty(end) && end != "auto") return -ResolveLength(end, 0, fontSize);
+        return 0f;
+    }
 
     private static float FindPageHeight(LayoutBox parent) =>
         parent.Height > 0 ? parent.Height : FallbackPageHeight;
