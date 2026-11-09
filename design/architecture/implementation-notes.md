@@ -358,3 +358,27 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
   with it, even when the render stops waiting first. The wait is bounded even if the resolver ignores
   its token, and it throws when the caller cancels.
 - A one-letter "scheme" is a Windows drive letter (`C:\...`), not a URL scheme.
+
+## EggPdf.Text/TrueType/TtfParser.cs
+
+- A TrueType Collection is parsed through a standalone copy of its first face, and a CFF/CFF2 ("OTTO")
+  font is converted to glyf first, so measuring, shaping, subsetting and embedding all see one ordinary
+  TrueType sfnt (collections of CFF faces are common for CJK system fonts).
+- cmap: Unicode subtables (platform 0, or 3 with encoding 1/10); format 12 is preferred over format 4.
+  A format 12 table maps at most 500,000 code points, a guard against corrupt group counts.
+- Kerning comes from the `kern` table (format 0, horizontal, not cross-stream) and from the GPOS `kern`
+  feature's pair-adjustment lookups; only the first glyph's x-advance is used.
+- GSUB is read only for single substitutions (lookup type 1) per feature tag, for `font-feature-settings`
+  such as `zero`, `smcp`, `tnum`; ligature and contextual lookups belong to the complex-script shaper.
+- CPAL palette 0 is stored BGRA. COLRv0 layers use palette index 0xFFFF for "current text colour";
+  COLRv1 tables (version 1) are not read.
+
+## EggPdf.Text/TrueType/TtfSubsetter.cs
+
+- Glyphs reached only through GSUB (ligatures, conjuncts, reph forms, marks) are requested by glyph ID
+  and painted through `OldToNewGlyphId`, and COLR layer glyphs are pulled in explicitly: neither is a
+  composite component, so the subset would otherwise drop their outlines.
+- hmtx keeps each glyph's real left side bearing: rasterizers place an outline at (xMin - lsb), so a zero
+  lsb shifts glyphs whose outline doesn't start at x = 0, most visibly zero-width combining marks.
+- The cmap uses format 4 (delta mapping only, so a segment must be contiguous in both code points and
+  glyph IDs) unless a code point is outside the BMP, which needs format 12.

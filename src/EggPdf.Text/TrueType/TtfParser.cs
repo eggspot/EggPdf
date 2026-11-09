@@ -9,6 +9,16 @@ namespace EggPdf.Text.TrueType;
 /// </summary>
 public static class TtfParser
 {
+    private const uint TrueTypeCollectionTag = 0x74746366;
+    private const uint TrueTypeVersion = 0x00010000;
+    private const uint OpenTypeCffTag = 0x4F54544F;
+    private const int HeadUnitsPerEmOffset = 18;
+    private const int HheaNumberOfHMetricsOffset = 34;
+    private const ushort XAdvanceFlag = 0x0004;
+    private const ushort XPlacementFlag = 0x0001;
+    private const ushort YPlacementFlag = 0x0002;
+
+    /// <summary>Parse a TrueType/OpenType font (or the first face of a collection); null when it can't be read.</summary>
     public static FontData? Parse(byte[] data)
     {
         if (data == null || data.Length < 12)
@@ -20,7 +30,7 @@ public static class TtfParser
         }
         catch
         {
-            return null; // infallible
+            return null;
         }
     }
 
@@ -28,22 +38,16 @@ public static class TtfParser
     {
         int pos = 0;
 
-        // Offset table
         uint sfVersion = ReadUInt32(data, ref pos);
-        // TrueType Collection ('ttcf'): parse a standalone copy of the first face, so everything downstream
-        // (CFF conversion, subsetting, shaping) sees an ordinary sfnt -- including collections whose faces
-        // are CFF/OpenType ("OTTO"), which are common for CJK system fonts.
-        if (sfVersion == 0x74746366)
+        if (sfVersion == TrueTypeCollectionTag)
         {
             var firstFace = FontCollection.ExtractFace(data, 0);
             return firstFace == null ? null : ParseInternal(firstFace);
         }
-        // Accept TrueType (0x00010000) or OpenType ('OTTO')
-        if (sfVersion != 0x00010000 && sfVersion != 0x4F54544F)
+        if (sfVersion != TrueTypeVersion && sfVersion != OpenTypeCffTag)
             return null;
 
-        // PostScript-outline fonts (CFF / CFF2) are converted to glyf so measuring, shaping and embedding see one format
-        if (sfVersion == 0x4F54544F)
+        if (sfVersion == OpenTypeCffTag)
         {
             var sfnt = VariableFontInstancer.Sfnt.TryRead(data);
             var converted = sfnt == null ? null : VariableFontInstancer.ConvertCff(sfnt, null);
@@ -56,14 +60,13 @@ public static class TtfParser
         }
 
         ushort numTables = ReadUInt16(data, ref pos);
-        pos += 6; // skip searchRange, entrySelector, rangeShift
+        pos += 6;
 
-        // Read table directory
         var tables = new System.Collections.Generic.Dictionary<string, (uint offset, uint length)>();
         for (int i = 0; i < numTables; i++)
         {
             string tag = ReadTag(data, ref pos);
-            pos += 4; // skip checksum
+            pos += 4;
             uint offset = ReadUInt32(data, ref pos);
             uint length = ReadUInt32(data, ref pos);
             tables[tag] = (offset, length);
@@ -71,43 +74,33 @@ public static class TtfParser
 
         var font = new FontData { RawData = data };
 
-        // Parse head table
         if (tables.TryGetValue("head", out var head))
             ParseHead(data, (int)head.offset, font);
 
-        // Parse hhea table
         if (tables.TryGetValue("hhea", out var hhea))
             ParseHhea(data, (int)hhea.offset, font);
 
-        // Parse maxp table
         if (tables.TryGetValue("maxp", out var maxp))
             ParseMaxp(data, (int)maxp.offset, font);
 
-        // Parse hmtx table (needs hhea.numberOfHMetrics and maxp.numGlyphs)
         if (tables.TryGetValue("hmtx", out var hmtx))
             ParseHmtx(data, (int)hmtx.offset, font);
 
-        // Parse cmap table
         if (tables.TryGetValue("cmap", out var cmap))
             ParseCmap(data, (int)cmap.offset, font);
 
-        // Parse name table
         if (tables.TryGetValue("name", out var name))
             ParseName(data, (int)name.offset, (int)name.length, font);
 
-        // Parse kern table (TrueType kerning)
         if (tables.TryGetValue("kern", out var kern))
             ParseKern(data, (int)kern.offset, (int)kern.length, font);
 
-        // Parse GPOS table for pair kerning (OpenType kerning, takes precedence)
         if (tables.TryGetValue("GPOS", out var gpos))
             ParseGposPairKerning(data, (int)gpos.offset, (int)gpos.length, font);
 
-        // Parse GSUB table for single-substitution features (font-feature-settings)
         if (tables.TryGetValue("GSUB", out var gsub))
             ParseGsubSingleSubstitution(data, (int)gsub.offset, (int)gsub.length, font);
 
-        // Parse CPAL/COLR for color-glyph (emoji) support
         if (tables.TryGetValue("CPAL", out var cpal))
             ParseCpal(data, (int)cpal.offset, (int)cpal.length, font);
         if (tables.TryGetValue("COLR", out var colr))
@@ -118,9 +111,7 @@ public static class TtfParser
 
     private static void ParseHead(byte[] data, int offset, FontData font)
     {
-        // head table: version(4), fontRevision(4), checksumAdjust(4), magicNumber(4),
-        // flags(2), unitsPerEm(2), ...
-        int pos = offset + 18; // skip to unitsPerEm
+        int pos = offset + HeadUnitsPerEmOffset;
         font.UnitsPerEm = ReadUInt16(data, ref pos);
     }
 
@@ -128,25 +119,23 @@ public static class TtfParser
 
     private static void ParseHhea(byte[] data, int offset, FontData font)
     {
-        int pos = offset + 4; // skip version
+        int pos = offset + 4;
         font.Ascent = ReadInt16(data, ref pos);
         font.Descent = ReadInt16(data, ref pos);
         font.LineGap = ReadInt16(data, ref pos);
 
-        // Skip to numberOfHMetrics (at offset+34)
-        pos = offset + 34;
+        pos = offset + HheaNumberOfHMetricsOffset;
         _numberOfHMetrics = ReadUInt16(data, ref pos);
     }
 
     private static void ParseMaxp(byte[] data, int offset, FontData font)
     {
-        int pos = offset + 4; // skip version
+        int pos = offset + 4;
         font.NumGlyphs = ReadUInt16(data, ref pos);
     }
 
     private static void ParseHmtx(byte[] data, int offset, FontData font)
     {
-        // Each longHorMetric: advanceWidth(2) + lsb(2)
         int numMetrics = _numberOfHMetrics;
         font.AdvanceWidths = new ushort[font.NumGlyphs];
 
@@ -158,10 +147,9 @@ public static class TtfParser
             if (pos + 4 > data.Length) break;
             lastWidth = ReadUInt16(data, ref pos);
             font.AdvanceWidths[i] = lastWidth;
-            pos += 2; // skip lsb
+            pos += 2;
         }
 
-        // Remaining glyphs use the last advance width
         for (int i = numMetrics; i < font.NumGlyphs; i++)
             font.AdvanceWidths[i] = lastWidth;
     }
@@ -171,12 +159,10 @@ public static class TtfParser
         font.Cmap = new CmapData();
 
         int pos = offset;
-        pos += 2; // skip version
+        pos += 2;
 
         ushort numSubtables = ReadUInt16(data, ref pos);
 
-        // Find Unicode subtables (platformID 0 or 3). A font may expose several;
-        // prefer format 12 (full Unicode) over format 4 (BMP only).
         int format4Offset = -1;
         int format12Offset = -1;
         for (int i = 0; i < numSubtables; i++)
@@ -205,14 +191,15 @@ public static class TtfParser
             ParseCmapFormat4(data, format4Offset, font.Cmap);
     }
 
+    private const int MaxCmapMappings = 500000;
+
     private static void ParseCmapFormat12(byte[] data, int offset, CmapData cmap)
     {
-        int pos = offset + 4; // skip format (2) + reserved (2)
-        pos += 4; // length
-        pos += 4; // language
+        int pos = offset + 4;
+        pos += 4;
+        pos += 4;
         uint numGroups = ReadUInt32(data, ref pos);
 
-        const int MaxMappings = 500000; // safety cap against corrupt group counts
         int added = 0;
         for (uint g = 0; g < numGroups; g++)
         {
@@ -228,25 +215,25 @@ public static class TtfParser
                 ushort glyphId = (ushort)(startGlyph + (cp - startChar));
                 if (glyphId != 0)
                     cmap.Add((int)cp, glyphId);
-                if (++added >= MaxMappings) return;
+                if (++added >= MaxCmapMappings) return;
             }
         }
     }
 
     private static void ParseCmapFormat4(byte[] data, int offset, CmapData cmap)
     {
-        int pos = offset + 2; // skip format
+        int pos = offset + 2;
         ushort length = ReadUInt16(data, ref pos);
-        pos += 2; // skip language
+        pos += 2;
         ushort segCount2 = ReadUInt16(data, ref pos);
         int segCount = segCount2 / 2;
-        pos += 6; // skip searchRange, entrySelector, rangeShift
+        pos += 6;
 
         var endCodes = new ushort[segCount];
         for (int i = 0; i < segCount; i++)
             endCodes[i] = ReadUInt16(data, ref pos);
 
-        pos += 2; // reservedPad
+        pos += 2;
 
         var startCodes = new ushort[segCount];
         for (int i = 0; i < segCount; i++)
@@ -261,7 +248,6 @@ public static class TtfParser
         for (int i = 0; i < segCount; i++)
             idRangeOffsets[i] = ReadUInt16(data, ref pos);
 
-        // Map codepoints to glyph IDs
         for (int seg = 0; seg < segCount; seg++)
         {
             if (startCodes[seg] == 0xFFFF) break;
@@ -290,12 +276,14 @@ public static class TtfParser
         }
     }
 
+    private const ushort FontFamilyNameId = 1;
+
     private static void ParseName(byte[] data, int offset, int tableLength, FontData font)
     {
         if (offset + 6 > data.Length) return;
 
         int pos = offset;
-        pos += 2; // format
+        pos += 2;
         ushort count = ReadUInt16(data, ref pos);
         ushort stringOffset = ReadUInt16(data, ref pos);
         int storageStart = offset + stringOffset;
@@ -311,28 +299,20 @@ public static class TtfParser
             ushort nameLength = ReadUInt16(data, ref pos);
             ushort nameOffset = ReadUInt16(data, ref pos);
 
-            // nameID 1 = Font Family
-            if (nameID == 1 && string.IsNullOrEmpty(font.FamilyName))
+            if (nameID == FontFamilyNameId && string.IsNullOrEmpty(font.FamilyName))
             {
                 int nameStart = storageStart + nameOffset;
                 if (nameStart + nameLength <= data.Length)
                 {
-                    if (platformID == 3 || platformID == 0)
-                    {
-                        // UTF-16 BE
-                        font.FamilyName = System.Text.Encoding.BigEndianUnicode.GetString(data, nameStart, nameLength);
-                    }
-                    else
-                    {
-                        // ASCII/Latin
-                        font.FamilyName = System.Text.Encoding.ASCII.GetString(data, nameStart, nameLength);
-                    }
+                    bool utf16BigEndian = platformID == 3 || platformID == 0;
+                    font.FamilyName = utf16BigEndian
+                        ? System.Text.Encoding.BigEndianUnicode.GetString(data, nameStart, nameLength)
+                        : System.Text.Encoding.ASCII.GetString(data, nameStart, nameLength);
                 }
             }
         }
     }
 
-    /// <summary>Parse the TrueType 'kern' table for pair kerning.</summary>
     private static void ParseKern(byte[] data, int offset, int length, FontData font)
     {
         if (offset + 4 > data.Length) return;
@@ -352,7 +332,6 @@ public static class TtfParser
             ushort subLength = ReadUInt16(data, ref pos);
             ushort coverage = ReadUInt16(data, ref pos);
 
-            // Only format 0 (ordered pairs), horizontal kerning
             int format = coverage >> 8;
             bool horizontal = (coverage & 0x01) != 0;
             bool crossStream = (coverage & 0x04) != 0;
@@ -361,7 +340,7 @@ public static class TtfParser
             {
                 if (pos + 8 > data.Length) break;
                 ushort nPairs = ReadUInt16(data, ref pos);
-                pos += 6; // skip searchRange, entrySelector, rangeShift
+                pos += 6;
 
                 for (int p = 0; p < nPairs; p++)
                 {
@@ -374,17 +353,11 @@ public static class TtfParser
             }
             else
             {
-                // Skip unsupported subtable
                 pos = offset + subLength;
             }
         }
     }
 
-    /// <summary>
-    /// Parse basic GPOS pair kerning (Lookup Type 2, format 1 = specific pairs).
-    /// This handles the most common GPOS kerning format. Full GPOS is far more complex
-    /// but this covers the majority of fonts that use GPOS for kerning.
-    /// </summary>
     private static void ParseGposPairKerning(byte[] data, int offset, int length, FontData font)
     {
         if (offset + 10 > data.Length) return;
@@ -400,7 +373,6 @@ public static class TtfParser
 
         if (featureListPos + 2 > data.Length || lookupListPos + 2 > data.Length) return;
 
-        // Find 'kern' feature in feature list
         int fpos = featureListPos;
         ushort featureCount = ReadUInt16(data, ref fpos);
         var kernLookupIndices = new System.Collections.Generic.List<int>();
@@ -413,11 +385,10 @@ public static class TtfParser
 
             if (featureTag == "kern")
             {
-                // Read feature table to get lookup indices
                 int ftPos = featureListPos + featureOffset;
                 if (ftPos + 4 > data.Length) continue;
                 int ftSave = ftPos;
-                ftPos += 2; // skip featureParams
+                ftPos += 2;
                 ushort lookupCount = ReadUInt16(data, ref ftPos);
                 for (int li = 0; li < lookupCount; li++)
                 {
@@ -432,7 +403,6 @@ public static class TtfParser
         if (font.Kern == null)
             font.Kern = new KernData();
 
-        // Read lookup list
         int llPos = lookupListPos;
         ushort lookupCount2 = ReadUInt16(data, ref llPos);
 
@@ -453,7 +423,7 @@ public static class TtfParser
             ushort lookupFlag = ReadUInt16(data, ref lPos);
             ushort subtableCount = ReadUInt16(data, ref lPos);
 
-            if (lookupType != 2) continue; // Only pair adjustment (type 2)
+            if (lookupType != 2) continue;
 
             for (int st = 0; st < subtableCount; st++)
             {
@@ -467,11 +437,7 @@ public static class TtfParser
                 ushort posFormat = ReadUInt16(data, ref stPos);
 
                 if (posFormat == 1)
-                {
-                    // Format 1: specific pairs
                     ParseGposPairFormat1(data, stSave, font);
-                }
-                // Format 2 (class-based) is more complex, skip for now
             }
         }
     }
@@ -479,17 +445,15 @@ public static class TtfParser
     private static void ParseGposPairFormat1(byte[] data, int offset, FontData font)
     {
         int pos = offset;
-        ushort posFormat = ReadUInt16(data, ref pos); // 1
+        ushort posFormat = ReadUInt16(data, ref pos);
         ushort coverageOffset = ReadUInt16(data, ref pos);
         ushort valueFormat1 = ReadUInt16(data, ref pos);
         ushort valueFormat2 = ReadUInt16(data, ref pos);
         ushort pairSetCount = ReadUInt16(data, ref pos);
 
-        // Calculate value record sizes (number of fields * 2 bytes each)
         int vr1Size = CountBits(valueFormat1) * 2;
         int vr2Size = CountBits(valueFormat2) * 2;
 
-        // Parse coverage table to get first glyph IDs
         var coveredGlyphs = ParseCoverage(data, offset + coverageOffset);
         if (coveredGlyphs == null) return;
 
@@ -510,14 +474,12 @@ public static class TtfParser
 
                 ushort secondGlyph = ReadUInt16(data, ref psPos);
 
-                // Read x-advance from value record 1 (if present)
                 short xAdvance = 0;
-                if ((valueFormat1 & 0x0004) != 0) // XAdvance
+                if ((valueFormat1 & XAdvanceFlag) != 0)
                 {
-                    // XPlacement(2) if bit 0, YPlacement(2) if bit 1, then XAdvance(2) if bit 2
                     int skipBefore = 0;
-                    if ((valueFormat1 & 0x0001) != 0) skipBefore += 2; // XPlacement
-                    if ((valueFormat1 & 0x0002) != 0) skipBefore += 2; // YPlacement
+                    if ((valueFormat1 & XPlacementFlag) != 0) skipBefore += 2;
+                    if ((valueFormat1 & YPlacementFlag) != 0) skipBefore += 2;
 
                     int xaPos = psPos + skipBefore;
                     if (xaPos + 2 <= data.Length)
@@ -535,14 +497,6 @@ public static class TtfParser
         }
     }
 
-    /// <summary>
-    /// Parse GSUB single-substitution features (Lookup Type 1: one glyph in, one glyph
-    /// out -- e.g. "zero" slashed-zero, "smcp" small caps, "tnum"/"onum" figure styles,
-    /// simple stylistic sets). Populates <see cref="FontData.GsubFeatures"/> keyed by
-    /// feature tag. Ligatures, contextual, and chaining substitutions (Lookup Types
-    /// 2-8) are far more complex and are skipped, matching the GPOS pair-kerning
-    /// parser above: this covers the common single-glyph-swap case, not the full spec.
-    /// </summary>
     private static void ParseGsubSingleSubstitution(byte[] data, int offset, int length, FontData font)
     {
         if (offset + 10 > data.Length) return;
@@ -557,7 +511,6 @@ public static class TtfParser
         int lookupListPos = offset + lookupListOffset;
         if (featureListPos + 2 > data.Length || lookupListPos + 2 > data.Length) return;
 
-        // Map each feature tag to its lookup indices
         int fpos = featureListPos;
         ushort featureCount = ReadUInt16(data, ref fpos);
         var lookupsByFeature = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>>();
@@ -570,7 +523,7 @@ public static class TtfParser
 
             int ftPos = featureListPos + featureOffset;
             if (ftPos + 4 > data.Length) continue;
-            ftPos += 2; // skip featureParams
+            ftPos += 2;
             ushort lookupCount = ReadUInt16(data, ref ftPos);
 
             if (!lookupsByFeature.TryGetValue(featureTag, out var indices))
@@ -608,7 +561,7 @@ public static class TtfParser
                 ushort lookupFlag = ReadUInt16(data, ref lPos);
                 ushort subtableCount = ReadUInt16(data, ref lPos);
 
-                if (lookupType != 1) continue; // Only single substitution (type 1)
+                if (lookupType != 1) continue;
 
                 for (int st = 0; st < subtableCount; st++)
                 {
@@ -642,7 +595,6 @@ public static class TtfParser
                             featureMap[coveredGlyphs[gi]] = substGlyph;
                         }
                     }
-                    // Other formats don't exist for Lookup Type 1; nothing else to handle.
                 }
             }
 
@@ -654,7 +606,6 @@ public static class TtfParser
         }
     }
 
-    /// <summary>Parse the CPAL table's palette 0 into (r,g,b,a) colors. CPAL stores colors BGRA.</summary>
     private static void ParseCpal(byte[] data, int offset, int length, FontData font)
     {
         if (offset + 12 > data.Length) return;
@@ -668,7 +619,7 @@ public static class TtfParser
 
         if (numPalettes == 0 || numPaletteEntries == 0) return;
         if (pos + 2 > data.Length) return;
-        ushort firstPaletteIndex = ReadUInt16(data, ref pos); // colorRecordIndices[0]
+        ushort firstPaletteIndex = ReadUInt16(data, ref pos);
 
         int crPos = offset + (int)colorRecordsArrayOffset + firstPaletteIndex * 4;
         var colors = new (byte r, byte g, byte b, byte a)[numPaletteEntries];
@@ -682,19 +633,15 @@ public static class TtfParser
         font.CpalPalette = colors;
     }
 
-    /// <summary>
-    /// Parse a COLRv0 table into base-glyph -> ordered color-layer lists (glyph ID +
-    /// CPAL palette index, or -1 for "use current text color", COLR's 0xFFFF sentinel).
-    /// COLRv1 (gradients, paint graphs -- a much larger, compositing-based format) is
-    /// not supported: a v1 table's version field is simply not 0, so this quietly no-ops.
-    /// </summary>
+    private const ushort ForegroundPaletteIndex = 0xFFFF;
+
     private static void ParseColr(byte[] data, int offset, int length, FontData font)
     {
         if (offset + 14 > data.Length) return;
 
         int pos = offset;
         ushort version = ReadUInt16(data, ref pos);
-        if (version != 0) return; // COLRv1 not supported
+        if (version != 0) return;
 
         ushort numBaseGlyphRecords = ReadUInt16(data, ref pos);
         uint baseGlyphRecordsOffset = ReadUInt32(data, ref pos);
@@ -725,7 +672,7 @@ public static class TtfParser
                 int tmp2 = lp;
                 ushort layerGlyphId = ReadUInt16(data, ref tmp2);
                 ushort paletteIndex = ReadUInt16(data, ref tmp2);
-                layers.Add((layerGlyphId, paletteIndex == 0xFFFF ? -1 : paletteIndex));
+                layers.Add((layerGlyphId, paletteIndex == ForegroundPaletteIndex ? -1 : paletteIndex));
             }
             if (layers.Count > 0) map[glyphId] = layers;
         }
@@ -774,7 +721,6 @@ public static class TtfParser
         return count;
     }
 
-    // Binary readers (big-endian)
     private static ushort ReadUInt16(byte[] data, ref int pos)
     {
         if (pos + 2 > data.Length) { pos += 2; return 0; }

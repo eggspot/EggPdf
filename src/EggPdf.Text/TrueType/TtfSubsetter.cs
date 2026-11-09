@@ -61,7 +61,7 @@ public class TtfSubsetter
         }
         catch
         {
-            return null; // infallible
+            return null;
         }
     }
 
@@ -70,12 +70,10 @@ public class TtfSubsetter
     {
         var data = font.RawData;
 
-        // Parse table directory
         var tables = ParseTableDirectory(data);
 
-        // Collect needed glyph IDs (always include glyph 0 = .notdef)
         var neededGlyphs = new SortedSet<ushort> { 0 };
-        var codepointMap = new Dictionary<int, ushort>(); // codepoint -> old GID
+        var codepointMap = new Dictionary<int, ushort>();
 
         foreach (var cp in codepoints)
         {
@@ -87,16 +85,10 @@ public class TtfSubsetter
             }
         }
 
-        // Glyphs the complex-script shaper produced (ligatures, conjuncts, reph forms, marks) have
-        // no codepoint of their own -- they are reached only through GSUB -- so they are requested
-        // by glyph ID and painted via OldToNewGlyphId rather than the codepoint map.
         if (extraGlyphs != null)
             foreach (var g in extraGlyphs)
                 if (g < font.NumGlyphs) neededGlyphs.Add(g);
 
-        // COLR color-glyph layers reference separate glyph IDs (not composite
-        // components), so they must be pulled into the subset explicitly or their
-        // outlines would be silently dropped.
         if (font.ColrLayers != null)
         {
             foreach (var oldGid in codepointMap.Values)
@@ -107,14 +99,12 @@ public class TtfSubsetter
             }
         }
 
-        // Resolve composite glyphs (glyphs that reference other glyphs)
         if (tables.TryGetValue("glyf", out var glyfTable) && tables.TryGetValue("loca", out var locaTable))
         {
             bool longLoca = GetLocaFormat(data, tables);
             ResolveCompositeGlyphs(data, glyfTable, locaTable, longLoca, font.NumGlyphs, neededGlyphs);
         }
 
-        // Create old-to-new GID mapping (contiguous, preserving order)
         var oldToNew = new Dictionary<ushort, ushort>();
         ushort newGid = 0;
         foreach (var oldGid in neededGlyphs)
@@ -122,7 +112,6 @@ public class TtfSubsetter
 
         int numNewGlyphs = oldToNew.Count;
 
-        // Build new cmap (codepoint -> new GID)
         var cpToNewGid = new Dictionary<int, ushort>();
         foreach (var kv in codepointMap)
         {
@@ -130,14 +119,12 @@ public class TtfSubsetter
                 cpToNewGid[kv.Key] = newId;
         }
 
-        // Resolve COLR layers to actual colors (via CPAL) and remapped new glyph IDs
         Dictionary<int, List<(ushort newGlyphId, float r, float g, float b, bool useTextColor)>>? colorLayersByCp = null;
         if (font.ColrLayers != null)
         {
             foreach (var kv in codepointMap)
             {
                 if (!font.ColrLayers.TryGetValue(kv.Value, out var colrLayers)) continue;
-
                 var resolved = new List<(ushort, float, float, float, bool)>();
                 foreach (var layer in colrLayers)
                 {
@@ -145,7 +132,7 @@ public class TtfSubsetter
 
                     if (layer.paletteIndex < 0)
                     {
-                        resolved.Add((newLayerGid, 0f, 0f, 0f, true)); // use caller's text color
+                        resolved.Add((newLayerGid, 0f, 0f, 0f, true));
                     }
                     else if (font.CpalPalette != null && layer.paletteIndex < font.CpalPalette.Length)
                     {
@@ -161,12 +148,10 @@ public class TtfSubsetter
             }
         }
 
-        // Extract glyph data and build new glyf + loca
         byte[] newGlyf;
         uint[] newLocaOffsets;
         BuildGlyfAndLoca(data, tables, neededGlyphs.ToList(), oldToNew, font.NumGlyphs, out newGlyf, out newLocaOffsets);
 
-        // Build new hmtx
         var newWidths = new ushort[numNewGlyphs];
         var newLsb = new short[numNewGlyphs];
         foreach (var kv in oldToNew)
@@ -176,23 +161,12 @@ public class TtfSubsetter
         }
 
         byte[] newHmtx = BuildHmtx(newWidths, newLsb);
-
-        // Build new cmap table
         byte[] newCmap = BuildCmap(cpToNewGid);
-
-        // Build new maxp
         byte[] newMaxp = BuildMaxp(data, tables, numNewGlyphs);
-
-        // Build new hhea
         byte[] newHhea = BuildHhea(data, tables, numNewGlyphs);
-
-        // Build new head (update loca format to long)
         byte[] newHead = BuildHead(data, tables, true);
-
-        // Build new loca (long format)
         byte[] newLoca = BuildLoca(newLocaOffsets);
 
-        // Assemble the subset font
         var subsetTables = new Dictionary<string, byte[]>
         {
             ["head"] = newHead,
@@ -204,7 +178,6 @@ public class TtfSubsetter
             ["loca"] = newLoca,
         };
 
-        // Copy OS/2 and name tables verbatim if present
         if (tables.TryGetValue("OS/2", out var os2))
             subsetTables["OS/2"] = ExtractTable(data, os2);
         if (tables.TryGetValue("name", out var nameT))
@@ -224,24 +197,19 @@ public class TtfSubsetter
         };
     }
 
-    // =====================================================
-    // Table parsing helpers
-    // =====================================================
-
     private static Dictionary<string, (uint offset, uint length)> ParseTableDirectory(byte[] data)
     {
-        int pos = 4; // skip sfVersion
-        // TrueType Collection: read the first face's directory (table offsets stay absolute).
+        int pos = 4;
         if (data.Length > 16 && data[0] == 't' && data[1] == 't' && data[2] == 'c' && data[3] == 'f')
             pos = (int)ReadU32(data, 12) + 4;
         ushort numTables = ReadU16(data, pos); pos += 2;
-        pos += 6; // skip searchRange, entrySelector, rangeShift
+        pos += 6;
 
         var tables = new Dictionary<string, (uint offset, uint length)>();
         for (int i = 0; i < numTables; i++)
         {
             string tag = System.Text.Encoding.ASCII.GetString(data, pos, 4); pos += 4;
-            pos += 4; // skip checksum
+            pos += 4;
             uint offset = ReadU32(data, pos); pos += 4;
             uint length = ReadU32(data, pos); pos += 4;
             tables[tag] = (offset, length);
@@ -252,8 +220,7 @@ public class TtfSubsetter
     private static bool GetLocaFormat(byte[] data, Dictionary<string, (uint offset, uint length)> tables)
     {
         if (!tables.TryGetValue("head", out var head)) return false;
-        // indexToLocFormat is at offset 50 in head table
-        return ReadI16(data, (int)head.offset + 50) == 1; // 0 = short, 1 = long
+        return ReadI16(data, (int)head.offset + HeadIndexToLocFormatOffset) == 1;
     }
 
     private static byte[] ExtractTable(byte[] data, (uint offset, uint length) table)
@@ -263,14 +230,9 @@ public class TtfSubsetter
         return result;
     }
 
-    // =====================================================
-    // Composite glyph resolution
-    // =====================================================
-
     private static void ResolveCompositeGlyphs(byte[] data, (uint offset, uint length) glyfTable,
         (uint offset, uint length) locaTable, bool longLoca, int numGlyphs, SortedSet<ushort> needed)
     {
-        // Iteratively add component glyphs from composite glyphs
         var toCheck = new Queue<ushort>(needed);
         var visited = new HashSet<ushort>(needed);
 
@@ -281,13 +243,12 @@ public class TtfSubsetter
             if (glyphLength == 0) continue;
 
             int pos = (int)(glyfTable.offset + glyphOffset);
-            if (pos + 10 > data.Length) continue;
+            if (pos + GlyphHeaderSize > data.Length) continue;
 
             short numberOfContours = ReadI16(data, pos);
-            if (numberOfContours >= 0) continue; // Simple glyph, no components
+            if (numberOfContours >= 0) continue;
 
-            // Composite glyph: read component glyph IDs
-            pos += 10; // skip header (numberOfContours, xMin, yMin, xMax, yMax)
+            pos += GlyphHeaderSize;
 
             while (pos + 4 <= data.Length)
             {
@@ -301,17 +262,30 @@ public class TtfSubsetter
                     toCheck.Enqueue(componentGid);
                 }
 
-                // Skip component arguments based on flags
-                if ((flags & 0x0001) != 0) pos += 4; // ARG_1_AND_2_ARE_WORDS
-                else pos += 2;
+                pos += ComponentArgumentsSize(flags);
 
-                if ((flags & 0x0008) != 0) pos += 2; // WE_HAVE_A_SCALE
-                else if ((flags & 0x0040) != 0) pos += 4; // WE_HAVE_AN_X_AND_Y_SCALE
-                else if ((flags & 0x0080) != 0) pos += 8; // WE_HAVE_A_TWO_BY_TWO
-
-                if ((flags & 0x0020) == 0) break; // MORE_COMPONENTS flag
+                if ((flags & MoreComponents) == 0) break;
             }
         }
+    }
+
+    private const int GlyphHeaderSize = 10;
+    private const int HeadIndexToLocFormatOffset = 50;
+    private const int HeadCheckSumAdjustmentOffset = 8;
+    private const int HheaNumberOfHMetricsOffset = 34;
+    private const ushort ArgsAreWords = 0x0001;
+    private const ushort HasScale = 0x0008;
+    private const ushort MoreComponents = 0x0020;
+    private const ushort HasXAndYScale = 0x0040;
+    private const ushort HasTwoByTwo = 0x0080;
+
+    private static int ComponentArgumentsSize(ushort flags)
+    {
+        int size = (flags & ArgsAreWords) != 0 ? 4 : 2;
+        if ((flags & HasScale) != 0) size += 2;
+        else if ((flags & HasXAndYScale) != 0) size += 4;
+        else if ((flags & HasTwoByTwo) != 0) size += 8;
+        return size;
     }
 
     private static (uint offset, uint length) GetGlyphBounds(byte[] data,
@@ -335,10 +309,6 @@ public class TtfSubsetter
 
         return (start, end > start ? end - start : 0);
     }
-
-    // =====================================================
-    // Build new tables
-    // =====================================================
 
     private static void BuildGlyfAndLoca(byte[] data, Dictionary<string, (uint offset, uint length)> tables,
         List<ushort> glyphIds, Dictionary<ushort, ushort> oldToNew, int numOldGlyphs,
@@ -370,12 +340,10 @@ public class TtfSubsetter
                     var glyphData = new byte[glyphLength];
                     Array.Copy(data, srcPos, glyphData, 0, glyphLength);
 
-                    // Remap composite glyph component IDs
                     RemapCompositeGlyph(glyphData, oldToNew);
 
                     ms.Write(glyphData, 0, glyphData.Length);
 
-                    // Pad to 4-byte boundary
                     while (ms.Position % 4 != 0) ms.WriteByte(0);
                 }
             }
@@ -386,11 +354,11 @@ public class TtfSubsetter
 
     private static void RemapCompositeGlyph(byte[] glyphData, Dictionary<ushort, ushort> oldToNew)
     {
-        if (glyphData.Length < 10) return;
+        if (glyphData.Length < GlyphHeaderSize) return;
         short numberOfContours = ReadI16(glyphData, 0);
-        if (numberOfContours >= 0) return; // Simple glyph
+        if (numberOfContours >= 0) return;
 
-        int pos = 10;
+        int pos = GlyphHeaderSize;
         while (pos + 4 <= glyphData.Length)
         {
             ushort flags = ReadU16(glyphData, pos); pos += 2;
@@ -403,23 +371,14 @@ public class TtfSubsetter
             }
             pos += 2;
 
-            if ((flags & 0x0001) != 0) pos += 4;
-            else pos += 2;
+            pos += ComponentArgumentsSize(flags);
 
-            if ((flags & 0x0008) != 0) pos += 2;
-            else if ((flags & 0x0040) != 0) pos += 4;
-            else if ((flags & 0x0080) != 0) pos += 8;
-
-            if ((flags & 0x0020) == 0) break;
+            if ((flags & MoreComponents) == 0) break;
         }
     }
 
     private static byte[] BuildHmtx(ushort[] widths, short[] leftSideBearings)
     {
-        // Each entry: advanceWidth (u16) + leftSideBearing (i16). The lsb must be the glyph's real
-        // one: rasterizers place an outline at (xMin - lsb), so a zero lsb shifts every glyph whose
-        // outline doesn't start at x=0 -- most visibly zero-width combining marks, whose outlines
-        // sit at large negative x.
         var buf = new byte[widths.Length * 4];
         for (int i = 0; i < widths.Length; i++)
         {
@@ -429,12 +388,11 @@ public class TtfSubsetter
         return buf;
     }
 
-    /// <summary>Read a glyph's left side bearing from the source font's hmtx (0 if unavailable).</summary>
     private static short ReadLeftSideBearing(byte[] data, Dictionary<string, (uint offset, uint length)> tables, ushort glyphId)
     {
         if (!tables.TryGetValue("hmtx", out var hmtx) || !tables.TryGetValue("hhea", out var hhea))
             return 0;
-        int numHMetrics = ReadU16(data, (int)hhea.offset + 34);
+        int numHMetrics = ReadU16(data, (int)hhea.offset + HheaNumberOfHMetricsOffset);
         if (numHMetrics <= 0) return 0;
 
         long pos = glyphId < numHMetrics
@@ -444,33 +402,33 @@ public class TtfSubsetter
         return ReadI16(data, (int)pos);
     }
 
+    private const ushort WindowsPlatform = 3;
+    private const ushort UnicodeBmpEncoding = 1;
+    private const ushort UnicodeFullEncoding = 10;
+    private const uint FirstSubtableOffset = 12;
+
     private static byte[] BuildCmap(Dictionary<int, ushort> cpToGid)
     {
-        // Build a format 4 cmap subtable for BMP codepoints
-        // Simpler approach: use format 12 (segmented coverage) which handles all codepoints
         using var ms = new MemoryStream();
         var bw = new BinaryWriter(ms);
 
-        // cmap header: version=0, numTables=1
-        WriteU16BE(bw, 0); // version
-        WriteU16BE(bw, 1); // numTables
+        WriteU16BE(bw, 0);
+        WriteU16BE(bw, 1);
 
-        // Encoding record: platformID=3 (Windows), encodingID=1 (Unicode BMP)
-        // For format 12, use platformID=3, encodingID=10 (Unicode full repertoire)
         bool needsFormat12 = cpToGid.Keys.Any(k => k > 0xFFFF);
 
         if (needsFormat12)
         {
-            WriteU16BE(bw, 3); // platformID
-            WriteU16BE(bw, 10); // encodingID
-            WriteU32BE(bw, 12); // offset to subtable (after header + 1 encoding record = 4 + 8 = 12)
+            WriteU16BE(bw, WindowsPlatform);
+            WriteU16BE(bw, UnicodeFullEncoding);
+            WriteU32BE(bw, FirstSubtableOffset);
             WriteFormat12(bw, cpToGid);
         }
         else
         {
-            WriteU16BE(bw, 3); // platformID
-            WriteU16BE(bw, 1); // encodingID (BMP)
-            WriteU32BE(bw, 12); // offset to subtable
+            WriteU16BE(bw, WindowsPlatform);
+            WriteU16BE(bw, UnicodeBmpEncoding);
+            WriteU32BE(bw, FirstSubtableOffset);
             WriteFormat4(bw, cpToGid);
         }
 
@@ -479,9 +437,6 @@ public class TtfSubsetter
 
     private static void WriteFormat4(BinaryWriter bw, Dictionary<int, ushort> cpToGid)
     {
-        // Sort codepoints into segments. Because only idDelta mapping is written
-        // (no glyphIdArray), a segment must be contiguous in BOTH codepoints and
-        // glyph IDs, so break whenever either sequence jumps.
         int[] sorted = GetSortedKeys(cpToGid, bmp: true);
 
         var segments = new List<(ushort startCode, ushort endCode, short idDelta)>();
@@ -502,7 +457,6 @@ public class TtfSubsetter
                 }
             }
         }
-        // Add sentinel segment
         segments.Add((0xFFFF, 0xFFFF, 1));
 
         int segCount = segments.Count;
@@ -512,27 +466,23 @@ public class TtfSubsetter
         int entrySelector = (int)Math.Log(searchRange / 2, 2);
         int rangeShift = segCount * 2 - searchRange;
 
-        int length = 14 + segCount * 8; // header + 4 arrays
+        int length = 14 + segCount * 8;
 
-        WriteU16BE(bw, 4); // format
+        WriteU16BE(bw, 4);
         WriteU16BE(bw, (ushort)length);
-        WriteU16BE(bw, 0); // language
-        WriteU16BE(bw, (ushort)(segCount * 2)); // segCountX2
+        WriteU16BE(bw, 0);
+        WriteU16BE(bw, (ushort)(segCount * 2));
         WriteU16BE(bw, (ushort)searchRange);
         WriteU16BE(bw, (ushort)entrySelector);
         WriteU16BE(bw, (ushort)rangeShift);
 
-        // endCode
         foreach (var s in segments) WriteU16BE(bw, s.endCode);
-        WriteU16BE(bw, 0); // reservedPad
+        WriteU16BE(bw, 0);
 
-        // startCode
         foreach (var s in segments) WriteU16BE(bw, s.startCode);
 
-        // idDelta
         foreach (var s in segments) WriteI16BE(bw, s.idDelta);
 
-        // idRangeOffset (all zeros - using delta mapping)
         foreach (var _ in segments) WriteU16BE(bw, 0);
     }
 
@@ -559,10 +509,10 @@ public class TtfSubsetter
 
         int length = 16 + groups.Count * 12;
 
-        WriteU16BE(bw, 12); // format
-        WriteU16BE(bw, 0);  // reserved
+        WriteU16BE(bw, 12);
+        WriteU16BE(bw, 0);
         WriteU32BE(bw, (uint)length);
-        WriteU32BE(bw, 0);  // language
+        WriteU32BE(bw, 0);
         WriteU32BE(bw, (uint)groups.Count);
 
         foreach (var g in groups)
@@ -596,9 +546,8 @@ public class TtfSubsetter
         else
         {
             maxp = new byte[6];
-            WriteU32(maxp, 0, 0x00010000); // version 1.0
+            WriteU32(maxp, 0, 0x00010000);
         }
-        // Update numGlyphs at offset 4
         if (maxp.Length >= 6)
         {
             maxp[4] = (byte)(numGlyphs >> 8);
@@ -617,13 +566,12 @@ public class TtfSubsetter
         else
         {
             hhea = new byte[36];
-            WriteU32(hhea, 0, 0x00010000); // version
+            WriteU32(hhea, 0, 0x00010000);
         }
-        // Update numberOfHMetrics at offset 34
-        if (hhea.Length >= 36)
+        if (hhea.Length >= HheaNumberOfHMetricsOffset + 2)
         {
-            hhea[34] = (byte)(numHMetrics >> 8);
-            hhea[35] = (byte)(numHMetrics & 0xFF);
+            hhea[HheaNumberOfHMetricsOffset] = (byte)(numHMetrics >> 8);
+            hhea[HheaNumberOfHMetricsOffset + 1] = (byte)(numHMetrics & 0xFF);
         }
         return hhea;
     }
@@ -638,16 +586,14 @@ public class TtfSubsetter
         else
         {
             head = new byte[54];
-            WriteU32(head, 0, 0x00010000); // version
+            WriteU32(head, 0, 0x00010000);
         }
-        // Set indexToLocFormat at offset 50
-        if (head.Length >= 52)
+        if (head.Length >= HeadIndexToLocFormatOffset + 2)
         {
-            head[50] = 0;
-            head[51] = (byte)(longLoca ? 1 : 0);
+            head[HeadIndexToLocFormatOffset] = 0;
+            head[HeadIndexToLocFormatOffset + 1] = (byte)(longLoca ? 1 : 0);
         }
-        // Zero the checksumAdjustment at offset 8
-        if (head.Length >= 12)
+        if (head.Length >= HeadCheckSumAdjustmentOffset + 4)
         {
             head[8] = 0; head[9] = 0; head[10] = 0; head[11] = 0;
         }
@@ -656,7 +602,6 @@ public class TtfSubsetter
 
     private static byte[] BuildLoca(uint[] offsets)
     {
-        // Long format: 4 bytes per entry
         var buf = new byte[offsets.Length * 4];
         for (int i = 0; i < offsets.Length; i++)
             WriteU32(buf, i * 4, offsets[i]);
@@ -665,22 +610,15 @@ public class TtfSubsetter
 
     private static byte[] BuildMinimalPost()
     {
-        // Version 3.0 post table (no glyph names)
         var buf = new byte[32];
-        WriteU32(buf, 0, 0x00030000); // version 3.0
-        // italicAngle, underlinePosition, underlineThickness, isFixedPitch (all 0)
+        WriteU32(buf, 0, 0x00030000);
         return buf;
     }
-
-    // =====================================================
-    // Assemble TrueType file
-    // =====================================================
 
     private static byte[] AssembleTtf(Dictionary<string, byte[]> tables)
     {
         int numTables = tables.Count;
 
-        // Calculate searchRange, entrySelector, rangeShift
         int searchRange = 1;
         int entrySelector = 0;
         while (searchRange * 2 <= numTables) { searchRange *= 2; entrySelector++; }
@@ -688,50 +626,41 @@ public class TtfSubsetter
         int rangeShift = numTables * 16 - searchRange;
 
         int headerSize = 12 + numTables * 16;
-        // Pad header to 4-byte boundary
         if (headerSize % 4 != 0) headerSize += 4 - headerSize % 4;
 
         using var ms = new MemoryStream();
 
-        // Offset table
-        WriteU32(ms, 0x00010000); // sfVersion (TrueType)
+        WriteU32(ms, 0x00010000);
         WriteU16(ms, (ushort)numTables);
         WriteU16(ms, (ushort)searchRange);
         WriteU16(ms, (ushort)entrySelector);
         WriteU16(ms, (ushort)rangeShift);
 
-        // Calculate table offsets
         int dataOffset = headerSize;
         var tableEntries = new List<(string tag, byte[] data, uint offset)>();
-        // Sort tables in recommended order
         var orderedTags = tables.Keys.OrderBy(t => t).ToList();
         foreach (var tag in orderedTags)
         {
             var tdata = tables[tag];
             tableEntries.Add((tag, tdata, (uint)dataOffset));
             dataOffset += tdata.Length;
-            // Pad to 4-byte boundary
             if (dataOffset % 4 != 0) dataOffset += 4 - dataOffset % 4;
         }
 
-        // Write table directory
         foreach (var entry in tableEntries)
         {
             var tagBytes = System.Text.Encoding.ASCII.GetBytes(entry.tag.PadRight(4).Substring(0, 4));
             ms.Write(tagBytes, 0, 4);
-            WriteU32(ms, CalculateChecksum(entry.data)); // checksum
-            WriteU32(ms, entry.offset); // offset
-            WriteU32(ms, (uint)entry.data.Length); // length
+            WriteU32(ms, CalculateChecksum(entry.data));
+            WriteU32(ms, entry.offset);
+            WriteU32(ms, (uint)entry.data.Length);
         }
 
-        // Pad to header boundary
         while (ms.Position < headerSize) ms.WriteByte(0);
 
-        // Write table data
         foreach (var entry in tableEntries)
         {
             ms.Write(entry.data, 0, entry.data.Length);
-            // Pad to 4-byte boundary
             while (ms.Position % 4 != 0) ms.WriteByte(0);
         }
 
@@ -741,7 +670,7 @@ public class TtfSubsetter
     private static uint CalculateChecksum(byte[] data)
     {
         uint sum = 0;
-        int len = (data.Length + 3) & ~3; // Round up to 4 bytes
+        int len = (data.Length + 3) & ~3;
         for (int i = 0; i < len; i += 4)
         {
             uint val = 0;
@@ -751,10 +680,6 @@ public class TtfSubsetter
         }
         return sum;
     }
-
-    // =====================================================
-    // Binary read/write helpers
-    // =====================================================
 
     private static ushort ReadU16(byte[] data, int offset)
         => (ushort)((data[offset] << 8) | data[offset + 1]);
