@@ -25,7 +25,7 @@ jobs:
       - name: Run benchmarks (short)
         run: |
           cd benchmarks/EggPdf.Benchmarks
-          dotnet run -c Release -- --filter * --job short --exporters json markdown
+          dotnet run -c Release -- --filter '*' --job short --exporters json markdown
         continue-on-error: true
 
       - name: Parse results
@@ -70,7 +70,7 @@ jobs:
       - name: Run benchmarks (full)
         run: |
           cd benchmarks/EggPdf.Benchmarks
-          dotnet run -c Release -- --filter * --exporters json markdown
+          dotnet run -c Release -- --filter '*' --exporters json markdown
         continue-on-error: true
 
       - name: Upload results
