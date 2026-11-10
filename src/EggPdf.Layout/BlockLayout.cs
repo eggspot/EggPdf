@@ -1189,7 +1189,7 @@ public static partial class BlockLayout
                 var cell = box.Children[ci];
                 if (cell.Element == null || RowSpanOf(cell.Element) > 1) continue;
 
-                float contentHeight = cell.ContentHeight;
+                float contentHeight = VerticalAlignContentHeight(cell);
                 cell.Height = rowHeight;
 
                 var vAlign = cell.Style.Get("vertical-align") ?? "top";
@@ -1340,6 +1340,7 @@ public static partial class BlockLayout
             box.ContentHeight = childY;
             box.Height = childY + box.PaddingTop + box.PaddingBottom;
         }
+        box.FlowContentHeight = childY;
         if (marginCollapsedThroughTop != 0f)
             box.MarginTop = CollapseMargins(box.MarginTop, marginCollapsedThroughTop);
 
