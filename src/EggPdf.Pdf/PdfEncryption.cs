@@ -29,7 +29,16 @@ public class PdfEncryption
     /// <summary>Key length in bits (40 or 128).</summary>
     public int KeyLength { get; set; } = 128;
 
-    // PDF password padding string (from spec)
+    private const int PrintBit = 1 << 2;
+    private const int ModifyBit = 1 << 3;
+    private const int CopyBit = 1 << 4;
+    private const int AnnotateBit = 1 << 5;
+    private const int FillFormsBit = 1 << 8;
+    private const int AccessibilityExtractBit = 1 << 9;
+    private const int AssembleBit = 1 << 10;
+    private const int HighQualityPrintBit = 1 << 11;
+    private const int ReservedSetBits = unchecked((int)0xFFFFF000) | (1 << 6) | (1 << 7);
+
     private static readonly byte[] PasswordPadding = new byte[]
     {
         0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41,
@@ -45,21 +54,15 @@ public class PdfEncryption
             throw new ArgumentException(
                 $"KeyLength must be 40 or 128 for the RC4 Standard security handler (got {KeyLength}).");
 
-        int keyLen = KeyLength / 8; // bytes
+        int keyLen = KeyLength / 8;
         int permissions = ComputePermissions();
 
-        // Pad passwords
         byte[] userPwd = PadPassword(Encoding.GetEncoding(28591).GetBytes(UserPassword));
         byte[] ownerPwd = PadPassword(Encoding.GetEncoding(28591).GetBytes(
             string.IsNullOrEmpty(OwnerPassword) ? UserPassword : OwnerPassword));
 
-        // Compute O value (owner password hash)
         byte[] oValue = ComputeOValue(ownerPwd, userPwd, keyLen);
-
-        // Compute encryption key
         byte[] encKey = ComputeEncryptionKey(userPwd, oValue, permissions, documentId, keyLen);
-
-        // Compute U value (user password verification)
         byte[] uValue = ComputeUValue(encKey, documentId, keyLen);
 
         return new EncryptionParams
@@ -74,12 +77,10 @@ public class PdfEncryption
 
     private int ComputePermissions()
     {
-        int p = unchecked((int)0xFFFFF000); // bits 13-32 set
-        p |= 0x00000C00; // bits 10, 11 reserved (set)
-        if (AllowPrinting) p |= 0x00000004;  // bit 3
-        if (AllowModifying) p |= 0x00000008; // bit 4
-        if (AllowCopying) p |= 0x00000010;   // bit 5
-        p |= 0x00000020; // bit 6: annotations (always allow)
+        int p = ReservedSetBits | AnnotateBit | FillFormsBit | AccessibilityExtractBit | AssembleBit;
+        if (AllowPrinting) p |= PrintBit | HighQualityPrintBit;
+        if (AllowModifying) p |= ModifyBit;
+        if (AllowCopying) p |= CopyBit;
         return p;
     }
 
@@ -98,11 +99,8 @@ public class PdfEncryption
         using var md5 = MD5.Create();
         byte[] hash = md5.ComputeHash(ownerPwd);
 
-        // Revision 3 (which the writer always declares): 50 MD5 iterations
-        // and 19 RC4 rounds regardless of key length — they are tied to the
-        // REVISION, not to 40 vs 128 bits (ISO 32000-1 Algorithm 3).
         for (int i = 0; i < 50; i++)
-            hash = md5.ComputeHash(hash);
+            hash = md5.ComputeHash(hash, 0, keyLen);
 
         byte[] key = new byte[keyLen];
         Array.Copy(hash, 0, key, 0, keyLen);
@@ -136,7 +134,6 @@ public class PdfEncryption
 
         byte[] hash = md5.ComputeHash(ms.ToArray());
 
-        // R3 Algorithm 2: 50 iterations over the TRUNCATED hash, for any key length
         for (int i = 0; i < 50; i++)
         {
             var trunc = new byte[keyLen];
@@ -151,8 +148,6 @@ public class PdfEncryption
 
     private static byte[] ComputeUValue(byte[] encKey, byte[] documentId, int keyLen)
     {
-        // R3 Algorithm 5 for every key length: MD5(padding + documentId),
-        // RC4, then 19 XOR rounds, padded to 32 bytes.
         using var md5 = MD5.Create();
         using var ms = new MemoryStream();
         ms.Write(PasswordPadding, 0, PasswordPadding.Length);
@@ -168,7 +163,6 @@ public class PdfEncryption
             result = RC4(roundKey, result);
         }
 
-        // Pad to 32 bytes
         byte[] uValue = new byte[32];
         Array.Copy(result, 0, uValue, 0, Math.Min(result.Length, 16));
         return uValue;
@@ -202,7 +196,6 @@ public class PdfEncryption
     /// <summary>RC4 encryption/decryption.</summary>
     internal static byte[] RC4(byte[] key, byte[] data)
     {
-        // RC4 key schedule
         byte[] s = new byte[256];
         for (int i = 0; i < 256; i++) s[i] = (byte)i;
 
@@ -213,7 +206,6 @@ public class PdfEncryption
             byte tmp = s[i]; s[i] = s[j]; s[j] = tmp;
         }
 
-        // RC4 PRGA
         var result = new byte[data.Length];
         int x = 0, y = 0;
         for (int i = 0; i < data.Length; i++)

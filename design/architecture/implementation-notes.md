@@ -342,6 +342,14 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 - XML escaping also drops C0 controls other than tab, LF and CR, which XML 1.0 forbids: titles and
   authors come from arbitrary HTML and must not break the packet.
 
+## EggPdf.Pdf/PdfEncryption.cs
+
+- The writer always declares revision 3, whose algorithms are tied to the revision, not the key length: 50
+  MD5 rounds that each hash only the first n bytes (n = key length in bytes) of the previous digest, and 19
+  RC4 rounds with the key XOR the round number, for 40-bit keys as for 128-bit ones.
+- Permissions set the reserved bits ISO 32000 requires (7, 8 and 13-32), always allow annotations, form
+  filling, accessibility extraction and assembly, and tie high-quality printing to printing.
+
 ## EggPdf.Pdf/PdfPage.cs
 
 - `AppendOpLine` always ends a line with LF: `StringBuilder.AppendLine` writes `Environment.NewLine`,
