@@ -80,28 +80,24 @@ public class GaussianBlurRasterTests
             for (int x = 0; x < canvas.Width; x++)
                 after += GetPixel(canvas, x, y).a;
 
-        // A normalized kernel conserves mass exactly in continuous math; rounding to bytes
-        // and clipping at the canvas edge (which this point is far from) leave it very close.
         ((double)after).Should().BeApproximately(before, before * 0.05,
-            "a normalized Gaussian kernel must approximately conserve total alpha mass, not brighten or dim the image");
+            "a normalized Gaussian kernel conserves total alpha mass, exactly in continuous math and within byte " +
+            "rounding here, far from the canvas edge, rather than brightening or dimming the image");
     }
 
     [Fact]
     public void ApplyInPlace_NoDarkFringingOnTransparentEdge_ColorStaysConsistent()
     {
-        // A red opaque pixel next to fully transparent (black, per default byte value)
-        // pixels must not blur toward black -- straight-alpha blurring would leak the
-        // (0,0,0) RGB of the transparent neighbors into the result.
         var canvas = new RasterCanvas(21, 21);
         SetPixel(canvas, 10, 10, 255, 0, 0, 255);
 
         GaussianBlurRaster.ApplyInPlace(canvas, 1.5f);
 
-        var edge = GetPixel(canvas, 11, 10); // partially blurred-into pixel
-        if (edge.a > 10) // only check color where there's enough alpha to be meaningful
-        {
-            edge.r.Should().BeGreaterThan(edge.g, "the blurred-in color must stay reddish, not fade toward black");
-        }
+        var blurredInto = GetPixel(canvas, 11, 10);
+        blurredInto.a.Should().BeGreaterThan(10, "the neighbour picks up enough alpha for its colour to mean something");
+        blurredInto.r.Should().BeGreaterThan(blurredInto.g,
+            "the blurred-in colour stays red: blurring straight alpha would leak the (0,0,0) RGB of the transparent " +
+            "neighbours in and fade it toward black");
     }
 
     [Fact]
