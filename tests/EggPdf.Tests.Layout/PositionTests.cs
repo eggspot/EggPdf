@@ -11,8 +11,6 @@ public class PositionTests
     [Fact]
     public void Sticky_TopOffset_AppliedLikeRelative()
     {
-        // position:sticky with top:20px should shift the element down by 20px
-        // compared to its normal-flow position (same as position:relative for PDF)
         var root = Layout(
             "<div style='position:relative; height:200px'>" +
             "<div style='height:40px; background:blue'></div>" +
@@ -20,15 +18,14 @@ public class PositionTests
             "</div>");
 
         var outer = root.FindAllByTag("div")[0];
-        outer.Children.Count.Should().BeGreaterOrEqualTo(2);
+        outer.Children.Should().HaveCount(2);
 
-        var normal = outer.Children[0];  // non-sticky: at Y=outer.Y
-        var sticky = outer.Children[1];  // sticky: should be offset by 20px from normal position
+        var normal = outer.Children[0];
+        var sticky = outer.Children[1];
 
-        // Sticky element's normal-flow position would be at normal.Y + normal.Height
-        float expectedNormalY = normal.Y + normal.Height;
-        // With top:20px sticky offset, Y should be expectedNormalY + 20px
-        sticky.Y.Should().BeApproximately(expectedNormalY + 20f, 1f);
+        float stickyNormalFlowY = normal.Y + normal.Height;
+        sticky.Y.Should().BeApproximately(stickyNormalFlowY + 20f, 1f,
+            "a printed page never scrolls, so sticky with top:20px acts like relative and shifts the box down 20px");
     }
 
     [Fact]
