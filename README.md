@@ -206,9 +206,10 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   painted content to the element's bounds, not just its own background/border
 - `direction: rtl` / the `dir` attribute: default `text-align` follows the direction; logical properties (margin/padding/border-width/border-color/
   border-style/inset/border-radius corners, `float: inline-start`/`inline-end`) resolve to their
-  mirrored physical values; table columns lay out right-to-left and list markers hang on the
-  right, matching a browser
-- CSS Custom Properties (`var()`), computed where they are declared as in Chrome (reference cycles fall
+  mirrored physical values, in cascade order against physical declarations, with two-value shorthands
+  (`margin-inline: 10px 20px`) and vertical writing modes; table columns lay out right-to-left and list
+  markers hang on the right, matching a browser
+- CSS Custom Properties (`var()`, case-sensitive names), computed where they are declared as in Chrome (reference cycles fall
   back), and CSS nesting at any depth (selector lists, nested `@media`/`@supports`/`@layer`)
 - Legacy HTML presentational attributes, mapped as the HTML rendering spec does (author CSS wins):
   `width`/`height` (`"200px"`, `"50%"`), table `border`/`cellpadding`/`cellspacing`/`align`

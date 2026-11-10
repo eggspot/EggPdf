@@ -189,7 +189,11 @@ internal sealed class PdfMergeWriter
                 var (number, value) = _pending.Dequeue();
                 if (value is PdfStream stream)
                 {
-                    var dictionary = CopyDictionary(stream.Dictionary);
+                    var dictionary = new PdfDictionary();
+                    foreach (var entry in stream.Dictionary.Entries)
+                    {
+                        if (entry.Key != "Length") dictionary.Set(entry.Key, Copy(entry.Value));
+                    }
                     dictionary.Set("Length", new PdfNumber(stream.DataLength));
                     _writer.WriteStreamObject(number, dictionary, stream);
                 }
