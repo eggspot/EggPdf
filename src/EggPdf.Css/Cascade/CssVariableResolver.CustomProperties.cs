@@ -50,7 +50,7 @@ public static partial class CssVariableResolver
     /// </summary>
     public static bool HasCycle(string propertyName, ComputedStyle style)
     {
-        var finished = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var finished = new Dictionary<string, bool>(CssPropertyNames.Comparer);
         return Visit(propertyName);
 
         bool Visit(string name)
@@ -85,9 +85,9 @@ public static partial class CssVariableResolver
     private sealed class CustomPropertyComputation
     {
         private readonly ComputedStyle _style;
-        private readonly Dictionary<string, bool> _computedValid = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, bool> _computedValid = new(CssPropertyNames.Comparer);
         private readonly List<string> _inProgress = new();
-        private readonly HashSet<string> _onCycle = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _onCycle = new(CssPropertyNames.Comparer);
 
         public CustomPropertyComputation(ComputedStyle style) => _style = style;
 
@@ -96,7 +96,7 @@ public static partial class CssVariableResolver
             if (_computedValid.TryGetValue(name, out bool valid))
                 return valid ? _style.Get(name) : null;
 
-            int stackIndex = _inProgress.FindIndex(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+            int stackIndex = _inProgress.FindIndex(n => CssPropertyNames.Comparer.Equals(n, name));
             if (stackIndex >= 0)
             {
                 for (int k = stackIndex; k < _inProgress.Count; k++)

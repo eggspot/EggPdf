@@ -9,7 +9,7 @@ namespace EggPdf.Css;
 /// </summary>
 public class ComputedStyle
 {
-    private readonly Dictionary<string, string> _properties = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _properties = new(CssPropertyNames.Comparer);
 
     public string? Get(string property)
         => _properties.TryGetValue(property, out var val) ? val : null;
@@ -23,7 +23,6 @@ public class ComputedStyle
 
     public IEnumerable<KeyValuePair<string, string>> All => _properties;
 
-    // Common property shortcuts
     public string Display => Get("display") ?? "inline";
     public string? Color => Get("color");
     public string? BackgroundColor => Get("background-color");

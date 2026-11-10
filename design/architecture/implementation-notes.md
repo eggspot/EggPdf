@@ -483,6 +483,9 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
   one million characters is invalid, which bounds `--b: var(--a) var(--a)` chains.
 - `var(` and `env(` count only at a function boundary outside quoted strings: `myvar(` and
   `content: "var(--x)"` are left alone.
+- Custom property names are case-sensitive (`--Brand` and `--brand` are two properties); other property
+  names are not. Parsers store names through `CssPropertyNames.Normalize`, and `ComputedStyle` and the
+  cascade's maps use `CssPropertyNames.Comparer`.
 
 ## EggPdf.Pdf/GifDecoder.cs
 

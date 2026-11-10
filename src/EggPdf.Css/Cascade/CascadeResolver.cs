@@ -31,9 +31,9 @@ public partial class CascadeResolver
         { "before", "after", "marker", "first-line", "first-letter", "placeholder" };
 
     private readonly List<string> _authorRuleSelectors = new();
-    private readonly Dictionary<string, CascadeWinner> _winnersScratch = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, CascadeWinner> _winnersScratch = new(CssPropertyNames.Comparer);
     private readonly List<CascadeWinner> _orderedWinnersScratch = new();
-    private readonly HashSet<string> _importantPropertiesScratch = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _importantPropertiesScratch = new(CssPropertyNames.Comparer);
 
     /// <summary>
     /// Cheap per-rule rejection data derived from the rightmost compound.
@@ -53,7 +53,7 @@ public partial class CascadeResolver
     private readonly float _pageWidth;
     /// <summary>@property initial-values keyed by custom property name.</summary>
     private readonly Dictionary<string, string> _propertyInitialValues =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        new Dictionary<string, string>(CssPropertyNames.Comparer);
 
     /// <summary>Custom @counter-style rules from all parsed stylesheets.</summary>
     public List<CssCounterStyleRule> CounterStyleRules { get; } = new();

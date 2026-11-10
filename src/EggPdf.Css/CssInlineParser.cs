@@ -28,7 +28,7 @@ public static class CssInlineParser
             if (colonIndex <= 0 || colonIndex >= trimmed.Length - 1)
                 continue;
 
-            var property = trimmed.Substring(0, colonIndex).Trim().ToLowerInvariant();
+            var property = CssPropertyNames.Normalize(trimmed.Substring(0, colonIndex).Trim());
             var value = trimmed.Substring(colonIndex + 1).Trim();
 
             if (string.IsNullOrEmpty(property) || property.Contains(" "))
