@@ -25,7 +25,14 @@ internal static class PageRuleResolver
             { "letter", (816f, 1056f) },
             { "legal", (816f, 1344f) },
             { "tabloid", (1056f, 1632f) },
+            { "ledger", (1056f, 1632f) },
+            { "b5", (665.20f, 944.88f) },
+            { "b4", (944.88f, 1334.17f) },
+            { "jis-b5", (687.87f, 971.34f) },
+            { "jis-b4", (971.34f, 1375.75f) },
         };
+
+    private const int Top = 0, Right = 1, Bottom = 2, Left = 3;
 
     /// <summary>
     /// Resolve @page rules from all stylesheets. Last rule wins (cascade).
@@ -75,6 +82,7 @@ internal static class PageRuleResolver
             }
         }
 
+        ResolveMargins(settings);
         return settings;
     }
 
@@ -135,9 +143,14 @@ internal static class PageRuleResolver
                 ApplyDeclaration(settings, rule.Declarations[d]);
             CollectMarginBoxes(rule, settings.MarginBoxes);
         }
+        ResolveMargins(settings);
         return settings;
     }
 
+    /// <summary>
+    /// Record one @page declaration. Margins are kept as written and resolved by <see cref="ResolveMargins"/> once
+    /// the page size is final, so a percentage margin follows the page size wherever <c>size</c> is declared.
+    /// </summary>
     private static void ApplyDeclaration(PageSettings settings, CssDeclaration decl)
     {
         switch (decl.Property)
@@ -149,18 +162,31 @@ internal static class PageRuleResolver
                 ParseMarginShorthand(settings, decl.Value);
                 break;
             case "margin-top":
-                settings.MarginTop = ResolvePageLength(decl.Value);
+                settings.MarginValues[Top] = decl.Value;
                 break;
             case "margin-right":
-                settings.MarginRight = ResolvePageLength(decl.Value);
+                settings.MarginValues[Right] = decl.Value;
                 break;
             case "margin-bottom":
-                settings.MarginBottom = ResolvePageLength(decl.Value);
+                settings.MarginValues[Bottom] = decl.Value;
                 break;
             case "margin-left":
-                settings.MarginLeft = ResolvePageLength(decl.Value);
+                settings.MarginValues[Left] = decl.Value;
                 break;
         }
+    }
+
+    /// <summary>
+    /// Resolve the declared margins to CSS pixels; percentages are of the page width for the left and right margins
+    /// and of the page height for the top and bottom ones. An undeclared side keeps its value.
+    /// </summary>
+    private static void ResolveMargins(PageSettings settings)
+    {
+        var values = settings.MarginValues;
+        if (values[Top] != null) settings.MarginTop = ResolvePageLength(values[Top]!, settings.PageHeightPx);
+        if (values[Right] != null) settings.MarginRight = ResolvePageLength(values[Right]!, settings.PageWidthPx);
+        if (values[Bottom] != null) settings.MarginBottom = ResolvePageLength(values[Bottom]!, settings.PageHeightPx);
+        if (values[Left] != null) settings.MarginLeft = ResolvePageLength(values[Left]!, settings.PageWidthPx);
     }
 
     private static void ParseSize(PageSettings settings, string value)
@@ -254,44 +280,16 @@ internal static class PageRuleResolver
         if (parts.Length == 0)
             return;
 
-        float top, right, bottom, left;
-
-        switch (parts.Length)
-        {
-            case 1:
-                top = right = bottom = left = ResolvePageLength(parts[0]);
-                break;
-            case 2:
-                top = bottom = ResolvePageLength(parts[0]);
-                right = left = ResolvePageLength(parts[1]);
-                break;
-            case 3:
-                top = ResolvePageLength(parts[0]);
-                right = left = ResolvePageLength(parts[1]);
-                bottom = ResolvePageLength(parts[2]);
-                break;
-            default:
-                top = ResolvePageLength(parts[0]);
-                right = ResolvePageLength(parts[1]);
-                bottom = ResolvePageLength(parts[2]);
-                left = ResolvePageLength(parts[3]);
-                break;
-        }
-
-        settings.MarginTop = top;
-        settings.MarginRight = right;
-        settings.MarginBottom = bottom;
-        settings.MarginLeft = left;
+        var values = settings.MarginValues;
+        values[Top] = parts[0];
+        values[Right] = parts.Length > 1 ? parts[1] : parts[0];
+        values[Bottom] = parts.Length > 2 ? parts[2] : parts[0];
+        values[Left] = parts.Length > 3 ? parts[3] : values[Right];
     }
 
-    /// <summary>
-    /// Resolve a CSS length value to CSS pixels. Uses BlockLayout.ResolveLength
-    /// with 0 containing size and 16px default font size.
-    /// </summary>
-    private static float ResolvePageLength(string value)
-    {
-        return BlockLayout.ResolveLength(value, 0, 16f);
-    }
+    /// <summary>A CSS length in CSS pixels, with percentages of <paramref name="percentBasis"/> and em at 16px.</summary>
+    private static float ResolvePageLength(string value, float percentBasis = 0f) =>
+        BlockLayout.ResolveLength(value, percentBasis, 16f);
 }
 
 /// <summary>
@@ -316,6 +314,9 @@ internal class PageSettings
 
     /// <summary>Left margin in CSS pixels.</summary>
     public float MarginLeft { get; set; }
+
+    /// <summary>The declared margins as written (top, right, bottom, left; null when undeclared), resolved against the final page size.</summary>
+    public string?[] MarginValues { get; } = new string?[4];
 
     /// <summary>Content area width (page width minus horizontal margins).</summary>
     public float ContentWidthPx => PageWidthPx - MarginLeft - MarginRight;
@@ -353,6 +354,7 @@ internal class PageSettings
             PageWidthPx = PageWidthPx, PageHeightPx = PageHeightPx,
             MarginTop = MarginTop, MarginRight = MarginRight, MarginBottom = MarginBottom, MarginLeft = MarginLeft,
         };
+        Array.Copy(MarginValues, copy.MarginValues, MarginValues.Length);
         foreach (var kv in MarginBoxes) copy.MarginBoxes[kv.Key] = kv.Value;
         foreach (var kv in FirstPageMarginBoxes) copy.FirstPageMarginBoxes[kv.Key] = kv.Value;
         foreach (var kv in LeftPageMarginBoxes) copy.LeftPageMarginBoxes[kv.Key] = kv.Value;
