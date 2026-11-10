@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using EggPdf.Pdf;
@@ -7,16 +8,14 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Pdf;
 
-/// <summary>
-/// Page content streams are FlateDecode-compressed by default in production
-/// (PdfDocument.DefaultCompressContentStreams; the test assembly opts out
-/// globally in TestSetup). These tests enable compression per document and
-/// verify filter declaration, /Length accuracy, and zlib roundtrip.
-/// </summary>
 public class ContentStreamCompressionTests
 {
     private const string Sentence = "Hello compression Hello compression Hello compression";
 
+    /// <summary>
+    /// Renders one line of text with compression set per document: production compresses page content by
+    /// default (PdfDocument.DefaultCompressContentStreams), but the test assembly turns it off in TestSetup.
+    /// </summary>
     private static byte[] Render(bool compress)
     {
         var doc = new PdfDocument { CompressContentStreams = compress };
@@ -25,13 +24,14 @@ public class ContentStreamCompressionTests
         return doc.ToByteArray();
     }
 
+    /// <summary>The PDF as text with one char per byte, so a char index is a byte offset.</summary>
     private static string Latin1(byte[] pdf)
         => System.Text.Encoding.Latin1.GetString(pdf);
 
     /// <summary>Extract the first FlateDecode stream's bytes and declared /Length.</summary>
     private static byte[] ExtractFlateStream(byte[] pdf, out int declaredLength)
     {
-        var text = Latin1(pdf); // Latin-1 maps chars to bytes 1:1
+        var text = Latin1(pdf);
         int dictIdx = text.IndexOf("/Filter /FlateDecode", StringComparison.Ordinal);
         dictIdx.Should().BeGreaterThan(0, "a FlateDecode filter must be declared");
 
@@ -39,7 +39,7 @@ public class ContentStreamCompressionTests
         int numStart = lenIdx + "/Length ".Length;
         int numEnd = numStart;
         while (numEnd < text.Length && char.IsDigit(text[numEnd])) numEnd++;
-        declaredLength = int.Parse(text.Substring(numStart, numEnd - numStart));
+        declaredLength = int.Parse(text.Substring(numStart, numEnd - numStart), NumberStyles.None, CultureInfo.InvariantCulture);
 
         int streamIdx = text.IndexOf("stream\n", dictIdx, StringComparison.Ordinal)
             + "stream\n".Length;
@@ -48,9 +48,9 @@ public class ContentStreamCompressionTests
         return bytes;
     }
 
+    /// <summary>Inflates a zlib stream: skips its 2-byte header, and DeflateStream stops before the Adler-32.</summary>
     private static byte[] InflateZlib(byte[] data)
     {
-        // Skip the 2-byte zlib header; DeflateStream stops before the Adler-32.
         using var input = new MemoryStream(data, 2, data.Length - 2);
         using var deflate = new DeflateStream(input, CompressionMode.Decompress);
         using var output = new MemoryStream();
