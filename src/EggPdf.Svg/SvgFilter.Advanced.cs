@@ -3,9 +3,9 @@ using EggPdf.Core;
 
 namespace EggPdf.Svg;
 
-// Parameter parsing for feTurbulence, feConvolveMatrix and the lighting primitives.
 internal sealed partial class SvgFilter
 {
+    /// <summary>A lighting primitive's light source element; a lighting primitive is meaningless without one.</summary>
     private static SvgElement? FindLight(SvgElement lighting)
     {
         foreach (var child in lighting.Children)
@@ -13,11 +13,16 @@ internal sealed partial class SvgFilter
         return null;
     }
 
+    /// <summary>
+    /// feTurbulence's parameters. A negative frequency is an error, giving transparent black. The noise lives in user
+    /// space, so each pixel maps back through the canvas transform; the stitching tile is the primitive subregion,
+    /// defaulting to the whole canvas.
+    /// </summary>
     private static FilterImage Turbulence(SvgElement el, int width, int height, bool linear, in FilterRunContext ctx)
     {
         var freq = Numbers(el.GetAttribute("basefrequency"));
         float fx = freq.Length > 0 ? freq[0] : 0f, fy = freq.Length > 1 ? freq[1] : fx;
-        if (fx < 0f || fy < 0f) return new FilterImage(width, height, linear); // negative frequency is an error: transparent black
+        if (fx < 0f || fy < 0f) return new FilterImage(width, height, linear);
 
         int octaves = (int)Number(el.GetAttribute("numoctaves"), 1f);
         bool fractal = string.Equals(el.GetAttribute("type").Trim(), "fractalNoise", StringComparison.OrdinalIgnoreCase);
@@ -25,10 +30,8 @@ internal sealed partial class SvgFilter
         int seed = (int)Math.Round(Number(el.GetAttribute("seed"), 0f));
         if (octaves <= 0) return new FilterImage(width, height, linear);
 
-        // Noise lives in user space: map each pixel back through the canvas transform
         float originX = -ctx.E / ctx.A, originY = -ctx.F / ctx.D;
         float unitsPerPx = 1f / ctx.UnitToPxX;
-        // The stitching tile is the primitive subregion, defaulting to the whole canvas
         float tileX = Number(el.GetAttribute("x"), originX), tileY = Number(el.GetAttribute("y"), originY);
         float tileW = Number(el.GetAttribute("width"), width * unitsPerPx), tileH = Number(el.GetAttribute("height"), height * unitsPerPx);
 
@@ -36,7 +39,10 @@ internal sealed partial class SvgFilter
             originX, originY, unitsPerPx, tileX, tileY, tileW, tileH);
     }
 
-    /// <summary>feImage: a referenced element (drawn in user space) or a bitmap fitted into the primitive subregion.</summary>
+    /// <summary>
+    /// feImage: a referenced element (drawn in user space) or a bitmap fitted into the primitive subregion; the
+    /// bitmap is fitted (meet) and centred unless preserveAspectRatio is <c>none</c>.
+    /// </summary>
     private static FilterImage ImageSource(SvgElement el, int width, int height, bool linear, in FilterRunContext ctx)
     {
         var href = el.GetAttribute("href");
@@ -59,7 +65,6 @@ internal sealed partial class SvgFilter
                 float px = float.IsNaN(x) ? 0f : ctx.A * x + ctx.E, py = float.IsNaN(y) ? 0f : ctx.D * y + ctx.F;
                 float pw = float.IsNaN(w) ? width - px : w * ctx.UnitToPxX, ph = float.IsNaN(h) ? height - py : h * ctx.UnitToPxY;
 
-                // preserveAspectRatio: fit (meet) and centre unless "none"
                 bool stretch = el.GetAttribute("preserveaspectratio").TrimStart().StartsWith("none", StringComparison.OrdinalIgnoreCase);
                 if (!stretch)
                 {
@@ -74,12 +79,12 @@ internal sealed partial class SvgFilter
         return result.InSpace(linear);
     }
 
+    /// <summary>feConvolveMatrix's parameters; any invalid attribute disables the primitive, so the input passes through unchanged.</summary>
     private static FilterImage ConvolveMatrix(SvgElement el, FilterImage input)
     {
         var order = Numbers(el.GetAttribute("order"));
         int ox = order.Length > 0 ? (int)order[0] : 3, oy = order.Length > 1 ? (int)order[1] : ox;
         var kernel = Numbers(el.GetAttribute("kernelmatrix"));
-        // Any invalid attribute disables the primitive: the input passes through unchanged
         if (ox <= 0 || oy <= 0 || kernel.Length != ox * oy) return input;
 
         float sum = 0f;
@@ -96,10 +101,15 @@ internal sealed partial class SvgFilter
             tx, ty, edge, preserve);
     }
 
+    /// <summary>
+    /// feDiffuseLighting / feSpecularLighting's parameters, with the light mapped to canvas pixels. A specular
+    /// exponent outside 1..128 is an error, giving transparent black.
+    /// </summary>
     private static FilterImage Lighting(SvgElement el, FilterImage input, bool specular, bool linear, in FilterRunContext ctx)
     {
         var lightEl = FindLight(el)!;
-        var light = new FilterLight { Kind = lightEl.TagName.Substring(2, lightEl.TagName.Length - 7) }; // "distant" | "point" | "spot"
+        const int prefixLength = 2, suffixLength = 5;
+        var light = new FilterLight { Kind = lightEl.TagName.Substring(prefixLength, lightEl.TagName.Length - prefixLength - suffixLength) };
 
         float scaleX = ctx.A, offsetX = ctx.E, scaleY = ctx.D, offsetY = ctx.F, scaleZ = ctx.UnitToPxX;
         float ToX(float ux) => scaleX * ux + offsetX;
@@ -123,7 +133,7 @@ internal sealed partial class SvgFilter
         if (specular)
         {
             float exponent = Number(el.GetAttribute("specularexponent"), 1f);
-            if (exponent < 1f || exponent > 128f) return new FilterImage(input.Width, input.Height, linear); // out of range: transparent black
+            if (exponent < 1f || exponent > 128f) return new FilterImage(input.Width, input.Height, linear);
             return FilterPixels.Lighting(input, true, surfaceScale, Number(el.GetAttribute("specularconstant"), 1f), exponent, r, g, b, light);
         }
         return FilterPixels.Lighting(input, false, surfaceScale, Number(el.GetAttribute("diffuseconstant"), 1f), 1f, r, g, b, light);
