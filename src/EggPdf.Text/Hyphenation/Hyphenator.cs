@@ -10,7 +10,10 @@ namespace EggPdf.Text.Hyphenation;
 /// </summary>
 public class Hyphenator
 {
+    private const string WordBoundary = ".";
+
     private readonly Dictionary<string, byte[]> _patterns = new();
+    private int _longestPattern;
     private readonly HashSet<string> _exceptions = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int[]> _exceptionPoints = new(StringComparer.OrdinalIgnoreCase);
 
@@ -26,30 +29,25 @@ public class Hyphenator
     /// </summary>
     public void AddPattern(string pattern)
     {
-        // Extract the text (letters only) and the numeric values at each position
         var text = new System.Text.StringBuilder();
-        var values = new List<byte>();
-        values.Add(0); // value before first letter
+        var values = new List<byte> { 0 };
 
         for (int i = 0; i < pattern.Length; i++)
         {
             char c = pattern[i];
             if (c >= '0' && c <= '9')
             {
-                // Replace the last added value with this digit
-                if (values.Count > 0)
-                    values[values.Count - 1] = (byte)(c - '0');
-                else
-                    values.Add((byte)(c - '0'));
+                values[values.Count - 1] = (byte)(c - '0');
             }
             else
             {
                 text.Append(char.ToLowerInvariant(c));
-                values.Add(0); // default value after this letter
+                values.Add(0);
             }
         }
 
         _patterns[text.ToString()] = values.ToArray();
+        if (text.Length > _longestPattern) _longestPattern = text.Length;
     }
 
     /// <summary>
@@ -85,7 +83,6 @@ public class Hyphenator
 
         var lower = word.ToLowerInvariant();
 
-        // Check exceptions first
         if (_exceptionPoints.TryGetValue(lower, out var exPoints))
         {
             var result = new List<int>();
@@ -97,20 +94,17 @@ public class Hyphenator
             return result.ToArray();
         }
 
-        // Apply patterns using Liang/Knuth algorithm
-        // Surround word with boundary markers
-        string work = "." + lower + ".";
+        string work = WordBoundary + lower + WordBoundary;
         var levels = new int[work.Length + 1];
 
-        // Try all substrings and apply matching patterns
         for (int i = 0; i < work.Length; i++)
         {
-            for (int len = 1; len <= work.Length - i; len++)
+            int longest = Math.Min(_longestPattern, work.Length - i);
+            for (int len = 1; len <= longest; len++)
             {
                 string sub = work.Substring(i, len);
                 if (_patterns.TryGetValue(sub, out var values))
                 {
-                    // Apply max of pattern values at each position
                     for (int k = 0; k < values.Length; k++)
                     {
                         int pos = i + k;
@@ -121,13 +115,10 @@ public class Hyphenator
             }
         }
 
-        // Extract break points (odd values indicate break)
-        // Offset by 1 because of the leading "." boundary marker
         var breaks = new List<int>();
         for (int i = LeftMin; i <= lower.Length - RightMin; i++)
         {
-            // levels[i+1] corresponds to the position between character i-1 and i in the original word
-            if (levels[i + 1] % 2 == 1)
+            if (levels[i + WordBoundary.Length] % 2 == 1)
                 breaks.Add(i);
         }
 
@@ -144,14 +135,14 @@ public class Hyphenator
         return h;
     }
 
-    /// <summary>Load a curated set of English hyphenation patterns (subset of TeX hyph-en).</summary>
+    /// <summary>
+    /// Load a curated set of English hyphenation patterns: prefixes, common interior letter pairs, suffixes and a few
+    /// whole-word patterns from TeX's hyph-en (which has about 4,500 entries).
+    /// </summary>
     private static void LoadEnglishPatterns(Hyphenator h)
     {
-        // Core English hyphenation patterns (curated subset covering common words)
-        // Full TeX English patterns have ~4,500 entries; this is a practical subset
         var patterns = new[]
         {
-            // Prefix patterns
             ".ab1s", ".ac1q", ".ad2", ".af1t", ".al3t", ".am1", ".an3",
             ".ap1", ".ar1", ".as1", ".at1", ".au1",
             ".be1", ".bi2", ".bu2",
@@ -169,7 +160,6 @@ public class Hyphenator
             ".semi1", ".sub1", ".su2", ".super1",
             ".un1", ".under1",
 
-            // Common interior patterns
             "a1b", "a1c", "a1d", "a1g", "a1l", "a1m", "a1n", "a1p", "a1r", "a1t",
             "ab2l", "ac1u", "ad3e", "ag1", "al1", "am1", "an2d", "an2t",
             "ap2", "ar1", "as1t", "at2", "au1",
@@ -201,13 +191,11 @@ public class Hyphenator
             "y1", "y2l",
             "z2",
 
-            // Suffix patterns
             "1tion", "1sion", "1ment", "1ness", "1ly.", "1ful", "1less", "1able", "1ible",
             "1ing.", "1tion.", "1sion.", "1ment.", "1ness.", "1ful.", "1less.",
             "2ble.", "2ting.", "2ding.", "2ning.", "2ring.", "2ling.",
             "a1tion", "e1ment", "i1ty.", "al1ly.",
 
-            // Common word patterns
             "1phen", "phe2n", "hen3a", "1na1t",
             "com1pu", "pu1ter",
             "1de1vel", "vel1op",
@@ -218,7 +206,6 @@ public class Hyphenator
         foreach (var p in patterns)
             h.AddPattern(p);
 
-        // Common exceptions
         h.AddException("as-so-ci-ate");
         h.AddException("as-so-ci-ates");
         h.AddException("project");

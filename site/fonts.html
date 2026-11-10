@@ -198,6 +198,11 @@
         The <code>url('fonts/Inter-Regular.ttf')</code> path resolves relative to <code>basePath</code>.
         Use absolute paths in <code>src: url(...)</code> if you prefer not to set <code>basePath</code>.
       </p>
+      <p>
+        Sources can be TrueType (<code>.ttf</code>), OpenType (<code>.otf</code>) or WOFF (<code>.woff</code>) files,
+        URLs or <code>data:</code> URIs. WOFF2 is not decoded yet: list a WOFF or TTF source after it, and the next
+        <code>src</code> entry is used.
+      </p>
 
       <h2 id="font-weight-style">Weight and style</h2>
       <p>

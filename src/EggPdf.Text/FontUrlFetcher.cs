@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading;
 
@@ -37,7 +38,8 @@ public static class FontUrlFetcher
 
     /// <summary>
     /// Fetch font data from a URL. Returns null on failure.
-    /// Results are cached by URL.
+    /// Results are cached by URL. A failed fetch is not retried for a short interval; unlike a cache entry that
+    /// expires, so the URL recovers after a transient outage.
     /// </summary>
     public static byte[]? Fetch(string url)
     {
@@ -45,8 +47,6 @@ public static class FontUrlFetcher
 
         if (_cache.TryGetValue(url, out var cached)) return cached;
 
-        // A recent failure suppresses retries briefly; unlike a cache entry
-        // it expires, so the URL recovers after a transient outage.
         if (_failedFetches.TryGetValue(url, out var failedAt) &&
             DateTime.UtcNow - failedAt < FailureRetryInterval)
             return null;
@@ -75,7 +75,6 @@ public static class FontUrlFetcher
 
     private static byte[]? FetchInternal(string url)
     {
-        // Handle data: URIs
         if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
         {
             int comma = url.IndexOf(',');
@@ -87,12 +86,10 @@ public static class FontUrlFetcher
             return null;
         }
 
-        // Only fetch HTTP/HTTPS
         if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
             !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             return null;
 
-        // Synchronous fetch (layout is single-threaded)
         try
         {
             var task = _httpClient.GetByteArrayAsync(url);
@@ -106,7 +103,8 @@ public static class FontUrlFetcher
 
     /// <summary>
     /// Parse a CSS @font-face src value and extract the URL.
-    /// Handles: url("https://..."), url('...'), url(data:...), local("FontName")
+    /// Handles: url("https://..."), url('...'), url(data:...), local("FontName") (returned as "local:FontName"),
+    /// and a bare URL, as left by a CSS parser that already unwrapped url(...), whose first token is the URL.
     /// Returns the URL string or null.
     /// </summary>
     public static string? ParseFontSrcUrl(string srcValue)
@@ -115,15 +113,13 @@ public static class FontUrlFetcher
 
         var trimmed = srcValue.Trim();
 
-        // url("...") or url('...') or url(...), possibly followed by format(...)
         if (trimmed.StartsWith("url(", StringComparison.OrdinalIgnoreCase))
         {
             int start = 4;
-            int end = trimmed.IndexOf(')', start); // stop at the url() token, not the string end
+            int end = trimmed.IndexOf(')', start);
             if (end <= start) return null;
 
             var url = trimmed.Substring(start, end - start).Trim();
-            // Remove quotes
             if (url.Length >= 2 && ((url[0] == '"' && url[url.Length - 1] == '"') ||
                 (url[0] == '\'' && url[url.Length - 1] == '\'')))
                 url = url.Substring(1, url.Length - 2);
@@ -131,7 +127,6 @@ public static class FontUrlFetcher
             return url.Length > 0 ? url : null;
         }
 
-        // local("FontName") — return as-is for system font resolution
         if (trimmed.StartsWith("local(", StringComparison.OrdinalIgnoreCase))
         {
             int start = 6;
@@ -141,8 +136,6 @@ public static class FontUrlFetcher
             return name.Length > 0 ? "local:" + name : null;
         }
 
-        // Bare URL: CSS parsers may already unwrap url(...), leaving
-        // "https://... format('truetype')" — take the first token.
         int ws = trimmed.IndexOfAny(new[] { ' ', '\t' });
         var bare = (ws > 0 ? trimmed.Substring(0, ws) : trimmed).Trim('"', '\'');
         if (bare.Length > 0 &&
@@ -151,6 +144,44 @@ public static class FontUrlFetcher
             return bare;
 
         return null;
+    }
+
+    /// <summary>
+    /// Split an @font-face src list into its sources at the commas between them; commas inside url(), local(),
+    /// format() or quoted strings (a data: URI's "base64,") stay part of their source.
+    /// </summary>
+    public static List<string> SplitFontSrcList(string src)
+    {
+        var sources = new List<string>();
+        if (string.IsNullOrEmpty(src)) return sources;
+
+        int depth = 0, start = 0;
+        char quote = '\0';
+        for (int i = 0; i < src.Length; i++)
+        {
+            char c = src[i];
+            if (quote != '\0')
+            {
+                if (c == '\\') i++;
+                else if (c == quote) quote = '\0';
+            }
+            else if (c == '"' || c == '\'') quote = c;
+            else if (c == '(') depth++;
+            else if (c == ')' && depth > 0) depth--;
+            else if (c == ',' && depth == 0)
+            {
+                AddSource(sources, src, start, i);
+                start = i + 1;
+            }
+        }
+        AddSource(sources, src, start, src.Length);
+        return sources;
+    }
+
+    private static void AddSource(List<string> sources, string src, int start, int end)
+    {
+        var source = src.Substring(start, end - start).Trim();
+        if (source.Length > 0) sources.Add(source);
     }
 
     /// <summary>Clear the font cache, including recorded fetch failures.</summary>
