@@ -29,6 +29,8 @@ public class CssCounterContext
 
     private Dictionary<string, CssCounterStyleRule>? _customStyles;
 
+    private int _quoteDepth;
+
     /// <summary>Register custom @counter-style rules from parsed stylesheets.</summary>
     public void RegisterCounterStyles(IEnumerable<CssCounterStyleRule> rules)
     {
@@ -191,36 +193,31 @@ public class CssCounterContext
             }
             else if (remaining.StartsWith("counter(", StringComparison.OrdinalIgnoreCase))
             {
-                int close = remaining.IndexOf(')');
+                int close = FindClosingParenthesis(remaining, 8);
                 if (close < 0) { remaining = ""; break; }
-                var args = remaining.Substring(8, close - 8).Trim();
+                var arguments = SplitArguments(remaining.Substring(8, close - 8));
                 remaining = remaining.Substring(close + 1);
 
-                int comma = args.IndexOf(',');
-                var counterName = comma >= 0 ? args.Substring(0, comma).Trim() : args.Trim();
-                var counterStyle = comma >= 0 ? args.Substring(comma + 1).Trim() : "decimal";
+                var counterName = arguments[0];
+                var counterStyle = arguments.Count > 1 ? arguments[1] : "decimal";
 
                 if (string.Equals(counterName, "page", StringComparison.OrdinalIgnoreCase))
                     result.Append(PageCounterSentinel);
                 else if (string.Equals(counterName, "pages", StringComparison.OrdinalIgnoreCase))
                     result.Append(PagesCounterSentinel);
                 else
-                {
-                    int val = GetValue(counterName);
-                    result.Append(FormatCounterValue(val, counterStyle));
-                }
+                    result.Append(FormatCounterValue(GetValue(counterName), counterStyle));
             }
             else if (remaining.StartsWith("counters(", StringComparison.OrdinalIgnoreCase))
             {
-                int close = remaining.IndexOf(')');
+                int close = FindClosingParenthesis(remaining, 9);
                 if (close < 0) { remaining = ""; break; }
-                var args = remaining.Substring(9, close - 9).Trim();
+                var arguments = SplitArguments(remaining.Substring(9, close - 9));
                 remaining = remaining.Substring(close + 1);
 
-                var parts2 = args.Split(',');
-                var counterName = parts2[0].Trim();
-                int val = GetValue(counterName);
-                result.Append(val.ToString(CultureInfo.InvariantCulture));
+                var separator = arguments.Count > 1 ? Unquote(arguments[1]) : "";
+                var counterStyle = arguments.Count > 2 ? arguments[2] : "decimal";
+                AppendEveryLevel(result, arguments[0], separator, counterStyle);
             }
             else if (remaining.StartsWith("attr(", StringComparison.OrdinalIgnoreCase))
             {
@@ -235,13 +232,28 @@ public class CssCounterContext
             }
             else if (remaining.StartsWith("open-quote", StringComparison.OrdinalIgnoreCase))
             {
-                result.Append(ResolveQuoteChar(style, open: true));
+                result.Append(QuoteMark(style, open: true, _quoteDepth));
+                _quoteDepth++;
                 remaining = remaining.Substring(10);
             }
             else if (remaining.StartsWith("close-quote", StringComparison.OrdinalIgnoreCase))
             {
-                result.Append(ResolveQuoteChar(style, open: false));
+                if (_quoteDepth > 0)
+                {
+                    _quoteDepth--;
+                    result.Append(QuoteMark(style, open: false, _quoteDepth));
+                }
                 remaining = remaining.Substring(11);
+            }
+            else if (remaining.StartsWith("no-open-quote", StringComparison.OrdinalIgnoreCase))
+            {
+                _quoteDepth++;
+                remaining = remaining.Substring(13);
+            }
+            else if (remaining.StartsWith("no-close-quote", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_quoteDepth > 0) _quoteDepth--;
+                remaining = remaining.Substring(14);
             }
             else
             {
@@ -255,21 +267,100 @@ public class CssCounterContext
     }
 
     /// <summary>
-    /// Return the correct open or close quote string from the element's computed <c>quotes</c>
-    /// property, or fall back to U+201C/U+201D smart-quotes.
+    /// Appends every level of a counter, outermost first, each formatted in <paramref name="counterStyle"/> and
+    /// joined by <paramref name="separator"/>: the <c>counters()</c> function. A counter that doesn't exist yet
+    /// reads as 0.
     /// </summary>
-    private static string ResolveQuoteChar(EggPdf.Css.ComputedStyle? style, bool open)
+    private void AppendEveryLevel(StringBuilder result, string counterName, string separator, string counterStyle)
     {
-        string defaultOpen = "\u201C";
-        string defaultClose = "\u201D";
+        if (!_counters.TryGetValue(counterName, out var stack) || stack.Count == 0)
+        {
+            result.Append(FormatCounterValue(0, counterStyle));
+            return;
+        }
 
+        var innermostFirst = stack.ToArray();
+        for (int level = innermostFirst.Length - 1; level >= 0; level--)
+        {
+            result.Append(FormatCounterValue(innermostFirst[level], counterStyle));
+            if (level > 0) result.Append(separator);
+        }
+    }
+
+    /// <summary>The index of the <c>)</c> closing a function whose arguments start at <paramref name="start"/>, skipping quoted strings; -1 when unclosed.</summary>
+    private static int FindClosingParenthesis(string text, int start)
+    {
+        for (int i = start; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c == ')') return i;
+            if (c == '"' || c == '\'')
+            {
+                int pos = i;
+                CssStringEscapes.ReadQuoted(text, ref pos);
+                i = pos - 1;
+            }
+        }
+        return -1;
+    }
+
+    /// <summary>The trimmed, comma-separated arguments of a function; commas inside quoted strings don't split. Always has at least one entry.</summary>
+    private static List<string> SplitArguments(string arguments)
+    {
+        var parts = new List<string>();
+        int start = 0;
+        for (int i = 0; i < arguments.Length; i++)
+        {
+            char c = arguments[i];
+            if (c == ',')
+            {
+                parts.Add(arguments.Substring(start, i - start).Trim());
+                start = i + 1;
+            }
+            else if (c == '"' || c == '\'')
+            {
+                int pos = i;
+                CssStringEscapes.ReadQuoted(arguments, ref pos);
+                i = pos - 1;
+            }
+        }
+        parts.Add(arguments.Substring(start).Trim());
+        return parts;
+    }
+
+    private static string Unquote(string value)
+    {
+        if (value.Length == 0 || (value[0] != '"' && value[0] != '\'')) return value;
+        int pos = 0;
+        return CssStringEscapes.ReadQuoted(value, ref pos);
+    }
+
+    /// <summary>
+    /// The open or close quote for nesting level <paramref name="depth"/> (0 = outermost) from the element's
+    /// <c>quotes</c> pairs; levels deeper than the list use its last pair. <c>quotes: none</c> gives no mark; without
+    /// a valid list, the outer level uses U+201C/U+201D and nested levels U+2018/U+2019.
+    /// </summary>
+    private static string QuoteMark(EggPdf.Css.ComputedStyle? style, bool open, int depth)
+    {
         var quotesVal = style?.Get("quotes");
-        if (string.IsNullOrEmpty(quotesVal) || quotesVal == "none" || quotesVal == "auto")
-            return open ? defaultOpen : defaultClose;
+        if (quotesVal == "none") return "";
 
-        var tokens = new System.Collections.Generic.List<string>();
+        var tokens = string.IsNullOrEmpty(quotesVal) || quotesVal == "auto" ? null : QuoteTokens(quotesVal!);
+        if (tokens == null || tokens.Count < 2 || tokens.Count % 2 != 0)
+        {
+            if (depth == 0) return open ? "\u201C" : "\u201D";
+            return open ? "\u2018" : "\u2019";
+        }
+
+        int pair = Math.Min(depth, tokens.Count / 2 - 1);
+        return tokens[pair * 2 + (open ? 0 : 1)];
+    }
+
+    private static List<string> QuoteTokens(string quotesVal)
+    {
+        var tokens = new List<string>();
         int i = 0;
-        while (i < quotesVal.Length && tokens.Count < 2)
+        while (i < quotesVal.Length)
         {
             while (i < quotesVal.Length && quotesVal[i] == ' ') i++;
             if (i >= quotesVal.Length) break;
@@ -290,12 +381,7 @@ public class CssCounterContext
             }
         }
 
-        if (tokens.Count >= 2)
-            return open ? tokens[0] : tokens[1];
-        if (tokens.Count == 1)
-            return tokens[0];
-
-        return open ? defaultOpen : defaultClose;
+        return tokens;
     }
 
     /// <summary>
