@@ -54,7 +54,6 @@ public static partial class GridLayout
 
         var autoRowTracks = ParseTrackList(style.Get("grid-auto-rows"), 0, fontSize);
         var autoColumnTracks = ParseTrackList(style.Get("grid-auto-columns"), container.ContentWidth, fontSize);
-        bool columnsAreImplicit = string.IsNullOrEmpty(resolvedColumns);
 
         if (columnTracks.Count == 0)
         {
@@ -67,29 +66,23 @@ public static partial class GridLayout
                     if (end > maxCol) maxCol = end;
                 }
                 for (int c = 0; c < maxCol; c++)
-                    columnTracks.Add(new TrackDefinition { Type = TrackType.Fr, Value = 1 });
+                    columnTracks.Add(ImplicitColumnTrack(autoColumnTracks, c));
             }
             else
             {
-                columnTracks.Add(new TrackDefinition { Type = TrackType.Fr, Value = 1 });
+                columnTracks.Add(ImplicitColumnTrack(autoColumnTracks, 0));
             }
         }
 
+        int explicitColumnCount = string.IsNullOrEmpty(resolvedColumns) ? 0 : columnTracks.Count;
         int numColumns = columnTracks.Count;
 
         ResolveExplicitPlacement(items, areaMap, numColumns);
 
-        numColumns = AutoPlaceItems(items, numColumns, flowColumn, rowTracks.Count, isDense,
-            allowColumnGrowth: flowColumn && columnsAreImplicit);
+        numColumns = AutoPlaceItems(items, numColumns, flowColumn, rowTracks.Count, isDense);
 
-        int newColumnIndex = 0;
         while (columnTracks.Count < numColumns)
-        {
-            columnTracks.Add(autoColumnTracks.Count > 0
-                ? autoColumnTracks[newColumnIndex % autoColumnTracks.Count]
-                : new TrackDefinition { Type = TrackType.Fr, Value = 1 });
-            newColumnIndex++;
-        }
+            columnTracks.Add(ImplicitColumnTrack(autoColumnTracks, columnTracks.Count - explicitColumnCount));
 
         int numRows = rowTracks.Count;
         for (int i = 0; i < items.Count; i++)
