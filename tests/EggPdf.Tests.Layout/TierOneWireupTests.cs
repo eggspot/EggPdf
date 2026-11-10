@@ -5,11 +5,8 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary>Tests for Tier 1 "wire-up" features: infrastructure exists, just needs wiring.</summary>
 public class TierOneWireupTests
 {
-    // ===== writing-mode =====
-
     [Fact]
     public void WritingMode_Vertical_StoredInStyle()
     {
@@ -29,8 +26,6 @@ public class TierOneWireupTests
         div!.Style.Get("writing-mode").Should().Be("vertical-lr");
     }
 
-    // ===== text-wrap: balance =====
-
     [Fact]
     public void TextWrap_Balance_StoredInStyle()
     {
@@ -44,32 +39,20 @@ public class TierOneWireupTests
     [Fact]
     public void TextWrap_Balance_FirstLineNotFullWidth()
     {
-        // With text-wrap:balance on wrapping text, first line should be shorter than
-        // container width (balanced down to match second line)
+        const string tenWords = "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10";
         var htmlBalanced = LayoutTestHelper.Layout(
-            "<p style='text-wrap:balance; width:200px; font-size:12px'>" +
-            "word1 word2 word3 word4 word5 word6</p>", 400, 600);
+            "<p style='text-wrap:balance; width:200px; font-size:12px'>" + tenWords + "</p>", 400, 600);
         var htmlNormal = LayoutTestHelper.Layout(
-            "<p style='width:200px; font-size:12px'>" +
-            "word1 word2 word3 word4 word5 word6</p>", 400, 600);
+            "<p style='width:200px; font-size:12px'>" + tenWords + "</p>", 400, 600);
 
-        var pBalanced = htmlBalanced.FindByTag("p");
-        var pNormal = htmlNormal.FindByTag("p");
+        var balancedBoxes = htmlBalanced.FindByTag("p")!.Children.FindAll(b => !string.IsNullOrEmpty(b.Text));
+        var normalBoxes = htmlNormal.FindByTag("p")!.Children.FindAll(b => !string.IsNullOrEmpty(b.Text));
 
-        var balancedBoxes = pBalanced!.Children.FindAll(b => !string.IsNullOrEmpty(b.Text));
-        var normalBoxes = pNormal!.Children.FindAll(b => !string.IsNullOrEmpty(b.Text));
-
-        // Only meaningful if text actually wraps in both cases
-        if (balancedBoxes.Count >= 2 && normalBoxes.Count >= 2)
-        {
-            float normalFirst = normalBoxes[0].ContentWidth;
-            float balancedFirst = balancedBoxes[0].ContentWidth;
-            balancedFirst.Should().BeLessThan(normalFirst,
-                "text-wrap:balance should reduce first-line width to balance with subsequent lines");
-        }
+        normalBoxes.Should().HaveCountGreaterOrEqualTo(2, "ten words at 12px do not fit on one 200px line");
+        balancedBoxes.Should().HaveCountGreaterOrEqualTo(2, "ten words at 12px do not fit on one 200px line");
+        balancedBoxes[0].ContentWidth.Should().BeLessThan(normalBoxes[0].ContentWidth,
+            "text-wrap:balance shortens the first line to even it out with the next");
     }
-
-    // ===== caption / table-caption =====
 
     [Fact]
     public void Caption_RendersAsBox()
@@ -84,7 +67,6 @@ public class TierOneWireupTests
     [Fact]
     public void Caption_Default_AboveTable()
     {
-        // With caption-side:top (default), caption should appear above the table rows
         var root = LayoutTestHelper.Layout(
             "<table><caption>My Caption</caption>" +
             "<tr><td style='height:40px'>Cell</td></tr></table>", 400, 600);
@@ -101,7 +83,6 @@ public class TierOneWireupTests
     [Fact]
     public void Caption_Bottom_BelowTable()
     {
-        // With caption-side:bottom, caption should appear after the table rows
         var root = LayoutTestHelper.Layout(
             "<table style='caption-side:bottom'>" +
             "<caption>Footer Caption</caption>" +
