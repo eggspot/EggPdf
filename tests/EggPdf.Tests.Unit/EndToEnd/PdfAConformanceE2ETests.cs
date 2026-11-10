@@ -16,11 +16,10 @@ public class PdfAConformanceE2ETests
         plainText.Should().Contain("/Subtype /Type1");
         plainText.Should().NotContain("/Subtype /CIDFontType2");
 
-        // Embedded CIDFont text is painted as glyph-ID hex, not the literal string, so
-        // only the structural checks (no expected visible text) apply here.
         var pdfA = HtmlToPdf.Render(html, PdfAConformance.PdfA2b);
         var pdfAText = PdfAssert.ValidPdf(pdfA);
-        pdfAText.Should().Contain("/Subtype /CIDFontType2");
+        pdfAText.Should().Contain("/Subtype /CIDFontType2",
+            "PDF/A embeds every font, so the text is painted as glyph-id hex and only structural checks apply");
         pdfAText.Should().Contain("/OutputIntents [");
     }
 
@@ -86,10 +85,10 @@ public class PdfAConformanceE2ETests
         var pdf = HtmlToPdf.Render(html, conformance);
         var text = PdfAssert.ValidPdf(pdf);
 
-        // u-level's guarantee (correct Unicode text extraction) rides on the same forced
-        // CIDFont embedding as b-level -- every embedded font always carries a ToUnicode CMap.
         text.Should().Contain("/Subtype /CIDFontType2");
-        text.Should().Contain("/ToUnicode");
+        text.Should().Contain("/ToUnicode",
+            "u-level's correct Unicode extraction rides on the same forced CID font embedding as b-level, and every " +
+            "embedded font carries a ToUnicode CMap");
         text.Should().Contain($"<pdfaid:part>{expectedPart}</pdfaid:part>");
         text.Should().Contain("<pdfaid:conformance>U</pdfaid:conformance>");
     }
