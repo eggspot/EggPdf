@@ -15,8 +15,8 @@ public class BorderRenderTests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Bordered");
-        text.Should().Contain("re"); // rectangle
-        text.Should().Contain("S");  // stroke operator
+        text.Should().Contain("0.00 0.00 0.00 RG", "the border is stroked in black");
+        text.Should().MatchRegex(@"re S|l S", "the border is stroked as a rectangle or as line segments");
     }
 
     [Fact]
@@ -27,7 +27,7 @@ public class BorderRenderTests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Red border");
-        text.Should().Contain("RG"); // stroke color operator
+        text.Should().Contain("1.00 0.00 0.00 RG", "the stroke color is red");
     }
 
     [Fact]
@@ -40,6 +40,7 @@ public class BorderRenderTests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Cell");
+        text.Should().Contain("0.87 0.87 0.87 RG", "the cell border is stroked in #ddd (221/255 = 0.87)");
     }
 
     [Fact]
@@ -50,6 +51,7 @@ public class BorderRenderTests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("No border");
-        // Should not have unnecessary stroke operators
+        text.Should().NotContain("re S", "a box without a border strokes nothing");
+        text.Should().NotContain("l S", "a box without a border strokes nothing");
     }
 }
