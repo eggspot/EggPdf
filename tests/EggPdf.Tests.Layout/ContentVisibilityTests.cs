@@ -5,11 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary>
-/// content-visibility: hidden skips layout of descendants (unlike display:none, the
-/// element's own box still exists and takes up space) -- its size doesn't depend on
-/// content it never laid out, matching the spec's implied size containment.
-/// </summary>
 public class ContentVisibilityTests
 {
     [Fact]
@@ -22,7 +17,7 @@ public class ContentVisibilityTests
 
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
-        div!.Height.Should().BeApproximately(80f, 0.5f, "explicit height must still apply even though children are skipped");
+        div!.Height.Should().BeApproximately(80f, 0.5f, "unlike display:none, the element's own box still exists and takes its explicit height though its children are skipped");
     }
 
     [Fact]
@@ -35,7 +30,7 @@ public class ContentVisibilityTests
 
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
-        div!.Height.Should().BeApproximately(0f, 0.5f, "auto height must not be influenced by skipped content");
+        div!.Height.Should().BeApproximately(0f, 0.5f, "content-visibility:hidden implies size containment, so the auto height ignores the skipped content");
     }
 
     [Fact]
