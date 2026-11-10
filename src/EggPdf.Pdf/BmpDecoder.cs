@@ -3,16 +3,18 @@ using System;
 namespace EggPdf.Pdf;
 
 /// <summary>
-/// Pure C# BMP decoder. Supports BITMAPINFOHEADER (40-byte) and BITMAPV5HEADER.
-/// Bit depths: 1, 4, 8 (indexed with color table), 24 (BGR), 32 (BGRA).
-/// Compression: BI_RGB (uncompressed) only.
+/// Pure C# BMP decoder. Supports BITMAPINFOHEADER (40-byte) through BITMAPV5HEADER.
+/// Bit depths: 1, 4, 8 (indexed with color table), 16 and 32 (channel masks), 24 (BGR).
+/// Compression: BI_RGB (uncompressed), BI_BITFIELDS and BI_ALPHABITFIELDS.
 /// Handles bottom-up row order (standard BMP is stored upside down).
 /// Infallible: returns null on any error, never throws.
 /// </summary>
-internal static class BmpDecoder
+internal static partial class BmpDecoder
 {
     private const int BI_RGB = 0;
     private const int BI_BITFIELDS = 3;
+    private const int BI_ALPHABITFIELDS = 6;
+    private const long MaxTruncationFactor = 2;
     private const int FileHeaderSize = 14;
     private const int InfoHeaderSize = 40;
     private const int DataOffsetField = 10;
@@ -78,10 +80,19 @@ internal static class BmpDecoder
         if (absHeight <= 0)
             return null;
 
-        if (compression != BI_RGB && !(compression == BI_BITFIELDS && bitDepth == 32))
+        bool usesMasks = bitDepth == 16 || bitDepth == 32;
+        bool hasMaskFields = compression == BI_BITFIELDS || compression == BI_ALPHABITFIELDS;
+        if (compression != BI_RGB && !(hasMaskFields && usesMasks))
             return null;
 
-        if (bitDepth != 1 && bitDepth != 4 && bitDepth != 8 && bitDepth != 24 && bitDepth != 32)
+        if (bitDepth != 1 && bitDepth != 4 && bitDepth != 8 && bitDepth != 16 && bitDepth != 24 && bitDepth != 32)
+            return null;
+
+        if (dataOffset < 0 || dataOffset >= data.Length)
+            return null;
+        long claimedPixelBytes = ((long)width * bitDepth + 31) / 32 * 4 * absHeight;
+        if ((long)width * absHeight * 4 > int.MaxValue || claimedPixelBytes > int.MaxValue ||
+            claimedPixelBytes > MaxTruncationFactor * (data.Length - dataOffset))
             return null;
 
         byte[]? colorTable = null;
@@ -100,15 +111,7 @@ internal static class BmpDecoder
             Buffer.BlockCopy(data, colorTableOffset, colorTable, 0, colorTableSize);
         }
 
-        int rowStride = ((width * bitDepth + 31) / 32) * 4;
-
-        if (dataOffset + rowStride * absHeight > data.Length)
-        {
-            if (dataOffset >= data.Length)
-                return null;
-        }
-
-        int pixelCount = width * absHeight;
+        int rowStride = (int)(claimedPixelBytes / absHeight);
 
         switch (bitDepth)
         {
@@ -120,10 +123,11 @@ internal static class BmpDecoder
                 return DecodeIndexed8(data, dataOffset, width, absHeight, rowStride, topDown, colorTable!);
             case 24:
                 return Decode24Bit(data, dataOffset, width, absHeight, rowStride, topDown);
-            case 32:
-                return Decode32Bit(data, dataOffset, width, absHeight, rowStride, topDown);
             default:
-                return null;
+                var masks = ReadChannelMasks(data, headerSize, compression, bitDepth);
+                if (masks == null)
+                    return null;
+                return DecodeMasked(data, dataOffset, width, absHeight, rowStride, topDown, bitDepth / 8, masks.Value);
         }
     }
 
@@ -244,33 +248,6 @@ internal static class BmpDecoder
         }
 
         return new BmpDecodeResult(width, height, rgb, false);
-    }
-
-    private static BmpDecodeResult Decode32Bit(byte[] data, int dataOffset, int width, int height,
-        int rowStride, bool topDown)
-    {
-        var rgba = new byte[width * height * 4];
-
-        for (int y = 0; y < height; y++)
-        {
-            int srcRow = topDown ? y : (height - 1 - y);
-            int srcOffset = dataOffset + srcRow * rowStride;
-            int dstRow = y * width;
-
-            for (int x = 0; x < width; x++)
-            {
-                int src = srcOffset + x * 4;
-                if (src + 3 >= data.Length) break;
-
-                int dst = (dstRow + x) * 4;
-                rgba[dst] = data[src + 2];
-                rgba[dst + 1] = data[src + 1];
-                rgba[dst + 2] = data[src];
-                rgba[dst + 3] = data[src + 3];
-            }
-        }
-
-        return new BmpDecodeResult(width, height, rgba, true);
     }
 
     private static int ReadInt32LE(byte[] data, int offset)

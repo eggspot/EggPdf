@@ -14,6 +14,7 @@ internal static class GifDecoder
     private const byte ExtensionIntroducer = 0x21;
     private const byte ImageDescriptorIntroducer = 0x2C;
     private const byte GraphicControlExtensionLabel = 0xF9;
+    private const int MaxCodeSize = 12;
 
     /// <summary>Check if data starts with GIF signature ("GIF87a" or "GIF89a").</summary>
     internal static bool IsGif(byte[] data)
@@ -56,9 +57,6 @@ internal static class GifDecoder
         int screenHeight = data[pos + 2] | (data[pos + 3] << 8);
         byte packed = data[pos + 4];
         pos += 7;
-
-        if (screenWidth <= 0 || screenHeight <= 0)
-            return null;
 
         bool hasGlobalColorTable = (packed & 0x80) != 0;
         int globalColorTableSize = 1 << ((packed & 0x07) + 1);
@@ -151,11 +149,17 @@ internal static class GifDecoder
                 if (pos >= data.Length)
                     return null;
                 int lzwMinCodeSize = data[pos++];
-                if (lzwMinCodeSize < 2 || lzwMinCodeSize > 12)
+                if (lzwMinCodeSize < 2 || lzwMinCodeSize > MaxCodeSize)
                     return null;
 
                 byte[]? compressedData = ReadSubBlockData(data, ref pos);
                 if (compressedData == null || compressedData.Length == 0)
+                    return null;
+
+                var frame = new FrameRect(imgLeft, imgTop, imgWidth, imgHeight);
+                int canvasWidth = Math.Max(screenWidth, imgLeft + imgWidth);
+                int canvasHeight = Math.Max(screenHeight, imgTop + imgHeight);
+                if ((long)canvasWidth * canvasHeight * 4 > int.MaxValue)
                     return null;
 
                 byte[]? indices = LzwDecompress(compressedData, lzwMinCodeSize, imgWidth * imgHeight);
@@ -165,73 +169,63 @@ internal static class GifDecoder
                 if (isInterlaced)
                     indices = Deinterlace(indices, imgWidth, imgHeight);
 
-                int colorEntries = colorTable.Length / 3;
-
-                int outWidth = screenWidth;
-                int outHeight = screenHeight;
-
-                if (imgLeft == 0 && imgTop == 0 && imgWidth == screenWidth && imgHeight == screenHeight)
-                {
-                    outWidth = imgWidth;
-                    outHeight = imgHeight;
-                }
-                else
-                {
-                    outWidth = imgWidth;
-                    outHeight = imgHeight;
-                }
-
-                int pixelCount = outWidth * outHeight;
-
-                if (hasTransparency && transparentColorIndex >= 0)
-                {
-                    var rgba = new byte[pixelCount * 4];
-                    for (int i = 0; i < pixelCount && i < indices.Length; i++)
-                    {
-                        int idx = indices[i];
-                        if (idx >= colorEntries)
-                            idx = 0;
-
-                        int dst = i * 4;
-                        if (idx == transparentColorIndex)
-                        {
-                            rgba[dst] = 0;
-                            rgba[dst + 1] = 0;
-                            rgba[dst + 2] = 0;
-                            rgba[dst + 3] = 0;
-                        }
-                        else
-                        {
-                            rgba[dst] = colorTable[idx * 3];
-                            rgba[dst + 1] = colorTable[idx * 3 + 1];
-                            rgba[dst + 2] = colorTable[idx * 3 + 2];
-                            rgba[dst + 3] = 255;
-                        }
-                    }
-                    return new GifDecodeResult(outWidth, outHeight, rgba, true);
-                }
-                else
-                {
-                    var rgb = new byte[pixelCount * 3];
-                    for (int i = 0; i < pixelCount && i < indices.Length; i++)
-                    {
-                        int idx = indices[i];
-                        if (idx >= colorEntries)
-                            idx = 0;
-
-                        int dst = i * 3;
-                        rgb[dst] = colorTable[idx * 3];
-                        rgb[dst + 1] = colorTable[idx * 3 + 1];
-                        rgb[dst + 2] = colorTable[idx * 3 + 2];
-                    }
-                    return new GifDecodeResult(outWidth, outHeight, rgb, false);
-                }
+                int transparentIndex = hasTransparency ? transparentColorIndex : -1;
+                return ComposeOnCanvas(indices, frame, canvasWidth, canvasHeight, colorTable, transparentIndex);
             }
 
             break;
         }
 
         return null;
+    }
+
+    private readonly struct FrameRect
+    {
+        public readonly int Left, Top, Width, Height;
+
+        public FrameRect(int left, int top, int width, int height)
+        {
+            Left = left;
+            Top = top;
+            Width = width;
+            Height = height;
+        }
+    }
+
+    /// <summary>
+    /// Places the first frame at its offset on the logical screen. Browsers leave the rest of the screen transparent
+    /// (the background colour index is ignored), and grow the screen when the first frame does not fit in it.
+    /// </summary>
+    private static GifDecodeResult ComposeOnCanvas(byte[] indices, FrameRect frame, int canvasWidth, int canvasHeight,
+        byte[] colorTable, int transparentIndex)
+    {
+        bool coversCanvas = frame.Left == 0 && frame.Top == 0 && frame.Width == canvasWidth && frame.Height == canvasHeight;
+        bool hasAlpha = transparentIndex >= 0 || !coversCanvas;
+        int channels = hasAlpha ? 4 : 3;
+        int colorEntries = colorTable.Length / 3;
+        var pixels = new byte[canvasWidth * canvasHeight * channels];
+
+        for (int y = 0; y < frame.Height; y++)
+        {
+            int row = (frame.Top + y) * canvasWidth + frame.Left;
+            for (int x = 0; x < frame.Width; x++)
+            {
+                int idx = indices[y * frame.Width + x];
+                if (idx == transparentIndex)
+                    continue;
+                if (idx >= colorEntries)
+                    idx = 0;
+
+                int dst = (row + x) * channels;
+                pixels[dst] = colorTable[idx * 3];
+                pixels[dst + 1] = colorTable[idx * 3 + 1];
+                pixels[dst + 2] = colorTable[idx * 3 + 2];
+                if (hasAlpha)
+                    pixels[dst + 3] = 255;
+            }
+        }
+
+        return new GifDecodeResult(canvasWidth, canvasHeight, pixels, hasAlpha);
     }
 
     private static byte[]? LzwDecompress(byte[] compressed, int minCodeSize, int expectedPixels)
@@ -324,7 +318,7 @@ internal static class GifDecoder
                 lengths[nextCode] = ((prevCode < clearCode) ? 1 : lengths[prevCode]) + 1;
                 nextCode++;
 
-                if (nextCode > (1 << codeSize) && codeSize < 12)
+                if (nextCode >= (1 << codeSize) && codeSize < MaxCodeSize)
                     codeSize++;
             }
 
