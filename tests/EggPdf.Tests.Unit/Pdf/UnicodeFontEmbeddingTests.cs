@@ -5,11 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Pdf;
 
-/// <summary>
-/// Tests that text with codepoints outside WinAnsiEncoding (e.g. Vietnamese)
-/// forces TrueType subset embedding instead of falling back to a non-embedded
-/// Type1 font that can only encode Latin-1 (which degrades to '?').
-/// </summary>
 public class UnicodeFontEmbeddingTests
 {
     private static string Latin1(byte[] pdf)
@@ -37,62 +32,52 @@ public class UnicodeFontEmbeddingTests
     [Fact]
     public async Task Render_VietnameseText_ArialFamily_EmbedsTrueTypeFont()
     {
-        // 'Arial' resolves to a "standard PDF font" name; embedding must still
-        // kick in because the codepoints exceed WinAnsi.
         var pdf = await HtmlToPdf.RenderAsync(
             "<html><body><p style=\"font-family: 'Be Vietnam Pro', 'Segoe UI', Arial, sans-serif\">Giấy Phép Sử Dụng Âm Nhạc</p></body></html>");
 
-        Latin1(pdf).Should().Contain("/FontFile2");
+        Latin1(pdf).Should().Contain("/FontFile2",
+            "Arial resolves to a standard PDF font name, but the code points exceed WinAnsi, so a font is still embedded");
     }
 
     [Fact]
     public async Task Render_VietnameseText_SerifFamily_EmbedsTrueTypeFont()
     {
-        // Times-Roman path (serif) must also embed when codepoints exceed WinAnsi.
         var pdf = await HtmlToPdf.RenderAsync(
             "<html><body><p style=\"font-family: 'Cormorant Garamond', serif\">Phụ lục Giấy phép</p></body></html>");
 
-        Latin1(pdf).Should().Contain("/FontFile2");
+        Latin1(pdf).Should().Contain("/FontFile2", "the Times-Roman (serif) path also embeds when the code points exceed WinAnsi");
     }
 
     [Fact]
     public async Task Render_VietnameseText_CourierFamily_EmbedsTrueTypeFont()
     {
-        // 'Courier New' resolves to a "standard PDF font" name too; embedding must
-        // still kick in because the codepoints exceed WinAnsi. This is the family
-        // used by monospace metadata fields (e.g. a "version" or "IP address" value
-        // sitting next to Vietnamese labels) — a class of machines missing every one
-        // of Courier New/Liberation Mono/DejaVu Sans Mono/Noto Sans Mono must still
-        // fall back to *some* embedded font rather than degrading to '?'.
         var pdf = await HtmlToPdf.RenderAsync(
             "<html><body><p style=\"font-family: 'Courier New', monospace\">Phiên bản 6</p></body></html>");
 
         Latin1(pdf).Should().Contain("/FontFile2",
-            "Vietnamese text cannot be encoded in WinAnsi, so a TrueType subset must be embedded even for the Courier family");
+            "Vietnamese text cannot be encoded in WinAnsi, so a TrueType subset must be embedded even for the Courier " +
+            "family used by monospace fields next to Vietnamese labels, falling back to some embedded font on machines " +
+            "without Courier New, Liberation Mono, DejaVu Sans Mono or Noto Sans Mono, never to '?'");
     }
 
     [Fact]
     public async Task Render_AsciiOnlyText_KeepsBuiltinType1Font()
     {
-        // Pure WinAnsi-encodable text should keep the lean non-embedded built-in
-        // font path (no regression in output size).
         var pdf = await HtmlToPdf.RenderAsync(
             "<html><body><p style=\"font-family: Arial\">Plain ASCII text only</p></body></html>");
 
-        Latin1(pdf).Should().NotContain("/FontFile2");
+        Latin1(pdf).Should().NotContain("/FontFile2",
+            "WinAnsi-encodable text keeps the lean non-embedded built-in font, so the output doesn't grow");
     }
 
     [Fact]
     public async Task Render_VietnameseText_NoQuestionMarksInContentStream()
     {
-        // The WinAnsi fallback replaced every Vietnamese diacritic with '?'.
-        // With embedding, content streams use glyph IDs (hex strings), so the
-        // literal "(...?...)" degradation must be gone.
         var pdf = await HtmlToPdf.RenderAsync(
             "<html><body><p>Đơn vị được cấp phép</p></body></html>");
 
         var text = Latin1(pdf);
         text.Should().NotContain("n v? ???c",
-            "diacritics must not degrade to '?' in the content stream");
+            "with embedding the content stream uses glyph ids, so the diacritics no longer degrade to '?' as with the WinAnsi fallback");
     }
 }
