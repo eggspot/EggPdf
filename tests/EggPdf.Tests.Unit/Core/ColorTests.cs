@@ -139,8 +139,7 @@ public class ColorTests
     [Fact]
     public void NamedColors_AllPresent()
     {
-        // Verify all 148 CSS named colors are present
-        var names = new[] { "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure",
+        var allCssNamedColors = new[] { "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure",
             "beige", "bisque", "black", "blanchedalmond", "blue", "blueviolet", "brown",
             "burlywood", "cadetblue", "chartreuse", "chocolate", "coral", "cornflowerblue",
             "cornsilk", "crimson", "cyan", "darkblue", "darkcyan", "darkgoldenrod",
@@ -167,12 +166,12 @@ public class ColorTests
             "springgreen", "steelblue", "tan", "teal", "thistle", "tomato", "turquoise",
             "violet", "wheat", "white", "whitesmoke", "yellow", "yellowgreen" };
 
-        foreach (var name in names)
+        foreach (var name in allCssNamedColors)
         {
             Color.TryParseNamed(name).Should().NotBeNull($"named color '{name}' should be recognized");
         }
 
-        names.Length.Should().Be(148);
+        allCssNamedColors.Length.Should().Be(148, "CSS defines 148 named colors");
     }
 
     [Fact]
@@ -194,7 +193,7 @@ public class ColorTests
         color!.Value.R.Should().Be(100);
         color.Value.G.Should().Be(200);
         color.Value.B.Should().Be(50);
-        color.Value.A.Should().BeInRange(126, 128); // 0.5 * 255 ≈ 128
+        color.Value.A.Should().BeInRange(126, 128, "0.5 * 255 = 127.5");
     }
 
     [Fact]
@@ -210,7 +209,6 @@ public class ColorTests
     [Fact]
     public void TryParse_Hsl_Function()
     {
-        // hsl(0, 100%, 50%) = pure red
         var color = Color.TryParse("hsl(0, 100%, 50%)");
         color.Should().NotBeNull();
         color!.Value.R.Should().Be(255);
@@ -221,7 +219,6 @@ public class ColorTests
     [Fact]
     public void TryParse_Hsl_Green()
     {
-        // hsl(120, 100%, 50%) = pure green
         var color = Color.TryParse("hsl(120, 100%, 50%)");
         color.Should().NotBeNull();
         color!.Value.R.Should().Be(0);
@@ -232,7 +229,6 @@ public class ColorTests
     [Fact]
     public void TryParse_Hsl_Blue()
     {
-        // hsl(240, 100%, 50%) = pure blue
         var color = Color.TryParse("hsl(240, 100%, 50%)");
         color.Should().NotBeNull();
         color!.Value.R.Should().Be(0);
@@ -252,7 +248,6 @@ public class ColorTests
     [Fact]
     public void TryParse_ModernSyntax_Rgb()
     {
-        // Modern CSS: rgb(255 0 128 / 0.5)
         var color = Color.TryParse("rgb(255 0 128 / 0.5)");
         color.Should().NotBeNull();
         color!.Value.R.Should().Be(255);
@@ -296,7 +291,6 @@ public class ColorTests
     [Fact]
     public void TryParse_Hsl_White()
     {
-        // hsl(0, 0%, 100%) = white
         var color = Color.TryParse("hsl(0, 0%, 100%)");
         color.Should().NotBeNull();
         color!.Value.R.Should().Be(255);
@@ -307,7 +301,6 @@ public class ColorTests
     [Fact]
     public void TryParse_Hsl_Black()
     {
-        // hsl(0, 0%, 0%) = black
         var color = Color.TryParse("hsl(0, 0%, 0%)");
         color.Should().NotBeNull();
         color!.Value.R.Should().Be(0);
@@ -318,7 +311,6 @@ public class ColorTests
     [Fact]
     public void TryParse_Hsl_NegativeHue()
     {
-        // hsl(-120, 100%, 50%) should normalize to hsl(240, ...)  = blue
         var color = Color.TryParse("hsl(-120, 100%, 50%)");
         color.Should().NotBeNull();
         color!.Value.R.Should().Be(0);
@@ -339,24 +331,22 @@ public class ColorTests
     [Fact]
     public void TryParse_Rgb_Clamping()
     {
-        // Values beyond 255 should clamp
         var color = Color.TryParse("rgb(300, -10, 128)");
         color.Should().NotBeNull();
-        color!.Value.R.Should().Be(255); // clamped to max
-        color.Value.G.Should().Be(0);    // clamped to min
+        color!.Value.R.Should().Be(255, "300 clamps to the maximum");
+        color.Value.G.Should().Be(0, "-10 clamps to the minimum");
         color.Value.B.Should().Be(128);
     }
 
     [Fact]
     public void TryParse_ModernSyntax_Hsl()
     {
-        // Modern CSS: hsl(120 100% 50% / 0.8)
         var color = Color.TryParse("hsl(120 100% 50% / 0.8)");
         color.Should().NotBeNull();
         color!.Value.R.Should().Be(0);
         color.Value.G.Should().Be(255);
         color.Value.B.Should().Be(0);
-        color.Value.A.Should().BeInRange(203, 205); // 0.8 * 255 ≈ 204
+        color.Value.A.Should().BeInRange(203, 205, "0.8 * 255 = 204");
     }
 
     [Fact]
@@ -377,23 +367,19 @@ public class ColorTests
         color!.Value.R.Should().Be(255);
     }
 
-    // ── color-mix() ─────────────────────────────────────────────────────────
-
     [Fact]
     public void ColorMix_EqualParts_ProducesMiddleColor()
     {
-        // color-mix(in srgb, red, blue) → 50% red + 50% blue → (128, 0, 128) ± 1
         var c = Color.TryParse("color-mix(in srgb, red, blue)");
         c.Should().NotBeNull();
-        c!.Value.R.Should().BeInRange(127, 128);
+        c!.Value.R.Should().BeInRange(127, 128, "half red and half blue");
         c.Value.G.Should().Be(0);
-        c.Value.B.Should().BeInRange(127, 128);
+        c.Value.B.Should().BeInRange(127, 128, "half red and half blue");
     }
 
     [Fact]
     public void ColorMix_WithPercentages_RespectsWeights()
     {
-        // color-mix(in srgb, red 100%, blue 0%) → pure red
         var c = Color.TryParse("color-mix(in srgb, red 100%, blue 0%)");
         c.Should().NotBeNull();
         c!.Value.R.Should().Be(255);
@@ -403,17 +389,15 @@ public class ColorTests
     [Fact]
     public void ColorMix_FirstColorHeavy_CloserToFirst()
     {
-        // color-mix(in srgb, red 75%, blue 25%) → R=191, B=64
         var c = Color.TryParse("color-mix(in srgb, red 75%, blue 25%)");
         c.Should().NotBeNull();
-        c!.Value.R.Should().BeInRange(190, 192);
-        c.Value.B.Should().BeInRange(63, 65);
+        c!.Value.R.Should().BeInRange(190, 192, "75% of 255 = 191");
+        c.Value.B.Should().BeInRange(63, 65, "25% of 255 = 64");
     }
 
     [Fact]
     public void ColorMix_WhiteAndBlack_ProducesGray()
     {
-        // color-mix(in srgb, white, black) → (128, 128, 128)
         var c = Color.TryParse("color-mix(in srgb, white, black)");
         c.Should().NotBeNull();
         c!.Value.R.Should().BeInRange(127, 128);
@@ -427,12 +411,9 @@ public class ColorTests
         Color.TryParse("color-mix(in srgb, red)").Should().BeNull();
     }
 
-    // ── hwb() ───────────────────────────────────────────────────────────────
-
     [Fact]
     public void Hwb_PureRed_Parsed()
     {
-        // hwb(0 0% 0%) = red (hue=0, white=0, black=0)
         var c = Color.TryParse("hwb(0 0% 0%)");
         c.Should().NotBeNull();
         c!.Value.R.Should().Be(255);
@@ -443,7 +424,6 @@ public class ColorTests
     [Fact]
     public void Hwb_White_Parsed()
     {
-        // hwb(0 100% 0%) = white (all white added)
         var c = Color.TryParse("hwb(0 100% 0%)");
         c.Should().NotBeNull();
         c!.Value.R.Should().Be(255);
@@ -454,7 +434,6 @@ public class ColorTests
     [Fact]
     public void Hwb_Black_Parsed()
     {
-        // hwb(0 0% 100%) = black (all black added)
         var c = Color.TryParse("hwb(0 0% 100%)");
         c.Should().NotBeNull();
         c!.Value.R.Should().Be(0);
@@ -471,12 +450,9 @@ public class ColorTests
         c.Value.A.Should().BeInRange(126, 128);
     }
 
-    // ── oklch() ─────────────────────────────────────────────────────────────
-
     [Fact]
     public void Oklch_Black_Parsed()
     {
-        // oklch(0 0 0) = black
         var c = Color.TryParse("oklch(0 0 0)");
         c.Should().NotBeNull();
         c!.Value.R.Should().BeInRange(0, 5);
@@ -487,7 +463,6 @@ public class ColorTests
     [Fact]
     public void Oklch_White_Parsed()
     {
-        // oklch(1 0 0) = white
         var c = Color.TryParse("oklch(1 0 0)");
         c.Should().NotBeNull();
         c!.Value.R.Should().BeInRange(250, 255);
@@ -498,7 +473,6 @@ public class ColorTests
     [Fact]
     public void Oklch_Red_Parsed()
     {
-        // oklch(0.6279 0.2576 29.23) ≈ CSS red #ff0000
         var c = Color.TryParse("oklch(0.6279 0.2576 29.23)");
         c.Should().NotBeNull();
         c!.Value.R.Should().BeGreaterThan(200, "oklch red should have high R");
@@ -512,8 +486,6 @@ public class ColorTests
         c.Should().NotBeNull();
         c!.Value.A.Should().BeInRange(126, 128);
     }
-
-    // ── oklab() ─────────────────────────────────────────────────────────────
 
     [Fact]
     public void Oklab_Black_Parsed()
@@ -531,12 +503,9 @@ public class ColorTests
         c!.Value.R.Should().BeInRange(250, 255);
     }
 
-    // ── lab() ───────────────────────────────────────────────────────────────
-
     [Fact]
     public void Lab_Black_Parsed()
     {
-        // lab(0 0 0) = black
         var c = Color.TryParse("lab(0 0 0)");
         c.Should().NotBeNull();
         c!.Value.R.Should().BeInRange(0, 5);
@@ -545,13 +514,10 @@ public class ColorTests
     [Fact]
     public void Lab_White_Parsed()
     {
-        // lab(100 0 0) = white
         var c = Color.TryParse("lab(100 0 0)");
         c.Should().NotBeNull();
         c!.Value.R.Should().BeInRange(250, 255);
     }
-
-    // ── lch() ───────────────────────────────────────────────────────────────
 
     [Fact]
     public void Lch_Black_Parsed()
@@ -569,12 +535,9 @@ public class ColorTests
         c!.Value.R.Should().BeInRange(250, 255);
     }
 
-    // ── color() ─────────────────────────────────────────────────────────────
-
     [Fact]
     public void ColorFn_Srgb_Red_Parsed()
     {
-        // color(srgb 1 0 0) = red
         var c = Color.TryParse("color(srgb 1 0 0)");
         c.Should().NotBeNull();
         c!.Value.R.Should().Be(255);
@@ -594,21 +557,17 @@ public class ColorTests
     [Fact]
     public void ColorFn_DisplayP3_Clamps_ToSrgb()
     {
-        // display-p3 values get mapped to sRGB (may clip)
         var c = Color.TryParse("color(display-p3 1 0 0)");
         c.Should().NotBeNull();
-        c!.Value.R.Should().BeGreaterThan(200);
+        c!.Value.R.Should().BeGreaterThan(200, "display-p3 red maps to sRGB, clipping where it falls outside");
     }
-
-    // ── light-dark() ─────────────────────────────────────────────────────────
 
     [Fact]
     public void LightDark_ReturnsLightColor_InPdfContext()
     {
-        // PDF is always "light" context — light-dark(lightVal, darkVal) → lightVal
         var c = Color.TryParse("light-dark(red, blue)");
         c.Should().NotBeNull("light-dark() must parse");
-        c!.Value.R.Should().Be(255, "light mode → red");
+        c!.Value.R.Should().Be(255, "a PDF is always a light context, so light-dark() takes its first (light) value, red");
         c.Value.B.Should().Be(0, "light mode, not blue");
     }
 
