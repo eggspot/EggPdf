@@ -68,9 +68,11 @@ internal static partial class PngDecoder
             return null;
         if (interlaceMethod != 0 && interlaceMethod != Adam7InterlaceMethod)
             return null;
-        bool allowsSubByteDepth = colorType == 3 || colorType == 0;
+        bool allowsSubByteDepth = colorType == IndexedColorType || colorType == 0;
         bool isSubByteDepth = bitDepth == 1 || bitDepth == 2 || bitDepth == 4;
         if (bitDepth != 8 && bitDepth != 16 && !(allowsSubByteDepth && isSubByteDepth))
+            return null;
+        if (colorType == IndexedColorType && bitDepth == 16)
             return null;
 
         if (colorType != 0 && colorType != 2 && colorType != 3 && colorType != 4 && colorType != 6)
@@ -107,11 +109,11 @@ internal static partial class PngDecoder
         if (idatStream.Length == 0)
             return null;
 
-        if (colorType == 3 && palette == null)
+        if (colorType == IndexedColorType && palette == null)
             return null;
 
         int channels = GetChannelCount(colorType);
-        int bitsPerPixel = colorType == 3 ? bitDepth : channels * bitDepth;
+        int bitsPerPixel = colorType == IndexedColorType ? bitDepth : channels * bitDepth;
         int bytesPerPixel = Math.Max(1, bitsPerPixel / 8);
 
         long strideBytes = ((long)width * bitsPerPixel + 7) / 8;
@@ -571,6 +573,7 @@ internal static partial class PngDecoder
     private const int MaxOutputBytesPerPixel = 4;
     private const int ZlibHeaderBytes = 2;
     private const int ChunkCrcBytes = 4;
+    private const int IndexedColorType = 3;
 
     private static byte[]? DecompressZlib(byte[] zlibData, int maxOutputBytes)
     {
