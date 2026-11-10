@@ -11,10 +11,10 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Svg;
 
-/// <summary>What a filter's source graphic can contain: glyph outlines, gradients, holes, and feImage references.</summary>
 public class SvgFilterSourceTests
 {
-    private const float PxPerUnit = 2f; // 100x100 viewBox at scale 1
+    /// <summary>A 100x100 viewBox at scale 1 rasterizes filter results at 2 pixels per user unit.</summary>
+    private const float PxPerUnit = 2f;
 
     private static (string commands, List<string> images, PdfDocument doc) Render(string inner, string defs)
     {
@@ -60,12 +60,11 @@ public class SvgFilterSourceTests
             "<defs>" + Identity + "</defs>");
 
         var img = doc.GetImage(images[0])!;
-        // The O's counter is at its centre: transparent, while its stroke on the left is inked
         int cx = img.Width / 2, cy = img.Height / 2;
-        Alpha(img, cx, cy).Should().Be(0, "the hole of the O");
+        Alpha(img, cx, cy).Should().Be(0, "the O's counter, at its centre, stays a hole");
         bool ink = false;
         for (int x = 0; x < cx; x++) ink |= Alpha(img, x, cy) > 200;
-        ink.Should().BeTrue();
+        ink.Should().BeTrue("the O's stroke left of the counter is inked");
     }
 
     [Fact]
@@ -75,8 +74,9 @@ public class SvgFilterSourceTests
             "<defs><linearGradient id='g'><stop offset='0' stop-color='#ff0000'/><stop offset='1' stop-color='#0000ff'/></linearGradient>" + Identity + "</defs>");
 
         var img = doc.GetImage(images[0])!;
-        int x(float local) => (int)((local - 2) * PxPerUnit);   // region x origin = 10 - 8
-        int y = (int)((30 - 6) * PxPerUnit);                    // region y origin = 10 - 4
+        const float regionOriginX = 10 - 8, regionOriginY = 10 - 4;
+        int x(float local) => (int)((local - regionOriginX) * PxPerUnit);
+        int y = (int)((30 - regionOriginY) * PxPerUnit);
         var left = Rgb(img, x(14), y); var right = Rgb(img, x(86), y);
         left[0].Should().BeGreaterThan(200); left[2].Should().BeLessThan(60);
         right[2].Should().BeGreaterThan(200); right[0].Should().BeLessThan(60);
@@ -89,7 +89,8 @@ public class SvgFilterSourceTests
             "<defs><radialGradient id='g'><stop offset='0' stop-color='#00ff00'/><stop offset='1' stop-color='#00ff00' stop-opacity='0'/></radialGradient>" + Identity + "</defs>");
 
         var img = doc.GetImage(images[0])!;
-        int p(float local) => (int)((local - 2) * PxPerUnit); // bbox 10..90 plus 10% -> origin 2
+        const float regionOriginForBbox10To90 = 2;
+        int p(float local) => (int)((local - regionOriginForBbox10To90) * PxPerUnit);
         Alpha(img, p(50), p(50)).Should().BeGreaterThan(240, "opaque at the centre stop");
         Alpha(img, p(50), p(50)).Should().BeGreaterThan((byte)(Alpha(img, p(80), p(50)) + 60), "fading toward the rim");
     }
@@ -120,8 +121,9 @@ public class SvgFilterSourceTests
 
         images.Should().HaveCount(1);
         var img = doc.GetImage(images[0])!;
-        // Target is at (10..30) shifted by x=30 -> (40..60); region origin 40 - 2 = 38
-        Rgb(img, (int)((50 - 38) * PxPerUnit), (int)((20 - 8) * PxPerUnit))[2].Should().BeGreaterThan(200);
+        const float regionOriginX = 40 - 2, regionOriginY = 10 - 2;
+        Rgb(img, (int)((50 - regionOriginX) * PxPerUnit), (int)((20 - regionOriginY) * PxPerUnit))[2].Should().BeGreaterThan(200,
+            "the target rect at x 10..30, shifted 30 by the <use>, paints blue at x 40..60");
     }
 
     [Fact]
