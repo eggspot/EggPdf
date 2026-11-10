@@ -24,6 +24,9 @@ public static partial class SvgRenderer
         public string Fill, Stroke, Color;
         public float FillOpacity, StrokeWidth, StrokeOpacity, Opacity;
 
+        /// <summary><c>fill-rule: evenodd</c>; SVG's default is nonzero.</summary>
+        public bool EvenOdd;
+
         public static FilterPaint Default => new FilterPaint
         {
             Fill = "black", Stroke = "none", Color = "black",
@@ -149,6 +152,9 @@ public static partial class SvgRenderer
         var v = SvgFilter.Prop(el, "fill"); if (v.Length > 0) paint.Fill = v;
         v = SvgFilter.Prop(el, "stroke"); if (v.Length > 0) paint.Stroke = v;
         v = SvgFilter.Prop(el, "color"); if (v.Length > 0) paint.Color = v;
+        v = SvgFilter.Prop(el, "fill-rule").Trim();
+        if (v.Equals("evenodd", StringComparison.OrdinalIgnoreCase)) paint.EvenOdd = true;
+        else if (v.Equals("nonzero", StringComparison.OrdinalIgnoreCase)) paint.EvenOdd = false;
         paint.FillOpacity = ReadFraction(SvgFilter.Prop(el, "fill-opacity"), paint.FillOpacity);
         paint.StrokeOpacity = ReadFraction(SvgFilter.Prop(el, "stroke-opacity"), paint.StrokeOpacity);
         v = SvgFilter.Prop(el, "stroke-width");
@@ -202,15 +208,18 @@ public static partial class SvgRenderer
             if (fs.Length > 0 && float.TryParse(fs.Replace("px", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out float parsedSize) && parsedSize > 0f) size = parsedSize;
             float scale = size / font.UnitsPerEm;
 
+            var codePoints = CodePoints(text);
             float width = 0f;
-            for (int i = 0; i < text.Length; i++) width += font.GetAdvanceWidth(font.GetGlyphId(text[i])) * scale;
+            foreach (int codePoint in codePoints) width += font.GetAdvanceWidth(font.GetGlyphId(codePoint)) * scale;
             var anchor = SvgFilter.Prop(el, "text-anchor");
             float startX = anchor == "middle" ? penX - width / 2f : anchor == "end" ? penX - width : penX;
 
+            var glyphPaint = paint;
+            glyphPaint.EvenOdd = false;
             float cursor = startX;
-            foreach (char ch in text)
+            foreach (int codePoint in codePoints)
             {
-                ushort gid = font.GetGlyphId(ch);
+                ushort gid = font.GetGlyphId(codePoint);
                 var contours = GlyphOutlines.Get(font, gid);
                 if (contours.Count > 0)
                 {
@@ -222,7 +231,7 @@ public static partial class SvgRenderer
                         subpaths.Add((pts, true));
                     }
                     var (bx, by, bw, bh) = BoundsOf(subpaths);
-                    shapes.Add(new FilterShape { Subpaths = MapSubpaths(subpaths, rel), Paint = paint, Rel = rel, BoxX = bx, BoxY = by, BoxW = bw, BoxH = bh });
+                    shapes.Add(new FilterShape { Subpaths = MapSubpaths(subpaths, rel), Paint = glyphPaint, Rel = rel, BoxX = bx, BoxY = by, BoxW = bw, BoxH = bh });
                 }
                 cursor += font.GetAdvanceWidth(gid) * scale;
             }
@@ -253,7 +262,24 @@ public static partial class SvgRenderer
             var font = FilterFontResolver.Resolve(family, bold, italic);
             if (font != null) return VariableFontInstancer.InstanceForWeight(font, bold ? 700 : 400);
         }
-        return FilterFontResolver.Resolve("sans-serif", bold, italic);
+        var fallback = FilterFontResolver.Resolve("sans-serif", bold, italic);
+        return fallback == null ? null : VariableFontInstancer.InstanceForWeight(fallback, bold ? 700 : 400);
+    }
+
+    /// <summary>The text's Unicode code points, with surrogate pairs combined and a lone surrogate kept as itself.</summary>
+    private static List<int> CodePoints(string text)
+    {
+        var codePoints = new List<int>(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                codePoints.Add(char.ConvertToUtf32(text[i], text[i + 1]));
+                i++;
+            }
+            else codePoints.Add(text[i]);
+        }
+        return codePoints;
     }
 
     private static float FirstNumber(string list, float fallback)
@@ -314,8 +340,9 @@ public static partial class SvgRenderer
         byte r = solid?.R ?? 255, g = solid?.G ?? 255, b = solid?.B ?? 255;
         if (!stroke)
         {
-            var compound = CompoundPolygon(canvasPaths);
-            if (compound.Count >= 3) layer.FillPolygon(compound, r, g, b, 255);
+            var contours = new List<IReadOnlyList<(float x, float y)>>(canvasPaths.Count);
+            foreach (var (points, _) in canvasPaths) contours.Add(points);
+            layer.FillContours(contours, paint.EvenOdd, r, g, b, 255);
         }
         else
         {
@@ -327,25 +354,6 @@ public static partial class SvgRenderer
         float opacity = paintOpacity * paint.Opacity * (solid.HasValue ? solid.Value.A / 255f : 1f);
         if (gradient != null) ColorizeLayer(layer, gradient, shape, originX, originY, pxPerUnit);
         CompositeLayer(dst, layer, opacity);
-    }
-
-    /// <summary>
-    /// One polygon for all contours so holes work under the even-odd fill: each contour is closed back to its
-    /// start, and the start points are then walked back in reverse so the connecting edges cancel out.
-    /// </summary>
-    private static List<(float x, float y)> CompoundPolygon(List<(List<(float x, float y)> points, bool closed)> paths)
-    {
-        var result = new List<(float x, float y)>();
-        var starts = new List<(float x, float y)>();
-        foreach (var (points, _) in paths)
-        {
-            if (points.Count < 3) continue;
-            foreach (var p in points) result.Add(p);
-            result.Add(points[0]);
-            starts.Add(points[0]);
-        }
-        for (int i = starts.Count - 2; i >= 0; i--) result.Add(starts[i]);
-        return result;
     }
 
     /// <summary>

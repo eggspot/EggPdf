@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="EggPdf.Paint" />
+    <InternalsVisibleTo Include="EggPdf.Svg" />
     <InternalsVisibleTo Include="EggPdf.Tests.Unit" />
     <InternalsVisibleTo Include="EggPdf.Tests.Fluent" />
   </ItemGroup>
