@@ -6,8 +6,6 @@ namespace EggPdf.Tests.Unit.Pdf;
 
 public class PdfFilterEffectsTests
 {
-    // ── drop-shadow parsing ─────────────────────────────────────────────────
-
     [Fact]
     public void DropShadow_ParsesOffsets()
     {
@@ -30,8 +28,7 @@ public class PdfFilterEffectsTests
     {
         var p = PdfFilterEffects.Parse("drop-shadow(1px 2px)");
         p.Should().NotBeNull();
-        // Default color is black (0, 0, 0)
-        p!.DropShadowR.Should().BeApproximately(0f, 0.01f);
+        p!.DropShadowR.Should().BeApproximately(0f, 0.01f, "a drop-shadow without a colour is black");
         p.DropShadowG.Should().BeApproximately(0f, 0.01f);
         p.DropShadowB.Should().BeApproximately(0f, 0.01f);
     }
