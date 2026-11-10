@@ -24,11 +24,10 @@ public class PdfUaTaggingE2ETests
         text.Should().Contain("/Type /StructElem /S /H1");
         text.Should().Contain("/Type /StructElem /S /P");
 
-        // Every /MCID n opened in the (uncompressed) content stream must have a matching MCR
-        // entry in some StructElem's /K array -- this is the actual proof the tree links to
-        // content, not just that both pieces exist independently.
         var mcids = Regex.Matches(text, @"/MCID (\d+)");
-        mcids.Count.Should().BeGreaterThan(0);
+        mcids.Count.Should().BeGreaterThan(0,
+            "every /MCID opened in the content stream must have a matching MCR in some StructElem's /K array, " +
+            "which proves the structure tree links to the content");
         foreach (Match m in mcids)
             text.Should().Contain($"/MCID {m.Groups[1].Value} >>", "every opened MCID must be referenced by a StructElem's MCR");
     }
@@ -64,9 +63,8 @@ public class PdfUaTaggingE2ETests
     [Fact]
     public void Tagged_ImageWithAlt_WritesFigureWithAltText()
     {
-        // 1x1 red PNG
-        var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
-        var dataUri = "data:image/png;base64," + Convert.ToBase64String(png);
+        var onePixelRedPng = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+        var dataUri = "data:image/png;base64," + Convert.ToBase64String(onePixelRedPng);
         var html = $"<img src=\"{dataUri}\" alt=\"A red dot\">";
 
         var pdf = HtmlToPdf.Render(html, tagged: true);
@@ -131,8 +129,8 @@ public class PdfUaTaggingE2ETests
         var text = PdfAssert.ValidPdf(pdf);
         PdfAssert.PageCount(text).Should().BeGreaterThan(1);
 
-        // ParentTree must have entries for more than one page (StructParents index > 0 appears).
-        text.Should().MatchRegex(@"/StructParents [1-9]\d*");
+        text.Should().MatchRegex(@"/StructParents [1-9]\d*",
+            "the ParentTree has entries for more than one page, so a StructParents index above 0 appears");
     }
 
     [Fact]
@@ -149,10 +147,10 @@ public class PdfUaTaggingE2ETests
         text.Should().Contain("/Type /StructElem /S /H1");
         text.Should().Contain("/Type /StructElem /S /P");
 
-        // Every MCID opened across BOTH page groups must resolve to a real StructElem MCR --
-        // this is what the old scratch/precount pass used to corrupt before it was suppressed.
         var mcids = Regex.Matches(text, @"/MCID (\d+)");
-        mcids.Count.Should().BeGreaterThan(0);
+        mcids.Count.Should().BeGreaterThan(0,
+            "every MCID opened across both page groups must resolve to a real StructElem MCR, which an earlier " +
+            "page-count pre-pass used to corrupt");
         foreach (Match m in mcids)
             text.Should().Contain($"/MCID {m.Groups[1].Value} >>");
     }
@@ -197,24 +195,19 @@ public class PdfUaTaggingE2ETests
     [Fact]
     public void Tagged_MultiWordLinkElement_BothWordsShareOneLinkStructElemAndOneObjr()
     {
-        // Regression for the multi-word inline-element bug: before the fix, only the first word
-        // ("Click") mapped to the Link structure element; " here" fell through to the parent P
-        // element instead, and the OBJR-cross-referenced annotation's /Rect only covered "Click".
         var html = "<html><body><p><a href=\"https://example.com\">Click here</a></p></body></html>";
 
         var pdf = HtmlToPdf.Render(html, tagged: true);
         var text = PdfAssert.ValidPdf(pdf, "Click", "here");
 
-        // Exactly one Link StructElem -- both words attach to the SAME element, not one each.
-        Regex.Matches(text, @"/Type /StructElem /S /Link").Count.Should().Be(1);
-        // That one Link element's /K array must contain MCRs for both words' MCIDs plus the OBJR.
+        Regex.Matches(text, @"/Type /StructElem /S /Link").Count.Should().Be(1,
+            "both words attach to the same Link element; ' here' must not fall through to the parent P");
         var linkElemMatch = Regex.Match(text, @"/Type /StructElem /S /Link /P \d+ 0 R /K \[([^\]]*)\]");
         linkElemMatch.Success.Should().BeTrue();
         Regex.Matches(linkElemMatch.Groups[1].Value, @"/Type /MCR").Count.Should().Be(2,
             "both word fragments' marked content must be referenced by the one Link element");
-        linkElemMatch.Groups[1].Value.Should().Contain("/Type /OBJR");
+        linkElemMatch.Groups[1].Value.Should().Contain("/Type /OBJR", "the Link element also references its annotation");
 
-        // The annotation itself must cover the full "Click here" width, not just "Click".
         var rectMatch = Regex.Match(text, @"/Subtype /Link /Rect \[([\d.]+) [\d.]+ ([\d.]+) [\d.]+\]");
         rectMatch.Success.Should().BeTrue();
         float rectWidth = float.Parse(rectMatch.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture)
