@@ -40,8 +40,7 @@ public class FragmentationE2ETests
 
         text.Should().Contain("Page 1");
         text.Should().Contain("Page 2");
-        int pageCount = Regex.Matches(text, @"/Type /Page\b").Count;
-        pageCount.Should().BeGreaterOrEqualTo(2);
+        PdfAssert.PageCount(text).Should().Be(2, "page-break-before: always puts the second heading on a new page");
     }
 
     [Fact]

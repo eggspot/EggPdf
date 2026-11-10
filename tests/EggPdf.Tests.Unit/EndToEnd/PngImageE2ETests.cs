@@ -10,6 +10,11 @@ namespace EggPdf.Tests.Unit.EndToEnd;
 
 public class PngImageE2ETests
 {
+    private static readonly byte[] PngSignature = { 137, 80, 78, 71, 13, 10, 26, 10 };
+    private const byte PngFilterNone = 0;
+    private const byte PngColorTypeGrayscale = 0;
+    private const byte PngColorTypeRgba = 6;
+
     private const string RedPixelRgbPngBase64 =
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
 
@@ -132,11 +137,6 @@ public class PngImageE2ETests
         text.Should().Contain("$29.99");
         text.Should().Contain(" Do", "the image in the first cell is drawn");
     }
-
-    private static readonly byte[] PngSignature = { 137, 80, 78, 71, 13, 10, 26, 10 };
-    private const byte PngFilterNone = 0;
-    private const byte PngColorTypeGrayscale = 0;
-    private const byte PngColorTypeRgba = 6;
 
     /// <summary>Create a 1x1 8-bit RGBA PNG as base64.</summary>
     private static string CreateOnePixelRgbaPngBase64(byte r, byte g, byte b, byte a)
