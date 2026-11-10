@@ -5,11 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// Checkbox/radio/select are painted as real vector shapes (bordered square, circle,
-/// dropdown arrow) rather than injected Unicode glyph text -- see
-/// BoxPainter.PaintCheckboxOrRadio / PaintSelectDropdownArrow.
-/// </summary>
 public class FormControlsTests
 {
     [Fact]
@@ -31,8 +26,8 @@ public class FormControlsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
-        // purple = #800080 = (128,0,128) -> 128/255 = 0.50
-        text.Should().Contain("0.50 0.00 0.50 rg", "a checked checkbox must fill its box with the accent color");
+        text.Should().Contain("0.50 0.00 0.50 rg",
+            "a checked checkbox must fill its box with the accent color; purple is #800080, 128/255 = 0.50");
     }
 
     [Fact]
@@ -76,8 +71,8 @@ public class FormControlsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
-        // #00aa00 -> (0, 170, 0) -> 170/255 = 0.67
-        text.Should().Contain("0.00 0.67 0.00 rg", "a checked radio button must draw an accent-colored inner dot");
+        text.Should().Contain("0.00 0.67 0.00 rg",
+            "a checked radio button must draw an accent-colored inner dot; #00aa00 has green 170/255 = 0.67");
     }
 
     [Fact]
@@ -99,9 +94,8 @@ public class FormControlsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
-        // A circular border is drawn as a rounded-rect stroke with Bezier "c" curve operators,
-        // not a plain "re" rectangle.
-        text.Should().Contain(" c\n", "a radio button's border must be rendered as a circle (border-radius: 50%), not a square");
+        text.Should().Contain(" c\n",
+            "a radio button's border is a circle (border-radius: 50%) stroked with Bézier curves, not a square 're' rectangle");
     }
 
     [Fact]
