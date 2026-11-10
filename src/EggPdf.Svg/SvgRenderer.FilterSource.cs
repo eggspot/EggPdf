@@ -8,13 +8,17 @@ using EggPdf.Text.TrueType;
 
 namespace EggPdf.Svg;
 
-// Building the source graphic of a filtered element: shapes, text (via glyph outlines) and
-// gradient paints, rasterized into a premultiplied float canvas.
 public static partial class SvgRenderer
 {
     private static readonly FontResolver FilterFontResolver = new FontResolver();
 
-    /// <summary>Fill/stroke properties as they cascade down a filtered subtree.</summary>
+    private const float HairlineHalfWidth = 0.75f;
+
+    /// <summary>
+    /// Fill/stroke properties as they cascade down a filtered subtree, whose shapes, text (via glyph outlines) and
+    /// gradient paints are rasterized into the filter's premultiplied float source graphic. opacity is not inherited
+    /// but composes down the tree.
+    /// </summary>
     private struct FilterPaint
     {
         public string Fill, Stroke, Color;
@@ -38,19 +42,17 @@ public static partial class SvgRenderer
         public float BoxX, BoxY, BoxW, BoxH;
     }
 
-    // ── Source collection ─────────────────────────────────────────────────────
-
     /// <summary>
     /// Gather every drawable shape under <paramref name="el"/> with its geometry in the root
     /// element's local space. Returns false when the subtree holds something that can't be
-    /// rasterized (raster images, pattern paints, text without an installed font).
+    /// rasterized (raster images, pattern paints, text without an installed font). The filtered element's own
+    /// transform is already on the CTM; its descendants' are applied here.
     /// </summary>
     private static bool CollectFilterShapes(SvgElement el, Matrix2D rel, FilterPaint inherited, bool isRoot,
         SvgDefs defs, List<FilterShape> shapes)
     {
         if (string.Equals(SvgFilter.Prop(el, "display"), "none", StringComparison.OrdinalIgnoreCase)) return true;
 
-        // The filtered element's own transform is already on the CTM; descendants' are not
         if (!isRoot)
         {
             var transform = el.GetAttribute("transform");
@@ -151,7 +153,6 @@ public static partial class SvgRenderer
         paint.StrokeOpacity = ReadFraction(SvgFilter.Prop(el, "stroke-opacity"), paint.StrokeOpacity);
         v = SvgFilter.Prop(el, "stroke-width");
         if (v.Length > 0 && float.TryParse(v.Replace("px", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out float sw)) paint.StrokeWidth = sw;
-        // opacity is not inherited but composes down the tree
         paint.Opacity = parent.Opacity * ReadFraction(SvgFilter.Prop(el, "opacity"), 1f);
         return paint;
     }
@@ -173,12 +174,11 @@ public static partial class SvgRenderer
         return Color.TryParse(v) ?? Color.Black;
     }
 
-    // ── Text ──────────────────────────────────────────────────────────────────
-
     /// <summary>
     /// Turn a &lt;text&gt; element (and its &lt;tspan&gt; children) into glyph-outline shapes using the installed font
-    /// for its family. Advances come from the font's hmtx table (no kerning or shaping). Returns false when no
-    /// suitable font is installed, so the element paints unfiltered instead of vanishing.
+    /// for its family. Advances come from the font's hmtx table (no kerning or shaping); font y runs up, so it is
+    /// flipped. Returns false when no suitable font is installed, so the element paints unfiltered instead of
+    /// vanishing.
     /// </summary>
     private static bool AddTextShapes(SvgElement el, Matrix2D rel, FilterPaint paint, SvgDefs defs,
         List<FilterShape> shapes, ref float penX, ref float penY)
@@ -218,7 +218,7 @@ public static partial class SvgRenderer
                     foreach (var contour in contours)
                     {
                         var pts = new List<(float x, float y)>(contour.Count);
-                        foreach (var p in contour) pts.Add((cursor + p.x * scale, penY - p.y * scale)); // font y is up
+                        foreach (var p in contour) pts.Add((cursor + p.x * scale, penY - p.y * scale));
                         subpaths.Add((pts, true));
                     }
                     var (bx, by, bw, bh) = BoundsOf(subpaths);
@@ -276,8 +276,6 @@ public static partial class SvgRenderer
         }
         return sb.ToString();
     }
-
-    // ── Rasterizing the source graphic ───────────────────────────────────────
 
     private static void DrawFilterShape(FilterImage dst, FilterShape shape, float originX, float originY, float pxPerUnit, SvgDefs defs)
     {
@@ -350,7 +348,10 @@ public static partial class SvgRenderer
         return result;
     }
 
-    /// <summary>Replace a white coverage layer's colour with the gradient's colour at each covered pixel.</summary>
+    /// <summary>
+    /// Replace a white coverage layer's colour with the gradient's colour at each covered pixel, mapping each pixel
+    /// centre to the filtered element's local space and then to the shape's own user space.
+    /// </summary>
     private static void ColorizeLayer(RasterCanvas layer, GradientPaint gradient, FilterShape shape, float originX, float originY, float pxPerUnit)
     {
         var px = layer.Pixels;
@@ -361,7 +362,6 @@ public static partial class SvgRenderer
             {
                 int i = (y * layer.Width + x) * 4;
                 if (px[i + 3] == 0) continue;
-                // pixel centre -> filtered-element local -> the shape's own user space
                 float lx = originX + (x + 0.5f) / pxPerUnit, ly = originY + (y + 0.5f) / pxPerUnit;
                 var (ux, uy) = inverse.Apply(lx, ly);
                 var (cr, cg, cb, ca) = gradient.ColorAt(ux, uy);
@@ -380,11 +380,14 @@ public static partial class SvgRenderer
         return new Matrix2D(a, b, c, d, e, f);
     }
 
-    /// <summary>Stroke a polyline as one quad per segment plus a round join disc at each joint (butt caps).</summary>
+    /// <summary>
+    /// Stroke a polyline as one quad per segment plus a round join disc at each joint (butt caps); hairlines get no
+    /// joins. A path's closing 'Z' repeats the first point, which is dropped.
+    /// </summary>
     private static void StrokePolyline(RasterCanvas layer, List<(float x, float y)> pts, bool closed, float width, byte r, byte g, byte b)
     {
         int n = pts.Count;
-        if (closed && n > 1 && pts[0] == pts[n - 1]) n--; // a path's closing 'Z' repeats the first point
+        if (closed && n > 1 && pts[0] == pts[n - 1]) n--;
         int segments = closed ? n : n - 1;
         float half = width / 2f;
 
@@ -402,7 +405,7 @@ public static partial class SvgRenderer
             }, r, g, b, 255);
         }
 
-        if (half < 0.75f) return; // hairlines don't need round joins
+        if (half < HairlineHalfWidth) return;
         int firstJoint = closed ? 0 : 1, lastJoint = closed ? n - 1 : n - 2;
         for (int i = firstJoint; i <= lastJoint; i++)
             layer.FillPolygon(ExtractEllipsePoints(pts[i].x, pts[i].y, half, half, 16), r, g, b, 255);
