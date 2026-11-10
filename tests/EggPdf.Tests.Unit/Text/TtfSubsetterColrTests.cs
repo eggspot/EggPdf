@@ -8,16 +8,11 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Text;
 
-/// <summary>
-/// TtfSubsetter.Subset must pull COLR layer glyphs into the embedded subset (they are
-/// separate glyph IDs, not composite components of the base glyph, so nothing else
-/// would keep them) and resolve them to actual colors via CPAL, remapped to new glyph
-/// IDs. Uses a real system font for valid outlines; the COLR/CPAL data itself is
-/// injected directly so the test doesn't depend on any installed font actually having
-/// color-glyph data.
-/// </summary>
 public class TtfSubsetterColrTests
 {
+    private const int RedPaletteIndex = 0;
+    private const int UseTextColorPaletteIndex = -1;
+
     private static string? FindSystemFont(string name)
     {
         string[] searchPaths;
@@ -43,6 +38,10 @@ public class TtfSubsetterColrTests
         return null;
     }
 
+    /// <summary>
+    /// A real system font, for valid glyph outlines; the tests inject COLR/CPAL data themselves, so they
+    /// don't depend on any installed font having color glyphs.
+    /// </summary>
     private static FontData? LoadTestFont()
     {
         var path = FindSystemFont("arial") ?? FindSystemFont("DejaVuSans") ?? FindSystemFont("Liberation");
@@ -62,13 +61,13 @@ public class TtfSubsetterColrTests
         if (baseGid == 0 || layerGidRed == 0 || layerGidText == 0) return;
         if (baseGid == layerGidRed || baseGid == layerGidText || layerGidRed == layerGidText) return;
 
-        font.CpalPalette = new (byte r, byte g, byte b, byte a)[] { (255, 0, 0, 255) }; // palette[0] = red
+        font.CpalPalette = new (byte r, byte g, byte b, byte a)[] { (255, 0, 0, 255) };
         font.ColrLayers = new Dictionary<ushort, List<(ushort layerGlyphId, int paletteIndex)>>
         {
             [baseGid] = new List<(ushort, int)>
             {
-                (layerGidRed, 0),   // red palette layer
-                (layerGidText, -1), // "use text color" layer
+                (layerGidRed, RedPaletteIndex),
+                (layerGidText, UseTextColorPaletteIndex),
             }
         };
 
@@ -84,7 +83,8 @@ public class TtfSubsetterColrTests
         layers[0].r.Should().BeApproximately(1f, 0.01f);
         layers[0].g.Should().BeApproximately(0f, 0.01f);
         layers[0].b.Should().BeApproximately(0f, 0.01f);
-        result.OldToNewGlyphId.Should().ContainKey(layerGidRed, "the red layer's outline must be embedded");
+        result.OldToNewGlyphId.Should().ContainKey(layerGidRed,
+            "a layer is a separate glyph, not a composite component of the base glyph, so only the COLR lookup keeps its outline");
         layers[0].newGlyphId.Should().Be(result.OldToNewGlyphId[layerGidRed]);
 
         layers[1].useTextColor.Should().BeTrue();
@@ -101,9 +101,10 @@ public class TtfSubsetterColrTests
         ushort baseGid = font.GetGlyphId('A');
         if (baseGid == 0) return;
 
+        var unrelatedGid = (ushort)(baseGid + 1);
         font.ColrLayers = new Dictionary<ushort, List<(ushort layerGlyphId, int paletteIndex)>>
         {
-            [(ushort)(baseGid + 1)] = new List<(ushort, int)> { (baseGid, 0) } // unrelated glyph, not 'A'
+            [unrelatedGid] = new List<(ushort, int)> { (baseGid, RedPaletteIndex) }
         };
 
         var result = TtfSubsetter.Subset(font, new[] { (int)'A' });
