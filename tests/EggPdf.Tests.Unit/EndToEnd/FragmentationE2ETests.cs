@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Xunit;
@@ -11,7 +10,6 @@ public class FragmentationE2ETests
     [Fact]
     public async Task BreakInsideAvoid_KeepsElementTogether()
     {
-        // Create a document where a card would normally be split across pages
         var html = @"
             <div style='height: 1000px'>Spacer to push card near page bottom</div>
             <div style='break-inside: avoid; height: 200px; background: #eee; border: 1px solid black'>
@@ -20,12 +18,12 @@ public class FragmentationE2ETests
             </div>";
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
-        var text = Encoding.ASCII.GetString(pdf);
+        var text = PdfAssert.ValidPdf(pdf, "Card Title");
 
-        text.Should().Contain("Card Title");
-        // Should produce at least 2 pages
-        int pageCount = Regex.Matches(text, @"/Type /Page\b").Count;
-        pageCount.Should().BeGreaterOrEqualTo(2);
+        PdfAssert.PageCount(text).Should().Be(2);
+        PdfAssert.TextPosition(text, "Card Title").Y.Should().BeGreaterThan(700f,
+            "the 200px card would straddle the page break after the 1000px spacer, so break-inside: avoid moves it " +
+            "whole to the top of page 2 instead of starting it near the bottom of page 1");
     }
 
     [Fact]
@@ -60,12 +58,12 @@ public class FragmentationE2ETests
 
         text.Should().Contain("First Section");
         text.Should().Contain("Second Section");
+        PdfAssert.PageCount(text).Should().Be(2, "page-break-after: always puts the second section on a new page");
     }
 
     [Fact]
     public async Task BreakInsideAvoid_LargeElement_StillRendered()
     {
-        // Element too large to fit on one page - should render anyway
         var html = @"
             <div style='break-inside: avoid; height: 2000px; background: #eee'>
                 <p>Very tall element that cannot fit on one page</p>
@@ -74,7 +72,7 @@ public class FragmentationE2ETests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
-        text.Should().Contain("Very tall element");
+        text.Should().Contain("Very tall element", "an element taller than a page can't avoid breaking and still renders");
     }
 
     [Fact]
@@ -83,6 +81,6 @@ public class FragmentationE2ETests
         var html = "<p>Normal content without break properties</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        pdf.Should().NotBeEmpty();
+        PdfAssert.PageCount(PdfAssert.ValidPdf(pdf, "Normal content")).Should().Be(1);
     }
 }
