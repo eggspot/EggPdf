@@ -29,10 +29,9 @@ public class PdfRenderOptionsTests
         float x = float.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
         float y = float.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
 
-        // 100px top margin -> text top should sit noticeably below the page's raw top edge (841.89pt)
-        y.Should().BeLessThan(841.89f - 100f * 0.75f + 5f);
-        // 40px left margin = 30pt
-        x.Should().BeApproximately(30f, 2f);
+        const float a4HeightPt = 841.89f, topMarginPt = 100f * 0.75f, leftMarginPt = 40f * 0.75f;
+        y.Should().BeLessThan(a4HeightPt - topMarginPt + 5f, "the 100px top margin pushes the text below the page's top edge");
+        x.Should().BeApproximately(leftMarginPt, 2f, "the 40px left margin is 30pt");
     }
 
     [Fact]
@@ -40,7 +39,7 @@ public class PdfRenderOptionsTests
     {
         byte[] pdf = await HtmlToPdf.RenderAsync("<h1>Hi</h1>", new PdfRenderOptions { Title = "My Report Title" });
         var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("My Report Title");
+        text.Should().Contain("/Title (My Report Title)");
     }
 
     [Fact]
@@ -48,17 +47,16 @@ public class PdfRenderOptionsTests
     {
         byte[] pdf = await HtmlToPdf.RenderAsync("<h1>Hi</h1>", new PdfRenderOptions { Author = "Jane Smith" });
         var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Jane Smith");
+        text.Should().Contain("/Author (Jane Smith)");
     }
 
     [Fact]
     public async Task Render_NoOptions_TitleTagInHtml_AutoSetsMetadataTitle()
     {
-        // Even without PdfRenderOptions, a <title> tag in the HTML itself should become the
-        // PDF's /Title metadata -- matching how a browser names a page it prints to PDF.
         byte[] pdf = await HtmlToPdf.RenderAsync("<html><head><title>Auto Title Here</title></head><body><h1>Hi</h1></body></html>");
         var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Auto Title Here");
+        text.Should().Contain("/Title (Auto Title Here)",
+            "the HTML's <title> becomes the PDF's /Title, the way a browser names a page it prints to PDF");
     }
 
     [Fact]
@@ -66,8 +64,7 @@ public class PdfRenderOptionsTests
     {
         byte[] pdf = await HtmlToPdf.RenderAsync("<h1>Hi</h1>", new PdfRenderOptions { UserStyleSheet = "h1{color:red}" });
         var text = Encoding.ASCII.GetString(pdf);
-        // Red text -> 1.00 0.00 0.00 rg fill color op
-        text.Should().Contain("1.00 0.00 0.00 rg");
+        text.Should().Contain("1.00 0.00 0.00 rg", "the injected stylesheet paints the heading red");
     }
 
     [Fact]
