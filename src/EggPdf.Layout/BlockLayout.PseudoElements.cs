@@ -63,7 +63,8 @@ public static partial class BlockLayout
 
     private static void LayoutInlinePseudoElement(string content, ComputedStyle pseudoStyle, bool hasLeadingSpace,
         LayoutBox box, ref float inlineX, ref float childY, ref float inlineLineHeight, float containerWidth,
-        ComputedStyle parentStyle, float parentFontSize, FloatContext? floats, float floatOriginY, float lineStartX)
+        ComputedStyle parentStyle, float parentFontSize, FloatContext? floats, float floatOriginY, float lineStartX,
+        FirstLineFormatting? firstLine)
     {
         var runs = new List<InlineRun>(1)
         {
@@ -77,7 +78,7 @@ public static partial class BlockLayout
             }
         };
         LayoutInlineRuns(runs, box, null, ref inlineX, ref childY, ref inlineLineHeight,
-            containerWidth, parentStyle, parentFontSize, floats, floatOriginY, lineStartX);
+            containerWidth, parentStyle, parentFontSize, floats, floatOriginY, lineStartX, firstLine);
     }
 
     private static float LayoutPseudoElementLine(string content, ComputedStyle pseudoStyle, LayoutBox box,

@@ -276,6 +276,9 @@ public static partial class BlockLayout
         float firstLineIndentY = float.NaN;
         float textIndent = FirstLineTextIndent(style, childContainingWidth, fontSize);
         bool firstLineIsBlockBefore = hasBefore && !beforeIsInline;
+        var firstLineFormatting = firstLineStyle != null && !firstLineIsBlockBefore
+            ? new FirstLineFormatting(style, firstLineStyle, fontSize, childY)
+            : null;
         if (textIndent != 0f && !PreservesWhitespace(style) && !firstLineIsBlockBefore)
         {
             childrenFlowInline ??= HasInlineElementSiblings(element, style, resolver);
@@ -305,7 +308,7 @@ public static partial class BlockLayout
             {
                 LayoutInlinePseudoElement(beforeContent!, beforeStyle!, false, box, ref inlineX, ref childY, ref inlineLineHeight,
                     inlineWrapWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
-                    LineStartFor(childY, firstLineIndentY, firstLineIndent));
+                    LineStartFor(childY, firstLineIndentY, firstLineIndent), firstLineFormatting);
                 prevInlineElementEndedWithSpace = EndsWithCollapsibleWhitespace(beforeContent!);
             }
             else
@@ -763,7 +766,7 @@ public static partial class BlockLayout
                         SplitFirstLetterIfPending(runs);
                         LayoutInlineRuns(runs, box, childElem, ref inlineX, ref childY, ref inlineLineHeight,
                             inlineWrapWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
-                            LineStartFor(childY, firstLineIndentY, firstLineIndent));
+                            LineStartFor(childY, firstLineIndentY, firstLineIndent), firstLineFormatting);
                         prevInlineElementEndedWithSpace = EndsWithCollapsibleWhitespace(runs[runs.Count - 1].Text);
                     }
                     else
@@ -804,7 +807,7 @@ public static partial class BlockLayout
                     SplitFirstLetterIfPending(preservedRuns);
                     LayoutInlineRuns(preservedRuns, box, null, ref inlineX, ref childY, ref inlineLineHeight,
                         inlineWrapWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
-                        LineStartFor(childY, firstLineIndentY, firstLineIndent));
+                        LineStartFor(childY, firstLineIndentY, firstLineIndent), firstLineFormatting);
                     prevTextEndedWithSpace = false;
                     prevInlineElementEndedWithSpace = false;
                     continue;
@@ -827,7 +830,7 @@ public static partial class BlockLayout
                     SplitFirstLetterIfPending(textRuns);
                     LayoutInlineRuns(textRuns, box, null, ref inlineX, ref childY, ref inlineLineHeight,
                         inlineWrapWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
-                        LineStartFor(childY, firstLineIndentY, firstLineIndent));
+                        LineStartFor(childY, firstLineIndentY, firstLineIndent), firstLineFormatting);
 
                     char ilLastChar = textNode.Data.Length > 0 ? textNode.Data[textNode.Data.Length - 1] : '\0';
                     prevTextEndedWithSpace = ilLastChar != NonBreakingSpace && char.IsWhiteSpace(ilLastChar);
@@ -1136,7 +1139,7 @@ public static partial class BlockLayout
         {
             LayoutInlinePseudoElement(afterContent, afterPseudoStyle!, prevTextEndedWithSpace || prevInlineElementEndedWithSpace, box, ref inlineX, ref childY,
                 ref inlineLineHeight, inlineWrapWidth, style, fontSize, floatCtx.HasFloats ? floatCtx : null, floatOriginY,
-                LineStartFor(childY, firstLineIndentY, firstLineIndent));
+                LineStartFor(childY, firstLineIndentY, firstLineIndent), firstLineFormatting);
         }
 
         if (LineHasContent())

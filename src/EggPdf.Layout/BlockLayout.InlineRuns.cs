@@ -143,7 +143,7 @@ public static partial class BlockLayout
     private static void LayoutInlineRuns(List<InlineRun> runs, LayoutBox box, HtmlElement? wrapperElement,
         ref float inlineX, ref float childY, ref float inlineLineHeight, float containerWidth,
         ComputedStyle parentStyle, float parentFontSize, FloatContext? floats = null, float floatOriginY = 0f,
-        float lineStartX = 0f)
+        float lineStartX = 0f, FirstLineFormatting? firstLine = null)
     {
         bool elementAssigned = false;
         bool prevRunTrailingSpace = false;
@@ -214,12 +214,10 @@ public static partial class BlockLayout
 
             text = ApplyTextTransformForMeasure(text, run.Style);
 
-            var fontFamily = run.Style.FontFamily;
-            var fontWeight = run.Style.FontWeight;
-            var fontStyle = run.Style.Get("font-style");
-            float runLetterSpacing = ResolveLength(run.Style.Get("letter-spacing"), 0, run.FontSize);
-            float lhRun = TextMeasurer.GetLineHeight(run.FontSize, run.Style.Get("line-height"),
-                fontFamily, fontWeight, fontStyle, text);
+            ComputedStyle activeStyle = run.Style;
+            float activeFontSize = run.FontSize;
+            var (fontFamily, fontWeight, fontStyle, runLetterSpacing, lhRun, baselineShift) =
+                RunFontMetrics(run.Style, run.FontSize, text, parentFontSize, parentBaseline);
 
             var runOverflowWrap = run.Style.Get("overflow-wrap") ?? run.Style.Get("word-wrap");
             var runWordBreak = run.Style.Get("word-break");
@@ -229,10 +227,6 @@ public static partial class BlockLayout
                                  runWordBreak == "break-all" || runWordBreak == "break-word");
             bool runHyphenates = !runNoWrap && !run.KeepsSpaces && run.Style.Get("hyphens") == "auto";
             float visibleHyphenWidth = 0f;
-
-            float baselineShift = run.FontSize == parentFontSize
-                ? 0f
-                : parentBaseline - TextMeasurer.GetBaselineOffset(run.FontSize, lhRun, fontFamily, fontWeight, fontStyle, text);
 
             var pieces = run.KeepsSpaces
                 ? new List<(string Text, bool JoinsPrevious, bool EndsAtSoftHyphen)> { (text, true, false) }
@@ -261,19 +255,32 @@ public static partial class BlockLayout
                     wPos = wEnd;
                 }
 
+                string runWord = word;
+                if (firstLine != null)
+                {
+                    if (firstLine.TryChangeStyle(childY, run.Style, run.FontSize, activeStyle, out var lineStyle, out float lineFontSize))
+                    {
+                        activeStyle = lineStyle;
+                        activeFontSize = lineFontSize;
+                        (fontFamily, fontWeight, fontStyle, runLetterSpacing, lhRun, baselineShift) =
+                            RunFontMetrics(activeStyle, activeFontSize, text, parentFontSize, parentBaseline);
+                    }
+                    if (!ReferenceEquals(activeStyle, run.Style)) word = ApplyTextTransformForMeasure(runWord, activeStyle);
+                }
+
                 inlineX = ApplyLeftInsetIfNeeded(Math.Max(inlineLineHeight, lhRun), inlineX, childY);
 
                 bool notAtLineStart = floatsActive ? !atLineStart : inlineX > lineStart;
                 bool needSpace = notAtLineStart && !joinNoSpace && (!firstWord || run.HasLeadingSpace || prevRunTrailingSpace);
                 var wordText = needSpace ? " " + word : word;
-                float wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                float wordWidth = TextMeasurer.MeasureWidth(wordText, activeFontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                 float rightLimit = RightLimit(Math.Max(inlineLineHeight, lhRun), childY);
                 bool lastWord = pieces != null ? pieceIndex >= pieces.Count : OnlySpacesFrom(text, wPos);
                 float leadInset = firstWord ? run.StartInset : 0f;
                 float trailInset = lastWord ? run.EndInset : 0f;
                 float leadMargin = firstWord ? run.StartMargin : 0f;
                 if ((endsAtSoftHyphen || runHyphenates) && visibleHyphenWidth == 0f)
-                    visibleHyphenWidth = TextMeasurer.MeasureWidth(LineBreakOpportunities.VisibleHyphen, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                    visibleHyphenWidth = TextMeasurer.MeasureWidth(LineBreakOpportunities.VisibleHyphen, activeFontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                 float hyphenReserve = endsAtSoftHyphen ? visibleHyphenWidth : 0f;
                 bool overflows = inlineX + leadMargin + wordWidth + leadInset + trailInset + hyphenReserve > rightLimit;
                 bool mayHyphenate = runHyphenates && !joinNoSpace && !endsAtSoftHyphen;
@@ -281,7 +288,7 @@ public static partial class BlockLayout
                 if (mayHyphenate && overflows && HyphenationSegments(word) is { } segmentsHere)
                 {
                     string firstPiece = (needSpace ? " " : "") + segmentsHere[0].Text;
-                    float firstPieceWidth = TextMeasurer.MeasureWidth(firstPiece, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                    float firstPieceWidth = TextMeasurer.MeasureWidth(firstPiece, activeFontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                     if (!notAtLineStart || inlineX + leadMargin + leadInset + firstPieceWidth + visibleHyphenWidth <= rightLimit)
                     {
                         ReplaceWordWithSegments(segmentsHere, text, wPos, ref pieces, ref pieceIndex);
@@ -292,15 +299,24 @@ public static partial class BlockLayout
                 if (!runNoWrap && notAtLineStart && overflows)
                 {
                     if (joinNoSpace && previousEndsAtSoftHyphen && previousPieceBox != null)
-                        AppendVisibleHyphen(previousPieceBox, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                        AppendVisibleHyphen(previousPieceBox, activeFontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                     childY += inlineLineHeight;
                     inlineX = 0;
                     lineStart = 0;
                     inlineLineHeight = 0;
                     atLineStart = true;
+                    if (firstLine != null &&
+                        firstLine.TryChangeStyle(childY, run.Style, run.FontSize, activeStyle, out var nextLineStyle, out float nextLineFontSize))
+                    {
+                        activeStyle = nextLineStyle;
+                        activeFontSize = nextLineFontSize;
+                        (fontFamily, fontWeight, fontStyle, runLetterSpacing, lhRun, baselineShift) =
+                            RunFontMetrics(activeStyle, activeFontSize, text, parentFontSize, parentBaseline);
+                        word = ReferenceEquals(activeStyle, run.Style) ? runWord : ApplyTextTransformForMeasure(runWord, activeStyle);
+                    }
                     inlineX = ApplyLeftInsetIfNeeded(lhRun, inlineX, childY);
                     wordText = word;
-                    wordWidth = TextMeasurer.MeasureWidth(wordText, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                    wordWidth = TextMeasurer.MeasureWidth(wordText, activeFontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                     rightLimit = RightLimit(lhRun, childY);
                     if (mayHyphenate && inlineX + wordWidth + leadInset + trailInset > rightLimit &&
                         HyphenationSegments(word) is { } segmentsAfterWrap)
@@ -318,11 +334,11 @@ public static partial class BlockLayout
                         float chunkLimit = RightLimit(lhRun, childY);
                         int len = 1;
                         float chunkWidth = TextMeasurer.MeasureWidth(wordText.Substring(start, 1),
-                            run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                            activeFontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                         while (start + len < wordText.Length)
                         {
                             float nextWidth = TextMeasurer.MeasureWidth(wordText.Substring(start, len + 1),
-                                run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                                activeFontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                             if (inlineX + nextWidth > chunkLimit) break;
                             len++;
                             chunkWidth = nextWidth;
@@ -331,7 +347,7 @@ public static partial class BlockLayout
                         var chunkBox = new LayoutBox
                         {
                             Element = (!elementAssigned && wrapperElement != null) ? wrapperElement : null,
-                            Style = run.Style,
+                            Style = activeStyle,
                             InlineLineTop = childY,
                             X = box.X + box.PaddingLeft + inlineX,
                             Y = box.Y + box.PaddingTop + childY + baselineShift,
@@ -380,9 +396,9 @@ public static partial class BlockLayout
                 }
 
                 inlineX += leadMargin;
-                if (firstWord && wordText.Length > word.Length && (leadInset > 0f || PaintsInlineDecoration(run.Style)))
+                if (firstWord && wordText.Length > word.Length && (leadInset > 0f || PaintsInlineDecoration(activeStyle)))
                 {
-                    float wordOnlyWidth = TextMeasurer.MeasureWidth(word, run.FontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
+                    float wordOnlyWidth = TextMeasurer.MeasureWidth(word, activeFontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
                     inlineX += wordWidth - wordOnlyWidth;
                     wordText = word;
                     wordWidth = wordOnlyWidth;
@@ -391,7 +407,7 @@ public static partial class BlockLayout
                 var textBox = new LayoutBox
                 {
                     Element = (!elementAssigned && wrapperElement != null) ? wrapperElement : null,
-                    Style = run.Style,
+                    Style = activeStyle,
                     InlineLineTop = childY,
                     X = box.X + box.PaddingLeft + inlineX,
                     Y = box.Y + box.PaddingTop + childY + baselineShift,
@@ -434,6 +450,21 @@ public static partial class BlockLayout
             char lastRunChar = run.Text.Length > 0 ? run.Text[run.Text.Length - 1] : '\0';
             prevRunTrailingSpace = !run.KeepsSpaces && lastRunChar != NonBreakingSpace && char.IsWhiteSpace(lastRunChar);
         }
+    }
+
+    /// <summary>The font metrics a run's words are measured and placed with, for one style and font size.</summary>
+    private static (string? Family, string? Weight, string? Style, float LetterSpacing, float LineHeight, float BaselineShift)
+        RunFontMetrics(ComputedStyle style, float fontSize, string text, float parentFontSize, float parentBaseline)
+    {
+        var family = style.FontFamily;
+        var weight = style.FontWeight;
+        var fontStyle = style.Get("font-style");
+        float letterSpacing = ResolveLength(style.Get("letter-spacing"), 0, fontSize);
+        float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"), family, weight, fontStyle, text);
+        float baselineShift = fontSize == parentFontSize
+            ? 0f
+            : parentBaseline - TextMeasurer.GetBaselineOffset(fontSize, lineHeight, family, weight, fontStyle, text);
+        return (family, weight, fontStyle, letterSpacing, lineHeight, baselineShift);
     }
 
     private const int PreservedTabSize = 8;

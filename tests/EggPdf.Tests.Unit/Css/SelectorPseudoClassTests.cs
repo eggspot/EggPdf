@@ -87,9 +87,19 @@ public class SelectorPseudoClassTests
     }
 
     [Fact]
-    public void SiblingSelectors_OnOneHundredThousandSiblings_RunInLinearTime()
+    public void SiblingSelectors_OnTensOfThousandsOfSiblings_RunInLinearTime()
     {
-        const int count = 100_000;
+        MatchSiblings(1_000);
+        long small = MatchSiblings(10_000);
+        long large = MatchSiblings(50_000);
+
+        ((double)large / Math.Max(1, small)).Should().BeLessThan(12,
+            "five times the siblings takes about five times as long when sibling positions come from a cached index; " +
+            "a scan per element would take about twenty-five times as long");
+    }
+
+    private static long MatchSiblings(int count)
+    {
         var parent = new HtmlElement("tbody");
         for (int i = 0; i < count; i++) parent.AppendChild(new HtmlElement("tr"));
         var rows = parent.ChildNodes.OfType<HtmlElement>().ToArray();
@@ -107,6 +117,6 @@ public class SelectorPseudoClassTests
         even.Should().Be(count / 2);
         adjacent.Should().Be(count - 1);
         lastOfType.Should().Be(1);
-        stopwatch.ElapsedMilliseconds.Should().BeLessThan(5000, "sibling positions come from a cached index, not a scan per element");
+        return stopwatch.ElapsedTicks;
     }
 }
