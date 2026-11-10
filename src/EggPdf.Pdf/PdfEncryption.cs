@@ -29,6 +29,16 @@ public class PdfEncryption
     /// <summary>Key length in bits (40 or 128).</summary>
     public int KeyLength { get; set; } = 128;
 
+    private const int PrintBit = 1 << 2;
+    private const int ModifyBit = 1 << 3;
+    private const int CopyBit = 1 << 4;
+    private const int AnnotateBit = 1 << 5;
+    private const int FillFormsBit = 1 << 8;
+    private const int AccessibilityExtractBit = 1 << 9;
+    private const int AssembleBit = 1 << 10;
+    private const int HighQualityPrintBit = 1 << 11;
+    private const int ReservedSetBits = unchecked((int)0xFFFFF000) | (1 << 6) | (1 << 7);
+
     private static readonly byte[] PasswordPadding = new byte[]
     {
         0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41,
@@ -67,12 +77,10 @@ public class PdfEncryption
 
     private int ComputePermissions()
     {
-        int p = unchecked((int)0xFFFFF000);
-        p |= 0x00000C00;
-        if (AllowPrinting) p |= 0x00000004;
-        if (AllowModifying) p |= 0x00000008;
-        if (AllowCopying) p |= 0x00000010;
-        p |= 0x00000020;
+        int p = ReservedSetBits | AnnotateBit | FillFormsBit | AccessibilityExtractBit | AssembleBit;
+        if (AllowPrinting) p |= PrintBit | HighQualityPrintBit;
+        if (AllowModifying) p |= ModifyBit;
+        if (AllowCopying) p |= CopyBit;
         return p;
     }
 
@@ -92,7 +100,7 @@ public class PdfEncryption
         byte[] hash = md5.ComputeHash(ownerPwd);
 
         for (int i = 0; i < 50; i++)
-            hash = md5.ComputeHash(hash);
+            hash = md5.ComputeHash(hash, 0, keyLen);
 
         byte[] key = new byte[keyLen];
         Array.Copy(hash, 0, key, 0, keyLen);
