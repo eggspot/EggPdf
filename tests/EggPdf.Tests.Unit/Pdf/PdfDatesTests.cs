@@ -6,10 +6,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Pdf;
 
-/// <summary>
-/// Timestamps written into a PDF are parsed by readers and signature validators; the host's
-/// calendar, digits and separators must never leak into them.
-/// </summary>
 public class PdfDatesTests
 {
     private static readonly DateTime Moment = new DateTime(2026, 3, 9, 7, 5, 4, DateTimeKind.Utc);
@@ -17,7 +13,8 @@ public class PdfDatesTests
     [Fact]
     public void PdfDate_FormatsTheDocumentInfoDate()
     {
-        PdfDates.PdfDate(Moment).Should().Be("D:20260309070504Z");
+        PdfDates.PdfDate(Moment).Should().Be("D:20260309070504Z",
+            "readers and signature validators parse PDF timestamps, so the host's calendar, digits and separators must never leak in");
     }
 
     [Fact]
