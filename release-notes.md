@@ -1,5 +1,5 @@
 ## What's Changed
-* fix: dashed, dotted, double, 3D and multi-colour borders follow rounded corners by @cloud-hai-vo in https://github.com/eggspot/EggPdf/pull/298
+* fix: GIF, BMP, PNG and lossless WebP decoding bugs, and CSS colour functions follow CSS Color 4/5 by @cloud-hai-vo in https://github.com/eggspot/EggPdf/pull/302
 
 
-**Full Changelog**: https://github.com/eggspot/EggPdf/compare/v2.0.7...v2.0.8
+**Full Changelog**: https://github.com/eggspot/EggPdf/compare/v2.0.10...v2.0.11

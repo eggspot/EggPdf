@@ -21,20 +21,17 @@ public static partial class SelectorMatcher
 
         selector = selector.Trim();
 
-        // Fast path: no comma means single selector — skip List<string> allocation entirely.
         if (selector.IndexOf(',') < 0)
         {
             if (HasPseudoElement(selector)) return false;
             return MatchesComplex(selector, element);
         }
 
-        // Split selector list (comma-separated) - any match succeeds
         var selectorList = SplitSelectorList(selector);
         for (int s = 0; s < selectorList.Count; s++)
         {
             var sel = selectorList[s].Trim();
 
-            // Pseudo-element selectors (::before, ::after) don't match elements directly
             if (HasPseudoElement(sel))
                 continue;
 
@@ -69,17 +66,12 @@ public static partial class SelectorMatcher
     {
         if (string.IsNullOrWhiteSpace(selector)) return false;
 
-        // Tokenize into compound selectors + combinators
-        // We process right-to-left: last compound must match the element,
-        // then work backwards through combinators
         var parts = TokenizeCombinators(selector);
         if (parts.Count == 0) return false;
 
-        // The rightmost compound must match the element
         if (!MatchesSimple(parts[parts.Count - 1].Compound, element))
             return false;
 
-        // Walk backwards through combinators
         var current = element;
         for (int i = parts.Count - 2; i >= 0; i--)
         {
@@ -156,7 +148,6 @@ public static partial class SelectorMatcher
         int len = selector.Length;
         int i = 0;
 
-        // Skip leading whitespace
         while (i < len && selector[i] == ' ') i++;
 
         int compoundStart = i;
@@ -181,10 +172,8 @@ public static partial class SelectorMatcher
                 continue;
             }
 
-            // Check for combinators
             if (selector[i] == '>' || selector[i] == '+' || selector[i] == '~')
             {
-                // Emit current compound
                 string compound = selector.Substring(compoundStart, i - compoundStart).Trim();
                 if (!string.IsNullOrEmpty(compound))
                     parts.Add(new SelectorPart(compound, pendingCombinator));
@@ -192,7 +181,6 @@ public static partial class SelectorMatcher
                 pendingCombinator = selector[i];
                 i++;
 
-                // Skip whitespace after combinator
                 while (i < len && selector[i] == ' ') i++;
                 compoundStart = i;
                 continue;
@@ -200,17 +188,12 @@ public static partial class SelectorMatcher
 
             if (selector[i] == ' ')
             {
-                // Could be descendant combinator or just whitespace around >, +, ~
                 int spaceStart = i;
                 while (i < len && selector[i] == ' ') i++;
 
                 if (i < len && (selector[i] == '>' || selector[i] == '+' || selector[i] == '~'))
-                {
-                    // The space was before an explicit combinator - just continue
                     continue;
-                }
 
-                // This is a descendant combinator
                 string compound = selector.Substring(compoundStart, spaceStart - compoundStart).Trim();
                 if (!string.IsNullOrEmpty(compound))
                     parts.Add(new SelectorPart(compound, pendingCombinator));
@@ -223,7 +206,6 @@ public static partial class SelectorMatcher
             i++;
         }
 
-        // Emit final compound
         string lastCompound = selector.Substring(compoundStart).Trim();
         if (!string.IsNullOrEmpty(lastCompound))
             parts.Add(new SelectorPart(lastCompound, pendingCombinator));
@@ -236,19 +218,17 @@ public static partial class SelectorMatcher
     {
         if (string.IsNullOrEmpty(selector)) return false;
 
-        // Parse compound selector into parts
         int i = 0;
         while (i < selector.Length)
         {
             if (selector[i] == '*')
             {
                 i++;
-                continue; // universal matches everything
+                continue;
             }
 
             if (selector[i] == '.')
             {
-                // Class selector
                 i++;
                 var className = ConsumeIdent(selector, ref i);
                 if (!ContainsIgnoreCase(element.ClassList, className))
@@ -256,7 +236,6 @@ public static partial class SelectorMatcher
             }
             else if (selector[i] == '#')
             {
-                // ID selector
                 i++;
                 var id = ConsumeIdent(selector, ref i);
                 if (!string.Equals(element.Id, id, StringComparison.OrdinalIgnoreCase))
@@ -264,18 +243,16 @@ public static partial class SelectorMatcher
             }
             else if (selector[i] == '[')
             {
-                // Attribute selector
                 i++;
                 if (!MatchAttribute(selector, ref i, element))
                     return false;
             }
             else if (selector[i] == ':')
             {
-                // Pseudo-class or pseudo-element
                 i++;
                 if (i < selector.Length && selector[i] == ':')
                 {
-                    i++; // pseudo-element (::before etc) - skip for matching
+                    i++;
                     ConsumeIdent(selector, ref i);
                 }
                 else
@@ -286,14 +263,13 @@ public static partial class SelectorMatcher
             }
             else if (char.IsLetterOrDigit(selector[i]) || selector[i] == '-' || selector[i] == '_')
             {
-                // Type selector
                 var tagName = ConsumeIdent(selector, ref i);
                 if (!string.Equals(element.TagName, tagName, StringComparison.OrdinalIgnoreCase))
                     return false;
             }
             else
             {
-                i++; // skip unknown char
+                i++;
             }
         }
 
@@ -395,10 +371,9 @@ public static partial class SelectorMatcher
     {
         var pseudo = ConsumeIdent(selector, ref i);
 
-        // Check for functional pseudo-class with parenthesis
         if (i < selector.Length && selector[i] == '(')
         {
-            i++; // skip (
+            i++;
             var arg = ConsumeUntilCloseParen(selector, ref i);
 
             return MatchFunctionalPseudo(pseudo, arg, element);
@@ -417,7 +392,11 @@ public static partial class SelectorMatcher
             case "is":
             case "matches":
             case "where":
+            case "-webkit-any":
                 return Matches(arg.Trim(), element);
+
+            case "dir":
+                return string.Equals(DirectionOf(element), arg.Trim(), StringComparison.OrdinalIgnoreCase);
 
             case "nth-child":
                 return MatchNthChild(arg.Trim(), element, fromEnd: false);
@@ -433,7 +412,6 @@ public static partial class SelectorMatcher
 
             case "lang":
             {
-                // Match element or ancestor with matching lang attribute
                 var langArg = arg.Trim().Trim('\'', '"');
                 HtmlElement? cur = element;
                 while (cur != null)
@@ -452,13 +430,12 @@ public static partial class SelectorMatcher
                 return MatchesHas(element, arg.Trim());
 
             default:
-                return true; // Unknown functional pseudo: don't reject
+                return false;
         }
     }
 
     private static bool MatchesHas(HtmlElement element, string arg)
     {
-        // Support comma-separated list: :has(a, b) = :has(a) OR :has(b)
         var branches = SplitSelectorList(arg);
         foreach (var branch in branches)
         {
@@ -471,7 +448,6 @@ public static partial class SelectorMatcher
     private static bool MatchesHasBranch(HtmlElement element, string selector)
     {
         var s = selector.TrimStart();
-        // Direct child combinator: :has(> sel)
         if (s.Length > 0 && s[0] == '>')
         {
             var childSel = s.Substring(1).Trim();
@@ -482,45 +458,20 @@ public static partial class SelectorMatcher
             }
             return false;
         }
-        // Adjacent sibling: :has(+ sel)
         if (s.Length > 0 && s[0] == '+')
         {
-            var sibSel = s.Substring(1).Trim();
-            var parent = element.Parent as HtmlElement;
-            if (parent == null) return false;
-            bool foundSelf = false;
-            foreach (var child in parent.ChildNodes)
-            {
-                if (child is HtmlElement ce)
-                {
-                    if (foundSelf)
-                        return Matches(sibSel, ce);
-                    if (ce == element)
-                        foundSelf = true;
-                }
-            }
-            return false;
+            var next = GetNextElementSibling(element);
+            return next != null && Matches(s.Substring(1).Trim(), next);
         }
-        // General sibling: :has(~ sel)
         if (s.Length > 0 && s[0] == '~')
         {
             var sibSel = s.Substring(1).Trim();
-            var parent = element.Parent as HtmlElement;
-            if (parent == null) return false;
-            bool foundSelf = false;
-            foreach (var child in parent.ChildNodes)
+            for (var next = GetNextElementSibling(element); next != null; next = GetNextElementSibling(next))
             {
-                if (child is HtmlElement ce)
-                {
-                    if (foundSelf && Matches(sibSel, ce))
-                        return true;
-                    if (ce == element)
-                        foundSelf = true;
-                }
+                if (Matches(sibSel, next)) return true;
             }
             return false;
         }
-        // Default: descendant
         return HasDescendantMatching(element, s);
     }
 
@@ -635,19 +586,22 @@ public static partial class SelectorMatcher
             }
 
             case "root":
+            case "scope":
                 return element.TagName == "html";
 
             case "empty":
-                return element.ChildNodes.Count == 0;
+                return IsEmpty(element);
 
             case "link":
-                return element.TagName == "a" && element.HasAttribute("href");
+            case "any-link":
+            case "-webkit-any-link":
+                return IsHyperlink(element);
 
             case "enabled":
-                return !element.HasAttribute("disabled");
+                return IsFormControl(element) && !IsDisabled(element);
 
             case "disabled":
-                return element.HasAttribute("disabled");
+                return IsFormControl(element) && IsDisabled(element);
 
             case "checked":
                 return element.HasAttribute("checked") || element.HasAttribute("selected");
@@ -656,17 +610,16 @@ public static partial class SelectorMatcher
                 return element.HasAttribute("indeterminate");
 
             case "required":
-                return element.HasAttribute("required");
+                return IsRequirable(element) && element.HasAttribute("required");
 
             case "optional":
-                return !element.HasAttribute("required");
-
-            case "read-only":
-                return element.HasAttribute("readonly") || element.HasAttribute("disabled");
+                return IsRequirable(element) && !element.HasAttribute("required");
 
             case "read-write":
-                return !element.HasAttribute("readonly") && !element.HasAttribute("disabled") &&
-                       IsEditableElement(element);
+                return IsReadWrite(element);
+
+            case "read-only":
+                return !IsReadWrite(element);
 
             case "placeholder-shown":
                 return element.HasAttribute("placeholder") && string.IsNullOrEmpty(element.GetAttribute("value"));
@@ -675,20 +628,85 @@ public static partial class SelectorMatcher
                 return element.HasAttribute("checked") || element.HasAttribute("selected") ||
                        element.HasAttribute("default");
 
-            case "hover":
-            case "active":
-            case "focus":
-            case "focus-within":
-            case "focus-visible":
-            case "visited":
-                return false; // Interactive pseudo-classes never match in print
+            case "defined":
+                return true;
 
-            case "target":
-                return false; // URL fragment not available during PDF render
+            case "valid":
+                return IsRequirable(element) && !IsMissingRequiredValue(element);
+
+            case "invalid":
+                return IsRequirable(element) && IsMissingRequiredValue(element);
+
+            case "paused":
+                return element.TagName == "audio" || element.TagName == "video";
 
             default:
-                return true; // Unknown pseudo-class: don't reject
+                return false;
         }
+    }
+
+    private static readonly HashSet<string> FormControlTags = new(StringComparer.Ordinal)
+    {
+        "button", "input", "select", "textarea", "optgroup", "option", "fieldset"
+    };
+
+    private static bool IsFormControl(HtmlElement element) => FormControlTags.Contains(element.TagName);
+
+    private static bool IsRequirable(HtmlElement element) =>
+        element.TagName == "input" || element.TagName == "select" || element.TagName == "textarea";
+
+    private static bool IsDisabled(HtmlElement element)
+    {
+        if (element.HasAttribute("disabled")) return true;
+        for (var ancestor = element.Parent as HtmlElement; ancestor != null; ancestor = ancestor.Parent as HtmlElement)
+        {
+            if (ancestor.TagName == "fieldset" && ancestor.HasAttribute("disabled")) return true;
+        }
+        return false;
+    }
+
+    private static bool IsReadWrite(HtmlElement element)
+    {
+        var contentEditable = element.GetAttribute("contenteditable");
+        if (contentEditable != null && !string.Equals(contentEditable, "false", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return IsEditableElement(element) && !element.HasAttribute("readonly") && !IsDisabled(element);
+    }
+
+    private static bool IsMissingRequiredValue(HtmlElement element)
+    {
+        if (!element.HasAttribute("required")) return false;
+        if (element.TagName == "textarea")
+            return element.ChildNodes.Count == 0;
+        var type = element.GetAttribute("type");
+        if (string.Equals(type, "checkbox", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(type, "radio", StringComparison.OrdinalIgnoreCase))
+            return !element.HasAttribute("checked");
+        return element.TagName == "input" && string.IsNullOrEmpty(element.GetAttribute("value"));
+    }
+
+    private static bool IsHyperlink(HtmlElement element) =>
+        (element.TagName == "a" || element.TagName == "area") && element.HasAttribute("href");
+
+    private static bool IsEmpty(HtmlElement element)
+    {
+        foreach (var child in element.ChildNodes)
+        {
+            if (child is HtmlElement) return false;
+            if (child is HtmlTextNode text && text.Data.Length > 0) return false;
+        }
+        return true;
+    }
+
+    private static string DirectionOf(HtmlElement element)
+    {
+        for (HtmlElement? current = element; current != null; current = current.Parent as HtmlElement)
+        {
+            var dir = current.GetAttribute("dir");
+            if (string.Equals(dir, "rtl", StringComparison.OrdinalIgnoreCase)) return "rtl";
+            if (string.Equals(dir, "ltr", StringComparison.OrdinalIgnoreCase)) return "ltr";
+        }
+        return "ltr";
     }
 
     /// <summary>Match :nth-child(An+B) or :nth-last-child(An+B).</summary>
@@ -697,9 +715,7 @@ public static partial class SelectorMatcher
         var parent = element.Parent;
         if (parent == null) return false;
 
-        // CSS4: :nth-child(An+B of <selector>)
         int ofIdx = -1;
-        // Find " of " (case-insensitive) at top level
         for (int i = 0; i <= arg.Length - 4; i++)
         {
             if ((arg[i] == ' ' || i == 0) &&
@@ -716,10 +732,8 @@ public static partial class SelectorMatcher
             var formula = arg.Substring(0, ofIdx).Trim();
             var filterSelector = arg.Substring(ofIdx + 4).Trim();
 
-            // First check: element must match the filter selector
             if (!Matches(filterSelector, element)) return false;
 
-            // Count matching siblings (those that match filterSelector)
             int index = 0;
             bool found = false;
             if (fromEnd)
@@ -751,7 +765,7 @@ public static partial class SelectorMatcher
         int simpleIndex = GetElementIndex(parent, element, fromEnd);
         if (simpleIndex < 0) return false;
 
-        return MatchNthFormula(arg, simpleIndex + 1); // 1-based index
+        return MatchNthFormula(arg, simpleIndex + 1);
     }
 
     /// <summary>Match :nth-of-type(An+B) or :nth-last-of-type(An+B).</summary>
@@ -763,7 +777,7 @@ public static partial class SelectorMatcher
         int index = GetElementOfTypeIndex(parent, element, fromEnd);
         if (index < 0) return false;
 
-        return MatchNthFormula(arg, index + 1); // 1-based index
+        return MatchNthFormula(arg, index + 1);
     }
 
     /// <summary>Check if a 1-based index matches an An+B formula.</summary>
@@ -774,32 +788,24 @@ public static partial class SelectorMatcher
         if (arg == "odd") return index % 2 == 1;
         if (arg == "even") return index % 2 == 0;
 
-        // Parse An+B formula
         int a = 0, b = 0;
 
         if (int.TryParse(arg, NumberStyles.Integer, CultureInfo.InvariantCulture, out int simpleN))
-        {
-            // Just a number: :nth-child(3)
             return index == simpleN;
-        }
 
-        // Parse "An+B" or "An-B" or "n+B" or "-n+B" etc.
         int nPos = arg.IndexOf('n');
         if (nPos >= 0)
         {
-            // Part before 'n' is A
             string aPart = arg.Substring(0, nPos).Trim();
             if (string.IsNullOrEmpty(aPart) || aPart == "+") a = 1;
             else if (aPart == "-") a = -1;
             else if (int.TryParse(aPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out int aVal)) a = aVal;
 
-            // Part after 'n' is +B or -B — skip spaces without allocating via Replace().
             string bPart = arg.Substring(nPos + 1).Trim();
             if (!string.IsNullOrEmpty(bPart))
             {
                 int bStart = 0;
                 while (bStart < bPart.Length && bPart[bStart] == ' ') bStart++;
-                // Collect sign then digits, skipping any interior spaces
                 int bSign = 1;
                 if (bStart < bPart.Length && (bPart[bStart] == '+' || bPart[bStart] == '-'))
                 {
@@ -815,17 +821,22 @@ public static partial class SelectorMatcher
 
         if (a == 0) return index == b;
 
-        // Check if (index - b) is a non-negative multiple of a
         int diff = index - b;
         if (diff == 0) return true;
         if (a > 0) return diff > 0 && diff % a == 0;
-        // a < 0
         return diff < 0 && (-diff) % (-a) == 0;
     }
 
     /// <summary>Get the 0-based index of an element among its element siblings.</summary>
     private static int GetElementIndex(HtmlNode parent, HtmlElement element, bool fromEnd)
     {
+        if (parent.ChildNodes.Count >= SiblingIndex.MinChildCount)
+        {
+            var index = SiblingIndex.Of(parent);
+            int position = index.PositionOf(element);
+            if (position < 0) return -1;
+            return fromEnd ? index.ElementCount - 1 - position : position;
+        }
         if (fromEnd)
         {
             int index = 0;
@@ -857,6 +868,14 @@ public static partial class SelectorMatcher
     private static int GetElementOfTypeIndex(HtmlNode parent, HtmlElement element, bool fromEnd)
     {
         string tagName = element.TagName;
+        if (parent.ChildNodes.Count >= SiblingIndex.MinChildCount)
+        {
+            var index = SiblingIndex.Of(parent);
+            int position = index.PositionOf(element);
+            if (position < 0) return -1;
+            int amongType = index.PositionAmongType(position);
+            return fromEnd ? index.CountOfType(tagName) - 1 - amongType : amongType;
+        }
         if (fromEnd)
         {
             int index = 0;
@@ -890,6 +909,13 @@ public static partial class SelectorMatcher
         var parent = element.Parent;
         if (parent == null) return null;
 
+        if (parent.ChildNodes.Count >= SiblingIndex.MinChildCount)
+        {
+            var index = SiblingIndex.Of(parent);
+            int position = index.PositionOf(element);
+            return position > 0 ? index.ElementAt(position - 1) : null;
+        }
+
         HtmlElement? prev = null;
         for (int i = 0; i < parent.ChildNodes.Count; i++)
         {
@@ -899,8 +925,30 @@ public static partial class SelectorMatcher
         return null;
     }
 
+    private static HtmlElement? GetNextElementSibling(HtmlElement element)
+    {
+        var parent = element.Parent;
+        if (parent == null) return null;
+
+        if (parent.ChildNodes.Count >= SiblingIndex.MinChildCount)
+        {
+            var index = SiblingIndex.Of(parent);
+            int position = index.PositionOf(element);
+            return position >= 0 ? index.ElementAt(position + 1) : null;
+        }
+
+        bool foundSelf = false;
+        foreach (var child in parent.ChildNodes)
+        {
+            if (!(child is HtmlElement sibling)) continue;
+            if (foundSelf) return sibling;
+            if (sibling == element) foundSelf = true;
+        }
+        return null;
+    }
+
     /// <summary>Split a selector list on commas, respecting parentheses.</summary>
-    private static List<string> SplitSelectorList(string selector)
+    internal static List<string> SplitSelectorList(string selector)
     {
         var result = new List<string>();
         int depth = 0;
@@ -1095,7 +1143,7 @@ public static partial class SelectorMatcher
     private struct SelectorPart
     {
         public string Compound;
-        public char Combinator; // ' ', '>', '+', '~', or '\0' for first
+        public char Combinator;
 
         public SelectorPart(string compound, char combinator)
         {

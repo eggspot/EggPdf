@@ -61,8 +61,9 @@ write ALL the code for the task first, then run the test suite and fix.
 - Never write code before writing the test that covers it.
 - Never commit with failing tests.
 - Never skip benchmarks for hot-path changes -- but don't run them on the dev PC: the `Benchmarks` workflow
-  runs them on every PR and posts the table (time and allocations) as a PR comment. Compare it with the previous
-  PR's comment; only profile locally, with a targeted probe, when CI shows a regression.
+  runs them on every PR, for the base commit and the PR on the same runner, and posts a comparison (time and
+  allocations, with the change in %) as a PR comment. Runners differ between jobs, so never compare numbers from
+  two different runs; only profile locally, with a targeted probe, when the comment shows a regression.
 - Pipeline the work: once a batch's PR is open, start the next batch on a new branch instead of waiting for CI,
   then come back to each PR when its CI and Benchmarks runs finish, fix what they report and merge.
 - Keep iterating fix → run → fix until all tests pass — do not give up early.
