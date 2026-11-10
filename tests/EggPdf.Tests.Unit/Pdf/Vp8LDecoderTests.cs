@@ -19,6 +19,14 @@ public class Vp8LDecoderTests
         w.WriteBits(0, 3);
     }
 
+    private static void WriteLiteral(Vp8LTestBitWriter w, int greenBit, int redBit, int blueBit, int alphaBit)
+    {
+        w.WriteBits((uint)greenBit, 1);
+        w.WriteBits((uint)redBit, 1);
+        w.WriteBits((uint)blueBit, 1);
+        w.WriteBits((uint)alphaBit, 1);
+    }
+
     private static void WriteNoTransformNoCacheNoMetaCodes(Vp8LTestBitWriter w)
     {
         w.WriteBits(0, 1);
@@ -175,12 +183,9 @@ public class Vp8LDecoderTests
         var alpha = w.WriteSimpleTwoSymbol(0, 255);
         w.WriteSimpleSingleSymbol(0);
 
-        w.WriteBits((uint)green.bitForB, 1); w.WriteBits((uint)alpha.bitForB, 1);
-        w.WriteBits((uint)red.bitForA, 1); w.WriteBits((uint)blue.bitForB, 1);
-        w.WriteBits((uint)green.bitForA, 1); w.WriteBits((uint)alpha.bitForA, 1);
-        w.WriteBits((uint)red.bitForB, 1); w.WriteBits((uint)blue.bitForA, 1);
-        w.WriteBits((uint)green.bitForA, 1); w.WriteBits((uint)alpha.bitForA, 1);
-        w.WriteBits((uint)red.bitForB, 1); w.WriteBits((uint)blue.bitForA, 1);
+        WriteLiteral(w, green.bitForB, red.bitForA, blue.bitForB, alpha.bitForB);
+        WriteLiteral(w, green.bitForA, red.bitForB, blue.bitForA, alpha.bitForA);
+        WriteLiteral(w, green.bitForA, red.bitForB, blue.bitForA, alpha.bitForA);
 
         w.WriteBits(0, 1);
 
@@ -237,10 +242,8 @@ public class Vp8LDecoderTests
         var alpha = w.WriteSimpleTwoSymbol(0, 1);
         w.WriteSimpleSingleSymbol(0);
 
-        w.WriteBits((uint)green.bitForA, 1); w.WriteBits((uint)alpha.bitForA, 1);
-        w.WriteBits((uint)red.bitForA, 1); w.WriteBits((uint)blue.bitForA, 1);
-        w.WriteBits((uint)green.bitForB, 1); w.WriteBits((uint)alpha.bitForB, 1);
-        w.WriteBits((uint)red.bitForB, 1); w.WriteBits((uint)blue.bitForB, 1);
+        WriteLiteral(w, green.bitForA, red.bitForA, blue.bitForA, alpha.bitForA);
+        WriteLiteral(w, green.bitForB, red.bitForB, blue.bitForB, alpha.bitForB);
 
         var result = Vp8LDecoder.Decode(w.ToVp8LPayload());
 
