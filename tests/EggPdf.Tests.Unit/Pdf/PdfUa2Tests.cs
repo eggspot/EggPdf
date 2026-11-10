@@ -113,10 +113,10 @@ public class PdfUa2Tests
     [Fact]
     public void Ua2_NoRoleMapEmitted()
     {
-        // UA-2 landmarks resolve straight to their standard fallback type (Div/Sect) instead of a
-        // custom name + RoleMap indirection -- see StructureTreeBuilder's Ua2LandmarkFallback.
         var (doc, _) = DocWithTaggedParagraph(PdfUaVersion.Ua2);
         var text = Encoding.Latin1.GetString(doc.ToByteArray());
-        text.Should().NotContain("/RoleMap");
+        text.Should().NotContain("/RoleMap",
+            "UA-2 landmarks resolve straight to their standard fallback type (Div, Sect), with no custom name mapped " +
+            "through a RoleMap (StructureTreeBuilder's Ua2LandmarkFallback)");
     }
 }
