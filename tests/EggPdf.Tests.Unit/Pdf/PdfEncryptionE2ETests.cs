@@ -10,19 +10,10 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Pdf;
 
-/// <summary>
-/// End-to-end encryption tests that act as an independent, spec-compliant
-/// PDF reader: they take /O, /P, /ID from the file, derive the file key from
-/// the user password per PDF 32000 Algorithm 2, verify /U per Algorithm 4/5,
-/// derive per-object keys per Algorithm 1, and RC4-decrypt streams/strings.
-/// A derivation bug anywhere in the library makes these fail — the same way
-/// a real viewer would show garbage.
-/// </summary>
 public class PdfEncryptionE2ETests
 {
     private const string Secret = "Top secret certificate text";
-
-    // ---------- mini spec-compliant reader ----------
+    private const string EmptyUserPassword = "";
 
     private static readonly byte[] Pad =
     {
@@ -109,7 +100,8 @@ public class PdfEncryptionE2ETests
         }
         for (int i = 0; i < 16; i++)
             uValue[i].Should().Be(expected[i],
-                "a spec-compliant R3 reader must be able to verify the user password");
+                "a spec-compliant R3 reader must be able to verify the user password; the dictionary declares /R 3, " +
+                "so the R3 algorithms apply even to 40-bit keys, or viewers reject the correct password");
     }
 
     /// <summary>PDF 32000 Algorithm 1: per-object key.</summary>
@@ -120,7 +112,9 @@ public class PdfEncryptionE2ETests
         input[fileKey.Length] = (byte)(objNum & 0xFF);
         input[fileKey.Length + 1] = (byte)((objNum >> 8) & 0xFF);
         input[fileKey.Length + 2] = (byte)((objNum >> 16) & 0xFF);
-        // generation 0 -> two zero bytes already in place
+        const int generation = 0;
+        input[fileKey.Length + 3] = (byte)(generation & 0xFF);
+        input[fileKey.Length + 4] = (byte)((generation >> 8) & 0xFF);
         var hash = Md5(input);
         var key = new byte[Math.Min(fileKey.Length + 5, 16)];
         Array.Copy(hash, key, key.Length);
@@ -187,8 +181,6 @@ public class PdfEncryptionE2ETests
         return doc.ToByteArray();
     }
 
-    // ---------- tests ----------
-
     [Fact]
     public void Encrypted_ContentStreamAndStrings_AreNotPlaintext()
     {
@@ -197,17 +189,12 @@ public class PdfEncryptionE2ETests
 
         text.Should().NotContain(Secret, "content stream bytes must be RC4-encrypted");
 
-        // A bare 2-byte "Tj" search over the whole file (including the pseudo-random RC4
-        // ciphertext) is flaky: any 2-byte sequence has a real chance of turning up by pure
-        // coincidence in ~100+ bytes of near-random data. Scope the check to just the content
-        // stream's own ciphertext, and require the actual multi-byte operator-invocation syntax
-        // (") Tj") rather than the bare keyword, cutting the false-positive rate by ~4 orders of
-        // magnitude while still catching the real bug this guards against (stream encryption
-        // silently skipped, leaving PDF operators readable).
         var (contentCipher, _) = ExtractStream(pdf, text, 0);
         var contentCipherText = Latin1(contentCipher);
         contentCipherText.Should().NotContain(") Tj",
-            "text-showing operators must not be readable in the encrypted content stream");
+            "text-showing operators must not be readable in the encrypted content stream; the check is scoped to " +
+            "that stream and looks for the 4-byte \") Tj\", because a bare 2-byte \"Tj\" turns up by chance in " +
+            "near-random RC4 ciphertext");
 
         text.Should().NotContain("private-link", "annotation URI strings must be encrypted");
         text.Should().NotContain("Hidden Title", "Info dictionary strings must be encrypted");
@@ -231,7 +218,7 @@ public class PdfEncryptionE2ETests
         var pdf = RenderEncrypted(new PdfEncryption { OwnerPassword = "owner" });
         var text = Latin1(pdf);
         var (o, _, p, id, lengthBits) = ReadEncryptDict(text);
-        var fileKey = DeriveFileKey("", o, p, id, lengthBits / 8); // empty user password
+        var fileKey = DeriveFileKey(EmptyUserPassword, o, p, id, lengthBits / 8);
 
         var (cipher, objNum) = ExtractStream(pdf, text, 0);
         var plain = Encoding.Latin1.GetString(Rc4(ObjectKey(fileKey, objNum), cipher));
@@ -246,7 +233,7 @@ public class PdfEncryptionE2ETests
         var pdf = RenderEncrypted(new PdfEncryption { OwnerPassword = "owner" }, compress: true);
         var text = Latin1(pdf);
         var (o, _, p, id, lengthBits) = ReadEncryptDict(text);
-        var fileKey = DeriveFileKey("", o, p, id, lengthBits / 8);
+        var fileKey = DeriveFileKey(EmptyUserPassword, o, p, id, lengthBits / 8);
 
         var (cipher, objNum) = ExtractStream(pdf, text, 0);
         var inflated = InflateZlib(Rc4(ObjectKey(fileKey, objNum), cipher));
@@ -261,12 +248,12 @@ public class PdfEncryptionE2ETests
         var pdf = RenderEncrypted(new PdfEncryption { OwnerPassword = "owner" });
         var text = Latin1(pdf);
         var (o, _, p, id, lengthBits) = ReadEncryptDict(text);
-        var fileKey = DeriveFileKey("", o, p, id, lengthBits / 8);
+        var fileKey = DeriveFileKey(EmptyUserPassword, o, p, id, lengthBits / 8);
 
-        // The URI hex string lives in the page dictionary object
-        // "/Type /Page /Parent" pins the page dict ("/Type /Pages" is the page tree)
         var uriMatch = Regex.Match(text, @"(\d+) 0 obj\s*<< /Type /Page /Parent[\s\S]*?/URI <([0-9A-Fa-f]+)>");
-        uriMatch.Success.Should().BeTrue("the URI must be written as an encrypted hex string");
+        uriMatch.Success.Should().BeTrue(
+            "the URI is written as an encrypted hex string in the page dictionary, which '/Type /Page /Parent' " +
+            "tells apart from the '/Type /Pages' page tree");
 
         int pageObjNum = int.Parse(uriMatch.Groups[1].Value);
         var plain = Encoding.Latin1.GetString(
@@ -281,11 +268,8 @@ public class PdfEncryptionE2ETests
         var text = Latin1(pdf);
         var (o, u, p, id, lengthBits) = ReadEncryptDict(text);
         lengthBits.Should().Be(40);
-        var fileKey = DeriveFileKey("", o, p, id, lengthBits / 8);
+        var fileKey = DeriveFileKey(EmptyUserPassword, o, p, id, lengthBits / 8);
 
-        // The dictionary declares /R 3, so O/U/key derivation must use the
-        // R3 algorithms even with a 40-bit key — otherwise compliant viewers
-        // reject the correct password.
         AssertUMatchesR3(fileKey, id, u);
 
         var (cipher, objNum) = ExtractStream(pdf, text, 0);
@@ -296,18 +280,17 @@ public class PdfEncryptionE2ETests
     [Fact]
     public void PermissionOnly_NoPasswords_StillEncrypts()
     {
-        // The common view-only case: no passwords, only permission flags.
-        // This must produce an encrypted PDF (empty user password), not a
-        // silently unrestricted plaintext one.
         var pdf = RenderEncrypted(new PdfEncryption { AllowCopying = false, AllowPrinting = false });
         var text = Latin1(pdf);
 
-        text.Should().Contain("/Encrypt <<", "permission flags require the encryption dictionary");
+        text.Should().Contain("/Encrypt <<",
+            "the common view-only case (permission flags, no passwords) must still encrypt with an empty user " +
+            "password, not silently produce an unrestricted plaintext file");
         text.Should().NotContain(Secret);
 
         var (o, u, p, id, lengthBits) = ReadEncryptDict(text);
         (p & 0x10).Should().Be(0, "copying must be disallowed");
-        var fileKey = DeriveFileKey("", o, p, id, lengthBits / 8);
+        var fileKey = DeriveFileKey(EmptyUserPassword, o, p, id, lengthBits / 8);
         AssertUMatchesR3(fileKey, id, u);
     }
 
@@ -360,7 +343,7 @@ public class PdfEncryptionE2ETests
         text.Should().NotContain("Encrypted pipeline text");
 
         var (o, _, p, id, lengthBits) = ReadEncryptDict(text);
-        var fileKey = DeriveFileKey("", o, p, id, lengthBits / 8);
+        var fileKey = DeriveFileKey(EmptyUserPassword, o, p, id, lengthBits / 8);
         var (cipher, objNum) = ExtractStream(pdf, text, 0);
         Encoding.Latin1.GetString(Rc4(ObjectKey(fileKey, objNum), cipher))
             .Should().Contain("Encrypted pipeline text");

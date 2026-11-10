@@ -10,25 +10,20 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Pdf;
 
-/// <summary>
-/// PDF /FlateDecode streams must be zlib streams (RFC 1950: 2-byte header +
-/// deflate data + Adler-32), not raw deflate — strict viewers reject raw
-/// deflate, which breaks embedded fonts and images.
-/// </summary>
 public class FlateStreamTests
 {
+    private const string VietnameseForcingCidFontEmbedding = "Hiệp hội Việt Nam";
+
     private static List<byte[]> ExtractFlateStreams(byte[] pdf)
     {
         var result = new List<byte[]>();
         var text = Encoding.GetEncoding("ISO-8859-1").GetString(pdf);
 
-        // Find dictionaries declaring /FlateDecode followed by a stream
         foreach (Match m in Regex.Matches(text, @"/Filter /FlateDecode[^>]*>>\s*stream\r?\n"))
         {
             int start = m.Index + m.Length;
             int end = text.IndexOf("endstream", start, StringComparison.Ordinal);
             if (end < 0) continue;
-            // Trim the trailing newline before "endstream"
             int len = end - start;
             while (len > 0 && (pdf[start + len - 1] == (byte)'\n' || pdf[start + len - 1] == (byte)'\r'))
                 len--;
@@ -53,8 +48,7 @@ public class FlateStreamTests
     [Fact]
     public async Task EmbeddedFontStreams_AreValidZlib()
     {
-        // Vietnamese forces CIDFont embedding (FontFile2 + ToUnicode streams)
-        var pdf = await HtmlToPdf.RenderAsync("<html><body><p>Hiệp hội Việt Nam</p></body></html>");
+        var pdf = await HtmlToPdf.RenderAsync("<html><body><p>" + VietnameseForcingCidFontEmbedding + "</p></body></html>");
 
         var streams = ExtractFlateStreams(pdf);
         streams.Should().NotBeEmpty("an embedded font produces at least FontFile2 and ToUnicode streams");
@@ -62,10 +56,10 @@ public class FlateStreamTests
         foreach (var s in streams)
         {
             s.Length.Should().BeGreaterThan(6);
-            (s[0] & 0x0F).Should().Be(8, "zlib CMF low nibble must be 8 (deflate)");
+            (s[0] & 0x0F).Should().Be(8,
+                "a /FlateDecode stream is zlib (RFC 1950), not raw deflate, which strict viewers reject: CMF's low nibble is 8");
             (((s[0] << 8) | s[1]) % 31).Should().Be(0, "zlib header must satisfy the FCHECK divisibility rule");
 
-            // Inflate the body (skip 2-byte header, drop 4-byte Adler) and verify checksum
             byte[] inflated;
             using (var ms = new MemoryStream(s, 2, s.Length - 6))
             using (var ds = new DeflateStream(ms, CompressionMode.Decompress))
@@ -86,19 +80,19 @@ public class FlateStreamTests
     [Fact]
     public async Task UppercaseTransformedVietnamese_HasNoNotdefGlyphs()
     {
-        // text-transform: uppercase is applied at paint time; the codepoint
-        // collection must account for it, otherwise the subset misses the
-        // uppercase glyphs and CID 0 (.notdef) is emitted.
         var pdf = await HtmlToPdf.RenderAsync(
-            "<html><body><p style=\"text-transform:uppercase\">Hiệp hội Việt Nam</p></body></html>");
+            "<html><body><p style=\"text-transform:uppercase\">" + VietnameseForcingCidFontEmbedding + "</p></body></html>");
 
         var text = Encoding.GetEncoding("ISO-8859-1").GetString(pdf);
-        foreach (Match m in Regex.Matches(text, @"<([0-9A-Fa-f]+)>\s*Tj"))
+        var cidRuns = Regex.Matches(text, @"<([0-9A-Fa-f]+)>\s*Tj");
+        cidRuns.Should().NotBeEmpty("the Vietnamese text is painted with an embedded CID font");
+        foreach (Match m in cidRuns)
         {
             var hex = m.Groups[1].Value;
             for (int i = 0; i + 4 <= hex.Length; i += 4)
                 hex.Substring(i, 4).Should().NotBe("0000",
-                    "no glyph should degrade to .notdef when the transform is applied consistently");
+                    "text-transform is applied at paint time, so the subset's code points must be uppercased too, " +
+                    "or the uppercase glyphs are missing and paint as CID 0 (.notdef)");
         }
     }
 }

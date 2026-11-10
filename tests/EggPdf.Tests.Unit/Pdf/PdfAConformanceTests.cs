@@ -138,14 +138,13 @@ public class PdfAConformanceTests
     [Fact]
     public void PdfA2_WithPartialOpacity_DoesNotThrow()
     {
-        // Transparency is only forbidden under PDF/A-1 -- PDF/A-2/3 allow it.
         var doc = new PdfDocument { Conformance = PdfAConformance.PdfA2b };
         var page = doc.AddPage(595.28f, 841.89f);
         page.SetOpacity(0.5f);
         page.AddText("Hello", 72, 720, "Helvetica", 12);
 
         Action act = () => doc.ToByteArray();
-        act.Should().NotThrow();
+        act.Should().NotThrow("only PDF/A-1 forbids transparency; PDF/A-2 and 3 allow it");
     }
 
     [Fact]

@@ -6,11 +6,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Pdf;
 
-/// <summary>
-/// PdfPage.AddColorGlyphLayers must paint each layer at the same position (a "0 0 Td"
-/// between layers resets the text matrix without moving it) in its own fill color, and
-/// substitute the caller's text color for a useTextColor layer.
-/// </summary>
 public class PdfPageColorGlyphLayersTests
 {
     private static string RenderToText(PdfDocument doc)
@@ -36,7 +31,7 @@ public class PdfPageColorGlyphLayersTests
         text.Should().Contain("<0006> Tj");
         text.Should().Contain("1.00 0.00 0.00 rg");
         text.Should().Contain("0.00 0.00 1.00 rg");
-        text.Should().Contain("0 0 Td");
+        text.Should().Contain("0 0 Td", "the layers paint at the same position: \"0 0 Td\" resets the text matrix without moving it");
     }
 
     [Fact]
@@ -51,8 +46,8 @@ public class PdfPageColorGlyphLayersTests
         {
             (7, 0f, 0f, 0f, true),
         };
-        // Caller's text color: green (0, 1, 0)
-        page.AddColorGlyphLayers(layers, 72, 720, "ColorFont", 24, 0f, 1f, 0f);
+        const float green = 1f;
+        page.AddColorGlyphLayers(layers, 72, 720, "ColorFont", 24, 0f, green, 0f);
 
         var text = RenderToText(doc);
         text.Should().Contain("0.00 1.00 0.00 rg", "a useTextColor layer must paint in the caller's text color, not (0,0,0)");

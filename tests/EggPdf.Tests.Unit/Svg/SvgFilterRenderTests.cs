@@ -9,13 +9,9 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Svg;
 
-/// <summary>
-/// SVG filters end to end through SvgRenderer: the rasterized result is inspected pixel by pixel
-/// (the embedded PdfImage's RGB + alpha planes) and the emitted placement operator is checked.
-/// A 100x100 viewBox at scale 1 gives 2 raster pixels per user unit.
-/// </summary>
 public class SvgFilterRenderTests
 {
+    /// <summary>A 100x100 viewBox at scale 1 rasterizes filter results at 2 pixels per user unit.</summary>
     private const float PxPerUnit = 2f;
 
     private sealed class Result
@@ -47,14 +43,13 @@ public class SvgFilterRenderTests
     [Fact]
     public void Blur_ImageIsPlacedInLocalSpace_NotDoubleTransformed()
     {
-        // Region = bbox (20,30,40,20) plus 10%: x=16 y=28 w=48 h=24. The CTM already carries the
-        // viewBox mapping (here placed at 10,20), so the image must be positioned in local units.
         var r = Render("<rect x='20' y='30' width='40' height='20' fill='red' filter='url(#b)'/>",
             "<defs><filter id='b'><feGaussianBlur stdDeviation='2'/></filter></defs>", x: 10, y: 20);
 
         r.Images.Should().HaveCount(1);
         r.Commands.Should().Contain("48.00 0 0 -24.00 16.00 52.00 cm",
-            "width/height in local units, y flipped: the image's top edge sits at local y=28 (28+24=52 in the flipped square)");
+            "the filter region is the bbox (20,30,40,20) plus 10%: x=16 y=28 w=48 h=24, placed in local units because the " +
+            "CTM already maps the viewBox (here at 10,20); with y flipped the top edge at local y=28 is 28+24=52");
         r.Image().Width.Should().Be((int)(48 * PxPerUnit));
         r.Image().Height.Should().Be((int)(24 * PxPerUnit));
     }
@@ -66,11 +61,11 @@ public class SvgFilterRenderTests
             "<defs><filter id='b' x='-50%' y='-50%' width='200%' height='200%'><feGaussianBlur stdDeviation='3'/></filter></defs>");
 
         var img = r.Image();
-        // Region origin = (20-20, 30-10) = (0, 20); local (40,40) is the rect centre
-        Alpha(img, (int)(40 * PxPerUnit), (int)((40 - 20) * PxPerUnit)).Should().BeGreaterThan(240);
-        // 2 units outside the left edge: partially covered, strictly between 0 and full
-        byte edge = Alpha(img, (int)(18 * PxPerUnit), (int)((40 - 20) * PxPerUnit));
-        edge.Should().BeInRange(5, 120);
+        const float regionOriginX = 20 - 20, regionOriginY = 30 - 10;
+        int Px(float local, float origin) => (int)((local - origin) * PxPerUnit);
+        Alpha(img, Px(40, regionOriginX), Px(40, regionOriginY)).Should().BeGreaterThan(240, "local (40,40) is the rect's centre");
+        byte edge = Alpha(img, Px(18, regionOriginX), Px(40, regionOriginY));
+        edge.Should().BeInRange(5, 120, "2 units outside the left edge the blur covers partially, strictly between none and full");
         Rgb(img, (int)(40 * PxPerUnit), (int)((40 - 20) * PxPerUnit))[0].Should().BeGreaterThan(240, "red survives the blur un-darkened");
     }
 
@@ -82,7 +77,8 @@ public class SvgFilterRenderTests
             "<feDropShadow dx='10' dy='10' stdDeviation='0' flood-color='#0000ff'/></filter></defs>");
 
         var img = r.Image();
-        int Px(float local) => (int)((local - 20) * PxPerUnit); // region origin is (20,20)
+        const float regionOrigin = 20;
+        int Px(float local) => (int)((local - regionOrigin) * PxPerUnit);
 
         var source = Rgb(img, Px(25), Px(25));
         source[0].Should().BeGreaterThan(240, "the source rect stays red on top");
@@ -106,8 +102,8 @@ public class SvgFilterRenderTests
 
         r.Images.Should().HaveCount(1, "a filtered group is one filter input, not one image per child");
         var img = r.Image();
-        // bbox = (10,10)-(80,80); region = (3,3)-(87,87)
-        int Px(float local) => (int)((local - 3) * PxPerUnit);
+        const float regionOriginForBbox10To80 = 3;
+        int Px(float local) => (int)((local - regionOriginForBbox10To80) * PxPerUnit);
         Rgb(img, Px(20), Px(20))[0].Should().BeGreaterThan(240);
         Rgb(img, Px(70), Px(70))[2].Should().BeGreaterThan(240);
         Alpha(img, Px(50), Px(50)).Should().Be(0, "the gap between the two shapes is empty");
@@ -120,7 +116,8 @@ public class SvgFilterRenderTests
             "<defs><filter id='i'><feOffset dx='0' dy='0'/></filter></defs>");
 
         var img = r.Image();
-        int Px(float local) => (int)((local - 14) * PxPerUnit); // region origin 14
+        const float regionOrigin = 14;
+        int Px(float local) => (int)((local - regionOrigin) * PxPerUnit);
         Alpha(img, Px(20), Px(50)).Should().BeGreaterThan(240, "the left stroke centre line");
         Alpha(img, Px(50), Px(50)).Should().Be(0, "the unfilled interior");
     }
@@ -128,14 +125,12 @@ public class SvgFilterRenderTests
     [Fact]
     public void ArcSegments_AreFlattenedAsCurves_NotStraightChords()
     {
-        // Half circle from (10,50) over the top to (90,50): the arc peaks near (50,10)
         var r = Render("<path d='M10 50 A40 40 0 0 1 90 50' fill='none' stroke='black' stroke-width='4' filter='url(#i)'/>",
             "<defs><filter id='i' x='0' y='0' width='1' height='1'><feOffset dx='0' dy='0'/></filter></defs>");
 
         var img = r.Image();
-        // bbox: x 10..90, y 10..50 (the arc's extent) -> region origin (10,10)
         int Px(float local, float origin) => (int)((local - origin) * PxPerUnit);
-        Alpha(img, Px(50, 10), Px(11, 10)).Should().BeGreaterThan(200, "the arc's top point (50,10) is stroked");
+        Alpha(img, Px(50, 10), Px(11, 10)).Should().BeGreaterThan(200, "the half circle from (10,50) over the top to (90,50) peaks at (50,10), and its bbox x 10..90, y 10..50 puts the region origin at (10,10)");
         Alpha(img, Px(50, 10), Px(30, 10)).Should().Be(0, "a straight chord from end to end would have no ink at y=30");
     }
 
@@ -153,8 +148,8 @@ public class SvgFilterRenderTests
         var r = Render("<text x='10' y='50' filter='url(#b)'>Hi</text>",
             "<defs><filter id='b'><feGaussianBlur stdDeviation='1'/></filter></defs>");
 
-        // With an installed font the outlines become the filter source; without one the text paints unfiltered
-        (r.Images.Count == 1 || r.Commands.Contains("Tj")).Should().BeTrue();
+        (r.Images.Count == 1 || r.Commands.Contains("Tj")).Should().BeTrue(
+            "with an installed font the outlines become the filter source; without one the text paints unfiltered");
     }
 
     [Fact]
@@ -189,15 +184,14 @@ public class SvgFilterRenderTests
         var r = Render("<rect x='0' y='0' width='20' height='20' fill='red' transform='translate(50,50)' filter='url(#o)'/>",
             "<defs><filter id='o'><feOffset dx='0' dy='0'/></filter></defs>");
 
-        // Local bbox (0,0,20,20) -> region (-2,-2,24,24); translate(50,50) is applied by the CTM, not baked in
-        r.Commands.Should().Contain("24.00 0 0 -24.00 -2.00 22.00 cm");
+        r.Commands.Should().Contain("24.00 0 0 -24.00 -2.00 22.00 cm",
+            "the local bbox (0,0,20,20) gives the region (-2,-2,24,24); translate(50,50) is applied by the CTM, not baked in");
         r.Commands.Should().Contain("1 0 0 1 50 50 cm", "the element's transform still applies around the image");
     }
 
     [Fact]
     public void LinearRgbDefault_MakesAHalfOpaqueBlackShadowLighterThanSrgb()
     {
-        // 50% black composited over white: linearRGB merge gives ~0.735, sRGB gives 0.5
         string Filter(string space) =>
             "<defs><filter id='m' x='0' y='0' width='1' height='1' color-interpolation-filters='" + space + "'>" +
             "<feFlood flood-color='white' result='w'/><feMerge><feMergeNode in='w'/><feMergeNode in='SourceGraphic'/></feMerge></filter></defs>";
@@ -206,7 +200,7 @@ public class SvgFilterRenderTests
         byte linear = Rgb(Render(shape, Filter("linearRGB")).Image(), 20, 20)[0];
         byte srgb = Rgb(Render(shape, Filter("sRGB")).Image(), 20, 20)[0];
 
-        srgb.Should().BeInRange(124, 131);
-        linear.Should().BeInRange(182, 192);
+        srgb.Should().BeInRange(124, 131, "50% black over white merges to 0.5 in sRGB");
+        linear.Should().BeInRange(182, 192, "50% black over white merges to ~0.735 in linearRGB");
     }
 }

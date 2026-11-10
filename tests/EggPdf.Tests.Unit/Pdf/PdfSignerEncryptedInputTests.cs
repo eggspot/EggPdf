@@ -5,11 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Pdf;
 
-/// <summary>
-/// Signing appends plaintext dictionary strings, which a compliant reader of
-/// an ENCRYPTED document would RC4-"decrypt" into garbage. The signer must
-/// refuse encrypted inputs instead of silently corrupting them.
-/// </summary>
 public class PdfSignerEncryptedInputTests
 {
     private static byte[] EncryptedPdf()
@@ -26,7 +21,8 @@ public class PdfSignerEncryptedInputTests
         using var cert = TestCertificate();
         var act = () => PdfSigner.Sign(EncryptedPdf(), cert);
         act.Should().Throw<NotSupportedException>(
-            "appended signature strings would be mis-decrypted by the security handler");
+            "signing appends plaintext dictionary strings, which a reader of an encrypted document would RC4-decrypt " +
+            "into garbage, so the signer refuses rather than silently corrupt the file");
     }
 
     [Fact]

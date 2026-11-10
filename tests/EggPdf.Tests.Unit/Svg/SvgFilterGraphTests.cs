@@ -5,7 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Svg;
 
-/// <summary>Pixel-level tests of the SVG filter graph (SvgFilter + FilterPixels), independent of PDF output.</summary>
 public class SvgFilterGraphTests
 {
     private static SvgElement El(string tag, params (string k, string v)[] attrs)
@@ -168,7 +167,6 @@ public class SvgFilterGraphTests
     [Fact]
     public void Composite_In_KeepsSourceOnlyWhereSecondInputIsOpaque()
     {
-        // in2 = SourceAlpha of a smaller rect via offset; only the overlap survives
         var src = Rect(10, 10, 0, 0, 6, 6, 1, 0, 0);
         var off = El("feoffset", ("in", "SourceAlpha"), ("dx", "4"), ("result", "shifted"));
         var comp = El("fecomposite", ("in", "SourceGraphic"), ("in2", "shifted"), ("operator", "in"));
@@ -221,7 +219,8 @@ public class SvgFilterGraphTests
     [Fact]
     public void Blur_SmallSigma_UsesGaussianKernel()
     {
-        var src = Rect(21, 1, 10, 0, 11, 1, 1, 1, 1); // a single bright pixel
+        var singleBrightPixel = Rect(21, 1, 10, 0, 11, 1, 1, 1, 1);
+        var src = singleBrightPixel;
         var result = Filter(El("fegaussianblur", ("stddeviation", "1 0"), ("color-interpolation-filters", "sRGB"))).Run(src, Ctx());
 
         float centre = At(result, 10, 0)[3], side = At(result, 11, 0)[3];
@@ -235,9 +234,9 @@ public class SvgFilterGraphTests
         var src = Rect(101, 1, 50, 0, 51, 1, 1, 1, 1);
         var result = Filter(El("fegaussianblur", ("stddeviation", "5 0"), ("color-interpolation-filters", "sRGB"))).Run(src, Ctx());
 
-        // Three 9px boxes (the spec's d for sigma 5): the exact triple-box peak is 0.0837, within ~5% of the
-        // sigma-5 Gaussian's 1/(5*sqrt(2*pi)) = 0.0798
-        At(result, 50, 0)[3].Should().BeApproximately(0.0837f, 0.002f);
+        At(result, 50, 0)[3].Should().BeApproximately(0.0837f, 0.002f,
+            "three 9px boxes (the spec's d for sigma 5) peak at exactly 0.0837, within about 5% of the sigma-5 " +
+            "Gaussian's 1/(5*sqrt(2*pi)) = 0.0798");
         float total = 0f;
         for (int x = 0; x < 101; x++) total += At(result, x, 0)[3];
         total.Should().BeApproximately(1f, 0.01f, "box blurs conserve coverage");
@@ -282,7 +281,6 @@ public class SvgFilterGraphTests
     [Fact]
     public void LinearRgbDefault_DiffersFromSrgb_ForMidGrayBlend()
     {
-        // 50% black over white: linearRGB gives ~0.735 sRGB, plain sRGB gives 0.5
         var src = new FilterImage(2, 2);
         for (int i = 0; i < src.Px.Length; i += 4) { src.Px[i + 3] = 0.5f; }
         var white = El("feflood", ("flood-color", "white"), ("result", "w"));
@@ -295,7 +293,7 @@ public class SvgFilterGraphTests
         over.Attributes["color-interpolation-filters"] = "sRGB";
         var srgbPx = At(Filter(white, over).Run(src, Ctx()), 0, 0);
 
-        srgbPx[0].Should().BeApproximately(0.5f, 0.01f);
+        srgbPx[0].Should().BeApproximately(0.5f, 0.01f, "50% black over white merges to 0.5 in sRGB");
         linearPx[0].Should().BeApproximately(0.735f, 0.01f, "compositing in linearRGB then converting back to sRGB brightens the mix");
     }
 

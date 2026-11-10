@@ -145,10 +145,9 @@ public class CssShorthandExpanderTests
         CssShorthandExpander.TryExpand("background",
             "linear-gradient(red, blue), linear-gradient(green, yellow)", style).Should().BeTrue();
 
-        // Layers are joined with ", " (matching the longhand's multi-layer format), so this must NOT
-        // be verified by naively re-splitting on ", " -- that also matches the comma inside each
-        // gradient's own argument list ("red, blue").
-        style.Get("background-image").Should().Be("linear-gradient(red, blue), linear-gradient(green, yellow)");
+        style.Get("background-image").Should().Be("linear-gradient(red, blue), linear-gradient(green, yellow)",
+            "the layers are joined with \", \" like the longhand, so the whole value is compared: re-splitting on " +
+            "\", \" would also split inside each gradient's own argument list");
     }
 
     [Fact]
@@ -351,13 +350,12 @@ public class CssShorthandExpanderTests
     [Fact]
     public void Flex_SingleNumber_SetsBasisToZero()
     {
-        // CSS spec: flex: <number> → flex-grow:<n>, flex-shrink:1, flex-basis:0
         var style = new ComputedStyle();
         CssShorthandExpander.TryExpand("flex", "2", style).Should().BeTrue();
 
         style.Get("flex-grow").Should().Be("2");
         style.Get("flex-shrink").Should().Be("1");
-        style.Get("flex-basis").Should().Be("0");
+        style.Get("flex-basis").Should().Be("0", "flex: <number> sets flex-basis to 0, not auto");
     }
 
     [Fact]
@@ -396,13 +394,12 @@ public class CssShorthandExpanderTests
     [Fact]
     public void Flex_TwoNumbers_SetsBasisToZero()
     {
-        // CSS spec: flex: <grow> <shrink> → flex-basis:0
         var style = new ComputedStyle();
         CssShorthandExpander.TryExpand("flex", "2 1", style).Should().BeTrue();
 
         style.Get("flex-grow").Should().Be("2");
         style.Get("flex-shrink").Should().Be("1");
-        style.Get("flex-basis").Should().Be("0");
+        style.Get("flex-basis").Should().Be("0", "flex: <grow> <shrink> sets flex-basis to 0");
     }
 
     [Fact]
@@ -464,8 +461,6 @@ public class CssShorthandExpanderTests
         style.Get("flex-direction").Should().Be("row");
         style.Get("flex-wrap").Should().Be("wrap-reverse");
     }
-
-    // === border-radius shorthand ===
 
     [Fact]
     public void BorderRadius_SingleValue_AllFourCorners()
@@ -530,7 +525,6 @@ public class CssShorthandExpanderTests
     [Fact]
     public void BorderRadius_SlashSyntax_StoresHorizontalAndVerticalRadii()
     {
-        // border-radius: 10px / 5px → each corner has "10px 5px" (h v)
         var style = new ComputedStyle();
         CssShorthandExpander.TryExpand("border-radius", "10px / 5px", style).Should().BeTrue();
 
@@ -544,18 +538,15 @@ public class CssShorthandExpanderTests
     [Fact]
     public void BorderRadius_SlashSyntax_DifferentPerSide()
     {
-        // border-radius: 20px 10px / 8px 4px
-        // TL=20px 8px, TR=10px 4px, BR=20px 8px, BL=10px 4px
         var style = new ComputedStyle();
         CssShorthandExpander.TryExpand("border-radius", "20px 10px / 8px 4px", style).Should().BeTrue();
 
-        style.Get("border-top-left-radius").Should().Be("20px 8px");
+        style.Get("border-top-left-radius").Should().Be("20px 8px",
+            "two values on each side of the slash alternate: top-left and bottom-right take the first");
         style.Get("border-top-right-radius").Should().Be("10px 4px");
         style.Get("border-bottom-right-radius").Should().Be("20px 8px");
         style.Get("border-bottom-left-radius").Should().Be("10px 4px");
     }
-
-    // === text-decoration shorthand ===
 
     [Fact]
     public void TextDecoration_Underline_SetsLine()
@@ -582,8 +573,6 @@ public class CssShorthandExpanderTests
         CssShorthandExpander.TryExpand("text-decoration", "none", style).Should().BeTrue();
         style.Get("text-decoration-line").Should().Be("none");
     }
-
-    // === place-items / place-self / place-content ===
 
     [Fact]
     public void PlaceItems_SingleValue_SetsAlignAndJustify()

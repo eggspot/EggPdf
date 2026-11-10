@@ -6,8 +6,6 @@ namespace EggPdf.Tests.Unit.Pdf;
 
 public class PdfGradientTests
 {
-    // ── repeating-linear-gradient ───────────────────────────────────────────
-
     [Fact]
     public void RepeatingLinearGradient_DoesNotReturnNull()
     {
@@ -24,8 +22,6 @@ public class PdfGradientTests
         result.Should().Contain("re f", "must paint filled rectangles");
     }
 
-    // ── repeating-radial-gradient ───────────────────────────────────────────
-
     [Fact]
     public void RepeatingRadialGradient_DoesNotReturnNull()
     {
@@ -39,11 +35,8 @@ public class PdfGradientTests
     {
         var result = PdfGradient.RenderRepeatingRadialGradient(
             "repeating-radial-gradient(red 20%, yellow 40%, blue 60%)", 0, 0, 100, 100);
-        // Radial gradient sets color with " rg" and paints circles
-        result.Should().Contain(" rg");
+        result.Should().Contain(" rg", "each repeating ring is painted in its own fill colour");
     }
-
-    // ── conic-gradient ──────────────────────────────────────────────────────
 
     [Fact]
     public void ConicGradient_DoesNotReturnNull()
@@ -59,8 +52,7 @@ public class PdfGradientTests
         var result = PdfConicGradient.Render(
             "conic-gradient(red, yellow, blue)", 10, 20, 80, 80);
         result.Should().NotBeNull();
-        // Conic gradient renders as filled pie sectors
-        result.Should().Contain(" f");
+        result.Should().Contain(" f", "a conic gradient is painted as filled pie sectors");
     }
 
     [Fact]

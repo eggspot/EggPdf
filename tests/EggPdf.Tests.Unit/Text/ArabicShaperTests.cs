@@ -4,11 +4,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Text;
 
-/// <summary>
-/// Arabic contextual shaping: joining-form selection (isolated/initial/medial/final) mapped
-/// onto Unicode Arabic Presentation Forms, lam-alef ligatures, and transparent-mark handling.
-/// Expected strings are exact -- the shaper is a pure string transform with no font dependency.
-/// </summary>
 public class ArabicShaperTests
 {
     [Fact]
@@ -46,15 +41,15 @@ public class ArabicShaperTests
     [Fact]
     public void Shape_RightJoiningLettersDoNotConnectForward()
     {
-        // ا (R) د (R) ب (D): neither alef nor dal joins the following letter.
-        ArabicShaper.Shape("ادب").Should().Be("ﺍﺩﺏ");
+        ArabicShaper.Shape("ادب").Should().Be("ﺍﺩﺏ",
+            "alef and dal join only the letter before them, never the one after");
     }
 
     [Fact]
     public void Shape_Kitab_MixesInitialMedialFinalAndIsolated()
     {
-        // ك ت ا ب : initial, medial, final (alef ends the join), isolated (after alef).
-        ArabicShaper.Shape("كتاب").Should().Be("ﻛﺘﺎﺏ");
+        ArabicShaper.Shape("كتاب").Should().Be("ﻛﺘﺎﺏ",
+            "kaf initial, teh medial, alef final ending the join, and the beh after the alef isolated");
     }
 
     [Fact]
@@ -78,8 +73,8 @@ public class ArabicShaperTests
     [Fact]
     public void Shape_HarakatAreTransparentToJoining()
     {
-        // ب + fatha + ب : the fatha must not break the join between the two beh letters.
-        ArabicShaper.Shape("بَب").Should().Be("ﺑَﺐ");
+        ArabicShaper.Shape("بَب").Should().Be("ﺑَﺐ",
+            "the fatha between the two behs is transparent and doesn't break their join");
     }
 
     [Fact]

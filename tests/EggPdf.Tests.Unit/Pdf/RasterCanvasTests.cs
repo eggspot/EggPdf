@@ -42,13 +42,11 @@ public class RasterCanvasTests
     public void FillPolygon_EdgePixel_HasPartialCoverageForAntiAliasing()
     {
         var canvas = new RasterCanvas(20, 20);
-        // A triangle with a diagonal edge crossing pixel (10,10) partially
-        var tri = new List<(float x, float y)> { (2, 2), (18, 2), (2, 18) };
-        canvas.FillPolygon(tri, 0, 0, 255, 255);
+        var triangleWithDiagonalThroughPixel10_9 = new List<(float x, float y)> { (2, 2), (18, 2), (2, 18) };
+        canvas.FillPolygon(triangleWithDiagonalThroughPixel10_9, 0, 0, 255, 255);
 
-        var edgePixel = GetPixel(canvas, 10, 9); // near the hypotenuse
-        // Should be neither fully 0 nor fully 255 for a pixel straddling the diagonal edge
-        (edgePixel.a > 0 && edgePixel.a < 255).Should().BeTrue(
+        var straddlingTheHypotenuse = GetPixel(canvas, 10, 9);
+        straddlingTheHypotenuse.a.Should().BeInRange((byte)1, (byte)254,
             "a pixel straddling a diagonal polygon edge should get fractional (anti-aliased) coverage");
     }
 

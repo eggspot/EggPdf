@@ -8,15 +8,8 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Text;
 
-/// <summary>
-/// OpenType fonts with PostScript outlines (CFF, CFF2). The synthetic font is assembled byte by byte so the
-/// charstring interpreter is exercised in CI; the Source Sans 3 tests run when the fonts are present
-/// (EGGPDF_TEST_CFF_DIR, or ~/cfftest) and compare against measurements taken in Chrome.
-/// </summary>
 public class CffFontTests
 {
-    // ── Synthetic CFF ────────────────────────────────────────────────────────
-
     private static byte[] Num(int v)
     {
         if (v >= -107 && v <= 107) return new[] { (byte)(v + 139) };
@@ -38,7 +31,8 @@ public class CffFontTests
     {
         var bytes = new List<byte> { (byte)(items.Length >> 8), (byte)items.Length };
         if (items.Length == 0) return bytes.ToArray();
-        bytes.Add(2); // offSize
+        const byte twoByteOffsets = 2;
+        bytes.Add(twoByteOffsets);
         int offset = 1;
         void Off(int v) { bytes.Add((byte)(v >> 8)); bytes.Add((byte)v); }
         Off(offset);
@@ -50,17 +44,22 @@ public class CffFontTests
     private static byte[] Be16(int v) => new[] { (byte)(v >> 8), (byte)v };
     private static byte[] Be32(uint v) => new[] { (byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v };
 
-    /// <summary>A four-glyph CFF font: .notdef, a rectangle (A), a subroutine-built square (B), a curve (C).</summary>
+    /// <summary>
+    /// A four-glyph CFF font, assembled byte by byte so the charstring interpreter is exercised in CI:
+    /// .notdef; a rectangle (A) at x 100..200, y 0..700 drawn with alternating h/v lines; a 300-unit square (B)
+    /// drawn by global subroutine 0 (300 hlineto, 300 vlineto); and one cubic curve (C) closed by an implicit line.
+    /// </summary>
     private static byte[] BuildSyntheticOtf()
     {
         const byte rmoveto = 21, hlineto = 6, vlineto = 7, rrcurveto = 8, callgsubr = 29, endchar = 14, ret = 11;
+        const int unitsPerEm = 1000, ascent = 800, numberOfHMetrics = 4;
 
         var glyphs = new[]
         {
             Cs(endchar),
-            Cs(100, 0, rmoveto, 100, 700, -100, hlineto, endchar),                 // x 100..200, y 0..700 (h,v,h alternate)
-            Cs(0, 0, rmoveto, -107, callgsubr, -300, hlineto, endchar),            // subr 0: 300 hlineto, 300 vlineto
-            Cs(0, 0, rmoveto, 100, 0, 0, 100, -100, 0, rrcurveto, endchar),        // one cubic, closed by an implicit line
+            Cs(100, 0, rmoveto, 100, 700, -100, hlineto, endchar),
+            Cs(0, 0, rmoveto, -107, callgsubr, -300, hlineto, endchar),
+            Cs(0, 0, rmoveto, 100, 0, 0, 100, -100, 0, rrcurveto, endchar),
         };
         var gsubrs = Index(Cs(300, hlineto, 300, vlineto, ret));
 
@@ -74,17 +73,17 @@ public class CffFontTests
         var cff = header.Concat(name).Concat(TopDict(charStringsAt)).Concat(strings).Concat(gsubrs).Concat(Index(glyphs)).ToArray();
 
         var head = new byte[54];
-        head[18] = 0x03; head[19] = 0xE8;                    // unitsPerEm 1000
+        head[18] = unitsPerEm >> 8; head[19] = unitsPerEm & 0xFF;
         var hhea = new byte[36];
-        hhea[5] = 0x20;                                      // ascent 800 (0x0320)
-        hhea[4] = 0x03;
-        hhea[34] = 0; hhea[35] = 4;                          // numberOfHMetrics
+        hhea[4] = ascent >> 8; hhea[5] = ascent & 0xFF;
+        hhea[34] = numberOfHMetrics >> 8; hhea[35] = numberOfHMetrics & 0xFF;
         var maxp = Be32(0x00005000).Concat(Be16(4)).ToArray();
         var hmtx = new List<byte>();
         foreach (int advance in new[] { 500, 400, 600, 500 }) { hmtx.AddRange(Be16(advance)); hmtx.AddRange(Be16(0)); }
 
+        const int cmapVersion = 0, encodingRecordCount = 1;
         var cmap = new List<byte>();
-        cmap.AddRange(Be16(0)); cmap.AddRange(Be16(1));                       // version, one record
+        cmap.AddRange(Be16(cmapVersion)); cmap.AddRange(Be16(encodingRecordCount));
         cmap.AddRange(Be16(3)); cmap.AddRange(Be16(10)); cmap.AddRange(Be32(12));
         cmap.AddRange(Be16(12)); cmap.AddRange(Be16(0)); cmap.AddRange(Be32(28)); cmap.AddRange(Be32(0)); cmap.AddRange(Be32(1));
         cmap.AddRange(Be32(65)); cmap.AddRange(Be32(67)); cmap.AddRange(Be32(1));
@@ -114,7 +113,7 @@ public class CffFontTests
         font.GetGlyphId('A').Should().Be(1);
         font.GetGlyphId('C').Should().Be(3);
         font.GetAdvanceWidth(2).Should().Be(600);
-        font.RawData[0].Should().Be(0); font.RawData[1].Should().Be(1); // 0x00010000: now a glyf-flavoured font
+        font.RawData.Take(4).Should().Equal(new byte[] { 0, 1, 0, 0 }, "the converted font is glyf-flavoured (sfnt version 0x00010000)");
     }
 
     [Fact]
@@ -143,8 +142,8 @@ public class CffFontTests
         var font = TtfParser.Parse(BuildSyntheticOtf())!;
         var points = GlyphOutlines.Get(font, 3).SelectMany(c => c).ToList();
 
-        // The cubic (0,0) (100,0) (100,100) (0,100) bulges to x = 75 at t = 0.5 and never passes 75.01
-        points.Max(p => p.x).Should().BeInRange(74.5f, 75.5f);
+        points.Max(p => p.x).Should().BeInRange(74.5f, 75.5f,
+            "the cubic (0,0) (100,0) (100,100) (0,100) bulges to x = 75 at t = 0.5 and never passes 75.01");
         points.Max(p => p.y).Should().BeApproximately(100f, 0.6f);
         points.Should().Contain(p => Math.Abs(p.y - 50f) < 3f && p.x > 70f);
     }
@@ -158,17 +157,18 @@ public class CffFontTests
         var act = () => TtfParser.Parse(data);
         act.Should().NotThrow();
 
-        // A corrupted CFF table is either rejected outright or yields a usable font, never a half-built one.
         var font = act();
         if (font != null)
         {
-            font.UnitsPerEm.Should().BeGreaterThan(0);
-            font.NumGlyphs.Should().BeGreaterThan(0);
+            font.UnitsPerEm.Should().BeGreaterThan(0, "a corrupted CFF table is rejected or yields a usable font, never a half-built one");
+            font.NumGlyphs.Should().BeGreaterThan(0, "a corrupted CFF table is rejected or yields a usable font, never a half-built one");
         }
     }
 
-    // ── Real fonts (skipped when absent) ─────────────────────────────────────
-
+    /// <summary>
+    /// A real font from EGGPDF_TEST_CFF_DIR (or ~/cfftest), or null when it isn't there; the tests that use it
+    /// compare against measurements taken in Chrome and are skipped on machines without the fonts.
+    /// </summary>
     private static byte[]? LoadFile(string name)
     {
         var dir = Environment.GetEnvironmentVariable("EGGPDF_TEST_CFF_DIR")
@@ -189,9 +189,9 @@ public class CffFontTests
         gid.Should().BeGreaterThan((ushort)0);
 
         var (xMin, yMin, xMax, yMax) = Bounds(font, gid);
-        (xMax - xMin).Should().BeInRange(70f, 110f);   // the vertical stem of a sans-serif capital I
+        (xMax - xMin).Should().BeInRange(70f, 110f, "the width of a sans-serif capital I is its vertical stem");
         yMin.Should().BeApproximately(0f, 1f);
-        yMax.Should().BeApproximately(660f, 5f);       // cap height
+        yMax.Should().BeApproximately(660f, 5f, "the cap height");
     }
 
     [Fact]
@@ -210,7 +210,6 @@ public class CffFontTests
         Stem(bold).Should().BeGreaterThan(Stem(regular) * 1.4f);
     }
 
-    // Stem of 'I' at 200px measured in Chrome (6, 17, 26, 35 px), in 1000-unit em
     [Theory]
     [InlineData(200, 30)]
     [InlineData(400, 85)]
@@ -230,6 +229,7 @@ public class CffFontTests
             var (xMin, _, xMax, _) = Bounds(instance, instance.GetGlyphId('I'));
             return xMax - xMin;
         }
-        Stem(weight).Should().BeApproximately((float)chromeStemUnits, 7f);
+        Stem(weight).Should().BeApproximately((float)chromeStemUnits, 7f,
+            "Chrome draws the 'I' stem 6, 17, 26 and 35px wide at 200px for these weights, which is these units of the 1000-unit em");
     }
 }

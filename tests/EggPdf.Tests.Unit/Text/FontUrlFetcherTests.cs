@@ -16,9 +16,8 @@ public class FontUrlFetcherTests
     [Fact]
     public void ParseFontSrcUrl_UrlWithFormatSuffix_ReturnsUrlOnly()
     {
-        // Google Fonts CSS emits: src: url(https://...ttf) format('truetype')
         FontUrlFetcher.ParseFontSrcUrl("url(https://fonts.gstatic.com/s/x.ttf) format('truetype')")
-            .Should().Be("https://fonts.gstatic.com/s/x.ttf");
+            .Should().Be("https://fonts.gstatic.com/s/x.ttf", "this is the src form Google Fonts CSS emits");
     }
 
     [Fact]
@@ -44,9 +43,8 @@ public class FontUrlFetcherTests
     [Fact]
     public void ParseFontSrcUrl_BareUrlWithFormat_ReturnsUrl()
     {
-        // The CSS parser unwraps url(...), leaving a bare URL + format(...)
         FontUrlFetcher.ParseFontSrcUrl("https://fonts.gstatic.com/s/x.ttf format('truetype')")
-            .Should().Be("https://fonts.gstatic.com/s/x.ttf");
+            .Should().Be("https://fonts.gstatic.com/s/x.ttf", "the CSS parser unwraps url(...), leaving a bare URL and format(...)");
     }
 
     [Fact]

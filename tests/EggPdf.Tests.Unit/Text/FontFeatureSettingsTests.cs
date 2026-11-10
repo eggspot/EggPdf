@@ -51,7 +51,7 @@ public class FontFeatureSettingsTests
     public void ParseActiveTags_MultipleTags_ReturnsOnlyActiveOnesSorted()
     {
         var result = FontFeatureSettings.ParseActiveTags("\"zero\" 1, \"liga\" 0, \"smcp\" on");
-        result.Should().Equal("smcp", "zero"); // sorted, "liga" excluded (off)
+        result.Should().Equal(new[] { "smcp", "zero" }, "the active tags come sorted, and \"liga\" 0 is off");
     }
 
     [Fact]

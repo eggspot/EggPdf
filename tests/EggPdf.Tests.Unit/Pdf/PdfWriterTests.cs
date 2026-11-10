@@ -1,5 +1,7 @@
+using System;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 using EggPdf.Pdf;
 using FluentAssertions;
 using Xunit;
@@ -8,11 +10,21 @@ namespace EggPdf.Tests.Unit.Pdf;
 
 public class PdfWriterTests
 {
+    private const float A4Width = 595.28f, A4Height = 841.89f;
+
+    private static string SecondTextObject(string pdfText)
+    {
+        var firstBt = pdfText.IndexOf("BT", StringComparison.Ordinal);
+        var secondBt = pdfText.IndexOf("BT", firstBt + 2, StringComparison.Ordinal);
+        secondBt.Should().BeGreaterThan(0, "there should be a second BT block");
+        return pdfText.Substring(secondBt);
+    }
+
     [Fact]
     public void EmptyDocument_ProducesValidPdf()
     {
         var doc = new PdfDocument();
-        doc.AddPage(595.28f, 841.89f); // A4
+        doc.AddPage(A4Width, A4Height);
 
         var bytes = doc.ToByteArray();
 
@@ -25,7 +37,7 @@ public class PdfWriterTests
     public void EmptyDocument_EndsWithEof()
     {
         var doc = new PdfDocument();
-        doc.AddPage(595.28f, 841.89f);
+        doc.AddPage(A4Width, A4Height);
 
         var bytes = doc.ToByteArray();
         var tail = Encoding.ASCII.GetString(bytes, bytes.Length - 6, 6).Trim();
@@ -36,7 +48,7 @@ public class PdfWriterTests
     public void EmptyDocument_HasXrefTable()
     {
         var doc = new PdfDocument();
-        doc.AddPage(595.28f, 841.89f);
+        doc.AddPage(A4Width, A4Height);
 
         var text = Encoding.ASCII.GetString(doc.ToByteArray());
         text.Should().Contain("xref");
@@ -48,7 +60,7 @@ public class PdfWriterTests
     public void Page_HasMediaBox()
     {
         var doc = new PdfDocument();
-        doc.AddPage(595.28f, 841.89f);
+        doc.AddPage(A4Width, A4Height);
 
         var text = Encoding.ASCII.GetString(doc.ToByteArray());
         text.Should().Contain("/MediaBox");
@@ -58,7 +70,7 @@ public class PdfWriterTests
     public void TextContent_AppearInContentStream()
     {
         var doc = new PdfDocument();
-        var page = doc.AddPage(595.28f, 841.89f);
+        var page = doc.AddPage(A4Width, A4Height);
         page.AddText("Hello World", 72, 720, "Helvetica", 12);
 
         var text = Encoding.ASCII.GetString(doc.ToByteArray());
@@ -71,23 +83,21 @@ public class PdfWriterTests
     public void Rectangle_AppearsInContentStream()
     {
         var doc = new PdfDocument();
-        var page = doc.AddPage(595.28f, 841.89f);
+        var page = doc.AddPage(A4Width, A4Height);
         page.AddRectangle(72, 700, 200, 50, 1.0f, 0, 0);
 
-        var bytes = doc.ToByteArray();
-        bytes.Should().NotBeEmpty();
-        // Should contain rectangle operator
-        var text = Encoding.ASCII.GetString(bytes);
-        text.Should().Contain("re");
+        var text = Encoding.ASCII.GetString(doc.ToByteArray());
+        text.Should().Contain("1.00 0.00 0.00 rg", "the rectangle is filled red");
+        text.Should().Contain("72.00 700.00 200.00 50.00 re f");
     }
 
     [Fact]
-    public void MultiplPages_AllPresent()
+    public void MultiplePages_AllPresent()
     {
         var doc = new PdfDocument();
-        doc.AddPage(595.28f, 841.89f);
-        doc.AddPage(595.28f, 841.89f);
-        doc.AddPage(595.28f, 841.89f);
+        doc.AddPage(A4Width, A4Height);
+        doc.AddPage(A4Width, A4Height);
+        doc.AddPage(A4Width, A4Height);
 
         var text = Encoding.ASCII.GetString(doc.ToByteArray());
         text.Should().Contain("/Count 3");
@@ -97,7 +107,7 @@ public class PdfWriterTests
     public void WriteToStream_MatchesToByteArray()
     {
         var doc = new PdfDocument();
-        var page = doc.AddPage(595.28f, 841.89f);
+        var page = doc.AddPage(A4Width, A4Height);
         page.AddText("Test", 72, 720, "Helvetica", 12);
 
         var byteResult = doc.ToByteArray();
@@ -106,7 +116,7 @@ public class PdfWriterTests
         doc.WriteTo(ms);
         var streamResult = ms.ToArray();
 
-        streamResult.Should().BeEquivalentTo(byteResult);
+        streamResult.Should().Equal(byteResult);
     }
 
     [Fact]
@@ -114,7 +124,7 @@ public class PdfWriterTests
     {
         var doc = new PdfDocument();
         doc.Title = "My Document";
-        doc.AddPage(595.28f, 841.89f);
+        doc.AddPage(A4Width, A4Height);
 
         var text = Encoding.ASCII.GetString(doc.ToByteArray());
         text.Should().Contain("My Document");
@@ -124,7 +134,7 @@ public class PdfWriterTests
     public void LinkAnnotation_Present()
     {
         var doc = new PdfDocument();
-        var page = doc.AddPage(595.28f, 841.89f);
+        var page = doc.AddPage(A4Width, A4Height);
         page.AddLink(72, 700, 200, 20, "https://example.com");
 
         var text = Encoding.ASCII.GetString(doc.ToByteArray());
@@ -135,25 +145,15 @@ public class PdfWriterTests
     [Fact]
     public void AddText_WithoutLetterSpacing_AlwaysEmitsTcZero()
     {
-        // Regression: Tc persists across BT/ET boundaries in PDF spec.
-        // A previous AddText with letterSpacing != 0 would "infect" all subsequent
-        // text with extra character spacing unless Tc is explicitly reset to 0.
         var doc = new PdfDocument();
         var page = doc.AddPage(595f, 842f);
-
-        // First call: non-zero letter-spacing sets Tc
         page.AddText("HEADER", 10, 800, "Helvetica", 14, letterSpacing: 2.25f);
-        // Second call: no letter-spacing — must explicitly reset Tc to 0
         page.AddText("Body text", 10, 780, "Helvetica", 12);
 
         var pdfText = Encoding.Latin1.GetString(doc.ToByteArray());
 
-        // Second BT block must contain "0.00 Tc" to reset character spacing
-        var firstBt = pdfText.IndexOf("BT");
-        var secondBt = pdfText.IndexOf("BT", firstBt + 2);
-        secondBt.Should().BeGreaterThan(0, "there should be a second BT block");
-        var secondBlock = pdfText.Substring(secondBt);
-        secondBlock.Should().Contain("0.00 Tc", "letter-spacing must be explicitly reset to 0");
+        SecondTextObject(pdfText).Should().Contain("0.00 Tc",
+            "Tc persists across BT/ET, so text without letter-spacing must reset it or it inherits the header's spacing");
     }
 
     [Fact]
@@ -161,46 +161,28 @@ public class PdfWriterTests
     {
         var doc = new PdfDocument();
         var page = doc.AddPage(595f, 842f);
-
         page.AddText("HEADER", 10, 800, "Helvetica", 14, wordSpacing: 5f);
         page.AddText("Body text", 10, 780, "Helvetica", 12);
 
         var pdfText = Encoding.Latin1.GetString(doc.ToByteArray());
 
-        var firstBt = pdfText.IndexOf("BT");
-        var secondBt = pdfText.IndexOf("BT", firstBt + 2);
-        secondBt.Should().BeGreaterThan(0, "there should be a second BT block");
-        var secondBlock = pdfText.Substring(secondBt);
-        secondBlock.Should().Contain("0.00 Tw", "word-spacing must be explicitly reset to 0");
+        SecondTextObject(pdfText).Should().Contain("0.00 Tw", "word-spacing must be explicitly reset to 0");
     }
 
     [Fact]
     public void AddTextCID_NoDuplicateTfOperator()
     {
-        // Regression: AddTextCID was emitting two consecutive Tf operators.
-        // The second one is redundant and may confuse PDF processors.
         var doc = new PdfDocument();
         var page = doc.AddPage(595f, 842f);
         page.AddTextCID(new ushort[] { 1, 2, 3 }, 10, 800, "Arial", 12);
 
         var pdfText = Encoding.Latin1.GetString(doc.ToByteArray());
-
-        // Extract content between BT and ET
-        var btIdx = pdfText.IndexOf("BT");
-        var etIdx = pdfText.IndexOf("ET", btIdx);
+        var btIdx = pdfText.IndexOf("BT", StringComparison.Ordinal);
         btIdx.Should().BeGreaterThan(0);
-        var block = pdfText.Substring(btIdx, etIdx - btIdx);
+        var etIdx = pdfText.IndexOf("ET", btIdx, StringComparison.Ordinal);
+        var textObject = pdfText.Substring(btIdx, etIdx - btIdx);
 
-        // Count standalone "Tf" tokens (preceded by space/number and followed by space/newline)
-        var tfCount = 0;
-        var search = 0;
-        while (true)
-        {
-            var idx = block.IndexOf("Tf", search);
-            if (idx < 0) break;
-            tfCount++;
-            search = idx + 2;
-        }
-        tfCount.Should().Be(1, "each BT block should have exactly one Tf operator");
+        Regex.Matches(textObject, @"\bTf\b").Count.Should().Be(1,
+            "a second, redundant Tf in the same text object may confuse PDF processors");
     }
 }

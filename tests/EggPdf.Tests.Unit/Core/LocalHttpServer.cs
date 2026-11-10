@@ -12,7 +12,8 @@ namespace EggPdf.Tests.Unit.Core;
 /// <summary>
 /// A minimal loopback HTTP/1.1 server for resolver tests: every request gets the response the handler
 /// returns for its path, written raw so tests control status, headers and body framing exactly
-/// (e.g. a body with no Content-Length, or a server that never answers).
+/// (e.g. a body with no Content-Length, or a server that never answers). A client that gives up
+/// mid-response (a size cap, a timeout) is expected in several tests, so write errors are ignored.
 /// </summary>
 internal sealed class LocalHttpServer : IDisposable
 {
@@ -93,7 +94,6 @@ internal sealed class LocalHttpServer : IDisposable
             }
             catch
             {
-                // Client gave up (size cap, timeout) -- expected in several tests
             }
         }
     }

@@ -7,13 +7,11 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Text;
 
-/// <summary>
-/// A subset's hmtx must carry each glyph's real left side bearing. Rasterizers place a TrueType
-/// outline at (xMin - lsb); writing 0 shifts any glyph whose outline doesn't start at x=0 --
-/// worst for zero-width combining marks, whose outlines sit at large negative x.
-/// </summary>
 public class TtfSubsetterHmtxTests
 {
+    private const int ThaiKoKai = 0x0E01;
+    private const int ThaiSaraI = 0x0E34;
+
     private static short LeftSideBearing(byte[] data, ushort gid)
     {
         var tables = SfntDirectory.Read(data);
@@ -30,17 +28,17 @@ public class TtfSubsetterHmtxTests
         if (!File.Exists(path)) return;
 
         var font = TtfParser.Parse(File.ReadAllBytes(path))!;
-        // sara i (U+0E34) is a zero-width mark whose outline lies left of its origin.
-        var subset = TtfSubsetter.Subset(font, new[] { 0x0E01, 0x0E34 })!;
+        var subset = TtfSubsetter.Subset(font, new[] { ThaiKoKai, ThaiSaraI })!;
 
-        foreach (int cp in new[] { 0x0E01, 0x0E34 })
+        foreach (int cp in new[] { ThaiKoKai, ThaiSaraI })
         {
             ushort oldGid = font.GetGlyphId(cp);
             ushort newGid = subset.OldToNewGlyphId[oldGid];
             LeftSideBearing(subset.FontData, newGid).Should().Be(LeftSideBearing(font.RawData, oldGid),
-                $"U+{cp:X4} must keep its original left side bearing in the subset");
+                $"U+{cp:X4} must keep its original left side bearing: rasterizers place an outline at (xMin - lsb), " +
+                "so writing 0 shifts every glyph whose outline doesn't start at x=0");
         }
-        LeftSideBearing(font.RawData, font.GetGlyphId(0x0E34)).Should().NotBe(0,
-            "the test needs a glyph with a non-zero lsb to be meaningful");
+        LeftSideBearing(font.RawData, font.GetGlyphId(ThaiSaraI)).Should().NotBe(0,
+            "sara i is a zero-width mark whose outline lies left of its origin, the glyph a lost lsb shifts worst");
     }
 }

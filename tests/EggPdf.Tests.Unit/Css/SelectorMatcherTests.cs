@@ -69,8 +69,7 @@ public class SelectorMatcherTests
         var span = doc.Body!.FindByTag("span");
         span.Should().NotBeNull();
 
-        // span is a descendant of div
-        SelectorMatcher.Matches("div span", span!).Should().BeTrue();
+        SelectorMatcher.Matches("div span", span!).Should().BeTrue("the span is a descendant of the div");
         SelectorMatcher.Matches("p span", span).Should().BeTrue();
         SelectorMatcher.Matches("body span", span).Should().BeTrue();
         SelectorMatcher.Matches("h1 span", span).Should().BeFalse();
@@ -84,10 +83,8 @@ public class SelectorMatcherTests
         span.Should().NotBeNull();
 
         SelectorMatcher.Matches("div > span", span!).Should().BeTrue();
-        SelectorMatcher.Matches("body > span", span).Should().BeFalse(); // span's parent is div, not body
+        SelectorMatcher.Matches("body > span", span).Should().BeFalse("the span's parent is the div, not the body");
     }
-
-    // --- Sibling combinators (NEW) ---
 
     [Fact]
     public void AdjacentSiblingCombinator_MatchesImmediatelyAfter()
@@ -97,11 +94,8 @@ public class SelectorMatcherTests
         var p1 = div.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
         var p2 = div.ChildNodes.OfType<HtmlElement>().Last(e => e.TagName == "p");
 
-        // p immediately after h1
-        SelectorMatcher.Matches("h1 + p", p1).Should().BeTrue();
-        // second p is after first p, not h1
-        SelectorMatcher.Matches("h1 + p", p2).Should().BeFalse();
-        // second p is after first p
+        SelectorMatcher.Matches("h1 + p", p1).Should().BeTrue("the first p comes right after the h1");
+        SelectorMatcher.Matches("h1 + p", p2).Should().BeFalse("the second p comes right after the first p, not the h1");
         SelectorMatcher.Matches("p + p", p2).Should().BeTrue();
     }
 
@@ -112,8 +106,7 @@ public class SelectorMatcherTests
         var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
         var p2 = div.ChildNodes.OfType<HtmlElement>().Last(e => e.TagName == "p");
 
-        // second p is a general sibling of h1 (not adjacent, but after)
-        SelectorMatcher.Matches("h1 ~ p", p2).Should().BeTrue();
+        SelectorMatcher.Matches("h1 ~ p", p2).Should().BeTrue("the second p follows the h1, though not right after it");
     }
 
     [Fact]
@@ -123,8 +116,7 @@ public class SelectorMatcherTests
         var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
         var p = div.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
 
-        // p is BEFORE h1, not after
-        SelectorMatcher.Matches("h1 ~ p", p).Should().BeFalse();
+        SelectorMatcher.Matches("h1 ~ p", p).Should().BeFalse("the p comes before the h1, not after it");
     }
 
     [Fact]
@@ -137,8 +129,6 @@ public class SelectorMatcherTests
         SelectorMatcher.Matches("h2.sub + p", p).Should().BeTrue();
         SelectorMatcher.Matches("h2.other + p", p).Should().BeFalse();
     }
-
-    // --- :not() pseudo-class ---
 
     [Fact]
     public void Not_ExcludesMatchingElements()
@@ -164,8 +154,6 @@ public class SelectorMatcherTests
         SelectorMatcher.Matches(":not(p)", p).Should().BeFalse();
     }
 
-    // --- :nth-child() ---
-
     [Fact]
     public void NthChild_Number()
     {
@@ -186,10 +174,10 @@ public class SelectorMatcherTests
         var ul = doc.Body!.FindByTag("ul");
         var items = ul!.ChildNodes.OfType<HtmlElement>().ToList();
 
-        SelectorMatcher.Matches("li:nth-child(odd)", items[0]).Should().BeTrue();  // 1st
-        SelectorMatcher.Matches("li:nth-child(odd)", items[1]).Should().BeFalse(); // 2nd
-        SelectorMatcher.Matches("li:nth-child(even)", items[1]).Should().BeTrue(); // 2nd
-        SelectorMatcher.Matches("li:nth-child(even)", items[2]).Should().BeFalse(); // 3rd
+        SelectorMatcher.Matches("li:nth-child(odd)", items[0]).Should().BeTrue("the 1st item is odd");
+        SelectorMatcher.Matches("li:nth-child(odd)", items[1]).Should().BeFalse("the 2nd item is even");
+        SelectorMatcher.Matches("li:nth-child(even)", items[1]).Should().BeTrue("the 2nd item is even");
+        SelectorMatcher.Matches("li:nth-child(even)", items[2]).Should().BeFalse("the 3rd item is odd");
     }
 
     [Fact]
@@ -199,8 +187,7 @@ public class SelectorMatcherTests
         var ul = doc.Body!.FindByTag("ul");
         var items = ul!.ChildNodes.OfType<HtmlElement>().ToList();
 
-        // 2n matches 2, 4 (even)
-        SelectorMatcher.Matches("li:nth-child(2n)", items[0]).Should().BeFalse();
+        SelectorMatcher.Matches("li:nth-child(2n)", items[0]).Should().BeFalse("2n matches the even positions 2, 4, ...");
         SelectorMatcher.Matches("li:nth-child(2n)", items[1]).Should().BeTrue();
         SelectorMatcher.Matches("li:nth-child(2n)", items[3]).Should().BeTrue();
     }
@@ -212,13 +199,10 @@ public class SelectorMatcherTests
         var ul = doc.Body!.FindByTag("ul");
         var items = ul!.ChildNodes.OfType<HtmlElement>().ToList();
 
-        // 2n+1 matches 1, 3 (odd)
-        SelectorMatcher.Matches("li:nth-child(2n+1)", items[0]).Should().BeTrue();
+        SelectorMatcher.Matches("li:nth-child(2n+1)", items[0]).Should().BeTrue("2n+1 matches the odd positions 1, 3, ...");
         SelectorMatcher.Matches("li:nth-child(2n+1)", items[1]).Should().BeFalse();
         SelectorMatcher.Matches("li:nth-child(2n+1)", items[2]).Should().BeTrue();
     }
-
-    // --- :nth-last-child() ---
 
     [Fact]
     public void NthLastChild_MatchesFromEnd()
@@ -227,12 +211,10 @@ public class SelectorMatcherTests
         var ul = doc.Body!.FindByTag("ul");
         var items = ul!.ChildNodes.OfType<HtmlElement>().ToList();
 
-        SelectorMatcher.Matches("li:nth-last-child(1)", items[2]).Should().BeTrue(); // last
+        SelectorMatcher.Matches("li:nth-last-child(1)", items[2]).Should().BeTrue("the last item is 1st from the end");
         SelectorMatcher.Matches("li:nth-last-child(2)", items[1]).Should().BeTrue();
-        SelectorMatcher.Matches("li:nth-last-child(3)", items[0]).Should().BeTrue(); // first
+        SelectorMatcher.Matches("li:nth-last-child(3)", items[0]).Should().BeTrue("the first of 3 items is 3rd from the end");
     }
-
-    // --- :nth-of-type() ---
 
     [Fact]
     public void NthOfType_MatchesByType()
@@ -247,8 +229,6 @@ public class SelectorMatcherTests
         SelectorMatcher.Matches("p:nth-of-type(1)", ps[0]).Should().BeTrue();
         SelectorMatcher.Matches("p:nth-of-type(2)", ps[1]).Should().BeTrue();
     }
-
-    // --- :first-of-type, :last-of-type ---
 
     [Fact]
     public void FirstOfType_MatchesFirstOfTag()
@@ -271,8 +251,6 @@ public class SelectorMatcherTests
         SelectorMatcher.Matches("span:last-of-type", spans[1]).Should().BeTrue();
         SelectorMatcher.Matches("span:last-of-type", spans[0]).Should().BeFalse();
     }
-
-    // --- :only-child, :only-of-type ---
 
     [Fact]
     public void OnlyChild_MatchesWhenSoleChild()
@@ -304,8 +282,6 @@ public class SelectorMatcherTests
         SelectorMatcher.Matches("p:only-of-type", p).Should().BeTrue();
     }
 
-    // --- :is() and :where() ---
-
     [Fact]
     public void Is_MatchesAny()
     {
@@ -319,8 +295,6 @@ public class SelectorMatcherTests
         SelectorMatcher.Matches(":is(h1, h2)", h2).Should().BeTrue();
         SelectorMatcher.Matches(":is(h1, h2)", p).Should().BeFalse();
     }
-
-    // --- Attribute selector operators ---
 
     [Fact]
     public void AttributeSelector_Exists()
@@ -394,8 +368,6 @@ public class SelectorMatcherTests
         SelectorMatcher.Matches("[lang|='fr']", div).Should().BeFalse();
     }
 
-    // --- Pseudo-class: existing tests ---
-
     [Fact]
     public void PseudoClass_FirstChild()
     {
@@ -430,8 +402,6 @@ public class SelectorMatcherTests
         SelectorMatcher.Matches("input:enabled", input).Should().BeFalse();
     }
 
-    // --- Specificity ---
-
     [Fact]
     public void Specificity_Calculated()
     {
@@ -464,13 +434,11 @@ public class SelectorMatcherTests
     [Fact]
     public void Specificity_SiblingCombinators()
     {
-        // Combinators don't add specificity; only their compound selectors do
-        SelectorMatcher.CalculateSpecificity("h1 + p").Should().Be((0, 0, 2));
+        SelectorMatcher.CalculateSpecificity("h1 + p").Should().Be((0, 0, 2),
+            "combinators add no specificity; only their compound selectors do");
         SelectorMatcher.CalculateSpecificity("h1 ~ p").Should().Be((0, 0, 2));
         SelectorMatcher.CalculateSpecificity("div > p + span").Should().Be((0, 0, 3));
     }
-
-    // --- Comma-separated selector list ---
 
     [Fact]
     public void SelectorList_MatchesAny()
@@ -482,8 +450,6 @@ public class SelectorMatcherTests
         SelectorMatcher.Matches("h1, p", h1!).Should().BeTrue();
         SelectorMatcher.Matches("h1, p", p!).Should().BeTrue();
     }
-
-    // --- Form state pseudo-classes ---
 
     [Fact]
     public void PseudoClass_Required_MatchesRequiredAttribute()
@@ -545,28 +511,24 @@ public class SelectorMatcherTests
         SelectorMatcher.Matches(":lang(fr)", p).Should().BeFalse();
     }
 
-    // --- Edge cases ---
-
     [Fact]
     public void InvalidSelector_ReturnsFalse()
     {
         var doc = Doc("<div></div>");
         var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First();
 
-        // Invalid selectors should return false, not throw
-        SelectorMatcher.Matches("", div).Should().BeFalse();
+        SelectorMatcher.Matches("", div).Should().BeFalse("an invalid selector matches nothing instead of throwing");
         SelectorMatcher.Matches("   ", div).Should().BeFalse();
     }
 
     [Fact]
     public void ComplexSelector_DescendantPlusSibling()
     {
-        // div > h1 + p means: p that is adjacent sibling of h1, where h1 is direct child of div
         var doc = Doc("<div><h1>Title</h1><p>Text</p></div>");
         var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
         var p = div.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
 
-        SelectorMatcher.Matches("div > h1 + p", p).Should().BeTrue();
+        SelectorMatcher.Matches("div > h1 + p", p).Should().BeTrue("the p directly follows an h1 that is a direct child of the div");
     }
 
     [Fact]
@@ -639,13 +601,13 @@ public class SelectorMatcherTests
         var doc = Doc("<div><p>one</p><p class='highlight'>two</p><p class='highlight'>three</p></div>");
         var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
         var children = div.ChildNodes.OfType<HtmlElement>().ToList();
-        var p1 = children[0]; // non-highlight
-        var p2 = children[1]; // first highlight
-        var p3 = children[2]; // second highlight
+        var plain = children[0];
+        var firstHighlight = children[1];
+        var secondHighlight = children[2];
 
-        SelectorMatcher.Matches("p:nth-child(1 of .highlight)", p2).Should().BeTrue("p2 is first .highlight child");
-        SelectorMatcher.Matches("p:nth-child(1 of .highlight)", p1).Should().BeFalse("p1 is not .highlight");
-        SelectorMatcher.Matches("p:nth-child(2 of .highlight)", p3).Should().BeTrue("p3 is second .highlight child");
+        SelectorMatcher.Matches("p:nth-child(1 of .highlight)", firstHighlight).Should().BeTrue("it is the first .highlight child");
+        SelectorMatcher.Matches("p:nth-child(1 of .highlight)", plain).Should().BeFalse("it is not .highlight");
+        SelectorMatcher.Matches("p:nth-child(2 of .highlight)", secondHighlight).Should().BeTrue("it is the second .highlight child");
     }
 
     [Fact]
@@ -655,8 +617,7 @@ public class SelectorMatcherTests
         var ul = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "ul");
         var items = ul.ChildNodes.OfType<HtmlElement>().ToList();
 
-        // Among the .a items, the first is odd (position 1) and the second is even (position 2)
-        SelectorMatcher.Matches("li:nth-child(odd of .a)", items[0]).Should().BeTrue();
+        SelectorMatcher.Matches("li:nth-child(odd of .a)", items[0]).Should().BeTrue("among the .a items, the first is at odd position 1");
         SelectorMatcher.Matches("li:nth-child(odd of .a)", items[1]).Should().BeFalse("it isn't in the .a set at all");
         SelectorMatcher.Matches("li:nth-child(odd of .a)", items[2]).Should().BeFalse("second of the .a items");
         SelectorMatcher.Matches("li:nth-child(even of .a)", items[2]).Should().BeTrue();
@@ -665,19 +626,17 @@ public class SelectorMatcherTests
     [Fact]
     public void AttributeSelector_WordMatch_MultipleSpaces_EdgeCases()
     {
-        // Regression guard for allocation-free ~= word matching.
         var doc = Doc("<div data-tags='alpha beta gamma'></div>");
         var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First();
 
-        SelectorMatcher.Matches("[data-tags~='alpha']", div).Should().BeTrue();  // first word
-        SelectorMatcher.Matches("[data-tags~='beta']",  div).Should().BeTrue();  // middle word
-        SelectorMatcher.Matches("[data-tags~='gamma']", div).Should().BeTrue();  // last word
-        SelectorMatcher.Matches("[data-tags~='alph']",  div).Should().BeFalse(); // partial — must not match
-        SelectorMatcher.Matches("[data-tags~='delta']", div).Should().BeFalse(); // absent word
+        SelectorMatcher.Matches("[data-tags~='alpha']", div).Should().BeTrue("the first word, found by allocation-free ~= matching");
+        SelectorMatcher.Matches("[data-tags~='beta']",  div).Should().BeTrue("the middle word");
+        SelectorMatcher.Matches("[data-tags~='gamma']", div).Should().BeTrue("the last word");
+        SelectorMatcher.Matches("[data-tags~='alph']",  div).Should().BeFalse("a partial word must not match");
+        SelectorMatcher.Matches("[data-tags~='delta']", div).Should().BeFalse("an absent word");
     }
 }
 
-// Helper extension for tests
 internal static class HtmlElementExtensions
 {
     public static HtmlElement? FindByTag(this HtmlNode node, string tagName)

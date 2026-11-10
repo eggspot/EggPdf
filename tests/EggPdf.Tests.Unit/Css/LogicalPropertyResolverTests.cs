@@ -4,15 +4,8 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Css;
 
-/// <summary>
-/// Tests for CSS Logical Properties Level 1 sub-properties beyond margin/padding/size/
-/// text-align (already covered by EggPdf.Tests.Layout.LogicalPropertyTests): border color/
-/// style, logical border-radius corners, and float:inline-start/inline-end.
-/// </summary>
 public class LogicalPropertyResolverTests
 {
-    // ── border-inline/block-*-color / -style ────────────────────────────────────
-
     [Fact]
     public void BorderInlineStartColor_LTR_MapsToBorderLeftColor()
     {
@@ -49,8 +42,6 @@ public class LogicalPropertyResolverTests
         style.Get("border-top-color").Should().Be("blue");
     }
 
-    // ── logical border-radius corners ───────────────────────────────────────────
-
     [Fact]
     public void BorderStartStartRadius_LTR_MapsToTopLeft()
     {
@@ -63,12 +54,11 @@ public class LogicalPropertyResolverTests
     [Fact]
     public void BorderStartStartRadius_RTL_MapsToTopRight()
     {
-        // In RTL, the inline-start (logical) edge is the physical right edge, so the
-        // start-start corner (block-start + inline-start) becomes top-right, not top-left.
         var style = new ComputedStyle();
         style.Set("border-start-start-radius", "8px");
         LogicalPropertyResolver.Resolve(style, isRTL: true);
-        style.Get("border-top-right-radius").Should().Be("8px");
+        style.Get("border-top-right-radius").Should().Be("8px",
+            "in RTL the inline-start edge is the physical right, so the block-start inline-start corner is top-right");
     }
 
     [Fact]
@@ -79,8 +69,6 @@ public class LogicalPropertyResolverTests
         LogicalPropertyResolver.Resolve(style, isRTL: true);
         style.Get("border-bottom-left-radius").Should().Be("5px");
     }
-
-    // ── float: inline-start / inline-end ────────────────────────────────────────
 
     [Fact]
     public void FloatInlineStart_LTR_ResolvesToLeft()

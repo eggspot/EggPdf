@@ -9,16 +9,14 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Text;
 
-/// <summary>
-/// Variable-font instancing, checked against Chrome using Windows' Bahnschrift (wght 300-700, wdth 75-100).
-/// Tests return early on machines that don't have the font. The reference numbers were measured in Edge:
-/// the width of a vertical stem ('I' at 400px) at each weight, and text widths at 1000px. Weight 650 lies between
-/// masters, so it exercises avar remapping and tuple interpolation.
-/// </summary>
 public class VariableFontInstancerTests
 {
     private static string FontPath(string file) => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), file);
 
+    /// <summary>
+    /// An installed font, or null so a test returns early where it's missing. The tests use Windows'
+    /// Bahnschrift (wght 300-700, wdth 75-100), with reference numbers measured in Chrome and Edge.
+    /// </summary>
     private static FontData? Load(string file)
     {
         var path = FontPath(file);
@@ -82,7 +80,8 @@ public class VariableFontInstancerTests
         var (xMin, _, xMax, _) = GlyphBox(instance, instance.GetGlyphId('I'));
 
         ((xMax - xMin) * 400.0 / instance.UnitsPerEm).Should().BeApproximately(chromeStemPx, 0.1,
-            $"the 'I' stem of Bahnschrift at wght {weight}, measured in Chrome at 400px");
+            $"the 'I' stem of Bahnschrift at wght {weight}, measured in Chrome at 400px; 650 lies between masters, " +
+            "so it exercises avar remapping and tuple interpolation");
     }
 
     [Fact]

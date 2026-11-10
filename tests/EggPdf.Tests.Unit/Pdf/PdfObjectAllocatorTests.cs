@@ -5,12 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Pdf;
 
-/// <summary>
-/// PdfObjectAllocator replaces a hand-incremented "nextObj" counter that
-/// previously threaded through PdfDocument.WriteTo by hand — a forgotten
-/// increment there would silently misnumber every object written after it.
-/// These tests pin the loud-failure behavior that replaces that silence.
-/// </summary>
 public class PdfObjectAllocatorTests
 {
     [Fact]
@@ -39,12 +33,14 @@ public class PdfObjectAllocatorTests
     public void RecordOffset_ForNeverAllocatedObject_ThrowsInsteadOfSilentlyAccepting()
     {
         var alloc = new PdfObjectAllocator();
-        alloc.Allocate(); // only object 1 exists
+        alloc.Allocate();
+        const int neverAllocated = 5;
 
-        var act = () => alloc.RecordOffset(5, 999);
+        var act = () => alloc.RecordOffset(neverAllocated, 999);
 
         act.Should().Throw<InvalidOperationException>(
-            "an offset for an object number nothing ever allocated must fail loudly, not produce a silently wrong xref entry");
+            "an offset for an object number nothing ever allocated must fail loudly, not produce a silently wrong " +
+            "xref entry the way a forgotten hand-incremented object counter misnumbered every later object");
     }
 
     [Fact]
@@ -73,21 +69,19 @@ public class PdfObjectAllocatorTests
     [Fact]
     public void ManyAllocations_EachOffsetIsIndependentlyCorrect()
     {
-        // Stress the common case of a large document: hundreds of objects,
-        // each recorded once, none colliding or leaking into another's slot.
         var alloc = new PdfObjectAllocator();
-        const int n = 500;
-        for (int i = 1; i <= n; i++)
+        const int objectsInALargeDocument = 500;
+        for (int i = 1; i <= objectsInALargeDocument; i++)
         {
             int obj = alloc.Allocate();
             obj.Should().Be(i);
             alloc.RecordOffset(obj, i * 37L);
         }
 
-        for (int i = 1; i <= n; i++)
+        for (int i = 1; i <= objectsInALargeDocument; i++)
         {
             alloc.TryGetOffset(i, out long offset).Should().BeTrue();
-            offset.Should().Be(i * 37L);
+            offset.Should().Be(i * 37L, "no offset collides with or leaks into another object's slot");
         }
     }
 }

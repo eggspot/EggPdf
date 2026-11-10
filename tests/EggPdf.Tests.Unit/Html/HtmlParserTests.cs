@@ -33,12 +33,10 @@ public class HtmlParserTests
     [Fact]
     public void HtmlTag_AttributesPreserved_EvenWhenRootIsSynthesizedFirst()
     {
-        // No literal <html> tag -- the tree builder synthesizes the root when it sees <body>,
-        // before any <html ...> token exists to read attributes from. A document that still
-        // opens with <html lang="..."> despite malformed nesting elsewhere should keep working.
         var doc = Parse("<body><p>x</p></body><html lang=\"fr\"></html>");
 
-        doc.DocumentElement!.GetAttribute("lang").Should().Be("fr");
+        doc.DocumentElement!.GetAttribute("lang").Should().Be("fr",
+            "the tree builder synthesizes the root at <body>, before the <html> token, and must still copy its attributes over");
     }
 
     [Fact]
@@ -69,8 +67,6 @@ public class HtmlParserTests
         doc.DocumentElement.Should().NotBeNull();
         doc.Head.Should().NotBeNull();
         doc.Body.Should().NotBeNull();
-
-        // <p> should be inside <body>
         doc.Body!.ChildNodes.OfType<HtmlElement>().Should().Contain(e => e.TagName == "p");
     }
 
@@ -125,12 +121,11 @@ public class HtmlParserTests
     [Fact]
     public void ParagraphsImplicitlyClose()
     {
-        // <p> is implicitly closed by another <p>
         var doc = Parse("<p>First<p>Second");
 
         var body = doc.Body!;
         var paragraphs = body.ChildNodes.OfType<HtmlElement>().Where(e => e.TagName == "p").ToList();
-        paragraphs.Should().HaveCount(2);
+        paragraphs.Should().HaveCount(2, "a <p> start tag closes the open paragraph, so they are siblings");
         (paragraphs[0].ChildNodes[0] as HtmlTextNode)!.Data.Should().Be("First");
         (paragraphs[1].ChildNodes[0] as HtmlTextNode)!.Data.Should().Be("Second");
     }
@@ -144,9 +139,8 @@ public class HtmlParserTests
         var table = body.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "table");
         table.Should().NotBeNull();
 
-        // Should have tbody (implicitly created) containing tr
         var tbody = table.ChildNodes.OfType<HtmlElement>().FirstOrDefault(e => e.TagName == "tbody");
-        tbody.Should().NotBeNull();
+        tbody.Should().NotBeNull("a <tr> directly in a <table> gets an implied <tbody>");
 
         var tr = tbody!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "tr");
         var td = tr.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "td");
@@ -208,12 +202,12 @@ public class HtmlParserTests
     [Fact]
     public void NoscriptContent_Present()
     {
-        // We don't execute JS, so noscript content should be in the DOM
         var doc = Parse("<body><noscript>JS disabled</noscript></body>");
 
         var body = doc.Body!;
         var noscript = body.ChildNodes.OfType<HtmlElement>().FirstOrDefault(e => e.TagName == "noscript");
-        noscript.Should().NotBeNull();
+        noscript.Should().NotBeNull("scripts never run, so <noscript> content belongs in the DOM");
+        noscript!.ChildNodes.OfType<HtmlTextNode>().Should().ContainSingle().Which.Data.Should().Be("JS disabled");
     }
 
     [Fact]
@@ -229,7 +223,6 @@ public class HtmlParserTests
     [Fact]
     public void NeverThrows_OnMalformedInput()
     {
-        // The parser must be infallible
         var malformedInputs = new[]
         {
             "<",
@@ -251,9 +244,8 @@ public class HtmlParserTests
         foreach (var input in malformedInputs)
         {
             var act = () => Parse(input);
-            act.Should().NotThrow($"input '{input}' should not cause an exception");
+            act.Should().NotThrow($"the parser is infallible, so input '{input}' must not throw");
 
-            // Even garbage yields a normalized document: html > head + body
             var document = act();
             document.Should().NotBeNull();
             document.Body.Should().NotBeNull($"the tree builder always synthesizes a body for '{input}'");

@@ -5,9 +5,9 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Text;
 
-/// <summary>Syllable-boundary break opportunities for Lao, Khmer and Myanmar (no spaces between words).</summary>
 public class SpacelessLineBreakerTests
 {
+    private static readonly string KhmerCoeng = ((char)0x17D2).ToString();
     private const string Khmer = "ខ្ញុំស្រឡាញ់ប្រទេសកម្ពុជាហើយខ្ញុំចូលចិត្តភាសាខ្មែរ";
     private const string Myanmar = "မြန်မာဘာသာစကားကိုလေ့လာပါသည်";
     private const string Lao = "ຂ້ອຍຮັກປະເທດລາວແລະພາສາລາວ";
@@ -60,26 +60,25 @@ public class SpacelessLineBreakerTests
     [Fact]
     public void Khmer_NeverSplitsACoengCluster()
     {
-        // ្ (coeng) glues the next consonant under the previous one: neither side may be split off
         foreach (var part in SpacelessLineBreaker.Split(Khmer))
         {
-            part.Should().NotStartWith("្");
-            part.Should().NotEndWith("្", "a trailing coeng would separate it from its subscript consonant");
+            part.Should().NotStartWith(KhmerCoeng, "the coeng glues the next consonant under the previous one");
+            part.Should().NotEndWith(KhmerCoeng, "a trailing coeng would separate it from its subscript consonant");
         }
     }
 
     [Fact]
     public void Khmer_KeepsCodaConsonantWithItsSyllable()
     {
-        // "ក្នុង" ends in the coda consonant ង -- it must not be split off as if it started a new syllable
-        SpacelessLineBreaker.Split("ក្នុង").Should().HaveCount(1);
+        SpacelessLineBreaker.Split("ក្នុង").Should().HaveCount(1,
+            "the word ends in a coda consonant, which must not be split off as if it began a new syllable");
     }
 
     [Fact]
     public void Myanmar_KeepsAsatFinalConsonantWithItsSyllable()
     {
-        // "ကျွန်" = consonant + medials + န + asat: one syllable
-        SpacelessLineBreaker.Split("ကျွန်").Should().HaveCount(1);
+        SpacelessLineBreaker.Split("ကျွန်").Should().HaveCount(1,
+            "a consonant, its medials and a final consonant killed by asat are one syllable");
         SpacelessLineBreaker.Split("ကျွန်တော်").Count.Should().BeGreaterThan(1, "the second syllable begins at တ");
     }
 

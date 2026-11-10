@@ -60,10 +60,9 @@ public class FileResourceResolverTests
         {
             var resolver = new FileResourceResolver(tempDir);
 
-            // Attempt path traversal - should be rejected
             var result = await resolver.ResolveAsync("../../etc/passwd", ResourceType.Other);
 
-            result.Should().BeNull();
+            result.Should().BeNull("a path that climbs out of the base directory is rejected");
         }
         finally
         {

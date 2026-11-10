@@ -4,7 +4,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Svg;
 
-/// <summary>feTurbulence, feConvolveMatrix, feDisplacementMap, feTile, feDiffuse/SpecularLighting.</summary>
 public class SvgFilterAdvancedTests
 {
     private static SvgElement El(string tag, params (string k, string v)[] attrs)
@@ -40,8 +39,6 @@ public class SvgFilterAdvancedTests
         return new[] { img.Px[i], img.Px[i + 1], img.Px[i + 2], img.Px[i + 3] };
     }
 
-    // ── feTurbulence ─────────────────────────────────────────────────────────
-
     [Fact]
     public void Turbulence_IsDeterministicForASeed_AndDiffersBetweenSeeds()
     {
@@ -65,7 +62,8 @@ public class SvgFilterAdvancedTests
         {
             float alpha = result.Px[i];
             if (alpha <= 0f) continue;
-            float value = result.Px[i - 3] / alpha; // straight red
+            float straightRed = result.Px[i - 3] / alpha;
+            float value = straightRed;
             sum += value; min = System.Math.Min(min, value); max = System.Math.Max(max, value); n++;
         }
         (sum / n).Should().BeApproximately(0.5, 0.12, "fractal noise is (noise + 1) / 2");
@@ -85,13 +83,10 @@ public class SvgFilterAdvancedTests
     {
         var f = Filter(El("feturbulence", ("type", "turbulence"), ("basefrequency", "0.07"), ("stitchtiles", "stitch"), ("x", "0"), ("y", "0"), ("width", "40"), ("height", "40")));
         var r = f.Run(new FilterImage(40, 40), Ctx());
-        // With stitching the lattice wraps every tile, so column 0 continues from column 39
         float step = System.Math.Abs(At(r, 39, 10)[0] - At(r, 38, 10)[0]);
         float wrap = System.Math.Abs(At(r, 0, 10)[0] - At(r, 39, 10)[0]);
-        wrap.Should().BeLessThan(step + 0.06f);
+        wrap.Should().BeLessThan(step + 0.06f, "with stitching the lattice wraps every tile, so column 0 continues from column 39");
     }
-
-    // ── feConvolveMatrix ─────────────────────────────────────────────────────
 
     [Fact]
     public void ConvolveMatrix_IdentityKernel_LeavesImageUnchanged()
@@ -116,11 +111,11 @@ public class SvgFilterAdvancedTests
     [Fact]
     public void ConvolveMatrix_KernelIsAppliedFlipped_ShiftingByTheAsymmetry()
     {
-        // The spec rotates the kernel 180 degrees: weight in its left column samples the pixel to the right, so content shifts left
         var src = Rect(9, 9, 4, 4, 5, 5, 1, 1, 1);
         var f = Filter(El("feconvolvematrix", ("order", "3"), ("kernelmatrix", "0 0 0 1 0 0 0 0 0"), ("divisor", "1"), ("edgemode", "none")));
         var r = f.Run(src, Ctx());
-        At(r, 3, 4)[3].Should().BeApproximately(1f, 0.001f);
+        At(r, 3, 4)[3].Should().BeApproximately(1f, 0.001f,
+            "the spec rotates the kernel 180 degrees, so weight in its left column samples the pixel to the right and content shifts left");
         At(r, 4, 4)[3].Should().Be(0f);
     }
 
@@ -133,23 +128,19 @@ public class SvgFilterAdvancedTests
         for (int i = 0; i < src.Px.Length; i++) r.Px[i].Should().BeApproximately(src.Px[i], 0.001f);
     }
 
-    // ── feDisplacementMap ────────────────────────────────────────────────────
-
     [Fact]
     public void DisplacementMap_ShiftsPixelsByTheMapChannelTimesScale()
     {
         var src = Rect(20, 10, 10, 2, 14, 8, 1, 0, 0);
-        // The map is opaque with R = 1.0 everywhere: displacement = scale * (1 - 0.5) = +scale/2 on x
         var flood = El("feflood", ("flood-color", "#ff0000"), ("result", "map"));
         var disp = El("fedisplacementmap", ("in", "SourceGraphic"), ("in2", "map"), ("scale", "6"), ("xchannelselector", "R"), ("ychannelselector", "R"));
         var r = Filter(flood, disp).Run(src, Ctx());
 
-        // Output(x) samples source(x + 3): the red block appears 3px to the left
-        At(r, 7, 4)[3].Should().BeApproximately(1f, 0.001f);
+        At(r, 7, 4)[3].Should().BeApproximately(1f, 0.001f,
+            "the opaque map has R = 1.0 everywhere, so x is displaced by scale * (1 - 0.5) = 3: output(x) samples " +
+            "source(x + 3) and the red block appears 3px to the left");
         At(r, 13, 4)[3].Should().Be(0f);
     }
-
-    // ── feTile ───────────────────────────────────────────────────────────────
 
     [Fact]
     public void Tile_RepeatsTheInputSubregionAcrossTheCanvas()
@@ -164,22 +155,21 @@ public class SvgFilterAdvancedTests
         At(r, 12, 12)[3].Should().BeApproximately(1f, 0.001f);
     }
 
-    // ── Lighting ─────────────────────────────────────────────────────────────
-
-    private static FilterImage Bump() // a square plateau of alpha 1 on a transparent field
+    /// <summary>A square plateau of alpha 1 on a transparent field.</summary>
+    private static FilterImage Bump()
         => Rect(21, 21, 6, 6, 15, 15, 0, 0, 0);
 
     [Fact]
     public void DiffuseLighting_FlatSurface_IsLitByNDotL()
     {
-        // Flat alpha (all opaque): normal is (0,0,1); elevation 45deg -> N.L = sin(45deg)
         var src = Rect(9, 9, 0, 0, 9, 9, 0, 0, 0);
         var light = El("fedistantlight", ("azimuth", "0"), ("elevation", "45"));
         var d = El("fediffuselighting", ("surfacescale", "1"), ("diffuseconstant", "1"), ("lighting-color", "#ffffff"));
         d.Children.Add(light);
         var px = At(Filter(d).Run(src, Ctx()), 4, 4);
 
-        px[0].Should().BeApproximately((float)System.Math.Sin(System.Math.PI / 4), 0.02f);
+        px[0].Should().BeApproximately((float)System.Math.Sin(System.Math.PI / 4), 0.02f,
+            "a flat opaque surface has the normal (0,0,1), so a light at 45 degrees elevation gives N.L = sin(45)");
         px[3].Should().Be(1f, "diffuse lighting output is opaque");
     }
 
@@ -187,22 +177,22 @@ public class SvgFilterAdvancedTests
     public void DiffuseLighting_LightFromTheLeft_BrightensLeftFacingSlopes()
     {
         var src = Bump();
-        var light = El("fedistantlight", ("azimuth", "180"), ("elevation", "30")); // light comes from -x
+        var lightFromMinusX = El("fedistantlight", ("azimuth", "180"), ("elevation", "30"));
         var d = El("fediffuselighting", ("surfacescale", "6"), ("diffuseconstant", "1"));
-        d.Children.Add(light);
+        d.Children.Add(lightFromMinusX);
         var r = Filter(d).Run(src, Ctx());
 
-        // Left edge of the plateau faces -x (toward the light); right edge faces away
-        At(r, 5, 10)[0].Should().BeGreaterThan(At(r, 15, 10)[0] + 0.1f);
+        At(r, 5, 10)[0].Should().BeGreaterThan(At(r, 15, 10)[0] + 0.1f,
+            "the plateau's left edge faces -x, toward the light, and its right edge faces away");
     }
 
     [Fact]
     public void SpecularLighting_ProducesAHighlightWhereTheNormalHalvesTheLightAndEye()
     {
         var src = Rect(9, 9, 0, 0, 9, 9, 0, 0, 0);
-        var light = El("fedistantlight", ("azimuth", "0"), ("elevation", "90")); // straight overhead
+        var lightStraightOverhead = El("fedistantlight", ("azimuth", "0"), ("elevation", "90"));
         var s = El("fespecularlighting", ("surfacescale", "1"), ("specularconstant", "1"), ("specularexponent", "10"));
-        s.Children.Add(light);
+        s.Children.Add(lightStraightOverhead);
         var px = At(Filter(s).Run(src, Ctx()), 4, 4);
 
         px[0].Should().BeApproximately(1f, 0.02f, "N.H = 1 on a flat surface lit from above");

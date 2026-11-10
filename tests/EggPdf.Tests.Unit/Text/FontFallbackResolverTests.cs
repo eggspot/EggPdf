@@ -8,15 +8,12 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Text;
 
-/// <summary>
-/// Font fallback is coverage-driven for every script, so these tests use synthetic fonts mapping
-/// chosen code points in a temp directory -- no dependency on what the host has installed.
-/// </summary>
 public class FontFallbackResolverTests : IDisposable
 {
+    /// <summary>A temp directory of synthetic fonts, so the tests don't depend on what the host has installed.</summary>
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "eggpdf-fallback-" + Guid.NewGuid().ToString("N"));
 
-    // Sample characters per script (first character of a greeting in that script)
+    /// <summary>A sample character per script, mostly the first character of a greeting in that script.</summary>
     private const int Hangul = 0xAC1C, Kana = 0x3053, Han = 0x4F60, Arabic = 0x0627, Hebrew = 0x05E9, Thai = 0x0E2A,
         Devanagari = 0x0928, Cyrillic = 0x041F, Greek = 0x0393, Armenian = 0x0531, Cherokee = 0x13A0, Emoji = 0x1F600, Warning = 0x26A0;
 
@@ -32,7 +29,6 @@ public class FontFallbackResolverTests : IDisposable
     [Fact]
     public void Resolve_EachScriptIsSuppliedByItsOwnRegisteredFont()
     {
-        // The mechanism is script-keyed, not language-specific: any script can be given candidates
         Font("KoreanFace.ttf", Hangul);
         Font("ArabicFace.ttf", Arabic);
         Font("HebrewFace.ttf", Hebrew);
@@ -45,7 +41,7 @@ public class FontFallbackResolverTests : IDisposable
 
         var result = ResolverOverDirectory(catalog).Resolve(new[] { Hangul, Arabic, Hebrew, Devanagari });
 
-        result.Uncovered.Should().BeEmpty();
+        result.Uncovered.Should().BeEmpty("the mechanism is keyed by script, not by language, so any script can be given candidates");
         result.Fonts.Should().HaveCount(4);
         string FontFor(int cp) => Path.GetFileName(result.Fonts.Single(f => f.Codepoints.Contains(cp)).Path);
         FontFor(Hangul).Should().Be("KoreanFace.ttf");
@@ -71,10 +67,10 @@ public class FontFallbackResolverTests : IDisposable
     [Fact]
     public void Resolve_PicksTheFirstCandidateThatCoversEachCodepoint_NotJustTheFirstInstalled()
     {
-        Font("Narrow.ttf", Greek);            // first candidate, lacks Hangul
+        Font("NarrowFirstCandidateWithoutHangul.ttf", Greek);
         Font("Wide.ttf", Greek, Hangul);
         var catalog = new FontFallbackCatalog();
-        catalog.Register(UnicodeScript.Hangul, "Narrow", "Wide");
+        catalog.Register(UnicodeScript.Hangul, "NarrowFirstCandidateWithoutHangul", "Wide");
 
         var result = ResolverOverDirectory(catalog).Resolve(new[] { Hangul });
 
@@ -84,12 +80,11 @@ public class FontFallbackResolverTests : IDisposable
     [Fact]
     public void Resolve_CodepointInNoCatalogList_IsFoundByScanningInstalledFonts()
     {
-        // Nothing names this font anywhere: the safety net must still find it by coverage alone
         Font("ObscureHeritageFont.ttf", Cherokee);
 
         var result = ResolverOverDirectory().Resolve(new[] { Cherokee });
 
-        result.Uncovered.Should().BeEmpty();
+        result.Uncovered.Should().BeEmpty("though nothing names this font, the safety net finds it by coverage alone");
         Path.GetFileName(result.Fonts.Single().Path).Should().Be("ObscureHeritageFont.ttf");
     }
 
@@ -131,20 +126,19 @@ public class FontFallbackResolverTests : IDisposable
         var result = ResolverOverDirectory().Resolve(new[] { Hangul, Han });
 
         result.Fonts.Should().BeEmpty();
-        result.Uncovered.Should().Equal(Han, Hangul); // ascending code point order
+        result.Uncovered.Should().Equal(new[] { Han, Hangul }, "in ascending code point order");
     }
 
     [Fact]
     public void Resolve_FontWithoutDrawableOutlines_IsNeverChosen()
     {
-        // A bitmap-only emoji font maps U+1F600 but would paint nothing: better to report it
         SyntheticFonts.Write(_dir, "BitmapEmoji.ttf", SyntheticFonts.Build(new[] { Emoji }, bitmapColorOnly: true));
         var catalog = new FontFallbackCatalog();
         catalog.Register(UnicodeScript.Emoji, "BitmapEmoji");
 
         var result = ResolverOverDirectory(catalog).Resolve(new[] { Emoji });
 
-        result.Fonts.Should().BeEmpty();
+        result.Fonts.Should().BeEmpty("a bitmap-only emoji font maps U+1F600 but would paint nothing, so the character is reported instead");
         result.Uncovered.Should().Equal(Emoji);
     }
 
@@ -241,7 +235,6 @@ public class FontFallbackResolverTests : IDisposable
     [Fact]
     public void FindFont_ReturnsTheSameFaceResolveWouldEmbed()
     {
-        // Layout measurement (FindFont/TryGetAdvanceEm) and embedding (Resolve) must pick the same font
         Font("One.ttf", Greek, Hangul);
         Font("Two.ttf", Hangul, Kana);
 
@@ -249,7 +242,8 @@ public class FontFallbackResolverTests : IDisposable
         var viaFind = resolver.FindFont(Hangul);
         var viaResolve = resolver.Resolve(new[] { Hangul, Kana, Greek });
 
-        viaFind.Should().BeSameAs(viaResolve.Fonts.Single(f => f.Codepoints.Contains(Hangul)).Font);
+        viaFind.Should().BeSameAs(viaResolve.Fonts.Single(f => f.Codepoints.Contains(Hangul)).Font,
+            "layout measurement (FindFont) and embedding (Resolve) must pick the same font");
     }
 
     [Fact]
@@ -281,14 +275,13 @@ public class FontFallbackResolverTests : IDisposable
     [Fact]
     public void Catalog_EveryNonLatinScriptHasCandidates()
     {
-        // A new script must not silently fall off the end: each has Noto-based names at minimum
         var catalog = new FontFallbackCatalog();
         var withoutCandidates = Enum.GetValues(typeof(UnicodeScript)).Cast<UnicodeScript>()
             .Where(s => s != UnicodeScript.Other)
             .Where(s => catalog.GetCandidates(s).Count == 0)
             .ToList();
 
-        withoutCandidates.Should().BeEmpty();
+        withoutCandidates.Should().BeEmpty("a new script must not silently fall off the end; each has Noto-based names at minimum");
         catalog.GetUniversalCandidates().Should().NotBeEmpty();
     }
 
@@ -317,9 +310,9 @@ public class FontFallbackResolverTests : IDisposable
     {
         var result = FontFallbackResolver.Default.Resolve(new[] { Hangul, Han, Kana, Arabic, Hebrew, Thai, Devanagari, 0x10FFFD });
 
-        // Every requested visible codepoint is either supplied by exactly one font or reported
         var supplied = result.Fonts.SelectMany(f => f.Codepoints).ToList();
-        supplied.Concat(result.Uncovered).Should().BeEquivalentTo(new[] { Hangul, Han, Kana, Arabic, Hebrew, Thai, Devanagari, 0x10FFFD });
+        supplied.Concat(result.Uncovered).Should().BeEquivalentTo(new[] { Hangul, Han, Kana, Arabic, Hebrew, Thai, Devanagari, 0x10FFFD },
+            "every requested visible code point is either supplied by exactly one font or reported");
         supplied.Should().OnlyHaveUniqueItems();
         result.Uncovered.Should().Contain(0x10FFFD);
     }

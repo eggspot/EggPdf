@@ -177,12 +177,12 @@ public class FacturXTests
     public void Generate_WithLineItems_GroupsTaxBreakdownByRateAndComputesHeaderTotals()
     {
         var invoice = SampleInvoiceWithLineItems();
-        // Both lines share the same 20% rate -- basis should be the combined 100.00, tax 20.00.
         var xml = FacturXCiiWriter.Generate(invoice);
 
         xml.Should().Contain("<ram:ApplicableTradeTax>");
         xml.Should().Contain("<ram:CalculatedAmount currencyID=\"EUR\">20.00</ram:CalculatedAmount>");
-        xml.Should().Contain("<ram:BasisAmount currencyID=\"EUR\">100.00</ram:BasisAmount>");
+        xml.Should().Contain("<ram:BasisAmount currencyID=\"EUR\">100.00</ram:BasisAmount>",
+            "both lines share the 20% rate, so one group's basis is their combined 100.00");
         xml.Should().Contain("<ram:CategoryCode>S</ram:CategoryCode>");
         xml.Should().Contain("<ram:RateApplicablePercent>20.00</ram:RateApplicablePercent>");
 
@@ -197,13 +197,11 @@ public class FacturXTests
     public void Generate_WithLineItems_SeparatesDifferentVatRatesIntoDistinctGroups()
     {
         var invoice = SampleInvoiceWithLineItems();
-        invoice.LineItems[1].VatRatePercent = 10m; // second line now at a different rate
+        const decimal secondLineRate = 10m;
+        invoice.LineItems[1].VatRatePercent = secondLineRate;
 
         var xml = FacturXCiiWriter.Generate(invoice);
 
-        // Each line always carries its own line-level ApplicableTradeTax (2 lines = 2), plus one
-        // header-level ApplicableTradeTax per distinct (category, rate) group -- 2 distinct rates
-        // (20% and 10%) here means 2 more, not 1: total 4.
         int taxEntries = 0;
         int idx = 0;
         while ((idx = xml.IndexOf("<ram:ApplicableTradeTax>", idx, StringComparison.Ordinal)) >= 0)
@@ -211,7 +209,9 @@ public class FacturXTests
             taxEntries++;
             idx += 1;
         }
-        taxEntries.Should().Be(4);
+        taxEntries.Should().Be(4,
+            "each of the 2 lines carries its own ApplicableTradeTax, plus one header-level entry per distinct " +
+            "(category, rate) group, and 20% and 10% are 2 groups, not 1");
         xml.Should().Contain("<ram:RateApplicablePercent>10.00</ram:RateApplicablePercent>");
         xml.Should().Contain("<ram:RateApplicablePercent>20.00</ram:RateApplicablePercent>");
     }
@@ -220,16 +220,16 @@ public class FacturXTests
     public void Generate_WithLineItems_IgnoresHeaderTotalPropertiesInFavorOfComputedValues()
     {
         var invoice = SampleInvoiceWithLineItems();
-        // Deliberately wrong header totals -- must be ignored in favor of the line-item math.
-        invoice.TaxBasisTotal = 1m;
-        invoice.TaxTotal = 1m;
-        invoice.GrandTotal = 1m;
-        invoice.DuePayableAmount = 1m;
+        const decimal wrongTotal = 1m;
+        invoice.TaxBasisTotal = wrongTotal;
+        invoice.TaxTotal = wrongTotal;
+        invoice.GrandTotal = wrongTotal;
+        invoice.DuePayableAmount = wrongTotal;
 
         var xml = FacturXCiiWriter.Generate(invoice);
 
         xml.Should().Contain("<ram:GrandTotalAmount currencyID=\"EUR\">120.00</ram:GrandTotalAmount>");
-        xml.Should().NotContain(">1.00<");
+        xml.Should().NotContain(">1.00<", "with line items, the header totals come from the line math, never the properties");
     }
 
     [Fact]

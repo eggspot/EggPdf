@@ -29,7 +29,7 @@ public class TrueTypeParserTests
                     .IndexOf(name, System.StringComparison.OrdinalIgnoreCase) >= 0);
                 if (match != null) return match;
             }
-            catch { /* permission denied etc */ }
+            catch { }
         }
         return null;
     }
@@ -45,7 +45,7 @@ public class TrueTypeParserTests
     public void ParseSystemFont_ReadsHeadTable()
     {
         var font = LoadTestFont();
-        if (font == null) return; // skip if no font available
+        if (font == null) return;
 
         font.UnitsPerEm.Should().BeGreaterThan(0);
         font.Ascent.Should().BeGreaterThan(0);
@@ -67,11 +67,11 @@ public class TrueTypeParserTests
         var font = LoadTestFont();
         if (font == null) return;
 
-        // Glyph ID 0 = .notdef; some fonts/cmap formats may return 0 for ASCII
         var aGlyph = font.GetGlyphId('A');
-        aGlyph.Should().BeGreaterOrEqualTo((ushort)0);
-        // Space glyph ID varies by font - just check it doesn't throw
-        font.GetGlyphId(' ');
+        var spaceGlyph = font.GetGlyphId(' ');
+        aGlyph.Should().BeGreaterThan((ushort)0, "Arial, DejaVu Sans and Liberation all map 'A' to a real glyph, not .notdef");
+        spaceGlyph.Should().BeGreaterThan((ushort)0);
+        spaceGlyph.Should().NotBe(aGlyph);
     }
 
     [Fact]
@@ -86,13 +86,9 @@ public class TrueTypeParserTests
 
         var iGlyph = font.GetGlyphId('i');
         var mGlyph = font.GetGlyphId('M');
-        // Only compare widths if glyphs are actually mapped (not .notdef)
-        if (iGlyph > 0 && mGlyph > 0)
-        {
-            var iWidth = font.GetAdvanceWidth(iGlyph);
-            var mWidth = font.GetAdvanceWidth(mGlyph);
-            iWidth.Should().BeLessThan(mWidth);
-        }
+        iGlyph.Should().BeGreaterThan((ushort)0);
+        mGlyph.Should().BeGreaterThan((ushort)0);
+        font.GetAdvanceWidth(iGlyph).Should().BeLessThan(font.GetAdvanceWidth(mGlyph), "the test fonts are proportional");
     }
 
     [Fact]

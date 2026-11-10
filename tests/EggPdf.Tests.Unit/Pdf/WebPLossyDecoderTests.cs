@@ -5,20 +5,18 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Pdf;
 
-/// <summary>
-/// Lossy WebP (VP8) decoding, checked pixel by pixel against what Chrome decoded the same files to.
-/// The fixtures carry a VP8X header with an ICC profile, so they also cover extended-container parsing;
-/// the alpha ones cover the ALPH chunk (lossless-compressed, filtered).
-/// </summary>
 public class WebPLossyDecoderTests
 {
+    /// <summary>
+    /// Compares decoded RGBA with the pixels Chrome decoded the same file to. Alpha is always compared; with
+    /// <paramref name="skipTransparent"/>, colour only where Chrome's alpha is opaque, because its getImageData
+    /// un-premultiplies, which is lossy for translucent pixels.
+    /// </summary>
     private static (int maxDiff, double meanDiff, int badPixels) Compare(byte[] mine, byte[] chrome, bool skipTransparent)
     {
         int max = 0, bad = 0; long sum = 0; int counted = 0;
         for (int i = 0; i < chrome.Length; i += 4)
         {
-            // Chrome's getImageData un-premultiplies, which is lossy for translucent pixels: compare
-            // colour only where alpha is opaque, and alpha always.
             int alphaDiff = Math.Abs(mine[i + 3] - chrome[i + 3]);
             max = Math.Max(max, alphaDiff);
             if (alphaDiff > 0) bad++;
@@ -115,11 +113,10 @@ public class WebPLossyDecoderTests
             var act = () => WebPDecoder.Decode(cut);
             act.Should().NotThrow();
 
-            // Whatever survives the cut is either rejected or a picture of the right size, never garbage dimensions
             var decoded = act();
             if (decoded.HasValue)
             {
-                decoded.Value.width.Should().Be(100);
+                decoded.Value.width.Should().Be(100, "a truncated file is either rejected or decoded at its real size, never garbage dimensions");
                 decoded.Value.height.Should().Be(70);
                 decoded.Value.rgba.Length.Should().Be(100 * 70 * 4);
             }
@@ -132,22 +129,22 @@ public class WebPLossyDecoderTests
         WebPDecoder.Decode(new byte[] { 1, 2, 3 }).Should().BeNull();
         WebPDecoder.Decode(System.Text.Encoding.ASCII.GetBytes("RIFF\0\0\0\0WEBPVP8 \0\0\0\0")).Should().BeNull();
 
-        // A valid stream with the key-frame bit flipped is an inter frame: unsupported, not garbage output
         var bytes = Convert.FromBase64String(WebPLossyFixtures.Lossy48x32.WebPBase64);
         int vp8 = Array.IndexOf(bytes, (byte)'V', 12 + 10);
         while (vp8 >= 0 && System.Text.Encoding.ASCII.GetString(bytes, vp8, 4) != "VP8 ") vp8 = Array.IndexOf(bytes, (byte)'V', vp8 + 1);
         vp8.Should().BeGreaterThan(0);
-        bytes[vp8 + 8] |= 1;
-        WebPDecoder.Decode(bytes).Should().BeNull();
+        const byte InterFrameBit = 1;
+        bytes[vp8 + 8] |= InterFrameBit;
+        WebPDecoder.Decode(bytes).Should().BeNull("an inter frame is unsupported and must be rejected, not decoded into garbage");
     }
 
     [Fact]
     public void Decode_ExtendedContainer_IgnoresIccpChunk()
     {
-        // The fixtures are VP8X + ICCP + VP8: reaching the pixels proves unknown chunks are skipped
         var bytes = Convert.FromBase64String(WebPLossyFixtures.Lossy33x21.WebPBase64);
         System.Text.Encoding.ASCII.GetString(bytes, 12, 4).Should().Be("VP8X");
-        WebPDecoder.Decode(bytes).Should().NotBeNull();
+        WebPDecoder.Decode(bytes).Should().NotBeNull(
+            "the fixture is VP8X + ICCP + VP8, so reaching the pixels proves the ICC profile chunk is skipped");
     }
 
     [Fact]

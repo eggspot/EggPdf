@@ -26,13 +26,12 @@ public class GeneratedContentTests
         var doc = HtmlParser.Parse("<body><ul><li>Item</li></ul></body>");
         var resolver = new BasicStyleResolver();
 
-        // Find <li> by walking the DOM tree
         var li = FindElement(doc.Body!, "li");
-        if (li == null) return; // skip if parser doesn't create the li
+        li.Should().NotBeNull();
 
         var ulStyle = FindElement(doc.Body!, "ul") is HtmlElement ul
             ? resolver.Resolve(ul, null) : null;
-        var style = resolver.Resolve(li, ulStyle);
+        var style = resolver.Resolve(li!, ulStyle);
 
         style.Display.Should().Be("list-item");
     }

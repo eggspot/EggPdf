@@ -46,8 +46,7 @@ public class CascadeResolverTests
         var p = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
         var style = resolver.Resolve(p, null);
 
-        // .highlight (0,1,0) beats p (0,0,1)
-        style.Color.Should().Be("green");
+        style.Color.Should().Be("green", ".highlight (0,1,0) beats p (0,0,1)");
     }
 
     [Fact]
@@ -86,9 +85,9 @@ public class CascadeResolverTests
         var h1 = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "h1");
         var style = resolver.Resolve(h1, null);
 
-        style.Display.Should().Be("block"); // from UA
-        style.Color.Should().Be("navy"); // from author stylesheet
-        style.FontWeight.Should().Be("bold"); // from UA
+        style.Display.Should().Be("block", "from the UA stylesheet");
+        style.Color.Should().Be("navy", "from the author stylesheet");
+        style.FontWeight.Should().Be("bold", "from the UA stylesheet");
     }
 
     [Fact]
@@ -103,7 +102,7 @@ public class CascadeResolverTests
         var span = div.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "span");
         var spanStyle = resolver.Resolve(span, divStyle);
 
-        spanStyle.Color.Should().Be("purple"); // inherited
+        spanStyle.Color.Should().Be("purple", "color is inherited");
     }
 
     [Fact]
@@ -197,8 +196,7 @@ public class CascadeResolverTests
         var p = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
         var pStyle = resolver.Resolve(p, null);
 
-        // No parent => color should not be "inherit" (should be unset/initial, not a literal keyword)
-        pStyle.Color.Should().NotBe("inherit");
+        pStyle.Color.Should().NotBe("inherit", "with no parent the color is the initial value, not the literal keyword");
     }
 
     [Fact]
@@ -213,8 +211,7 @@ public class CascadeResolverTests
         var divStyle = resolver.Resolve(div, null);
         var pStyle = resolver.Resolve(p, divStyle);
 
-        // initial for color = "canvastext" or no color set, not "purple"
-        pStyle.Color.Should().NotBe("purple");
+        pStyle.Color.Should().NotBe("purple", "the initial color is canvastext or unset, not the parent's purple");
         pStyle.Color.Should().NotBe("initial");
     }
 
@@ -230,8 +227,7 @@ public class CascadeResolverTests
         var divStyle = resolver.Resolve(div, null);
         var pStyle = resolver.Resolve(p, divStyle);
 
-        // color is inherited => unset acts as inherit => gets purple from parent
-        pStyle.Color.Should().Be("purple");
+        pStyle.Color.Should().Be("purple", "color is inherited, so unset acts as inherit and takes the parent's purple");
     }
 
     [Fact]
@@ -246,16 +242,13 @@ public class CascadeResolverTests
         var divStyle = resolver.Resolve(div, null);
         var pStyle = resolver.Resolve(p, divStyle);
 
-        // margin-top is not inherited => unset acts as initial => not 50px
-        pStyle.Get("margin-top").Should().NotBe("50px");
+        pStyle.Get("margin-top").Should().NotBe("50px", "margin-top is not inherited, so unset acts as initial");
         pStyle.Get("margin-top").Should().NotBe("unset");
     }
 
     [Fact]
     public void Revert_Keyword_DoesNotLeaveKeywordLiteral()
     {
-        // revert on an inherited property: reverts to UA cascade (which inherits from parent).
-        // The keyword itself must never appear as a computed value.
         var doc = HtmlParser.Parse("<div><p>Hello</p></div>");
         var sheet = CssStyleSheetParser.Parse("p { color: revert; }");
         var resolver = new CascadeResolver(new[] { sheet });
@@ -265,8 +258,8 @@ public class CascadeResolverTests
         var divStyle = resolver.Resolve(div, null);
         var pStyle = resolver.Resolve(p, divStyle);
 
-        // The literal keyword "revert" must not appear as a computed value
-        pStyle.Color.Should().NotBe("revert");
+        pStyle.Color.Should().NotBe("revert",
+            "revert on an inherited property falls back to the UA cascade, which inherits; the keyword never becomes a computed value");
     }
 
     [Fact]
@@ -279,15 +272,13 @@ public class CascadeResolverTests
         var p = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
         var pStyle = resolver.Resolve(p, null);
 
-        // revert on non-inherited: reverts to UA default; "revert" must not remain as computed value
-        pStyle.Get("margin-top").Should().NotBe("revert");
+        pStyle.Get("margin-top").Should().NotBe("revert",
+            "revert on a non-inherited property falls back to the UA default; the keyword never becomes a computed value");
     }
 
     [Fact]
     public void SpecificityCache_MultipleElements_EachGetsCorrectStyle()
     {
-        // Regression guard: pre-computed specificity must not bleed between elements.
-        // A #id rule (1,0,0) must beat .class (0,1,0) on the id element only.
         var doc = HtmlParser.Parse("<p id='hero' class='highlight'>A</p><p class='highlight'>B</p>");
         var sheet = CssStyleSheetParser.Parse(
             "#hero { color: gold; } .highlight { color: green; } p { color: red; }");
@@ -295,10 +286,11 @@ public class CascadeResolverTests
 
         var elements = doc.Body!.ChildNodes.OfType<HtmlElement>()
             .Where(e => e.TagName == "p").ToList();
-        var heroStyle  = resolver.Resolve(elements[0], null); // has id=hero
-        var otherStyle = resolver.Resolve(elements[1], null); // class only
+        var heroStyle  = resolver.Resolve(elements[0], null);
+        var otherStyle = resolver.Resolve(elements[1], null);
 
-        heroStyle.Color.Should().Be("gold");   // #hero (1,0,0) wins
-        otherStyle.Color.Should().Be("green"); // .highlight (0,1,0) wins over p
+        heroStyle.Color.Should().Be("gold", "on the element with id=hero, #hero (1,0,0) beats .highlight (0,1,0)");
+        otherStyle.Color.Should().Be("green",
+            "the class-only element gets .highlight (0,1,0) over p; the cached specificity doesn't bleed between elements");
     }
 }

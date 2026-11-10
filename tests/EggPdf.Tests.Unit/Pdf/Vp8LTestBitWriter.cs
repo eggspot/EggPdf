@@ -11,6 +11,8 @@ namespace EggPdf.Tests.Unit.Pdf;
 /// </summary>
 internal sealed class Vp8LTestBitWriter
 {
+    private const byte Vp8LSignature = 0x2F;
+
     private readonly List<byte> _bytes = new();
     private int _curByte;
     private int _bitPos;
@@ -34,43 +36,28 @@ internal sealed class Vp8LTestBitWriter
     /// <summary>Write a Huffman "simple code, 1 symbol" group: decodes to exactly this symbol, consuming zero bits at read time.</summary>
     public void WriteSimpleSingleSymbol(int symbol)
     {
-        WriteBits(1, 1); // is_simple
-        WriteBits(0, 1); // num_symbols - 1 = 0 (i.e. 1 symbol)
-        if (symbol <= 1)
-        {
-            WriteBits(0, 1); // 1-bit form
-            WriteBits((uint)symbol, 1);
-        }
-        else
-        {
-            WriteBits(1, 1); // 8-bit form
-            WriteBits((uint)symbol, 8);
-        }
+        WriteSimpleCodeHeader(symbolCount: 1);
+        WriteFirstSymbol(symbol);
     }
 
     /// <summary>
     /// Write a Huffman "simple code, 2 symbols" group: both symbols get a
     /// 1-bit canonical code, assigned "0"/"1" in increasing symbol-VALUE
     /// order (matching Vp8LDecoder.HuffmanTree.Build's canonical assignment)
-    /// regardless of the order given here. Returns which bit selects which
-    /// requested symbol, so callers can write the right pixel-stream bits.
+    /// regardless of the order given here. The smaller symbol is also written
+    /// first, so the bitstream order and the canonical codes visibly agree.
+    /// Returns which bit selects which requested symbol, so callers can write
+    /// the right pixel-stream bits.
     /// </summary>
     public (int bitForA, int bitForB) WriteSimpleTwoSymbol(int symbolA, int symbolB)
     {
-        WriteBits(1, 1); // is_simple
-        WriteBits(1, 1); // num_symbols - 1 = 1 (2 symbols)
+        WriteSimpleCodeHeader(symbolCount: 2);
 
         int smaller = symbolA < symbolB ? symbolA : symbolB;
         int larger = symbolA < symbolB ? symbolB : symbolA;
 
-        // First symbol (encoded here) must be the smaller one for canonical
-        // code "0" -- Build() assigns codes to symbols in increasing value
-        // order, so the smaller symbol always gets "0" regardless of which
-        // one is written first in the bitstream; we just also write it first
-        // here to keep the two bookkeeping systems visibly in sync.
-        WriteBits(smaller <= 1 ? 0u : 1u, 1); // first symbol length-bits flag
-        WriteBits((uint)smaller, smaller <= 1 ? 1 : 8);
-        WriteBits((uint)larger, 8); // second symbol: always 8-bit form
+        WriteFirstSymbol(smaller);
+        WriteBits((uint)larger, 8);
 
         int bitForSmaller = 0, bitForLarger = 1;
         return symbolA < symbolB ? (bitForSmaller, bitForLarger) : (bitForLarger, bitForSmaller);
@@ -81,8 +68,23 @@ internal sealed class Vp8LTestBitWriter
     {
         if (_bitPos > 0) { _bytes.Add((byte)_curByte); _curByte = 0; _bitPos = 0; }
         var result = new byte[_bytes.Count + 1];
-        result[0] = 0x2F;
+        result[0] = Vp8LSignature;
         _bytes.CopyTo(result, 1);
         return result;
+    }
+
+    private void WriteSimpleCodeHeader(int symbolCount)
+    {
+        const uint isSimpleCode = 1;
+        WriteBits(isSimpleCode, 1);
+        WriteBits((uint)(symbolCount - 1), 1);
+    }
+
+    /// <summary>The first symbol of a simple code takes a 1-bit form when it is 0 or 1, else an 8-bit form; the second is always 8-bit.</summary>
+    private void WriteFirstSymbol(int symbol)
+    {
+        bool fitsOneBit = symbol <= 1;
+        WriteBits(fitsOneBit ? 0u : 1u, 1);
+        WriteBits((uint)symbol, fitsOneBit ? 1 : 8);
     }
 }

@@ -9,12 +9,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Css;
 
-/// <summary>
-/// The cascade uses a per-rule fast-reject prefilter (rightmost compound's
-/// tag/id/class) before running the full selector matcher. These tests pin
-/// the tricky selector shapes where a wrong prefilter would silently drop
-/// matching rules.
-/// </summary>
 public class CascadePrefilterTests
 {
     private static HtmlElement Find(HtmlElement root, string tagName, int index = 0)
@@ -32,6 +26,10 @@ public class CascadePrefilterTests
         return found!;
     }
 
+    /// <summary>
+    /// Resolves one element's style through the cascade, whose per-rule fast-reject prefilter (the rightmost
+    /// compound's tag, id and class) must never drop a rule the full selector matcher would match.
+    /// </summary>
     private static ComputedStyle Resolve(string html, string css, string tag, int index = 0)
     {
         var doc = HtmlParser.Parse(html);
@@ -153,20 +151,17 @@ public class CascadePrefilterTests
     [Fact]
     public void AttributeValueContainingDoubleColon_StillMatches()
     {
-        // "::" inside an attribute VALUE (with a non-pseudo-element ident) must
-        // not be mistaken for a pseudo-element selector.
         Resolve("<div data-state='a::b'>t</div>", "[data-state='a::b'] { color: red; }", "div")
-            .Color.Should().Be("red");
+            .Color.Should().Be("red", "a \"::\" inside an attribute value is not a pseudo-element selector");
     }
 
     [Fact]
     public void UnknownPseudoElementSuffix_BehavesLikeTheFullMatcher()
     {
-        // The matcher only recognizes before/after/first-line/first-letter/marker
-        // as pseudo-elements; "::placeholder" falls through and matches the base
-        // element. The prefilter must mirror that exactly (bug-for-bug).
         Resolve("<input>", "input::placeholder { color: red; }", "input")
-            .Color.Should().Be("red");
+            .Color.Should().Be("red",
+                "the matcher only knows before, after, first-line, first-letter and marker as pseudo-elements, so " +
+                "\"::placeholder\" falls through to the base element, and the prefilter mirrors that bug for bug");
     }
 
     [Fact]
