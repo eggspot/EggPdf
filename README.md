@@ -227,7 +227,8 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   (`layout`, `style`, `content` alone) are recalculation-isolation hints with no analog in a
   single-pass renderer and are accepted as a no-op rather than rejected
 - Webfonts: remote `<link>` stylesheets (Google Fonts) and `@font-face` over http(s), data: URIs, or files,
-  in TTF, OTF or WOFF (a WOFF2 source is not decoded yet; the next `src` entry is used instead)
+  in TTF, OTF, WOFF or WOFF2 (WOFF2 needs .NET 6 or later for its Brotli decoder; on .NET Standard the next
+  `src` entry is used instead)
 - SVG rendering (vector output, not rasterized) -- `<circle>`/`<ellipse>`/`<rect>`/`<polygon>`/
   `<polyline>`/`<path>`/`<line>` (arcs flattened as true curves), plus SVG filter graphs:
   `filter="url(#id)"` (attribute or `style`) with feGaussianBlur, feOffset, feFlood,
