@@ -11,7 +11,9 @@ allowed-tools: Bash, Read, Grep, Glob
 Verify that code changes haven't introduced performance regressions. This MUST pass before any PR is merged.
 
 For a PR, don't run the benchmarks on the dev PC: the `Benchmarks` workflow runs them on the PR and posts the
-table as a PR comment. Compare that comment with the previous merged PR's comment using the thresholds below.
+comparison as a PR comment: the base commit and the PR are measured in the same job, on the same runner. Judge the
+"Time" and "Allocated" changes in that comment with the thresholds below; never compare numbers across two runs, since
+runners differ.
 Run the steps below locally only when asked to, or to profile a regression CI already showed.
 
 ## Steps

@@ -19,32 +19,40 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: head
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
-      - name: Run benchmarks (short)
-        run: |
-          cd benchmarks/EggPdf.Benchmarks
-          dotnet run -c Release -- --filter '*' --job short --exporters github
+      - name: Run benchmarks on the base commit
+        working-directory: base/benchmarks/EggPdf.Benchmarks
+        run: dotnet run -c Release -- --filter '*' --exporters github
         continue-on-error: true
 
-      - name: Parse results
+      - name: Run benchmarks on this PR
+        working-directory: head/benchmarks/EggPdf.Benchmarks
+        run: dotnet run -c Release -- --filter '*' --exporters github
+        continue-on-error: true
+
+      - name: Compare
         id: results
         run: |
-          RESULTS_DIR="benchmarks/EggPdf.Benchmarks/BenchmarkDotNet.Artifacts/results"
-          if [ -d "$RESULTS_DIR" ]; then
-            REPORTS=$(find "$RESULTS_DIR" -name "*-report-github.md" | sort)
-            if [ -n "$REPORTS" ]; then
-              {
-                echo "report<<EOF"
-                for REPORT in $REPORTS; do cat "$REPORT"; echo; done
-                echo "EOF"
-              } >> "$GITHUB_OUTPUT"
-            fi
-          fi
+          python3 head/scripts/compare-benchmarks.py \
+            base/benchmarks/EggPdf.Benchmarks/BenchmarkDotNet.Artifacts/results \
+            head/benchmarks/EggPdf.Benchmarks/BenchmarkDotNet.Artifacts/results > comparison.md || exit 0
+          {
+            echo "report<<EOF"
+            cat comparison.md
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Comment on PR
         if: steps.results.outputs.report != ''
@@ -54,9 +62,11 @@ jobs:
           message: |
             ## Benchmark Results
 
+            Base `${{ github.event.pull_request.base.sha }}` and this PR, measured one after the other in the same job, so on the same runner.
+
             ${{ steps.results.outputs.report }}
 
-            > Quick benchmark (short job). Full benchmarks run on merge to main.
+            > Full benchmarks run on merge to main.
 
   benchmark-main:
     name: Benchmark (Full)
