@@ -21,10 +21,8 @@ public class ServiceFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        // Pick a random port
         Port = new Random().Next(15000, 16000);
 
-        // Start the service
         var projectDir = FindProjectDir();
         _serviceProcess = new Process
         {
@@ -40,7 +38,6 @@ public class ServiceFixture : IAsyncLifetime
         };
         _serviceProcess.Start();
 
-        // Wait for service to be ready
         using var client = new HttpClient();
         for (int i = 0; i < 30; i++)
         {
@@ -53,7 +50,6 @@ public class ServiceFixture : IAsyncLifetime
             await Task.Delay(1000);
         }
 
-        // Start Playwright
         Playwright = await Microsoft.Playwright.Playwright.CreateAsync();
         Browser = await Playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
         {
@@ -73,6 +69,7 @@ public class ServiceFixture : IAsyncLifetime
         }
     }
 
+    /// <summary>The EggPdf.Service project folder, found by walking up from the test output, else relative to it.</summary>
     private static string FindProjectDir()
     {
         var dir = AppContext.BaseDirectory;
@@ -83,7 +80,6 @@ public class ServiceFixture : IAsyncLifetime
                 return System.IO.Path.GetDirectoryName(candidate)!;
             dir = System.IO.Path.GetDirectoryName(dir);
         }
-        // Fallback: relative from test project
         return System.IO.Path.GetFullPath(
             System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "EggPdf.Service"));
     }

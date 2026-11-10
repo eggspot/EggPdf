@@ -31,8 +31,6 @@ public class LayoutTests
         return PdfTextDecoder.DecodeWithText(bytes);
     }
 
-    // === Flexbox ===
-
     [Fact]
     public async Task Flex_Row()
     {
@@ -131,8 +129,6 @@ public class LayoutTests
         text.Should().Contain("Bottom");
     }
 
-    // === Grid ===
-
     [Fact]
     public async Task Grid_BasicColumns()
     {
@@ -174,8 +170,6 @@ public class LayoutTests
         text.Should().Contain("Side");
         text.Should().Contain("Main");
     }
-
-    // === Float ===
 
     [Fact]
     public async Task Float_Left()
@@ -221,8 +215,6 @@ public class LayoutTests
         text.Should().Contain("Cleared");
     }
 
-    // === Positioning ===
-
     [Fact]
     public async Task Position_Relative()
     {
@@ -262,8 +254,6 @@ public class LayoutTests
         text.Should().Contain("Top");
         text.Should().Contain("Below");
     }
-
-    // === Tables ===
 
     [Fact]
     public async Task Table_BasicWithHeaders()
@@ -305,8 +295,6 @@ public class LayoutTests
         text.Should().Contain("$50");
     }
 
-    // === Lists ===
-
     [Fact]
     public async Task UnorderedList_BulletsRendered()
     {
@@ -338,8 +326,6 @@ public class LayoutTests
         text.Should().Contain("Child item");
     }
 
-    // === Table with border-collapse: collapse ===
-
     [Fact]
     public async Task Table_BorderCollapse_CellContentPresent()
     {
@@ -357,10 +343,8 @@ public class LayoutTests
         text.Should().Contain("$6000");
         text.Should().Contain("Design");
         text.Should().Contain("$2400");
-        // Table header should use purple background
-        text.Should().Contain("0.42 0.36 0.91 rg");
-        // Table header text should be white
-        text.Should().Contain("1.00 1.00 1.00 rg");
+        text.Should().Contain("0.42 0.36 0.91 rg", "the table header has a purple background");
+        text.Should().Contain("1.00 1.00 1.00 rg", "the table header text is white");
     }
 
     [Fact]
@@ -374,8 +358,6 @@ public class LayoutTests
         text.Should().Contain("Narrow column");
     }
 
-    // === Overflow ===
-
     [Fact]
     public async Task OverflowHidden()
     {
@@ -383,16 +365,12 @@ public class LayoutTests
         text.Should().Contain("Clipped");
     }
 
-    // === Outline ===
-
     [Fact]
     public async Task Outline_RenderedAroundElement()
     {
         var text = await RenderPdf("<p style='outline: 2px solid blue'>Outlined</p>");
         text.Should().Contain("Outlined");
     }
-
-    // === Inline Block ===
 
     [Fact]
     public async Task DisplayInlineBlock()

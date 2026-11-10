@@ -119,8 +119,8 @@ public class TypedValueTests
                     .Content(c => c.Item().Text("Body"))))
             .Render();
 
-        // Two user classes plus the generated-content class all apply (none overwrites another).
-        Encoding.Latin1.GetString(pdf).Should().Contain("/Type /Page");
+        Encoding.Latin1.GetString(pdf).Should().Contain("/Type /Page",
+            "two user classes and the generated-content class all apply without overwriting each other");
     }
 
     [Fact]

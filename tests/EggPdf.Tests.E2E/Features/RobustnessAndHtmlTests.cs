@@ -44,8 +44,6 @@ public class RobustnessAndHtmlTests
         Encoding.ASCII.GetString(bytes, 0, 5).Should().Be("%PDF-");
     }
 
-    // === Semantic HTML Elements ===
-
     [Fact]
     public async Task SemanticElements_AllRendered()
     {
@@ -131,8 +129,6 @@ public class RobustnessAndHtmlTests
         text.Should().Contain("Click to expand");
     }
 
-    // === Presentational HTML Attributes ===
-
     [Fact]
     public async Task BgcolorAttribute()
     {
@@ -155,8 +151,6 @@ public class RobustnessAndHtmlTests
         text.Should().Contain("Times");
     }
 
-    // === Form Elements ===
-
     [Fact]
     public async Task FormElements_RenderWithoutCrash()
     {
@@ -170,8 +164,6 @@ public class RobustnessAndHtmlTests
             </form>");
     }
 
-    // === SVG ===
-
     [Fact]
     public async Task SvgInline_DoesNotCrash()
     {
@@ -181,15 +173,11 @@ public class RobustnessAndHtmlTests
             </svg>");
     }
 
-    // === Gradient ===
-
     [Fact]
     public async Task GradientBackground_DoesNotCrash()
     {
         await AssertRenderDoesNotCrash("<div style='background: linear-gradient(red, blue); width: 200px; height: 100px'>Gradient</div>");
     }
-
-    // === PDF Compliance ===
 
     [Fact]
     public async Task PdfHeader_Version17()
@@ -211,8 +199,6 @@ public class RobustnessAndHtmlTests
         var text = await RenderPdf("<p>Producer check</p>");
         text.Should().Contain("EggPdf");
     }
-
-    // === Robustness ===
 
     [Fact]
     public async Task MalformedHtml_ProducesValidPdf()
@@ -293,8 +279,6 @@ public class RobustnessAndHtmlTests
         await AssertRenderDoesNotCrash("<h1 style='text-shadow: 2px 2px 4px #000'>Shadow text</h1>");
     }
 
-    // === Complete Document Template ===
-
     [Fact]
     public async Task FullInvoiceDocument_AllElementsRendered()
     {
@@ -353,8 +337,6 @@ public class RobustnessAndHtmlTests
         text.Should().Contain("Conclusion");
         text.Should().Contain("https://example.com");
     }
-
-    // === Response Headers ===
 
     [Fact]
     public async Task RenderResponse_HasDurationHeader()

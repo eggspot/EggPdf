@@ -32,10 +32,9 @@ public class ApiReferenceUpToDateTests
     [Fact]
     public void EveryPublicTypeAndMember_HasAnXmlSummary()
     {
-        // Generate throws, listing every undocumented public type/member.
         Action generate = () => ApiReferenceGenerator.Generate(typeof(Document).Assembly, "EggPdf.Fluent");
 
-        generate.Should().NotThrow();
+        generate.Should().NotThrow("Generate throws, listing every undocumented public type and member");
     }
 
     [Fact]

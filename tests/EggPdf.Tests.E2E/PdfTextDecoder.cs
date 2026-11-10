@@ -13,6 +13,8 @@ namespace EggPdf.Tests.E2E;
 /// </summary>
 public static class PdfTextDecoder
 {
+    private const int ZlibHeaderBytes = 2;
+
     /// <summary>
     /// Decode for assertions, appending a rendered-text layer.
     ///
@@ -34,7 +36,8 @@ public static class PdfTextDecoder
     /// <summary>
     /// Concatenate the strings shown by text operators, in emission order.
     /// Only scans inside BT/ET blocks so inflated font programs and other
-    /// binary streams cannot contribute stray parenthesised bytes.
+    /// binary streams cannot contribute stray parenthesised bytes. A literal string's escapes are honoured, and
+    /// it only counts when a text-showing operator (Tj, TJ) follows it.
     /// </summary>
     public static string ExtractText(string decodedPdf)
     {
@@ -52,7 +55,6 @@ public static class PdfTextDecoder
             {
                 if (decodedPdf[i] != '(') { i++; continue; }
 
-                // Read the literal string, honouring escapes.
                 var literal = new StringBuilder();
                 int j = i + 1;
                 int depth = 1;
@@ -71,7 +73,6 @@ public static class PdfTextDecoder
                     j++;
                 }
 
-                // Only count it when a text-showing operator follows.
                 int k = j + 1;
                 while (k < et && (decodedPdf[k] == ' ' || decodedPdf[k] == '\n' ||
                                   decodedPdf[k] == '\r' || decodedPdf[k] == ']')) k++;
@@ -86,9 +87,13 @@ public static class PdfTextDecoder
         return sb.ToString();
     }
 
+    /// <summary>
+    /// The PDF as Latin-1 text (one char per byte) with every FlateDecode stream inflated in place; the zlib
+    /// header's 2 bytes are skipped, and a stream that doesn't inflate is left as it was.
+    /// </summary>
     public static string Decode(byte[] pdf)
     {
-        var text = Encoding.Latin1.GetString(pdf); // Latin-1 maps chars to bytes 1:1
+        var text = Encoding.Latin1.GetString(pdf);
         var sb = new StringBuilder(text.Length * 2);
         int pos = 0;
 
@@ -111,8 +116,7 @@ public static class PdfTextDecoder
             {
                 var raw = new byte[dataEnd - dataStart];
                 for (int i = 0; i < raw.Length; i++) raw[i] = (byte)text[dataStart + i];
-                // Skip the 2-byte zlib header; DeflateStream stops before the Adler-32.
-                using var input = new MemoryStream(raw, 2, raw.Length - 2);
+                using var input = new MemoryStream(raw, ZlibHeaderBytes, raw.Length - ZlibHeaderBytes);
                 using var deflate = new DeflateStream(input, CompressionMode.Decompress);
                 using var output = new MemoryStream();
                 deflate.CopyTo(output);
@@ -120,7 +124,7 @@ public static class PdfTextDecoder
             }
             catch
             {
-                sb.Append(text, dataStart, dataEnd - dataStart); // leave undecodable data as-is
+                sb.Append(text, dataStart, dataEnd - dataStart);
             }
             sb.Append(text, dataEnd, endIdx - dataEnd);
             pos = endIdx;

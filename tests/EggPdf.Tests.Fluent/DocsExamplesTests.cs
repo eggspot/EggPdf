@@ -50,10 +50,9 @@ public class DocsExamplesTests
                 })))
             .Render();
 
-        // The "Page X of Y" footer makes the renderer embed a subset font, so body text is written
-        // as glyph ids rather than searchable literals -- assert structure, not the words.
         var text = Encoding.Latin1.GetString(pdf);
-        text.Should().StartWith("%PDF-");
+        text.Should().StartWith("%PDF-",
+            "the Page X of Y footer embeds a subset font, so body text is glyph ids and only the structure is checked");
         text.Should().Contain("/Title (Invoice INV-142)");
         text.Should().Contain("/Outlines", "the H1 becomes a bookmark");
     }

@@ -32,8 +32,6 @@ public class TextAndFontTests
         return PdfTextDecoder.DecodeWithText(bytes);
     }
 
-    // --- Font Family ---
-
     [Fact]
     public async Task FontFamily_SansSerif_UsesHelvetica()
     {
@@ -57,8 +55,6 @@ public class TextAndFontTests
         text.Should().Contain("Courier");
         text.Should().Contain("Code text");
     }
-
-    // --- Font Weight & Style ---
 
     [Fact]
     public async Task FontWeight_Bold_UsesBoldFont()
@@ -100,8 +96,6 @@ public class TextAndFontTests
         text.Should().Contain("Emphasis text");
     }
 
-    // --- Text Alignment ---
-
     [Fact]
     public async Task TextAlign_Center()
     {
@@ -115,8 +109,6 @@ public class TextAndFontTests
         var text = await RenderAndGetPdfText("<p style='text-align: right'>Right-aligned text</p>");
         text.Should().Contain("Right-aligned text");
     }
-
-    // --- Text Decoration ---
 
     [Fact]
     public async Task TextDecoration_Underline()
@@ -156,8 +148,6 @@ public class TextAndFontTests
         text.Should().Contain("l S", "links have underline by default");
     }
 
-    // --- Text Transform ---
-
     [Fact]
     public async Task TextTransform_Uppercase()
     {
@@ -180,8 +170,6 @@ public class TextAndFontTests
         text.Should().Contain("Hello World");
     }
 
-    // --- Letter & Word Spacing ---
-
     [Fact]
     public async Task LetterSpacing_EmitsTcOperator()
     {
@@ -198,16 +186,12 @@ public class TextAndFontTests
         text.Should().Contain("Tw", "word-spacing emits Tw operator");
     }
 
-    // --- Text Indent ---
-
     [Fact]
     public async Task TextIndent_FirstLine()
     {
         var text = await RenderAndGetPdfText("<p style='text-indent: 40px'>Indented first line</p>");
         text.Should().Contain("Indented first line");
     }
-
-    // --- Whitespace ---
 
     [Fact]
     public async Task WhiteSpacePre_PreservesNewlines()
@@ -217,8 +201,6 @@ public class TextAndFontTests
         text.Should().Contain("Line 2");
         text.Should().Contain("Line 3");
     }
-
-    // --- Overflow & Word Break ---
 
     [Fact]
     public async Task OverflowWrap_BreakWord()
@@ -241,8 +223,6 @@ public class TextAndFontTests
         text.Should().Contain("...");
     }
 
-    // --- Superscript & Subscript ---
-
     [Fact]
     public async Task SupElement_Rendered()
     {
@@ -260,8 +240,6 @@ public class TextAndFontTests
         text.Should().Contain("O");
     }
 
-    // --- Heading Hierarchy ---
-
     [Fact]
     public async Task Headings_AllLevelsRendered()
     {
@@ -274,16 +252,12 @@ public class TextAndFontTests
         text.Should().Contain("H6");
     }
 
-    // --- Inline Style Override ---
-
     [Fact]
     public async Task InlineStyle_OverridesDefaults()
     {
         var text = await RenderAndGetPdfText("<h1 style='font-size: 12px; color: gray'>Small heading</h1>");
         text.Should().Contain("Small heading");
     }
-
-    // --- BR and line breaks ---
 
     [Fact]
     public async Task BrElement_CausesLineBreak()

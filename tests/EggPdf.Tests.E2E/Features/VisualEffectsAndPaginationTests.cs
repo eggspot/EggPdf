@@ -39,8 +39,6 @@ public class VisualEffectsAndPaginationTests
         return text;
     }
 
-    // === Box Shadow ===
-
     [Fact]
     public async Task BoxShadow_Simple()
     {
@@ -64,16 +62,12 @@ public class VisualEffectsAndPaginationTests
         text.Should().Contain("Blur");
     }
 
-    // === Opacity ===
-
     [Fact]
     public async Task Opacity_SemiTransparent()
     {
         var text = await RenderPdf("<div style='opacity: 0.5; background-color: red; width: 100px; height: 100px'>Semi-transparent</div>");
         text.Should().Contain("Semi-transparent");
     }
-
-    // === Transforms ===
 
     [Fact]
     public async Task Transform_TranslateX()
@@ -116,8 +110,6 @@ public class VisualEffectsAndPaginationTests
         text.Should().Contain(" cm\n");
     }
 
-    // === Images ===
-
     private const string RedPixelPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
 
     [Fact]
@@ -157,9 +149,8 @@ public class VisualEffectsAndPaginationTests
     [Fact]
     public async Task Image_JpegBase64()
     {
-        // Minimal 1x1 white JPEG
-        var jpegBase64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AKwA//9k=";
-        var text = await RenderPdf($"<img src='data:image/jpeg;base64,{jpegBase64}' width='100' height='100'>");
+        var oneByOneWhiteJpegBase64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AKwA//9k=";
+        var text = await RenderPdf($"<img src='data:image/jpeg;base64,{oneByOneWhiteJpegBase64}' width='100' height='100'>");
         text.Should().StartWith("%PDF");
     }
 
@@ -169,8 +160,6 @@ public class VisualEffectsAndPaginationTests
         var text = await RenderPdf("<img src='https://nonexistent.example.com/image.png' alt='Broken'>");
         text.Should().StartWith("%PDF");
     }
-
-    // === Links ===
 
     [Fact]
     public async Task Link_HasAnnotation()
@@ -197,8 +186,6 @@ public class VisualEffectsAndPaginationTests
         var text = await RenderPdf("<p>Visit <a href='https://github.com/eggspot/EggPdf'>EggPdf</a></p>");
         text.Should().Contain("https://github.com/eggspot/EggPdf");
     }
-
-    // === Bookmarks ===
 
     [Fact]
     public async Task Bookmarks_HeadingHierarchy()
@@ -232,8 +219,6 @@ public class VisualEffectsAndPaginationTests
         var text = await RenderPdf("<p>Just a paragraph.</p>");
         text.Should().NotContain("/Outlines");
     }
-
-    // === Page Breaks ===
 
     [Fact]
     public async Task PageBreakBefore_CreatesNewPage()
@@ -272,9 +257,6 @@ public class VisualEffectsAndPaginationTests
     [Fact]
     public async Task BreakInsideAvoid_KeepsElementTogether()
     {
-        // The spacer must exceed the A4 content height (~1123px page less
-        // margins) so the card is pushed past the page boundary; a shorter
-        // spacer simply fits on page one and tests nothing.
         var text = await RenderPdf(@"
             <div style='height: 1000px'>Spacer</div>
             <div style='break-inside: avoid; height: 200px; background: #eee; border: 1px solid black'>
@@ -282,7 +264,8 @@ public class VisualEffectsAndPaginationTests
                 <p>Should not split across pages</p>
             </div>");
         text.Should().Contain("Card Title");
-        CountOccurrences(text, "/Type /Page ").Should().BeGreaterOrEqualTo(2);
+        CountOccurrences(text, "/Type /Page ").Should().BeGreaterOrEqualTo(2,
+            "the 1000px spacer plus the card exceed the A4 content height, so the unsplittable card moves to page two");
     }
 
     [Fact]
@@ -291,8 +274,6 @@ public class VisualEffectsAndPaginationTests
         var text = await RenderPdf("<html><body></body></html>");
         text.Should().Contain("/Count 1");
     }
-
-    // === @page Rules ===
 
     [Fact]
     public async Task PageSize_Letter()
@@ -344,8 +325,6 @@ public class VisualEffectsAndPaginationTests
         text.Should().Contain("/MediaBox [0 0 419.53 595.28]");
     }
 
-    // === CSS Variables ===
-
     [Fact]
     public async Task CssVariable_InColor()
     {
@@ -366,16 +345,12 @@ public class VisualEffectsAndPaginationTests
         text.Should().Contain("Fallback color");
     }
 
-    // === Calc() ===
-
     [Fact]
     public async Task Calc_InWidth()
     {
         var text = await RenderPdf("<div style='width: calc(100% - 40px); background-color: #eee; height: 50px'>Calc width</div>");
         text.Should().Contain("Calc width");
     }
-
-    // === Generated Content ===
 
     [Fact]
     public async Task BeforeContent_AppearsInPdf()
@@ -407,8 +382,6 @@ public class VisualEffectsAndPaginationTests
         text.Should().Contain("]");
         text.Should().Contain("Content");
     }
-
-    // === External Stylesheets ===
 
     [Fact]
     public async Task LinkStylesheet_DataUri_Applied()
@@ -447,8 +420,6 @@ public class VisualEffectsAndPaginationTests
         text.Should().NotContain("Courier", "@media screen should be ignored for print");
     }
 
-    // === CSS Importance ===
-
     [Fact]
     public async Task Important_OverridesNormalRule()
     {
@@ -460,8 +431,6 @@ public class VisualEffectsAndPaginationTests
         text.Should().Contain("1.00 0.00 0.00 rg");
     }
 
-    // === CSS Variable in font-size ===
-
     [Fact]
     public async Task CssVariable_InFontSize()
     {
@@ -471,8 +440,6 @@ public class VisualEffectsAndPaginationTests
         </style></head><body><h1>Large heading</h1></body></html>");
         text.Should().Contain("Large heading");
     }
-
-    // === CSS Selectors ===
 
     [Fact]
     public async Task Selector_AdjacentSibling()
@@ -536,8 +503,6 @@ public class VisualEffectsAndPaginationTests
         text.Should().Contain("Three");
     }
 
-    // === Style Tag ===
-
     [Fact]
     public async Task StyleTag_AppliesStyles()
     {
@@ -546,8 +511,6 @@ public class VisualEffectsAndPaginationTests
         </style></head><body><p class='custom'>Styled paragraph</p></body></html>");
         text.Should().Contain("Styled paragraph");
     }
-
-    // === Media Queries ===
 
     [Fact]
     public async Task MediaPrint_AppliesStyles()
@@ -558,12 +521,9 @@ public class VisualEffectsAndPaginationTests
         text.Should().Contain("Print styled");
     }
 
-    // === WebUI PDF Preview content check ===
-
     [Fact]
     public async Task WebUI_PdfPreview_ContainsSameContentAsPrintPreview()
     {
-        // Verify that the PDF rendered from the same HTML contains the same text
         var html = @"<h1>Preview Test</h1><p>Both previews should show this text.</p>
             <table><tr><td>Cell A</td><td>Cell B</td></tr></table>";
 
