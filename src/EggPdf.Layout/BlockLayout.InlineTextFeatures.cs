@@ -9,8 +9,6 @@ namespace EggPdf.Layout;
 public static partial class BlockLayout
 {
     private static readonly string LineClampEllipsis = ((char)0x2026).ToString();
-    private const int BalanceSearchSteps = 12;
-    private const float BalanceWidthSlack = 1f;
 
     private static int FirstLetterLength(string text)
     {
@@ -178,14 +176,24 @@ public static partial class BlockLayout
         int lines = CountGreedyLines(words, containerWidth);
         if (!TextWrapBalance.ShouldBalance("balance", lines)) return containerWidth;
 
-        float low = 0f, high = containerWidth;
-        for (int step = 0; step < BalanceSearchSteps; step++)
-        {
-            float mid = (low + high) / 2f;
-            if (CountGreedyLines(words, mid) <= lines) high = mid;
-            else low = mid;
-        }
-        return Math.Min(containerWidth, high + BalanceWidthSlack);
+        return NarrowestInlineWidthKeepingLineCount(words, containerWidth, lines);
+    }
+
+    private static float NarrowestInlineWidthKeepingLineCount(
+        List<(float Width, float SpaceBefore, bool BreaksBefore)> words, float containerWidth, int lines) =>
+        TextWrapBalance.FindNarrowestWidthKeepingLineCount(containerWidth, lines, width => CountGreedyLines(words, width));
+
+    private static float BalancedPlainTextWrapWidth(string text, float fontSize, string? fontFamily,
+        string? fontWeight, string? fontStyle, float containerWidth, string whiteSpace, bool breakWord,
+        bool enableHyphenation, float letterSpacing)
+    {
+        int lines = TextMeasurer.WrapText(text, fontSize, fontFamily, fontWeight, fontStyle, containerWidth,
+            whiteSpace, breakWord, enableHyphenation, letterSpacing).Count;
+        if (!TextWrapBalance.ShouldBalance("balance", lines)) return containerWidth;
+
+        return TextWrapBalance.FindNarrowestWidthKeepingLineCount(containerWidth, lines,
+            width => TextMeasurer.WrapText(text, fontSize, fontFamily, fontWeight, fontStyle, width,
+                whiteSpace, breakWord, enableHyphenation, letterSpacing).Count);
     }
 
     private static bool CollectBalanceWords(HtmlElement element, ComputedStyle style, float fontSize,

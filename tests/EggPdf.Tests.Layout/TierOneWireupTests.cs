@@ -39,21 +39,38 @@ public class TierOneWireupTests
     [Fact]
     public void TextWrap_Balance_FirstLineNotFullWidth()
     {
+        const string sixWords = "word1 word2 word3 word4 word5 word6";
         var htmlBalanced = LayoutTestHelper.Layout(
-            "<p style='text-wrap:balance; width:200px; font-size:12px'>" +
-            "word1 word2 word3 word4 word5 word6</p>", 400, 600);
+            "<p style='text-wrap:balance; width:200px; font-size:12px'>" + sixWords + "</p>", 400, 600);
         var htmlNormal = LayoutTestHelper.Layout(
-            "<p style='width:200px; font-size:12px'>" +
-            "word1 word2 word3 word4 word5 word6</p>", 400, 600);
+            "<p style='width:200px; font-size:12px'>" + sixWords + "</p>", 400, 600);
 
         var balancedBoxes = htmlBalanced.FindByTag("p")!.Children.FindAll(b => !string.IsNullOrEmpty(b.Text));
         var normalBoxes = htmlNormal.FindByTag("p")!.Children.FindAll(b => !string.IsNullOrEmpty(b.Text));
 
-        if (balancedBoxes.Count >= 2 && normalBoxes.Count >= 2)
-        {
-            balancedBoxes[0].ContentWidth.Should().BeLessThan(normalBoxes[0].ContentWidth,
-                "text-wrap:balance should reduce first-line width to balance with subsequent lines");
-        }
+        normalBoxes.Should().HaveCount(2, "five of the six words fill a 200px line at 12px, and the sixth wraps alone");
+        balancedBoxes.Should().HaveCount(2, "balancing evens the lines out without adding one");
+        balancedBoxes[0].ContentWidth.Should().BeLessThan(normalBoxes[0].ContentWidth,
+            "text-wrap:balance shortens the first line to even it out with the next");
+    }
+
+    [Fact]
+    public void TextWrap_Balance_PlainText_KeepsTheGreedyLineCount()
+    {
+        const string heading = "A moderately long heading that should be balanced";
+        var balanced = LayoutTestHelper.Layout(
+            "<h2 style='text-wrap:balance; width:300px'>" + heading + "</h2>", 400, 600);
+        var greedy = LayoutTestHelper.Layout(
+            "<h2 style='width:300px'>" + heading + "</h2>", 400, 600);
+
+        var balancedLines = balanced.FindByTag("h2")!.Children.FindAll(b => !string.IsNullOrEmpty(b.Text));
+        var greedyLines = greedy.FindByTag("h2")!.Children.FindAll(b => !string.IsNullOrEmpty(b.Text));
+
+        greedyLines.Should().HaveCount(3);
+        balancedLines.Should().HaveCount(3,
+            "balancing narrows the lines only as far as the text still fits the greedy line count, never adding a line");
+        balancedLines[2].ContentWidth.Should().BeGreaterThan(greedyLines[2].ContentWidth,
+            "the greedy short last line ('balanced') takes words from the line above");
     }
 
     [Fact]
