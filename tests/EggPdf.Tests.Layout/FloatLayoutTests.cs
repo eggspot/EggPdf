@@ -32,45 +32,8 @@ public class FloatLayoutTests
     }
 
     [Fact]
-    public void FloatElement_RemovedFromNormalFlow()
-    {
-        var root = LayoutTestHelper.Layout(
-            "<div style='float: left; width: 100px; height: 50px'></div>" +
-            "<div style='height: 30px'>Normal flow</div>",
-            600, 800);
-
-        var divs = root.FindAllByTag("div");
-        divs.Should().HaveCountGreaterOrEqualTo(2);
-        // The normal flow div should not be pushed down by the float
-    }
-
-    [Fact]
-    public void ClearBoth_MovesBelow()
-    {
-        var root = LayoutTestHelper.Layout(
-            "<div style='float: left; width: 100px; height: 50px'></div>" +
-            "<div style='clear: both; height: 30px'>Cleared</div>",
-            600, 800);
-
-        var divs = root.FindAllByTag("div");
-        divs.Should().HaveCountGreaterOrEqualTo(2);
-    }
-
-    [Fact]
-    public void Float_StylePropertyRecognized()
-    {
-        var root = LayoutTestHelper.Layout(
-            "<div style='float: left; width: 50px; height: 50px'>F</div><p>Text next to float</p>",
-            600, 800);
-
-        var div = root.FindByTag("div");
-        div.Should().NotBeNull();
-    }
-
-    [Fact]
     public void FloatLeft_XAtContainerLeft()
     {
-        // float:left must place the element at the left edge of the container
         var root = LayoutTestHelper.Layout(
             "<div id='container' style='width:400px; padding:0'>" +
             "<div id='fl' style='float:left; width:100px; height:50px'></div>" +
@@ -89,7 +52,6 @@ public class FloatLayoutTests
     [Fact]
     public void FloatRight_XAtContainerRight()
     {
-        // float:right must place the element against the right edge of the container
         var root = LayoutTestHelper.Layout(
             "<div id='container' style='width:400px; padding:0'>" +
             "<div id='fr' style='float:right; width:100px; height:50px'></div>" +
@@ -109,8 +71,6 @@ public class FloatLayoutTests
     [Fact]
     public void FloatLeft_NormalFlowSibling_NotPushedDown()
     {
-        // A normal-flow block after a float:left should start at the same Y as the float
-        // (floats are removed from normal flow)
         var root = LayoutTestHelper.Layout(
             "<div id='container' style='width:400px'>" +
             "<div id='fl' style='float:left; width:100px; height:50px'></div>" +
@@ -125,7 +85,6 @@ public class FloatLayoutTests
         fl.Should().NotBeNull();
         normal.Should().NotBeNull();
 
-        // normal flow element should start at top of container, same Y as the float
         normal!.Y.Should().BeApproximately(fl!.Y, 1f,
             "float:left is removed from normal flow; sibling should not be pushed below it");
     }
@@ -133,7 +92,6 @@ public class FloatLayoutTests
     [Fact]
     public void ClearBoth_Y_IsAtOrBelowFloat()
     {
-        // clear:both must move the element below the bottom of any active float
         var root = LayoutTestHelper.Layout(
             "<div id='container' style='width:400px'>" +
             "<div id='fl' style='float:left; width:100px; height:80px'></div>" +
