@@ -63,8 +63,28 @@ public static partial class BlockLayout
             return merged;
         }
 
+        /// <summary>
+        /// The style a run's next word at <paramref name="childY"/> should use, when it differs from
+        /// <paramref name="activeStyle"/>: the first-line style while on the first line, the run's own afterwards.
+        /// </summary>
+        public bool TryChangeStyle(float childY, ComputedStyle runStyle, float runFontSize, ComputedStyle activeStyle,
+            out ComputedStyle style, out float fontSize)
+        {
+            if (IsOnFirstLine(childY))
+            {
+                style = StyleFor(runStyle);
+                fontSize = FontSizeFor(style, runStyle, runFontSize);
+            }
+            else
+            {
+                style = runStyle;
+                fontSize = runFontSize;
+            }
+            return !ReferenceEquals(style, activeStyle);
+        }
+
         /// <summary>The font size in pixels for a first-line style; relative sizes resolve against the block's.</summary>
-        public float FontSizeFor(ComputedStyle lineStyle, ComputedStyle runStyle, float runFontSize) =>
+        private float FontSizeFor(ComputedStyle lineStyle, ComputedStyle runStyle, float runFontSize) =>
             lineStyle.FontSize == runStyle.FontSize ? runFontSize : ResolveFontSize(lineStyle.FontSize, _blockFontSize);
     }
 }

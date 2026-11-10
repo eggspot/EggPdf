@@ -216,38 +216,8 @@ public static partial class BlockLayout
 
             ComputedStyle activeStyle = run.Style;
             float activeFontSize = run.FontSize;
-            string? fontFamily = null, fontWeight = null, fontStyle = null;
-            float runLetterSpacing = 0f, lhRun = 0f, baselineShift = 0f;
-            UseStyle(run.Style, run.FontSize);
-
-            void UseStyle(ComputedStyle s, float size)
-            {
-                activeStyle = s;
-                activeFontSize = size;
-                fontFamily = s.FontFamily;
-                fontWeight = s.FontWeight;
-                fontStyle = s.Get("font-style");
-                runLetterSpacing = ResolveLength(s.Get("letter-spacing"), 0, size);
-                lhRun = TextMeasurer.GetLineHeight(size, s.Get("line-height"), fontFamily, fontWeight, fontStyle, text);
-                baselineShift = size == parentFontSize
-                    ? 0f
-                    : parentBaseline - TextMeasurer.GetBaselineOffset(size, lhRun, fontFamily, fontWeight, fontStyle, text);
-            }
-
-            void UseFirstLineStyleWhileOnIt(float lineY)
-            {
-                if (firstLine == null) return;
-                if (firstLine.IsOnFirstLine(lineY))
-                {
-                    var lineStyle = firstLine.StyleFor(run.Style);
-                    if (!ReferenceEquals(activeStyle, lineStyle))
-                        UseStyle(lineStyle, firstLine.FontSizeFor(lineStyle, run.Style, run.FontSize));
-                }
-                else if (!ReferenceEquals(activeStyle, run.Style))
-                {
-                    UseStyle(run.Style, run.FontSize);
-                }
-            }
+            var (fontFamily, fontWeight, fontStyle, runLetterSpacing, lhRun, baselineShift) =
+                RunFontMetrics(run.Style, run.FontSize, text, parentFontSize, parentBaseline);
 
             var runOverflowWrap = run.Style.Get("overflow-wrap") ?? run.Style.Get("word-wrap");
             var runWordBreak = run.Style.Get("word-break");
@@ -286,8 +256,17 @@ public static partial class BlockLayout
                 }
 
                 string runWord = word;
-                UseFirstLineStyleWhileOnIt(childY);
-                if (!ReferenceEquals(activeStyle, run.Style)) word = ApplyTextTransformForMeasure(runWord, activeStyle);
+                if (firstLine != null)
+                {
+                    if (firstLine.TryChangeStyle(childY, run.Style, run.FontSize, activeStyle, out var lineStyle, out float lineFontSize))
+                    {
+                        activeStyle = lineStyle;
+                        activeFontSize = lineFontSize;
+                        (fontFamily, fontWeight, fontStyle, runLetterSpacing, lhRun, baselineShift) =
+                            RunFontMetrics(activeStyle, activeFontSize, text, parentFontSize, parentBaseline);
+                    }
+                    if (!ReferenceEquals(activeStyle, run.Style)) word = ApplyTextTransformForMeasure(runWord, activeStyle);
+                }
 
                 inlineX = ApplyLeftInsetIfNeeded(Math.Max(inlineLineHeight, lhRun), inlineX, childY);
 
@@ -326,8 +305,15 @@ public static partial class BlockLayout
                     lineStart = 0;
                     inlineLineHeight = 0;
                     atLineStart = true;
-                    UseFirstLineStyleWhileOnIt(childY);
-                    word = ReferenceEquals(activeStyle, run.Style) ? runWord : ApplyTextTransformForMeasure(runWord, activeStyle);
+                    if (firstLine != null &&
+                        firstLine.TryChangeStyle(childY, run.Style, run.FontSize, activeStyle, out var nextLineStyle, out float nextLineFontSize))
+                    {
+                        activeStyle = nextLineStyle;
+                        activeFontSize = nextLineFontSize;
+                        (fontFamily, fontWeight, fontStyle, runLetterSpacing, lhRun, baselineShift) =
+                            RunFontMetrics(activeStyle, activeFontSize, text, parentFontSize, parentBaseline);
+                        word = ReferenceEquals(activeStyle, run.Style) ? runWord : ApplyTextTransformForMeasure(runWord, activeStyle);
+                    }
                     inlineX = ApplyLeftInsetIfNeeded(lhRun, inlineX, childY);
                     wordText = word;
                     wordWidth = TextMeasurer.MeasureWidth(wordText, activeFontSize, fontFamily, fontWeight, fontStyle, runLetterSpacing);
@@ -464,6 +450,21 @@ public static partial class BlockLayout
             char lastRunChar = run.Text.Length > 0 ? run.Text[run.Text.Length - 1] : '\0';
             prevRunTrailingSpace = !run.KeepsSpaces && lastRunChar != NonBreakingSpace && char.IsWhiteSpace(lastRunChar);
         }
+    }
+
+    /// <summary>The font metrics a run's words are measured and placed with, for one style and font size.</summary>
+    private static (string? Family, string? Weight, string? Style, float LetterSpacing, float LineHeight, float BaselineShift)
+        RunFontMetrics(ComputedStyle style, float fontSize, string text, float parentFontSize, float parentBaseline)
+    {
+        var family = style.FontFamily;
+        var weight = style.FontWeight;
+        var fontStyle = style.Get("font-style");
+        float letterSpacing = ResolveLength(style.Get("letter-spacing"), 0, fontSize);
+        float lineHeight = TextMeasurer.GetLineHeight(fontSize, style.Get("line-height"), family, weight, fontStyle, text);
+        float baselineShift = fontSize == parentFontSize
+            ? 0f
+            : parentBaseline - TextMeasurer.GetBaselineOffset(fontSize, lineHeight, family, weight, fontStyle, text);
+        return (family, weight, fontStyle, letterSpacing, lineHeight, baselineShift);
     }
 
     private const int PreservedTabSize = 8;
