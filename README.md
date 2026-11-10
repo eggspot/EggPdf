@@ -208,7 +208,8 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   border-style/inset/border-radius corners, `float: inline-start`/`inline-end`) resolve to their
   mirrored physical values; table columns lay out right-to-left and list markers hang on the
   right, matching a browser
-- CSS Custom Properties (`var()`)
+- CSS Custom Properties (`var()`), computed where they are declared as in Chrome (reference cycles fall
+  back), and CSS nesting at any depth (selector lists, nested `@media`/`@supports`/`@layer`)
 - Legacy HTML presentational attributes, mapped as the HTML rendering spec does (author CSS wins):
   `width`/`height` (`"200px"`, `"50%"`), table `border`/`cellpadding`/`cellspacing`/`align`
   (`center` centers the table, `left`/`right` float it), cell `nowrap`/`valign`, `bgcolor`/`background`,
@@ -433,11 +434,15 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 <!-- BENCHMARK_START -->
 | Scenario | Mean | Memory |
 |----------|------|--------|
-| Simple page (h1 + p) | **13 µs** | 20 KB |
-| Invoice (table + styles) | **86 µs** | 85 KB |
-| Large table (100 rows) | **1.2 ms** | 939 KB |
+| CountBalanced | **3.4 ms** | 135 KB |
+| CountFlat | **32.3 ms** | 9.2 MB |
+| LastPageBalanced | **3.4 ms** | 135 KB |
+| LastPageBalancedFromStream | **3.8 ms** | 2.7 MB |
+| SimplePage | **24.6 µs** | 39 KB |
+| InvoicePage | **279.1 µs** | 272 KB |
+| LargeTable | **2.6 ms** | 1.4 MB |
 
-*Benchmarks run on every PR (results posted as comment) and on every merge to `main` (artifacts uploaded). Targets: simple < 50ms, invoice < 100ms, large table < 5s.*
+*Auto-updated by CI. Targets: simple < 50ms, invoice < 100ms, large table < 5s.*
 <!-- BENCHMARK_END -->
 
 ## Target Frameworks

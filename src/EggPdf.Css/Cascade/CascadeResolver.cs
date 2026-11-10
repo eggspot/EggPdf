@@ -154,7 +154,7 @@ public partial class CascadeResolver
                 style.Set(kv.Key, kv.Value);
         }
 
-        ResolveCustomProperties(style);
+        CssVariableResolver.SubstituteVariables(style);
         FontVariationMarker.Apply(style);
 
         bool isRTL = style.Get("direction") == "rtl";
@@ -203,40 +203,13 @@ public partial class CascadeResolver
             if (!style.Has("content")) return null;
         }
 
-        ResolveCustomProperties(style);
+        CssVariableResolver.SubstituteVariables(style);
         ComputedFontMetrics.ComputeFontSizeAndLineHeight(style, parentStyle, _rootFontSizePx);
         return style;
     }
 
     private static bool IsInherited(string property) =>
         _inheritedProps.Contains(property) || CssVariableResolver.IsCustomProperty(property);
-
-    /// <summary>
-    /// Resolve all var() references in non-custom property values.
-    /// Custom properties themselves are not resolved (they store raw values).
-    /// </summary>
-    private static void ResolveCustomProperties(ComputedStyle style)
-    {
-        List<KeyValuePair<string, string>>? toResolve = null;
-        foreach (var kv in style.All)
-        {
-            if (kv.Value.IndexOf('(') < 0) continue;
-            if (!CssVariableResolver.IsCustomProperty(kv.Key) &&
-                (kv.Value.IndexOf("var(", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                 kv.Value.IndexOf("env(", StringComparison.OrdinalIgnoreCase) >= 0))
-            {
-                (toResolve ??= new List<KeyValuePair<string, string>>()).Add(kv);
-            }
-        }
-        if (toResolve == null) return;
-
-        foreach (var kv in toResolve)
-        {
-            var resolved = CssVariableResolver.ResolveVariables(kv.Value, style);
-            if (resolved != kv.Value)
-                style.Set(kv.Key, resolved);
-        }
-    }
 
     private void AddRulesInSourceOrder(List<CssStyleRule> rules)
     {

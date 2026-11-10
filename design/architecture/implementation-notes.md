@@ -433,6 +433,40 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
   `head.checkSumAdjustment` so the whole file sums to 0xB1B0AFBA. The subsetter, TTC face extraction and
   variable-font instancing all assemble fonts through it.
 
+## EggPdf.Css/Tokenizer/CssTokenizer.cs
+
+- `<!--` and `-->` are CDO/CDC tokens; the stylesheet parser ignores them at the top level, so legacy
+  `<style><!-- ... --></style>` blocks keep their first rule.
+- Numbers take an exponent (`1e3`, `2.5E-1`); a `-` starts an identifier only when followed by a name
+  character, `-` or an escape (otherwise it is a delim), and `#`/`@` without a following name are delims.
+- An unterminated comment runs to the end of the input.
+
+## EggPdf.Css/CssNestingResolver.cs
+
+- Nesting is flattened on the raw text before tokenizing, recursively: a nested style rule's selector is the
+  cross product of the parent and nested selector lists (`&` replaced by each parent, or the parent
+  prepended as a descendant). Chrome treats `&` as `:is(parent list)`; the cross product matches the same
+  elements, with each branch keeping its own specificity.
+- A nested `@media`/`@supports`/`@layer`/`@container`/`@starting-style` wraps the parent selector; other
+  at-rules nested in a style rule are dropped, and top-level ones (`@font-face`, `@page`, `@keyframes`)
+  pass through untouched. Declarations after a nested rule start a new rule for the same selector, so
+  source order is kept.
+- The scanner skips comments, quoted strings (with escapes) and anything inside parentheses, so
+  `url(data:...;base64,...)` and `content: "{"` are not syntax. Nesting deeper than 64 levels is left as
+  written.
+
+## EggPdf.Css/Cascade/CssVariableResolver.cs
+
+- Custom properties are computed on the element that declares them (var() and env() substituted there), so
+  a child inherits the substituted value: `:root { --gap: var(--base) }` keeps the root's `--base` even
+  where a descendant overrides `--base`, as in Chrome.
+- The computation is a depth-first walk that computes each property once. Every property on a reference
+  cycle is invalid (removed), and a property referencing the cycle uses its fallback. A reference to a
+  missing property without a fallback makes a custom property invalid. A substituted value longer than
+  one million characters is invalid, which bounds `--b: var(--a) var(--a)` chains.
+- `var(` and `env(` count only at a function boundary outside quoted strings: `myvar(` and
+  `content: "var(--x)"` are left alone.
+
 ## EggPdf.Pdf/GifDecoder.cs
 
 - LZW code width grows when the next free table code reaches `1 << codeSize` (giflib and stb_image do the

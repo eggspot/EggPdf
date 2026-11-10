@@ -323,6 +323,103 @@ public class CssVariablesTests
             "::placeholder color should be applied from the CSS rule");
     }
 
+    private static ComputedStyle ResolveChain(string css, string html, params string[] tagPath)
+    {
+        var doc = HtmlParser.Parse(html);
+        var resolver = new CascadeResolver(new[] { CssStyleSheetParser.Parse(css) });
+        HtmlElement element = doc.DocumentElement!;
+        var style = resolver.Resolve(element, null);
+        element = doc.Body!;
+        style = resolver.Resolve(element, style);
+        foreach (var tag in tagPath)
+        {
+            element = element.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == tag);
+            style = resolver.Resolve(element, style);
+        }
+        return style;
+    }
+
+    [Fact]
+    public void CustomProperty_ReferencingAnother_IsComputedWhereItIsDeclared()
+    {
+        var style = ResolveChain(
+            ":root { --base: 1px; --gap: var(--base); } div { --base: 5px; width: var(--gap); }",
+            "<div>x</div>", "div");
+
+        style.Get("width").Should().Be("1px", "--gap is computed on :root, and the div inherits the computed 1px");
+        style.Get("--gap").Should().Be("1px");
+    }
+
+    [Fact]
+    public void CustomProperties_InACycle_AreInvalidSoTheFallbackApplies()
+    {
+        var style = ResolveChain(
+            "div { --a: var(--b); --b: var(--a); width: var(--a, 7px); }",
+            "<div>x</div>", "div");
+
+        style.Get("width").Should().Be("7px");
+        style.Get("--a").Should().BeNull();
+        style.Get("--b").Should().BeNull();
+    }
+
+    [Fact]
+    public void CustomProperty_ReferencingACycleWithFallback_UsesTheFallback()
+    {
+        var style = ResolveChain(
+            "div { --a: var(--b); --b: var(--a); --c: var(--a, 3px); width: var(--c); }",
+            "<div>x</div>", "div");
+
+        style.Get("--c").Should().Be("3px", "--c references the cycle but is not part of it");
+        style.Get("width").Should().Be("3px");
+    }
+
+    [Fact]
+    public void CustomProperty_WithMissingReferenceAndNoFallback_IsInvalid()
+    {
+        var style = ResolveChain(
+            "div { --a: var(--missing); width: var(--a, 9px); }",
+            "<div>x</div>", "div");
+
+        style.Get("width").Should().Be("9px");
+    }
+
+    [Fact]
+    public void CustomProperty_WideReferenceChain_ResolvesWithoutBlowingUp()
+    {
+        var css = new System.Text.StringBuilder("div { --v0: 1px; ");
+        for (int i = 1; i <= 40; i++)
+            css.Append("--v").Append(i).Append(": var(--v").Append(i - 1).Append(") var(--v").Append(i - 1).Append("); ");
+        css.Append("--last: var(--v3); width: var(--last); }");
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var style = ResolveChain(css.ToString(), "<div>x</div>", "div");
+        watch.Stop();
+
+        style.Get("width").Should().Be("1px 1px 1px 1px 1px 1px 1px 1px");
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5), "each custom property is computed once, not once per path");
+    }
+
+    [Fact]
+    public void VarInsideAString_IsLeftAsText()
+    {
+        var style = ResolveChain(
+            "div { --x: red; content: \"var(--x)\"; color: var(--x); }",
+            "<div>x</div>", "div");
+
+        style.Get("content").Should().Contain("var(--x)", "text inside a string is never a var() reference");
+        style.Color.Should().Be("red");
+    }
+
+    [Fact]
+    public void FunctionNameEndingInVar_IsNotAVarReference()
+    {
+        var style = ResolveChain(
+            "div { --x: red; font-family: myvar(--x); }",
+            "<div>x</div>", "div");
+
+        style.Get("font-family").Should().Be("myvar(--x)");
+    }
+
     [Fact]
     public void Placeholder_LegacySingleColon_AlsoMatches()
     {

@@ -145,7 +145,7 @@ public partial class BasicStyleResolver
             InheritFrom(parentStyle, style);
         ApplyInlineStyle(element, style);
         HideWhenNotRendered(element, style);
-        ResolveCustomProperties(style);
+        CssVariableResolver.SubstituteVariables(style);
 
         bool isRTL = style.Get("direction") == "rtl";
         bool isVertical = style.Get("writing-mode")?.IndexOf("vertical", System.StringComparison.OrdinalIgnoreCase) >= 0;
@@ -235,29 +235,6 @@ public partial class BasicStyleResolver
             && !parentElem.HasAttribute("open"))
         {
             style.Set("display", "none");
-        }
-    }
-
-    private static void ResolveCustomProperties(ComputedStyle style)
-    {
-        List<KeyValuePair<string, string>>? toResolve = null;
-        foreach (var kv in style.All)
-        {
-            if (kv.Value.IndexOf('(') < 0) continue;
-            if (!CssVariableResolver.IsCustomProperty(kv.Key) &&
-                (kv.Value.IndexOf("var(", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                 kv.Value.IndexOf("env(", StringComparison.OrdinalIgnoreCase) >= 0))
-            {
-                (toResolve ??= new List<KeyValuePair<string, string>>()).Add(kv);
-            }
-        }
-        if (toResolve == null) return;
-
-        foreach (var kv in toResolve)
-        {
-            var resolved = CssVariableResolver.ResolveVariables(kv.Value, style);
-            if (resolved != kv.Value)
-                style.Set(kv.Key, resolved);
         }
     }
 
