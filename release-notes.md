@@ -1,5 +1,5 @@
 ## What's Changed
-* docs: run benchmarks in CI on each PR, pipeline batches, and quote the benchmark filter so the job runs by @cloud-hai-vo in https://github.com/eggspot/EggPdf/pull/300
+* fix: CSS cascade layers, selector lists, source order and shorthands; nested at-rules; pseudo-classes; linear sibling selectors by @cloud-hai-vo in https://github.com/eggspot/EggPdf/pull/299
 
 
-**Full Changelog**: https://github.com/eggspot/EggPdf/compare/v2.0.8...v2.0.9
+**Full Changelog**: https://github.com/eggspot/EggPdf/compare/v2.0.9...v2.0.10
