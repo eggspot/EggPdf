@@ -24,14 +24,16 @@ internal static class SyntheticFonts
     public static byte[] Build(IEnumerable<int> codepoints, int advance = 1000, bool outlines = true,
         bool bitmapColorOnly = false, bool format4 = false)
     {
+        const int unitsPerEm = 1000, ascent = 800;
         var sorted = codepoints.Distinct().OrderBy(c => c).ToList();
         int numGlyphs = sorted.Count + 1;
+        int numberOfHMetrics = numGlyphs;
 
         var head = new byte[54];
-        head[18] = 0x03; head[19] = 0xE8;                                  // unitsPerEm 1000
+        head[18] = unitsPerEm >> 8; head[19] = unitsPerEm & 0xFF;
         var hhea = new byte[36];
-        hhea[4] = 0x03; hhea[5] = 0x20;                                    // ascent 800
-        hhea[34] = (byte)(numGlyphs >> 8); hhea[35] = (byte)numGlyphs;     // numberOfHMetrics
+        hhea[4] = ascent >> 8; hhea[5] = ascent & 0xFF;
+        hhea[34] = (byte)(numberOfHMetrics >> 8); hhea[35] = (byte)numberOfHMetrics;
         var maxp = Be32(0x00005000).Concat(Be16(numGlyphs)).ToArray();
 
         var hmtx = new List<byte>();
@@ -45,13 +47,17 @@ internal static class SyntheticFonts
         if (outlines)
         {
             tables["glyf"] = new byte[4];
-            tables["loca"] = new byte[(numGlyphs + 1) * 2]; // short offsets, every glyph empty
+            const int shortOffsetSize = 2;
+            tables["loca"] = new byte[(numGlyphs + 1) * shortOffsetSize];
         }
         if (bitmapColorOnly) tables["sbix"] = new byte[8];
         return SfntWriter.WriteFont(tables);
     }
 
-    /// <summary>A TrueType Collection ('ttcf') whose faces are the given standalone fonts.</summary>
+    /// <summary>
+    /// A TrueType Collection ('ttcf') whose faces are the given standalone fonts: the header and offset array,
+    /// then every face's table directory, then all the table data.
+    /// </summary>
     public static byte[] BuildCollection(params byte[][] faces)
     {
         var output = new List<byte>();
@@ -59,7 +65,6 @@ internal static class SyntheticFonts
         output.AddRange(Be32(0x00010000));
         output.AddRange(Be32((uint)faces.Length));
 
-        // Directories first (after the header + offset array), table data after all directories
         var directoryOffsets = new int[faces.Length];
         int cursor = 12 + faces.Length * 4;
         var parsed = new List<(string tag, byte[] data)[]>();
@@ -143,11 +148,14 @@ internal static class SyntheticFonts
         return cmap.ToArray();
     }
 
+    private static int IdDelta(int firstGlyph, int startCodepoint) => (firstGlyph - startCodepoint) & 0xFFFF;
+
     private static byte[] Format4Cmap(List<int> sorted)
     {
         if (sorted.Any(c => c > 0xFFFE)) throw new ArgumentException("format 4 maps the BMP only");
         var runs = Runs(sorted);
-        int segCount = runs.Count + 1; // + the 0xFFFF terminator segment
+        const int terminatorSegment = 1;
+        int segCount = runs.Count + terminatorSegment;
         var sub = new List<byte>();
         sub.AddRange(Be16(4)); sub.AddRange(Be16(16 + segCount * 8)); sub.AddRange(Be16(0));
         sub.AddRange(Be16(segCount * 2)); sub.AddRange(Be16(0)); sub.AddRange(Be16(0)); sub.AddRange(Be16(0));
@@ -156,10 +164,11 @@ internal static class SyntheticFonts
         sub.AddRange(Be16(0));
         foreach (var r in runs) sub.AddRange(Be16(r.start));
         sub.AddRange(Be16(0xFFFF));
-        foreach (var r in runs) sub.AddRange(Be16((r.firstGlyph - r.start) & 0xFFFF)); // idDelta
+        foreach (var r in runs) sub.AddRange(Be16(IdDelta(r.firstGlyph, r.start)));
         sub.AddRange(Be16(1));
-        foreach (var _ in runs) sub.AddRange(Be16(0));                                  // idRangeOffset
-        sub.AddRange(Be16(0));
+        const int noGlyphIdArray = 0;
+        foreach (var _ in runs) sub.AddRange(Be16(noGlyphIdArray));
+        sub.AddRange(Be16(noGlyphIdArray));
 
         var cmap = new List<byte>();
         cmap.AddRange(Be16(0)); cmap.AddRange(Be16(1));
