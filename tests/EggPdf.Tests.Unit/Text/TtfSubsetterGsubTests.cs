@@ -8,15 +8,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Text;
 
-/// <summary>
-/// TtfSubsetter.Subset(font, codepoints, activeFeatures) must embed and map to the
-/// GSUB-substituted glyph, not the original -- otherwise the composite embedded-font
-/// cache key (see StandardFontMetrics.ResolvePdfFontName's "-Feat-..." suffix) would
-/// point at a font-feature-settings entry whose glyph outlines never actually changed.
-/// A real system font supplies valid glyph outlines/composites to subset; the GSUB
-/// mapping itself is injected directly (internal access) so the test doesn't depend on
-/// which, if any, GSUB features happen to be present on whatever font is installed.
-/// </summary>
 public class TtfSubsetterGsubTests
 {
     private static string? FindSystemFont(string name)
@@ -39,11 +30,15 @@ public class TtfSubsetterGsubTests
                     .IndexOf(name, System.StringComparison.OrdinalIgnoreCase) >= 0);
                 if (match != null) return match;
             }
-            catch { /* permission denied etc */ }
+            catch { }
         }
         return null;
     }
 
+    /// <summary>
+    /// A real system font, for valid glyph outlines and composites; the tests inject the GSUB mapping
+    /// themselves, so they don't depend on which features the installed font has.
+    /// </summary>
     private static FontData? LoadTestFont()
     {
         var path = FindSystemFont("arial") ?? FindSystemFont("DejaVuSans") ?? FindSystemFont("Liberation");
@@ -55,11 +50,11 @@ public class TtfSubsetterGsubTests
     public void Subset_WithActiveFeature_MapsCodepointToSubstitutedGlyph()
     {
         var font = LoadTestFont();
-        if (font == null) return; // skip if no font available in this environment
+        if (font == null) return;
 
         ushort gidA = font.GetGlyphId('A');
         ushort gidB = font.GetGlyphId('B');
-        if (gidA == 0 || gidB == 0 || gidA == gidB) return; // guard: need two distinct real glyphs
+        if (gidA == 0 || gidB == 0 || gidA == gidB) return;
 
         font.GsubFeatures = new Dictionary<string, Dictionary<ushort, ushort>>
         {
@@ -73,7 +68,8 @@ public class TtfSubsetterGsubTests
         ushort newGidForA = result.CodepointToNewGlyphId['A'];
         result.OldToNewGlyphId.Should().ContainKey(gidB, "the substituted glyph B's outline must be embedded");
         result.OldToNewGlyphId[gidB].Should().Be(newGidForA,
-            "codepoint 'A' must resolve to glyph B's new ID, not glyph A's, once the 'test' feature is active");
+            "codepoint 'A' must resolve to glyph B's new ID once the 'test' feature is active; otherwise the " +
+            "font-feature-settings font's cache key (the \"-Feat-...\" suffix) names a subset whose outlines never changed");
     }
 
     [Fact]
