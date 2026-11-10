@@ -5,10 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// End-to-end tests for flexbox layout: HTML-to-PDF pipeline.
-/// Verifies that flex containers produce correct PDF output.
-/// </summary>
 public class FlexboxE2ETests
 {
     [Fact]
@@ -148,7 +144,6 @@ public class FlexboxE2ETests
     [Fact]
     public async Task FlexDashboard_ComplexLayout()
     {
-        // Real-world dashboard-like layout
         var html = @"
             <div style='display: flex; flex-direction: column; width: 500px'>
                 <div style='display: flex; justify-content: space-between; background-color: #333; padding: 10px'>
