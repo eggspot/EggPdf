@@ -108,8 +108,7 @@ public class DocumentBuilderTests
         var text = Encoding.Latin1.GetString(pdf);
         float topY = TextY(text, "Top");
         float bottomY = TextY(text, "Bottom");
-        // PDF y-axis grows upward from the page bottom, so the first (topmost) item has the larger Y.
-        topY.Should().BeGreaterThan(bottomY, "Column stacks items top to bottom");
+        topY.Should().BeGreaterThan(bottomY, "Column stacks items top to bottom, and PDF y grows upward from the page bottom");
     }
 
     [Fact]
@@ -143,9 +142,8 @@ public class DocumentBuilderTests
                     .TextTransform(TextCase.Uppercase).Text("shout"))))
             .Render();
 
-        // text-transform is applied during layout/paint, not by the builder itself -- this only
-        // proves the typed value reached the cascade.
-        Encoding.Latin1.GetString(pdf).Should().Contain("SHOUT");
+        Encoding.Latin1.GetString(pdf).Should().Contain("SHOUT",
+            "the typed value reaches the cascade, which applies text-transform at layout");
     }
 
     [Fact]
@@ -355,9 +353,6 @@ public class DocumentBuilderTests
     [Fact]
     public void GeneratedContent_CalledTwiceOnSameContainer_ThrowsInsteadOfSilentlyDroppingOne()
     {
-        // CSS allows only one ::after per element -- a second CurrentPageNumber()/TotalPages()/
-        // PageNumberOfTotal() call on the same container can't visually combine with the first,
-        // it can only replace it, so the builder must fail loudly instead of silently discarding one.
         Action act = () => Document.Create(doc => doc
                 .Page(page => page.Content(content =>
                 {
@@ -367,7 +362,8 @@ public class DocumentBuilderTests
                 })))
             .Render();
 
-        act.Should().Throw<InvalidOperationException>();
+        act.Should().Throw<InvalidOperationException>(
+            "an element has one ::after, so a second page-number call would replace the first instead of combining with it");
     }
 
     [Fact]
@@ -384,9 +380,8 @@ public class DocumentBuilderTests
 
         var text = Encoding.Latin1.GetString(wide);
         float ax = TextX(text, "A");
-        // Default A4 content width (with the default 20px page margin) is roughly 555px; two
-        // 40px-wide centered items should sit well clear of the left content edge (x != margin).
-        ax.Should().BeGreaterThan(30f, "justify-content:center must not leave the row flush against its start edge");
+        ax.Should().BeGreaterThan(30f,
+            "two 40px items centred in the ~555px A4 content width sit well clear of the 20px start margin");
     }
 
     [Fact]
@@ -438,13 +433,8 @@ public class DocumentBuilderTests
     }
 
     [Fact]
-    public void TypedStyleBatch_RendersWithoutError()
+    public void TypedStyleBatch_OneLineStyleWrappers_ChainAndRender()
     {
-        // Smoke test for the plain one-line SetStyle wrappers (Padding/Margin TRBL overloads,
-        // Min/MaxWidth/Height, individual border sides, box-shadow, opacity, position, text
-        // decoration, line-height/letter-spacing): the generic style plumbing is already proven
-        // by FontColor/Background/RawStyleEscapeHatch, so this only proves each method compiles,
-        // chains, and reaches a valid render rather than re-verifying the CSS engine per property.
         byte[] pdf = Document.Create(doc => doc
                 .Page(page => page.Content(content => content.Item()
                     .Padding(4, 8, 4, 8)

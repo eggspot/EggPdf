@@ -50,18 +50,24 @@ internal static class PixelComparer
         return (double)matching / totalPixels;
     }
 
+    private const int PngSignatureLength = 8;
+    private const int ChunkLengthTypeAndCrcBytes = 12;
+    private const int ZlibHeaderBytes = 2;
+    private const int ColorTypeRgb = 2, ColorTypeRgba = 6;
+    private const int FilterNone = 0, FilterSub = 1, FilterUp = 2, FilterAverage = 3, FilterPaeth = 4;
+
     /// <summary>
     /// Decode a PNG file to (width, height, RGBA pixel array).
     /// Supports color types 2 (RGB) and 6 (RGBA), 8-bit depth.
-    /// Handles PNG row filters (None, Sub, Up, Average, Paeth).
+    /// Handles PNG row filters (None, Sub, Up, Average, Paeth). The IDAT data is zlib: a 2-byte header, deflate
+    /// data and a checksum; each decoded row is a filter byte followed by the pixel bytes.
     /// </summary>
     internal static (int width, int height, byte[] pixels) DecodePng(byte[] data)
     {
-        // Validate PNG signature
-        if (data.Length < 8 || data[0] != 137 || data[1] != 80 || data[2] != 78 || data[3] != 71)
+        if (data.Length < PngSignatureLength || data[0] != 137 || data[1] != 80 || data[2] != 78 || data[3] != 71)
             throw new InvalidDataException("Not a valid PNG file");
 
-        int pos = 8;
+        int pos = PngSignatureLength;
         int width = 0, height = 0;
         int colorType = 0;
         using var idatStream = new MemoryStream();
@@ -80,7 +86,7 @@ internal static class PixelComparer
 
                 if (bitDepth != 8)
                     throw new NotSupportedException($"Only 8-bit PNG supported, got {bitDepth}");
-                if (colorType != 2 && colorType != 6)
+                if (colorType != ColorTypeRgb && colorType != ColorTypeRgba)
                     throw new NotSupportedException($"Only RGB(2) and RGBA(6) PNG supported, got {colorType}");
             }
             else if (chunkType == "IDAT")
@@ -92,20 +98,18 @@ internal static class PixelComparer
                 break;
             }
 
-            pos += 12 + chunkLen; // 4 length + 4 type + data + 4 CRC
+            pos += ChunkLengthTypeAndCrcBytes + chunkLen;
         }
 
         if (width == 0 || height == 0)
             throw new InvalidDataException("Missing IHDR chunk");
 
-        // Decompress IDAT (zlib = 2-byte header + deflate data + 4-byte checksum)
         var compressed = idatStream.ToArray();
         byte[] raw;
         using (var output = new MemoryStream())
         {
-            // Skip zlib header (2 bytes)
             using (var deflate = new DeflateStream(
-                new MemoryStream(compressed, 2, compressed.Length - 2),
+                new MemoryStream(compressed, ZlibHeaderBytes, compressed.Length - ZlibHeaderBytes),
                 CompressionMode.Decompress))
             {
                 deflate.CopyTo(output);
@@ -113,67 +117,60 @@ internal static class PixelComparer
             raw = output.ToArray();
         }
 
-        // Unfilter rows
-        int channels = colorType == 6 ? 4 : 3; // RGBA or RGB
-        int bpp = channels; // bytes per pixel (8-bit)
+        int channels = colorType == ColorTypeRgba ? 4 : 3;
+        int bytesPerPixel = channels;
         int stride = width * channels;
-        int rowSize = stride + 1; // filter byte + pixel data
+        int rowSizeWithFilterByte = stride + 1;
 
-        var pixels = new byte[width * height * 4]; // always output RGBA
+        var rgbaPixels = new byte[width * height * 4];
 
         var prevRow = new byte[stride];
         var curRow = new byte[stride];
 
         for (int y = 0; y < height; y++)
         {
-            int rowStart = y * rowSize;
+            int rowStart = y * rowSizeWithFilterByte;
             if (rowStart >= raw.Length) break;
 
             int filter = raw[rowStart];
 
-            // Copy raw row data (skip filter byte)
-            int srcStart = rowStart + 1;
-            int copyLen = Math.Min(stride, raw.Length - srcStart);
+            int pixelDataStart = rowStart + 1;
+            int copyLen = Math.Min(stride, raw.Length - pixelDataStart);
             Array.Clear(curRow, 0, stride);
             if (copyLen > 0)
-                Array.Copy(raw, srcStart, curRow, 0, copyLen);
+                Array.Copy(raw, pixelDataStart, curRow, 0, copyLen);
 
-            // Apply filter
             for (int x = 0; x < stride; x++)
             {
                 byte rawByte = curRow[x];
-                byte a = x >= bpp ? curRow[x - bpp] : (byte)0;   // left
-                byte b = prevRow[x];                                // above
-                byte c = (x >= bpp) ? prevRow[x - bpp] : (byte)0; // upper-left
+                byte left = x >= bytesPerPixel ? curRow[x - bytesPerPixel] : (byte)0;
+                byte above = prevRow[x];
+                byte upperLeft = x >= bytesPerPixel ? prevRow[x - bytesPerPixel] : (byte)0;
 
                 switch (filter)
                 {
-                    case 0: break; // None
-                    case 1: curRow[x] = (byte)(rawByte + a); break; // Sub
-                    case 2: curRow[x] = (byte)(rawByte + b); break; // Up
-                    case 3: curRow[x] = (byte)(rawByte + (a + b) / 2); break; // Average
-                    case 4: curRow[x] = (byte)(rawByte + PaethPredictor(a, b, c)); break; // Paeth
+                    case FilterNone: break;
+                    case FilterSub: curRow[x] = (byte)(rawByte + left); break;
+                    case FilterUp: curRow[x] = (byte)(rawByte + above); break;
+                    case FilterAverage: curRow[x] = (byte)(rawByte + (left + above) / 2); break;
+                    case FilterPaeth: curRow[x] = (byte)(rawByte + PaethPredictor(left, above, upperLeft)); break;
                 }
             }
 
-            // Write to output as RGBA
             for (int x = 0; x < width; x++)
             {
-                int si = x * channels;
-                int di = (y * width + x) * 4;
-                pixels[di] = curRow[si];       // R
-                pixels[di + 1] = curRow[si + 1]; // G
-                pixels[di + 2] = curRow[si + 2]; // B
-                pixels[di + 3] = channels == 4 ? curRow[si + 3] : (byte)255; // A
+                int source = x * channels;
+                int target = (y * width + x) * 4;
+                rgbaPixels[target] = curRow[source];
+                rgbaPixels[target + 1] = curRow[source + 1];
+                rgbaPixels[target + 2] = curRow[source + 2];
+                rgbaPixels[target + 3] = channels == 4 ? curRow[source + 3] : (byte)255;
             }
 
-            // Swap rows
-            var tmp = prevRow;
-            prevRow = curRow;
-            curRow = tmp;
+            (prevRow, curRow) = (curRow, prevRow);
         }
 
-        return (width, height, pixels);
+        return (width, height, rgbaPixels);
     }
 
     private static byte PaethPredictor(byte a, byte b, byte c)

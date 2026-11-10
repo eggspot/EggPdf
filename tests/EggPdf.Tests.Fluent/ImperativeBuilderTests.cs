@@ -56,9 +56,10 @@ public class ImperativeBuilderTests
         var doc = Document.New();
         var page = doc.AddPage();
         page.Content().Item().Text("Early content");
-        page.Size(PageSize.Letter); // set late: the @page rule is only written when the document is built
+        page.Size(PageSize.Letter);
 
-        Encoding.Latin1.GetString(doc.Render()).Should().Contain("/MediaBox [0 0 612.00 792.00]");
+        Encoding.Latin1.GetString(doc.Render()).Should().Contain("/MediaBox [0 0 612.00 792.00]",
+            "a size set after the content still applies, since the @page rule is written when the document is built");
     }
 
     [Fact]

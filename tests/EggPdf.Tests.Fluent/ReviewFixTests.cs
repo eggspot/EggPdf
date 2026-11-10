@@ -13,8 +13,6 @@ public class ReviewFixTests
 {
     private static string Pdf(byte[] bytes) => Encoding.Latin1.GetString(bytes);
 
-    // ── numbers ──────────────────────────────────────────────────────────────
-
     [Theory]
     [InlineData(0.00001f, "0.00001mm")]
     [InlineData(1.5f, "1.5mm")]
@@ -30,8 +28,6 @@ public class ReviewFixTests
         CssTransform.Rotate(1e-7f).Then(CssTransform.Scale(1e21f)).ToCss().Should().NotContain("E");
         GridTrack.Fr(1e-8f).ToCss().Should().NotContain("E");
     }
-
-    // ── free text is escaped ─────────────────────────────────────────────────
 
     [Fact]
     public void FontFace_QuotesBackslashesAndInjectionAttempts_CannotBreakTheRule()
@@ -51,8 +47,6 @@ public class ReviewFixTests
         CssText.Quote("a\"b\\c\nd").Should().Be("\"a\\\"b\\\\c\\a d\"");
         CssText.Quote(null).Should().Be("\"\"");
     }
-
-    // ── RawAttribute vs the builder's own class/style bookkeeping ────────────
 
     [Fact]
     public void RawAttribute_Style_IsRejected_PointingToRawStyle()
@@ -93,8 +87,6 @@ public class ReviewFixTests
         streams[0].Should().NotBe(streams[streams.Count - 1], "the page-number ::after class must survive a raw class attribute");
     }
 
-    // ── Raw() keeps head-level markup ────────────────────────────────────────
-
     [Fact]
     public void Raw_StyleElementInTheFragment_IsAppliedNotDiscarded()
     {
@@ -104,8 +96,6 @@ public class ReviewFixTests
 
         Pdf(pdf).Should().Contain("1.00 0.00 0.00 rg");
     }
-
-    // ── robustness ───────────────────────────────────────────────────────────
 
     [Fact]
     public void Build_VeryDeeplyNestedGeneratedTree_DoesNotOverflowTheStack()

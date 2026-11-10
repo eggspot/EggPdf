@@ -14,15 +14,14 @@ namespace EggPdf.Tests.Fluent;
 /// </summary>
 public class WarningsTests
 {
-    // U+10FFFD (Private Use, plane 16): no installed font maps it, so it is always reported
-    private const string UncoveredCharacter = "\U0010FFFD";
+    private const string PlaneSixteenPrivateUseCharacterNoFontMaps = "\U0010FFFD";
 
     [Fact]
     public void CollectWarnings_ReportsCharactersNoFontCovers()
     {
         var warnings = new WarningCollector();
         var doc = Document.New().CollectWarnings(warnings);
-        doc.AddPage().Content().Item().Text("Ref " + UncoveredCharacter);
+        doc.AddPage().Content().Item().Text("Ref " + PlaneSixteenPrivateUseCharacterNoFontMaps);
 
         byte[] pdf = doc.Render();
 
@@ -36,7 +35,7 @@ public class WarningsTests
     {
         var warnings = new WarningCollector();
         var doc = Document.New().CollectWarnings(warnings);
-        doc.AddPage().Content().Item().Text(UncoveredCharacter);
+        doc.AddPage().Content().Item().Text(PlaneSixteenPrivateUseCharacterNoFontMaps);
 
         await doc.RenderAsync();
 

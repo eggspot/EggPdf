@@ -45,6 +45,8 @@ public class VisualComparisonFlowTests
     /// Accounts for sub-pixel rendering differences between HTML and PDF.
     /// </summary>
     private const int ChannelTolerance = 40;
+    private const int PreviewDebounceMilliseconds = 800;
+    private const int PdfJsLoadMilliseconds = 2000;
 
     public VisualComparisonFlowTests(ServiceFixture fixture, ITestOutputHelper output)
     {
@@ -52,8 +54,7 @@ public class VisualComparisonFlowTests
         _output = output;
     }
 
-    // === Test case HTML snippets (same as /e2e page) ===
-    private static readonly (string name, string html)[] TestCases = new[]
+    private static readonly (string name, string html)[] TestCasesOfTheE2EPage = new[]
     {
         ("heading", "<h1>Hello World</h1><p>This is a paragraph with <strong>bold</strong> and <em>italic</em> text.</p>"),
         ("table", "<table border=\"1\" style=\"width:100%;border-collapse:collapse\"><thead><tr><th>Name</th><th>Value</th></tr></thead><tbody><tr><td>Alpha</td><td>100</td></tr><tr><td>Beta</td><td>200</td></tr></tbody></table>"),
@@ -62,24 +63,19 @@ public class VisualComparisonFlowTests
         ("list", "<h2>Features</h2><ul><li>Item One</li><li>Item Two</li><li>Item Three</li></ul><ol><li>First</li><li>Second</li><li>Third</li></ol>"),
     };
 
-    // ============================================================
-    // Core visual comparison: Print Preview vs PDF for each test case
-    // ============================================================
-
     [Theory]
-    [InlineData(0)] // heading
-    [InlineData(1)] // table
-    [InlineData(2)] // invoice
-    [InlineData(3)] // styles
-    [InlineData(4)] // list
-    public async Task PixelCompare_PrintPreviewVsPdf(int testIndex)
+    [InlineData("heading")]
+    [InlineData("table")]
+    [InlineData("invoice")]
+    [InlineData("styles")]
+    [InlineData("list")]
+    public async Task PixelCompare_PrintPreviewVsPdf(string name)
     {
-        var (name, html) = TestCases[testIndex];
+        var html = Array.Find(TestCasesOfTheE2EPage, t => t.name == name).html;
         _output.WriteLine($"Test case: {name}");
 
         var viewport = new ViewportSize { Width = 800, Height = 600 };
 
-        // Step 1: Get print-preview HTML and screenshot it
         var printHtml = await GetPrintPreviewHtml(html);
         var printPage = await _fixture.Browser!.NewPageAsync(new() { ViewportSize = viewport });
         await printPage.SetContentAsync(printHtml);
@@ -89,7 +85,6 @@ public class VisualComparisonFlowTests
 
         _output.WriteLine($"  Print preview screenshot: {printShot.Length:N0} bytes");
 
-        // Step 2: Get PDF, serve via HTTP route interception (Chrome renders inline PDFs)
         var pdfBytes = await GetPdfBytes(html);
         pdfBytes.Length.Should().BeGreaterThan(100);
 
@@ -97,7 +92,6 @@ public class VisualComparisonFlowTests
 
         _output.WriteLine($"  PDF screenshot:           {pdfShot.Length:N0} bytes");
 
-        // Step 3: Pixel-diff
         var (printW, printH, _) = PixelComparer.DecodePng(printShot);
         var (pdfW, pdfH, _) = PixelComparer.DecodePng(pdfShot);
         _output.WriteLine($"  Print dimensions: {printW}x{printH}");
@@ -110,36 +104,30 @@ public class VisualComparisonFlowTests
             $"'{name}' print-vs-PDF pixel similarity {similarity:P1} below threshold {MinSimilarity:P0}");
     }
 
-    // ============================================================
-    // WebUI Flow: Type HTML → Print Preview → Generate PDF → Compare
-    // ============================================================
-
+    /// <summary>
+    /// The WebUI flow: type HTML, look at the print preview, then compare it with the PDF. The editor is Ace, whose
+    /// backing #htmlInput textarea never becomes visible, so the test drives the editor API (as WebUITests does); the
+    /// preview opens on the PDF tab, so the Print tab is selected before the browser rendering is captured.
+    /// </summary>
     [Fact]
     public async Task WebUI_TypeHtml_PrintPreviewVsPdfPreview()
     {
         var testHtml = "<html><body><h1>Visual Test</h1><p>Comparing browser rendering against EggPdf PDF output.</p></body></html>";
         var viewport = new ViewportSize { Width = 800, Height = 600 };
 
-        // Step 1: Get print-preview rendering via WebUI
         var page = await _fixture.Browser!.NewPageAsync(new() { ViewportSize = new() { Width = 1400, Height = 900 } });
         await page.GotoAsync(_fixture.BaseUrl);
 
-        // The WebUI uses an Ace editor; #htmlInput is its hidden backing
-        // textarea and never becomes visible, so drive the editor API instead
-        // (same approach as WebUITests).
         var editor = page.Locator("#aceEditor");
         await editor.WaitForAsync(new() { Timeout = 5000 });
         await page.EvaluateAsync(
             "html => { if (window.editor) { window.editor.setValue(html, -1); } " +
             "else { document.getElementById('htmlInput').value = html; } }", testHtml);
-        await page.WaitForTimeoutAsync(800); // debounced preview
+        await page.WaitForTimeoutAsync(PreviewDebounceMilliseconds);
 
-        // The preview defaults to the PDF tab; the browser-print column is
-        // hidden until the Print tab is selected.
         await page.Locator(".preview-tab", new() { HasTextString = "Print" }).ClickAsync();
         await page.WaitForTimeoutAsync(500);
 
-        // Verify print preview renders
         var previewFrame = page.Locator("#previewFrame");
         await previewFrame.WaitForAsync(new() { Timeout = 5000 });
         (await previewFrame.IsVisibleAsync()).Should().BeTrue();
@@ -149,7 +137,6 @@ public class VisualComparisonFlowTests
         _output.WriteLine($"Print preview screenshot: {printShot.Length:N0} bytes");
         await page.CloseAsync();
 
-        // Step 2: Render PDF and screenshot it via route interception
         var pdfBytes = await GetPdfBytes(testHtml);
         var pdfShot = await ScreenshotPdfViaRoute(pdfBytes, viewport);
 
@@ -161,10 +148,6 @@ public class VisualComparisonFlowTests
         similarity.Should().BeGreaterOrEqualTo(MinSimilarity,
             $"WebUI print-vs-PDF similarity {similarity:P1} below threshold {MinSimilarity:P0}");
     }
-
-    // ============================================================
-    // Print Preview consistency: same HTML → same screenshot
-    // ============================================================
 
     [Fact]
     public async Task PrintPreview_SameHtml_ConsistentRendering()
@@ -194,10 +177,6 @@ public class VisualComparisonFlowTests
         await page2.CloseAsync();
     }
 
-    // ============================================================
-    // E2E Page: run all 5 test cases, verify both frames rendered
-    // ============================================================
-
     [Fact]
     public async Task E2EPage_RunAll_BothFramesRender()
     {
@@ -209,7 +188,7 @@ public class VisualComparisonFlowTests
         await page.GotoAsync($"{_fixture.BaseUrl}/e2e");
         await page.Locator("#result .pass").WaitForAsync(new() { Timeout = 15000 });
 
-        foreach (var (name, _) in TestCases)
+        foreach (var (name, _) in TestCasesOfTheE2EPage)
         {
             await page.Locator("#testCase").SelectOptionAsync(name);
             await page.WaitForFunctionAsync(
@@ -217,11 +196,9 @@ public class VisualComparisonFlowTests
                 null, new() { Timeout = 15000 });
             await page.WaitForTimeoutAsync(500);
 
-            // Verify browser frame has content (non-empty srcdoc)
             var srcdoc = await page.Locator("#browserFrame").GetAttributeAsync("srcdoc");
             srcdoc.Should().NotBeNullOrEmpty($"browser frame for '{name}' should have srcdoc");
 
-            // Verify PDF frame has blob URL (PDF was rendered)
             var pdfSrc = await page.Locator("#pdfFrame").GetAttributeAsync("src");
             pdfSrc.Should().Contain("blob:", $"PDF frame for '{name}' should have blob URL");
 
@@ -231,21 +208,16 @@ public class VisualComparisonFlowTests
         await page.CloseAsync();
     }
 
-    // ============================================================
-    // Helpers
-    // ============================================================
-
     /// <summary>
     /// Renders a PDF in headless Chrome using pdf.js to draw onto a canvas element.
     /// Chrome headless cannot render PDFs directly (triggers download), so we use
     /// pdf.js (Mozilla's PDF renderer) to render the first page to a canvas,
-    /// then screenshot the canvas.
+    /// then screenshot the canvas. pdf.js loads from a CDN, so the page gets time for that first.
     /// </summary>
     private async Task<byte[]> ScreenshotPdfViaRoute(byte[] pdfBytes, ViewportSize viewport)
     {
         var pdfPage = await _fixture.Browser!.NewPageAsync(new() { ViewportSize = viewport });
 
-        // HTML page with pdf.js that renders PDF to a <canvas>
         var pdfViewerHtml = @"<!DOCTYPE html>
 <html><head>
 <script src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs' type='module'></script>
@@ -272,18 +244,15 @@ window.renderPdf = async function(base64Data) {
 </body></html>";
 
         await pdfPage.SetContentAsync(pdfViewerHtml);
-        await pdfPage.WaitForTimeoutAsync(2000); // Let pdf.js load from CDN
+        await pdfPage.WaitForTimeoutAsync(PdfJsLoadMilliseconds);
 
-        // Pass PDF data and render
         var base64 = Convert.ToBase64String(pdfBytes);
         await pdfPage.EvaluateAsync($"window.renderPdf('{base64}')");
 
-        // Wait for rendering to complete
         await pdfPage.WaitForFunctionAsync("() => window._pdfRendered === true",
             null, new() { Timeout = 15000 });
         await pdfPage.WaitForTimeoutAsync(500);
 
-        // Screenshot the canvas
         var screenshot = await pdfPage.Locator("#pdfCanvas").ScreenshotAsync();
         await pdfPage.CloseAsync();
         return screenshot;

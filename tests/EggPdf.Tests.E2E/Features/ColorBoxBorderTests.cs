@@ -32,8 +32,6 @@ public class ColorBoxBorderTests
         return PdfTextDecoder.DecodeWithText(bytes);
     }
 
-    // === Colors ===
-
     [Fact]
     public async Task Color_NamedRed()
     {
@@ -77,8 +75,6 @@ public class ColorBoxBorderTests
         text.Should().Contain("Green");
     }
 
-    // === Background ===
-
     [Fact]
     public async Task BackgroundColor_DrawsRectangle()
     {
@@ -95,8 +91,6 @@ public class ColorBoxBorderTests
         text.Should().Contain("re");
     }
 
-    // === Box Model ===
-
     [Fact]
     public async Task Margin_Shorthand()
     {
@@ -110,8 +104,6 @@ public class ColorBoxBorderTests
         var text = await RenderPdf("<div style='padding: 20px; background-color: #eee; width: 200px'>Padded</div>");
         text.Should().Contain("Padded");
     }
-
-    // === Display & Visibility ===
 
     [Fact]
     public async Task DisplayNone_ElementNotRendered()
@@ -138,8 +130,6 @@ public class ColorBoxBorderTests
         text.Should().Contain("Also visible");
         text.Should().NotContain("Hidden");
     }
-
-    // === Border Styles ===
 
     [Fact]
     public async Task Border_Solid()
@@ -224,8 +214,6 @@ public class ColorBoxBorderTests
         text.Should().Contain("RG");
     }
 
-    // === Border Radius ===
-
     [Fact]
     public async Task BorderRadius_Uniform_ProducesCurves()
     {
@@ -277,8 +265,6 @@ public class ColorBoxBorderTests
         text.Should().Contain("h S");
     }
 
-    // === Table Borders ===
-
     [Fact]
     public async Task TableBorderAttribute_CellsHaveBorders()
     {
@@ -308,8 +294,6 @@ public class ColorBoxBorderTests
         text.Should().Contain("Cell 1");
         text.Should().Contain("Cell 2");
     }
-
-    // === HR element ===
 
     [Fact]
     public async Task HrElement_Rendered()
