@@ -20,7 +20,6 @@ public class CssTokenizer
 
     public CssToken NextToken()
     {
-        // Skip comments
         SkipComments();
 
         if (_pos >= _input.Length)
@@ -28,18 +27,15 @@ public class CssTokenizer
 
         char c = _input[_pos];
 
-        // Whitespace
         if (IsWhitespace(c))
         {
             while (_pos < _input.Length && IsWhitespace(_input[_pos])) _pos++;
             return new CssToken { Type = CssTokenType.Whitespace, Value = " " };
         }
 
-        // String
         if (c == '"' || c == '\'')
             return ConsumeString(c);
 
-        // Hash
         if (c == '#')
         {
             _pos++;
@@ -47,7 +43,6 @@ public class CssTokenizer
             return new CssToken { Type = CssTokenType.Hash, Value = name };
         }
 
-        // At-keyword
         if (c == '@')
         {
             _pos++;
@@ -55,7 +50,6 @@ public class CssTokenizer
             return new CssToken { Type = CssTokenType.AtKeyword, Value = name };
         }
 
-        // Number, dimension, percentage
         if (IsDigit(c) || (c == '.' && _pos + 1 < _input.Length && IsDigit(_input[_pos + 1])) ||
             ((c == '-' || c == '+') && _pos + 1 < _input.Length && (IsDigit(_input[_pos + 1]) || _input[_pos + 1] == '.')))
         {
@@ -67,7 +61,6 @@ public class CssTokenizer
             return ConsumeIdentLike();
         }
 
-        // Single-character tokens
         _pos++;
         return c switch
         {
@@ -104,7 +97,7 @@ public class CssTokenizer
 
     private CssToken ConsumeString(char quote)
     {
-        _pos++; // skip opening quote
+        _pos++;
         var sb = new StringBuilder();
         while (_pos < _input.Length)
         {
@@ -116,7 +109,7 @@ public class CssTokenizer
                 CssStringEscapes.AppendEscape(_input, ref _pos, sb);
                 continue;
             }
-            if (c == '\n') break; // bad string
+            if (c == '\n') break;
             sb.Append(c);
             _pos++;
         }
@@ -127,21 +120,18 @@ public class CssTokenizer
     {
         var numStr = new StringBuilder();
 
-        // Optional sign
         if (_pos < _input.Length && (_input[_pos] == '-' || _input[_pos] == '+'))
         {
             numStr.Append(_input[_pos]);
             _pos++;
         }
 
-        // Integer part
         while (_pos < _input.Length && IsDigit(_input[_pos]))
         {
             numStr.Append(_input[_pos]);
             _pos++;
         }
 
-        // Decimal part
         if (_pos + 1 < _input.Length && _input[_pos] == '.' && IsDigit(_input[_pos + 1]))
         {
             numStr.Append('.');
@@ -156,14 +146,12 @@ public class CssTokenizer
         double numValue = 0;
         double.TryParse(numStr.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out numValue);
 
-        // Check for % (percentage)
         if (_pos < _input.Length && _input[_pos] == '%')
         {
             _pos++;
             return new CssToken { Type = CssTokenType.Percentage, NumericValue = numValue, Value = numStr.ToString() + "%" };
         }
 
-        // Check for unit (dimension)
         if (_pos < _input.Length && (IsIdentStart(_input[_pos]) || _input[_pos] == '-'))
         {
             var unit = ConsumeIdent();
@@ -177,12 +165,10 @@ public class CssTokenizer
     {
         var name = ConsumeIdent();
 
-        // Check for function: ident followed by (
         if (_pos < _input.Length && _input[_pos] == '(')
         {
-            _pos++; // consume (
+            _pos++;
 
-            // Special case: url(
             if (string.Equals(name, "url", StringComparison.OrdinalIgnoreCase))
             {
                 return ConsumeUrl();
@@ -196,30 +182,25 @@ public class CssTokenizer
 
     private CssToken ConsumeUrl()
     {
-        // Skip whitespace
         while (_pos < _input.Length && IsWhitespace(_input[_pos])) _pos++;
 
         if (_pos >= _input.Length)
             return new CssToken { Type = CssTokenType.Url, Value = "" };
 
-        // Quoted URL
         if (_input[_pos] == '"' || _input[_pos] == '\'')
         {
             var str = ConsumeString(_input[_pos]);
-            // Skip to )
             while (_pos < _input.Length && _input[_pos] != ')') _pos++;
-            if (_pos < _input.Length) _pos++; // skip )
+            if (_pos < _input.Length) _pos++;
             return new CssToken { Type = CssTokenType.Url, Value = str.Value };
         }
 
-        // Unquoted URL
         var sb = new StringBuilder();
         while (_pos < _input.Length && _input[_pos] != ')' && !IsWhitespace(_input[_pos]))
         {
             sb.Append(_input[_pos]);
             _pos++;
         }
-        // Skip whitespace and )
         while (_pos < _input.Length && IsWhitespace(_input[_pos])) _pos++;
         if (_pos < _input.Length && _input[_pos] == ')') _pos++;
 
