@@ -7,19 +7,9 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// E2E visual comparison tests: verify that EggPdf produces PDFs containing
-/// the same text content as the HTML input. These test the full pipeline.
-///
-/// For pixel-level visual comparison (browser vs PDF), see the /e2e endpoint
-/// in EggPdf.Service which provides side-by-side rendering comparison.
-/// </summary>
 public class VisualComparisonTests
 {
-    /// <summary>
-    /// Test cases matching the /e2e page test cases.
-    /// Each verifies text content survives the full HTML -> PDF pipeline.
-    /// </summary>
+    /// <summary>The test cases of the service's /e2e page; each one's text must survive the full HTML to PDF pipeline.</summary>
     public static IEnumerable<object[]> TestCases => new List<object[]>
     {
         new object[] { "heading", "<h1>Hello World</h1><p>This is a paragraph with <strong>bold</strong> and <em>italic</em> text.</p>",
@@ -45,11 +35,8 @@ public class VisualComparisonTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
         pdf.Should().NotBeEmpty($"test case '{name}' should produce non-empty PDF");
-
-        // Verify PDF is valid
         Encoding.ASCII.GetString(pdf, 0, 5).Should().Be("%PDF-", $"test case '{name}' should produce valid PDF");
 
-        // Verify all expected text appears in the PDF
         string pdfContent = Encoding.ASCII.GetString(pdf);
         foreach (var text in expectedTexts)
         {
@@ -65,7 +52,6 @@ public class VisualComparisonTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         string content = Encoding.ASCII.GetString(pdf);
 
-        // Valid PDF structure
         content.Should().StartWith("%PDF-1.7", $"'{name}' should be PDF 1.7");
         content.Should().Contain("%%EOF", $"'{name}' should have %%EOF");
         content.Should().Contain("xref", $"'{name}' should have xref table");
@@ -84,13 +70,12 @@ public class VisualComparisonTests
             pdfs.Add(pdf);
         }
 
-        // Each test case should produce a different PDF (different content)
         for (int i = 0; i < pdfs.Count; i++)
         {
             for (int j = i + 1; j < pdfs.Count; j++)
             {
                 pdfs[i].SequenceEqual(pdfs[j]).Should().BeFalse(
-                    $"test cases {i} and {j} should produce different PDFs");
+                    $"test cases {i} and {j} have different content, so their PDFs must differ");
             }
         }
     }
@@ -103,7 +88,7 @@ public class VisualComparisonTests
         byte[] pdf1 = await HtmlToPdf.RenderAsync(html);
         byte[] pdf2 = await HtmlToPdf.RenderAsync(html);
 
-        // Note: PDFs may differ in CreationDate timestamp, so we compare structure only
-        pdf1.Length.Should().Be(pdf2.Length, "same input should produce same size PDF");
+        pdf1.Length.Should().Be(pdf2.Length,
+            "the same input produces the same PDF; only the length is compared because the creation date and file ID differ");
     }
 }
