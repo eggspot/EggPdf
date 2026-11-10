@@ -40,7 +40,6 @@ public class StandardFontMetricsTests
     [InlineData("Arial-BoldItalic")]
     public void MeasureWidth_ArialVariants_UseHelveticaCompatibleMetrics(string fontName)
     {
-        // Arial is metric-compatible with Helvetica; both should produce identical measurements
         float arialWidth = StandardFontMetrics.MeasureWidth("Hello World", 12f, fontName);
         float helveticaBase = fontName.Contains("Bold")
             ? StandardFontMetrics.MeasureWidth("Hello World", 12f, "Helvetica-Bold")
