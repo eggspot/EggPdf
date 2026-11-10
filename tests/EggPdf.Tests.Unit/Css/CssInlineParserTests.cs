@@ -73,8 +73,7 @@ public class CssInlineParserTests
     {
         var decls = CssInlineParser.Parse("not-valid; color: red; :::; font-size: 12px");
 
-        // Should still get the valid ones
-        decls.Should().Contain(d => d.Property == "color");
+        decls.Should().Contain(d => d.Property == "color", "the valid declarations around the invalid ones survive");
         decls.Should().Contain(d => d.Property == "font-size");
     }
 
@@ -107,16 +106,14 @@ public class CssInlineParserTests
     [Fact]
     public void Parse_DataUriWithSemicolon_NotTruncatedAtInnerSemicolon()
     {
-        // A naive css.Split(';') treats the semicolon inside "data:image/png;base64,..."
-        // as a declaration boundary, silently truncating the value -- found while
-        // implementing image-set() support, when a data-URI candidate inside a
-        // style="" attribute produced no background at all.
         var decls = CssInlineParser.Parse(
             "background-image: url('data:image/png;base64,AAAA=='); width: 100px");
 
         decls.Should().HaveCount(2);
         decls[0].Property.Should().Be("background-image");
-        decls[0].Value.Should().Be("url('data:image/png;base64,AAAA==')");
+        decls[0].Value.Should().Be("url('data:image/png;base64,AAAA==')",
+            "splitting on every ';' would end the declaration at the one inside the data URI, and a style=\"\" " +
+            "background from a data URI would silently paint nothing");
         decls[1].Property.Should().Be("width");
         decls[1].Value.Should().Be("100px");
     }
