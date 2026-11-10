@@ -15,7 +15,6 @@ public class ListLayoutTests
         var lis = root.FindAllByTag("li");
         lis.Should().HaveCount(2);
 
-        // Each li should have a marker child
         foreach (var li in lis)
         {
             var marker = li.Children.FirstOrDefault(c => c.IsListMarker);
@@ -85,7 +84,6 @@ public class ListLayoutTests
         var lis = root.FindAllByTag("li");
         lis.Count.Should().BeGreaterOrEqualTo(2);
 
-        // Inner li should be indented more than outer
         var outer = lis.First();
         var inner = lis.Last();
         inner.X.Should().BeGreaterThan(outer.X, "nested list should be indented further");
