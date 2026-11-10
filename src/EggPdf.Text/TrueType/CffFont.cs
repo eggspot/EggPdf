@@ -406,6 +406,7 @@ internal sealed class CffFont
                     case Vhcurveto: case Hvcurveto: HvCurves(b == Hvcurveto); _sp = 0; break;
                     case Callsubr: case Callgsubr:
                     {
+                        if (_sp == 0) break;
                         var subrs = b == Callsubr ? _fd.LocalSubrs : _f._globalSubrs;
                         int index = (int)_stack[--_sp] + Bias(subrs.Count);
                         if (index >= 0 && index < subrs.Count) Execute(subrs[index].offset, subrs[index].length, depth + 1);
@@ -416,7 +417,10 @@ internal sealed class CffFont
                         TakeWidth(_sp == 1 || _sp == 5);
                         _ended = true;
                         break;
-                    case Vsindex: _scalars = _f._store != null ? _f._store.Scalars((int)_stack[--_sp]) : _scalars; _sp = 0; break;
+                    case Vsindex:
+                        if (_sp > 0 && _f._store != null) _scalars = _f._store.Scalars((int)_stack[_sp - 1]);
+                        _sp = 0;
+                        break;
                     case BlendOperator: Blend(); break;
                     case EscapeOperator: Escape(d[p++]); break;
                     default: _sp = 0; break;
@@ -439,10 +443,11 @@ internal sealed class CffFont
         /// <summary>CFF2 blend: n default values followed by n * regions deltas collapse to n blended values.</summary>
         private void Blend()
         {
+            if (_sp == 0) return;
             int n = (int)_stack[--_sp];
             int regions = _scalars.Length;
             int first = _sp - n * (1 + regions);
-            if (first < 0) { _sp = 0; return; }
+            if (n < 0 || first < 0) { _sp = 0; return; }
 
             for (int i = 0; i < n; i++)
             {
@@ -486,7 +491,7 @@ internal sealed class CffFont
                 case Drop: if (_sp > 0) _sp--; break;
                 case Mul: if (_sp > 1) { _stack[_sp - 2] *= _stack[_sp - 1]; _sp--; } break;
                 case Sqrt: if (_sp > 0) _stack[_sp - 1] = (float)Math.Sqrt(_stack[_sp - 1]); break;
-                case Dup: if (_sp > 0) { _stack[_sp] = _stack[_sp - 1]; _sp++; } break;
+                case Dup: if (_sp > 0 && _sp < _stack.Length) { _stack[_sp] = _stack[_sp - 1]; _sp++; } break;
                 case Exch: if (_sp > 1) { (_stack[_sp - 1], _stack[_sp - 2]) = (_stack[_sp - 2], _stack[_sp - 1]); } break;
                 default: _sp = 0; break;
             }
