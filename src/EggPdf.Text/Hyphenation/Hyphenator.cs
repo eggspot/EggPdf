@@ -13,6 +13,7 @@ public class Hyphenator
     private const string WordBoundary = ".";
 
     private readonly Dictionary<string, byte[]> _patterns = new();
+    private int _longestPattern;
     private readonly HashSet<string> _exceptions = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int[]> _exceptionPoints = new(StringComparer.OrdinalIgnoreCase);
 
@@ -46,6 +47,7 @@ public class Hyphenator
         }
 
         _patterns[text.ToString()] = values.ToArray();
+        if (text.Length > _longestPattern) _longestPattern = text.Length;
     }
 
     /// <summary>
@@ -97,7 +99,8 @@ public class Hyphenator
 
         for (int i = 0; i < work.Length; i++)
         {
-            for (int len = 1; len <= work.Length - i; len++)
+            int longest = Math.Min(_longestPattern, work.Length - i);
+            for (int len = 1; len <= longest; len++)
             {
                 string sub = work.Substring(i, len);
                 if (_patterns.TryGetValue(sub, out var values))
