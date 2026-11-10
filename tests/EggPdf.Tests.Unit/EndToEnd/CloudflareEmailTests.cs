@@ -5,17 +5,13 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// Cloudflare email obfuscation (data-cfemail) is normally decoded by a
-/// browser-side script. A PDF engine runs no JavaScript, so the DOM pass must
-/// decode it directly — otherwise "[email protected]" ends up in the PDF.
-/// </summary>
 public class CloudflareEmailTests
 {
+    private static readonly string NoBreakSpace = ((char)0xA0).ToString();
+
     [Fact]
     public async Task DataCfEmail_IsDecodedToRealAddress()
     {
-        // XOR key 0xAF -> "contact@vcrrm.org"
         var html = "<html><body><p>Email: " +
             "<a href=\"/cdn-cgi/l/email-protection\" class=\"__cf_email__\" " +
             "data-cfemail=\"afccc0c1dbceccdbefd9ccddddc281c0ddc8\">[email&#160;protected]</a>" +
@@ -24,8 +20,9 @@ public class CloudflareEmailTests
         var pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.GetEncoding("ISO-8859-1").GetString(pdf);
 
-        text.Should().Contain("contact@vcrrm.org");
-        text.Should().NotContain("email protected");
+        text.Should().Contain("contact@vcrrm.org",
+            "a PDF engine runs no script, so the DOM pass decodes data-cfemail (XOR key 0xAF) itself");
+        text.Should().NotContain("email" + NoBreakSpace + "protected", "the obfuscated placeholder text is replaced");
     }
 
     [Fact]
@@ -35,7 +32,6 @@ public class CloudflareEmailTests
                    "<a data-cfemail=\"af\">x</a></body></html>";
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
-        // Undecodable payloads keep the original "[email protected]" text (two words) and the second link's "x".
         PdfAssert.ValidPdf(pdf, "([email) Tj", "protected]) Tj", "(x) Tj");
     }
 }
