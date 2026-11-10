@@ -39,4 +39,13 @@ public class BidiClassifierTests
     {
         BidiClassifier.ClassifySupplementary(char.ConvertFromUtf32(codePoint), 0).Should().Be(expected);
     }
+
+    [Fact]
+    public void ContainsRTL_SupplementaryRightToLeftScript_IsDetected()
+    {
+        var adlam = char.ConvertFromUtf32(0x1E922) + char.ConvertFromUtf32(0x1E923);
+
+        BidiAlgorithm.ContainsRTL("abc " + adlam).Should().BeTrue("Adlam is written right to left, so the line must be reordered");
+        BidiAlgorithm.ContainsRTL("abc " + char.ConvertFromUtf32(0x1F600)).Should().BeFalse();
+    }
 }

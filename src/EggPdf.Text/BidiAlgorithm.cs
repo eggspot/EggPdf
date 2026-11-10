@@ -42,12 +42,24 @@ public static partial class BidiAlgorithm
         return t == BidiType.R || t == BidiType.AL;
     }
 
-    /// <summary>Whether a string contains any strongly right-to-left character.</summary>
+    /// <summary>Whether a string contains any strongly right-to-left character, in the BMP or beyond it (Adlam, Hanifi Rohingya, ...).</summary>
     public static bool ContainsRTL(string text)
     {
         if (string.IsNullOrEmpty(text)) return false;
         for (int i = 0; i < text.Length; i++)
-            if (IsRTL(text[i])) return true;
+        {
+            char c = text[i];
+            if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                var type = BidiClassifier.ClassifySupplementary(text, i);
+                if (type == BidiType.R || type == BidiType.AL) return true;
+                i++;
+            }
+            else if (IsRTL(c))
+            {
+                return true;
+            }
+        }
         return false;
     }
 
