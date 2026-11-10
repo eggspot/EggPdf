@@ -110,7 +110,7 @@ public class GridAutoPlacementTests
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         root.FindById("i" + (count - 1))!.Should().NotBeNull();
-        allocated.Should().BeLessThan(64L * 1024 * 1024,
+        allocated.Should().BeLessThan(48L * 1024 * 1024,
             "occupancy is stored per used column, not as an items-by-items matrix");
     }
 }
