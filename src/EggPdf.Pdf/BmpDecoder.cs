@@ -13,13 +13,22 @@ internal static class BmpDecoder
 {
     private const int BI_RGB = 0;
     private const int BI_BITFIELDS = 3;
+    private const int FileHeaderSize = 14;
+    private const int InfoHeaderSize = 40;
+    private const int DataOffsetField = 10;
+    private const int WidthField = 18;
+    private const int HeightField = 22;
+    private const int BitDepthField = 28;
+    private const int CompressionField = 30;
+    private const int ColorsUsedField = 46;
+    private const int RgbQuadSize = 4;
 
     /// <summary>Check if data starts with BMP signature ("BM").</summary>
     internal static bool IsBmp(byte[] data)
     {
         if (data == null || data.Length < 2)
             return false;
-        return data[0] == 0x42 && data[1] == 0x4D; // "BM"
+        return data[0] == (byte)'B' && data[1] == (byte)'M';
     }
 
     /// <summary>
@@ -43,56 +52,46 @@ internal static class BmpDecoder
         if (!IsBmp(data))
             return null;
 
-        // BITMAPFILEHEADER (14 bytes)
-        if (data.Length < 14)
+        if (data.Length < FileHeaderSize)
             return null;
 
-        // int fileSize = ReadInt32LE(data, 2); // not used for validation
-        int dataOffset = ReadInt32LE(data, 10);
+        int dataOffset = ReadInt32LE(data, DataOffsetField);
 
-        // DIB Header (at least BITMAPINFOHEADER = 40 bytes)
-        if (data.Length < 14 + 4)
+        if (data.Length < FileHeaderSize + 4)
             return null;
 
-        int headerSize = ReadInt32LE(data, 14);
-        if (headerSize < 40 || data.Length < 14 + headerSize)
+        int headerSize = ReadInt32LE(data, FileHeaderSize);
+        if (headerSize < InfoHeaderSize || data.Length < FileHeaderSize + headerSize)
             return null;
 
-        int width = ReadInt32LE(data, 18);
-        int height = ReadInt32LE(data, 22);
-        // int planes = ReadInt16LE(data, 26); // always 1
-        int bitDepth = ReadInt16LE(data, 28);
-        int compression = ReadInt32LE(data, 30);
-        // int imageSize = ReadInt32LE(data, 34); // can be 0 for BI_RGB
-        // int colorsUsed = ReadInt32LE(data, 46); // 0 = default
+        int width = ReadInt32LE(data, WidthField);
+        int height = ReadInt32LE(data, HeightField);
+        int bitDepth = ReadInt16LE(data, BitDepthField);
+        int compression = ReadInt32LE(data, CompressionField);
 
         if (width <= 0)
             return null;
 
-        // Height can be negative (top-down) or positive (bottom-up)
         bool topDown = height < 0;
         int absHeight = Math.Abs(height);
 
         if (absHeight <= 0)
             return null;
 
-        // Only support BI_RGB (uncompressed) and BI_BITFIELDS for 32-bit
         if (compression != BI_RGB && !(compression == BI_BITFIELDS && bitDepth == 32))
             return null;
 
-        // Validate bit depth
         if (bitDepth != 1 && bitDepth != 4 && bitDepth != 8 && bitDepth != 24 && bitDepth != 32)
             return null;
 
-        // For indexed formats, read color table
         byte[]? colorTable = null;
         if (bitDepth <= 8)
         {
-            int colorTableOffset = 14 + headerSize;
+            int colorTableOffset = FileHeaderSize + headerSize;
             int maxColors = 1 << bitDepth;
-            int colorsUsed = ReadInt32LE(data, 46);
+            int colorsUsed = ReadInt32LE(data, ColorsUsedField);
             int colorCount = (colorsUsed > 0 && colorsUsed <= maxColors) ? colorsUsed : maxColors;
-            int colorTableSize = colorCount * 4; // RGBQUAD (4 bytes each: B, G, R, reserved)
+            int colorTableSize = colorCount * RgbQuadSize;
 
             if (colorTableOffset + colorTableSize > data.Length)
                 return null;
@@ -101,19 +100,16 @@ internal static class BmpDecoder
             Buffer.BlockCopy(data, colorTableOffset, colorTable, 0, colorTableSize);
         }
 
-        // Calculate row stride (rows are padded to 4-byte boundaries)
         int rowStride = ((width * bitDepth + 31) / 32) * 4;
 
         if (dataOffset + rowStride * absHeight > data.Length)
         {
-            // Tolerate slightly truncated files
             if (dataOffset >= data.Length)
                 return null;
         }
 
         int pixelCount = width * absHeight;
 
-        // Decode based on bit depth
         switch (bitDepth)
         {
             case 1:
@@ -152,9 +148,9 @@ internal static class BmpDecoder
                 if (index >= colorEntries) index = 0;
 
                 int dst = (dstRow + x) * 3;
-                rgb[dst] = colorTable[index * 4 + 2];     // R (BMP stores BGR)
-                rgb[dst + 1] = colorTable[index * 4 + 1]; // G
-                rgb[dst + 2] = colorTable[index * 4];     // B
+                rgb[dst] = colorTable[index * 4 + 2];
+                rgb[dst + 1] = colorTable[index * 4 + 1];
+                rgb[dst + 2] = colorTable[index * 4];
             }
         }
 
@@ -186,9 +182,9 @@ internal static class BmpDecoder
                 if (index >= colorEntries) index = 0;
 
                 int dst = (dstRow + x) * 3;
-                rgb[dst] = colorTable[index * 4 + 2];     // R
-                rgb[dst + 1] = colorTable[index * 4 + 1]; // G
-                rgb[dst + 2] = colorTable[index * 4];     // B
+                rgb[dst] = colorTable[index * 4 + 2];
+                rgb[dst + 1] = colorTable[index * 4 + 1];
+                rgb[dst + 2] = colorTable[index * 4];
             }
         }
 
@@ -215,9 +211,9 @@ internal static class BmpDecoder
                 if (index >= colorEntries) index = 0;
 
                 int dst = (dstRow + x) * 3;
-                rgb[dst] = colorTable[index * 4 + 2];     // R
-                rgb[dst + 1] = colorTable[index * 4 + 1]; // G
-                rgb[dst + 2] = colorTable[index * 4];     // B
+                rgb[dst] = colorTable[index * 4 + 2];
+                rgb[dst + 1] = colorTable[index * 4 + 1];
+                rgb[dst + 2] = colorTable[index * 4];
             }
         }
 
@@ -241,9 +237,9 @@ internal static class BmpDecoder
                 if (src + 2 >= data.Length) break;
 
                 int dst = (dstRow + x) * 3;
-                rgb[dst] = data[src + 2];     // R (BMP stores BGR)
-                rgb[dst + 1] = data[src + 1]; // G
-                rgb[dst + 2] = data[src];     // B
+                rgb[dst] = data[src + 2];
+                rgb[dst + 1] = data[src + 1];
+                rgb[dst + 2] = data[src];
             }
         }
 
@@ -267,10 +263,10 @@ internal static class BmpDecoder
                 if (src + 3 >= data.Length) break;
 
                 int dst = (dstRow + x) * 4;
-                rgba[dst] = data[src + 2];     // R (BMP stores BGRA)
-                rgba[dst + 1] = data[src + 1]; // G
-                rgba[dst + 2] = data[src];     // B
-                rgba[dst + 3] = data[src + 3]; // A
+                rgba[dst] = data[src + 2];
+                rgba[dst + 1] = data[src + 1];
+                rgba[dst + 2] = data[src];
+                rgba[dst + 3] = data[src + 3];
             }
         }
 
@@ -294,7 +290,7 @@ internal sealed class BmpDecodeResult
 {
     public int Width { get; }
     public int Height { get; }
-    /// <summary>Pixel data: RGB (3 bytes/pixel) if HasAlpha is false, RGBA (4 bytes/pixel) if true.</summary>
+    /// <summary>Pixel data: RGB (3 bytes/pixel) if HasAlpha is false, RGBA (4 bytes/pixel) if true; BMP's BGR byte order is already swapped.</summary>
     public byte[] PixelData { get; }
     /// <summary>True if PixelData contains RGBA data (32-bit BMP), false if RGB.</summary>
     public bool HasAlpha { get; }
