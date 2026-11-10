@@ -53,14 +53,18 @@ write ALL the code for the task first, then run the test suite and fix.
 3. Run ALL tests (this also compiles — no separate build step)
    - FAIL → fix code, run again; iterate until green
    - PASS → continue
-4. Benchmark if hot path (no regressions allowed)
-5. Commit with conventional prefix
+4. Commit with conventional prefix and open the PR
+5. Hot path: read the Benchmarks workflow's comment on the PR (no regressions allowed)
 ```
 
 **Rules:**
 - Never write code before writing the test that covers it.
 - Never commit with failing tests.
-- Never skip benchmarks for hot-path changes.
+- Never skip benchmarks for hot-path changes -- but don't run them on the dev PC: the `Benchmarks` workflow
+  runs them on every PR and posts the table (time and allocations) as a PR comment. Compare it with the previous
+  PR's comment; only profile locally, with a targeted probe, when CI shows a regression.
+- Pipeline the work: once a batch's PR is open, start the next batch on a new branch instead of waiting for CI,
+  then come back to each PR when its CI and Benchmarks runs finish, fix what they report and merge.
 - Keep iterating fix → run → fix until all tests pass — do not give up early.
 - Write the whole batch of code first, THEN run tests once and fix failures — no test runs after every small edit.
 - No standalone `dotnet build` — `dotnet test` compiles everything it needs. Only build separately when diagnosing a build-system issue itself.
@@ -69,7 +73,7 @@ write ALL the code for the task first, then run the test suite and fix.
 way) — whether the user asks for one or the coding task is done and a PR is the next step — invoke the
 `pr` skill (`.claude/skills/pr/SKILL.md`) and follow it, unless all of its steps have already been done
 in this session for the current commit. It reviews the plan, reviews the code in two rounds, fixes and
-commits, runs the tests (and benchmarks for hot paths), opens the PR to `main`, does an independent
+commits, runs the tests, opens the PR to `main` (CI benchmarks hot paths), does an independent
 pre-merge review pass (in this session, no subagent) to a MERGE verdict, waits for every CI job, squash-merges and checks the release the merge starts, then
 reports to the user. Running it is the go-ahead for its own fixes, commits, one test run and the merge.
 

@@ -101,9 +101,9 @@ dotnet test tests/EggPdf.Tests.Fluent -c Release
 
 Also run the Playwright suite when `src/EggPdf.Service` or `tests/EggPdf.Tests.E2E` changed: `PLAYWRIGHT_BROWSERS_PATH=0 dotnet test tests/EggPdf.Tests.E2E -c Release`.
 
-**Benchmarks** when a hot path changed (parsing, style, layout, fragmentation, paint, PDF writing, readers): `dotnet run --project benchmarks/EggPdf.Benchmarks -c Release -- --filter "*Render*" --job short` and compare with "Current Benchmark Results" in `CLAUDE.md`. A regression in time or memory is a failure: fix it like a red test.
+**Benchmarks are not run on the dev PC.** When a hot path changed (parsing, style, layout, fragmentation, paint, PDF writing, readers), the `Benchmarks` workflow runs them on the PR and posts the table as a sticky PR comment; step 7 reads it. A regression in time or memory is a failure: fix it like a red test (profile locally only with a targeted probe, once CI shows the regression).
 
-If something fails, fix it (show each fix), commit the fixes (`fix: ...`) and re-run until green. If it can't be made green safely, stop before the PR and report the failure. Record the totals per suite (`N passed, N failed, N skipped`) and the benchmark table for the PR. When done: `cd ~ && dotnet build-server shutdown --vbcscompiler`.
+If something fails, fix it (show each fix), commit the fixes (`fix: ...`) and re-run until green. If it can't be made green safely, stop before the PR and report the failure. Record the totals per suite (`N passed, N failed, N skipped`) for the PR. When done: `cd ~ && dotnet build-server shutdown --vbcscompiler`.
 
 ## 6. Push and open the PR
 
@@ -163,6 +163,8 @@ With `--no-merge`: end here and go to step 8.
    `gh run list --branch {branch} --workflow CI --limit 1 --json databaseId --jq '.[0].databaseId'` gives `{runId}`, then
    `gh run view {runId} --json jobs --jq '.jobs[] | .name + " => " + .conclusion'`
    Every job must be `success`. On a failure, read the log (`gh run view {runId} --log-failed`; `MSB4181` with `0 Error(s)` is a test failure, grep for `Failed EggPdf`), fix, commit, push and watch again.
+   **Don't wait idle:** while CI runs, start the next batch on a new branch from `origin/main` and come back to this PR when its runs finish (the global "one session per project" lock is still yours; several open PRs from one session are fine when they touch different files).
+   **Benchmarks:** for a hot-path change, read the `Benchmarks` workflow's PR comment and compare it with the previous merged PR's comment; a time or allocation regression blocks the merge. Copy the table into the PR's Performance section.
 4. **Merge.** `gh pr merge {n} --squash --delete-branch --subject "{PR title} (#{n})" --body "{short summary}"` — write the subject and body yourself so branch commit trailers don't carry over.
 5. **After the merge.** Confirm it merged (`gh pr view {n} --json state,mergeCommit`). Then `gh run list --commit {merge sha}` and watch CI and Publish to the end; Publish pushes a `chore: bump version to X.Y.Z [skip ci]` commit and starts Release Binaries, Docker, Pages and the Hugging Face deploy (`gh run list --limit 10`); check the GitHub Release exists (`gh release view vX.Y.Z`). Every run must succeed. A failed release means that version never shipped: fixing it comes before any new work in this repo.
 6. **Clean up.** `git switch main && git pull --ff-only`; `gh pr merge --delete-branch` usually deletes the local branch too — if `git branch --list {branch}` still shows it, `git branch -D {branch}` (squash-merged branches look unmerged to `-d`); delete `.git/progress-{branch}.md` if it exists (its exact path, in its own command), and `project-lock release . "<session title>"`.
