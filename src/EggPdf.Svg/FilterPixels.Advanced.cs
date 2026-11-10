@@ -23,7 +23,6 @@ internal sealed class FilterLight
     public float? ConeAngle;
 }
 
-/// <summary>feTurbulence follows the reference implementation in the SVG specification.</summary>
 internal static partial class FilterPixels
 {
     private const int BSize = 0x100, BMask = 0xff, PerlinN = 0x1000;
@@ -156,8 +155,9 @@ internal static partial class FilterPixels
     }
 
     /// <summary>
-    /// feTurbulence over the canvas. <paramref name="unitsPerPx"/> and the origin map a pixel to user space,
-    /// since the noise is defined in user coordinates. The result is premultiplied in the working color space.
+    /// feTurbulence over the canvas, following the reference implementation in the SVG specification.
+    /// <paramref name="unitsPerPx"/> and the origin map a pixel to user space, since the noise is defined in user
+    /// coordinates. The result is premultiplied in the working color space.
     /// </summary>
     public static FilterImage Turbulence(int width, int height, bool linear, float baseFx, float baseFy, int octaves,
         int seed, bool fractal, bool stitch, float originX, float originY, float unitsPerPx,
@@ -165,12 +165,12 @@ internal static partial class FilterPixels
     {
         var img = new FilterImage(width, height, linear);
         var lattice = new Lattice((long)Math.Round((double)seed));
+        var c = new float[4];
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
             {
                 double ux = originX + x * unitsPerPx, uy = originY + y * unitsPerPx;
-                var c = new float[4];
                 for (int ch = 0; ch < 4; ch++)
                 {
                     double sum = Turbulence(lattice, ch, ux, uy, baseFx, baseFy, octaves, fractal, stitch, tileX, tileY, tileW, tileH);
