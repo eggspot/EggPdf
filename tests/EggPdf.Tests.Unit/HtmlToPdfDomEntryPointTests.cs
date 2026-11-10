@@ -6,10 +6,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit;
 
-/// <summary>
-/// Tests for HtmlToPdf.RenderDocument(HtmlDocument): the DOM-direct entry point used by document
-/// builders (e.g. EggPdf.Fluent) that construct the DOM themselves instead of an HTML string.
-/// </summary>
 public class HtmlToPdfDomEntryPointTests
 {
     private static HtmlDocument BuildDocument(HtmlElement bodyContent)
@@ -66,9 +62,9 @@ public class HtmlToPdfDomEntryPointTests
 
         domText.Should().Contain("Parity check");
         htmlText.Should().Contain("Parity check");
-        // same layout engine, same input tree -> same page geometry
         System.Text.RegularExpressions.Regex.Match(domText, @"/MediaBox \[[^\]]+\]").Value
-            .Should().Be(System.Text.RegularExpressions.Regex.Match(htmlText, @"/MediaBox \[[^\]]+\]").Value);
+            .Should().Be(System.Text.RegularExpressions.Regex.Match(htmlText, @"/MediaBox \[[^\]]+\]").Value,
+                "the same input tree through the same layout engine gives the same page geometry");
     }
 
     [Fact]
