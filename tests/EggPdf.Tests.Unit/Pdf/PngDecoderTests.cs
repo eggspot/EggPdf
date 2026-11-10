@@ -183,6 +183,24 @@ public class PngDecoderTests
     }
 
     [Fact]
+    public void Decode_IndexedWith16BitDepth_ReturnsNull()
+    {
+        var header = new byte[13];
+        WriteInt32BE(header, 0, 2);
+        WriteInt32BE(header, 4, 1);
+        header[8] = 16;
+        header[9] = 3;
+        using var png = new MemoryStream();
+        png.Write(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
+        WriteChunk(png, "IHDR", header);
+        WriteChunk(png, "PLTE", new byte[] { 255, 0, 0, 0, 0, 255 });
+        WriteChunk(png, "IDAT", Zlib(new byte[] { 0, 0, 0, 0, 1 }));
+        WriteChunk(png, "IEND", Array.Empty<byte>());
+
+        PngDecoder.Decode(png.ToArray()).Should().BeNull("PNG allows bit depths 1, 2, 4 and 8 for indexed colour, never 16");
+    }
+
+    [Fact]
     public void Render_InterlacedPngImg_IsEmbeddedAndDrawn()
     {
         var png = EncodeAdam7(9, 10, 8, 2, Rgb, (_, _) => 0);

@@ -428,3 +428,47 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
   one million characters is invalid, which bounds `--b: var(--a) var(--a)` chains.
 - `var(` and `env(` count only at a function boundary outside quoted strings: `myvar(` and
   `content: "var(--x)"` are left alone.
+
+## EggPdf.Pdf/GifDecoder.cs
+
+- LZW code width grows when the next free table code reaches `1 << codeSize` (giflib and stb_image do the
+  same). Growing one code later decodes every real GIF past its first few dozen codes as garbage.
+- The first frame is drawn at its offset on a transparent canvas the size of the logical screen; the
+  background colour index is ignored, as browsers ignore it. A first frame that does not fit grows the
+  canvas (Blink does the same), and a frame that covers the whole canvas without a transparent index
+  stays RGB.
+
+## EggPdf.Pdf/BmpDecoder.cs
+
+- 16- and 32-bit pixels are read through channel masks. BI_RGB uses the defaults (5-5-5 and BGRA);
+  BI_BITFIELDS stores the masks at file offset 54, after a 40-byte header or inside a V2-V5 header;
+  the alpha mask follows for BI_ALPHABITFIELDS and headers of 56 bytes or more.
+- A 32-bit image whose alpha channel is zero everywhere is opaque, as in Chrome: many writers leave the
+  reserved byte at zero.
+- A file holding less than half the pixel bytes its header claims is rejected, so a tiny header cannot
+  make the decoder allocate a huge image; mildly truncated files still decode.
+
+## EggPdf.Pdf/Vp8LDecoder.cs
+
+- The output is 4 bytes per pixel in the order red, green, blue, alpha. `alpha_is_used` in the header is
+  informational only.
+- A literal pixel reads green, then red, blue and alpha. A palette of at most 16 colours bundles 8, 4 or 2
+  indices into each coded pixel's green byte, and every transform read after the colour-indexing
+  transform works on that narrower image. Palette entries are delta-coded; an index past the palette is
+  transparent black.
+- The entropy image stores each block's prefix-code group as `(red << 8) | green`. A prefix code with a
+  single used symbol reads no bits, whichever way it was written.
+- Predictor: the top-right neighbour of the rightmost column is the leftmost pixel of the current row;
+  modes 14 and 15 predict opaque black (libwebp's sentinels); Select (mode 11) sums
+  `|L - TL| - |TL - T|` over the four channels and takes T when the sum is at most zero.
+- Length and distance prefix codes 0-39 use the spec formula, not a table: codes 24 and up carry 11 to 18
+  extra bits.
+
+## EggPdf.Core/Color.cs
+
+- `lab()`/`lch()` are CIE Lab relative to D50, adapted to D65 with Bradford before sRGB, as CSS Color 4
+  defines them. `color()` converts every predefined space with the CSS Color 4 matrices and transfer
+  functions; out-of-gamut results are clipped, and an unknown space is invalid.
+- `color-mix()` interpolates with premultiplied alpha. srgb and srgb-linear are exact; the xyz spaces are
+  linear light and mix like srgb-linear; the other RGB spaces and hsl/hwb mix in srgb, and lab, lch and
+  oklch mix in oklab (hue interpolation is not modelled). A missing interpolation method means oklab.

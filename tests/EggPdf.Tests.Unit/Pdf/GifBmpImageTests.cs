@@ -1,6 +1,6 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Text;
 using System.Threading.Tasks;
 using EggPdf.Pdf;
@@ -11,13 +11,18 @@ namespace EggPdf.Tests.Unit.Pdf;
 
 public class GifBmpImageTests
 {
-    #region GIF Tests
+    private const byte GifImageSeparator = 0x2C;
+    private const byte GifTrailer = 0x3B;
+    private const byte GifExtensionIntroducer = 0x21;
+    private const byte GifGraphicControlLabel = 0xF9;
+    private const int BmpFileHeaderSize = 14;
+    private const int BmpInfoHeaderSize = 40;
+    private const int BmpBitfields = 3;
 
     [Fact]
     public void Gif_ValidSignature_Decoded()
     {
-        // 2x2 GIF with 4 colors: red, green, blue, yellow
-        byte[] gifData = CreateMinimal2x2Gif();
+        byte[] gifData = CreateGif2x2RedGreenBlueYellow();
 
         var image = PdfImage.FromGif("test", gifData);
 
@@ -25,28 +30,11 @@ public class GifBmpImageTests
         image!.Width.Should().Be(2);
         image.Height.Should().Be(2);
         image.Format.Should().Be(PdfImageFormat.Raw);
-        // 2x2 RGB = 12 bytes
-        image.Data.Length.Should().Be(12);
-
-        // Pixel (0,0) = red
-        image.Data[0].Should().Be(255);
-        image.Data[1].Should().Be(0);
-        image.Data[2].Should().Be(0);
-
-        // Pixel (1,0) = green
-        image.Data[3].Should().Be(0);
-        image.Data[4].Should().Be(255);
-        image.Data[5].Should().Be(0);
-
-        // Pixel (0,1) = blue
-        image.Data[6].Should().Be(0);
-        image.Data[7].Should().Be(0);
-        image.Data[8].Should().Be(255);
-
-        // Pixel (1,1) = yellow
-        image.Data[9].Should().Be(255);
-        image.Data[10].Should().Be(255);
-        image.Data[11].Should().Be(0);
+        image.Data.Should().Equal(
+            255, 0, 0,
+            0, 255, 0,
+            0, 0, 255,
+            255, 255, 0);
     }
 
     [Fact]
@@ -64,17 +52,16 @@ public class GifBmpImageTests
     }
 
     [Fact]
-    public void Gif_TruncatedData_ReturnsNull()
+    public void Gif_SignatureOnly_ReturnsNull()
     {
-        // Just the GIF signature, nothing else
-        var image = PdfImage.FromGif("test", new byte[] { 0x47, 0x49, 0x46, 0x38, 0x39, 0x61 });
+        var image = PdfImage.FromGif("test", Encoding.ASCII.GetBytes("GIF89a"));
         image.Should().BeNull();
     }
 
     [Fact]
     public void Gif_Transparency_HasAlpha()
     {
-        byte[] gifData = CreateTransparentGif();
+        byte[] gifData = CreateGif2x1RedThenTransparent();
 
         var image = PdfImage.FromGif("test", gifData);
 
@@ -82,29 +69,206 @@ public class GifBmpImageTests
         image!.Width.Should().Be(2);
         image.Height.Should().Be(1);
         image.Format.Should().Be(PdfImageFormat.Raw);
-        // Has alpha: SMaskData should be present
         image.SMaskData.Should().NotBeNull();
-        image.SMaskData!.Length.Should().Be(2); // 2 pixels
-
-        // Pixel 0: red, opaque
-        image.Data[0].Should().Be(255); // R
-        image.Data[1].Should().Be(0);   // G
-        image.Data[2].Should().Be(0);   // B
-        image.SMaskData[0].Should().Be(255); // fully opaque
-
-        // Pixel 1: transparent (index 1 = transparent)
-        image.SMaskData[1].Should().Be(0); // fully transparent
+        image.SMaskData!.Length.Should().Be(2);
+        image.Data[0].Should().Be(255);
+        image.Data[1].Should().Be(0);
+        image.Data[2].Should().Be(0);
+        image.SMaskData[0].Should().Be(255);
+        image.SMaskData[1].Should().Be(0);
     }
 
-    #endregion
+    private const string GdiPlusGrid64x64Gif =
+        "R0lGODlhQABAAPcAAAAAAAAAMwAAZgAAmQAAzAAA/wArAAArMwArZgArmQArzAAr/wBVAABVMwBVZgBVmQBVzABV/wCAAACAMwCAZgCAmQCAzACA/wCqAACq" +
+        "MwCqZgCqmQCqzACq/wDVAADVMwDVZgDVmQDVzADV/wD/AAD/MwD/ZgD/mQD/zAD//zMAADMAMzMAZjMAmTMAzDMA/zMrADMrMzMrZjMrmTMrzDMr/zNVADNV" +
+        "MzNVZjNVmTNVzDNV/zOAADOAMzOAZjOAmTOAzDOA/zOqADOqMzOqZjOqmTOqzDOq/zPVADPVMzPVZjPVmTPVzDPV/zP/ADP/MzP/ZjP/mTP/zDP//2YAAGYA" +
+        "M2YAZmYAmWYAzGYA/2YrAGYrM2YrZmYrmWYrzGYr/2ZVAGZVM2ZVZmZVmWZVzGZV/2aAAGaAM2aAZmaAmWaAzGaA/2aqAGaqM2aqZmaqmWaqzGaq/2bVAGbV" +
+        "M2bVZmbVmWbVzGbV/2b/AGb/M2b/Zmb/mWb/zGb//5kAAJkAM5kAZpkAmZkAzJkA/5krAJkrM5krZpkrmZkrzJkr/5lVAJlVM5lVZplVmZlVzJlV/5mAAJmA" +
+        "M5mAZpmAmZmAzJmA/5mqAJmqM5mqZpmqmZmqzJmq/5nVAJnVM5nVZpnVmZnVzJnV/5n/AJn/M5n/Zpn/mZn/zJn//8wAAMwAM8wAZswAmcwAzMwA/8wrAMwr" +
+        "M8wrZswrmcwrzMwr/8xVAMxVM8xVZsxVmcxVzMxV/8yAAMyAM8yAZsyAmcyAzMyA/8yqAMyqM8yqZsyqmcyqzMyq/8zVAMzVM8zVZszVmczVzMzV/8z/AMz/" +
+        "M8z/Zsz/mcz/zMz///8AAP8AM/8AZv8Amf8AzP8A//8rAP8rM/8rZv8rmf8rzP8r//9VAP9VM/9VZv9Vmf9VzP9V//+AAP+AM/+AZv+Amf+AzP+A//+qAP+q" +
+        "M/+qZv+qmf+qzP+q///VAP/VM//VZv/Vmf/VzP/V////AP//M///Zv//mf//zP///wAAAAAAAAAAAAAAACH5BAEAAPwALAAAAABAAEAAAAj/AAE8oZMJVzeB" +
+        "BA0iLHhwIMOFCh1GTNiQIsSKDx3eA/GDTCJUGzs+AsmRzMiQJkmKVJkS5cmSL1e6ZImsHYQdVEYJa2ehRs6dPX/y9KlzqNCgRZECJbr0KNOhGS1KxDgxqtWq" +
+        "WKlqBeCRZJGuG79+DAsWhFivZc+SHWs2rduxRJGdgxB3bl26OeXiHaX3rt+8dgHv7ZtXoJtMvhoeTmwYsWLHjRk/WfxYMuXIlTGuRctWbdvObzmL3ky6ZM3B" +
+        "NuOmzruab+vTqlHLjv20Z9RJE3FX1I2Q90DfdIALz52V61gNRdQcT75cOUjkzu9Bb079OXPr0T+DpM16dnfurr2H/wdPmO/F81PRS11/datDyQRRsu04vyx9" +
+        "lvXz498vn2XTpLUF6NSAABL4H2xOtaeeguk1yB5x45wXWmmeVTihdqRNN9pffAXW4WAelidiiCG+FuJClkE2mYqXrZjii5mh12J8JYFm42gY5mihfqV1hOB4" +
+        "3wUJ5JA/FmnUkEvdRtxuS/bW5G9PBldcWtFpKN11V1aJpZVW6pidWhwaKZ6Y5M2F04dhLlicgwxKNaNV8GUyU3901sifnXV6JhOeJf3n55F/KgXokT8e2FqS" +
+        "az7onqJOLopbhOlduCOOk4b1JVhdgilYmCSC6CmnY57oIkYwYmbqqAvGGdGbPUrqan0x2f93oY+v1TqmrQISSeihUEHY6K9QMukoLpBKKayE1WWZLJdYYpgp" +
+        "lTfeQx6uQhZZoqdnjjiYmou2qaKb38KpGZ/31VkuubJGC9OdHQWqmqDwTotUobvuheiw3foaLLDrPYospa9ip26zaj0L16aCZdtpmTchjGa1ohJUKqoUg6sq" +
+        "qe6xymelOZ6rZ0voqkvrrbfOy6vJqKEcoJLH7uuyser5+zJwD0ErsFeXdpbzzRTuLK3D1mIL9LV3KfxpYWyuymK4VV18KntxzrnxrCCf67GssdbnbrUnywue" +
+        "ofb2ii+/ShY73LDF1jywlj4bjHO0bv/88NxBM2x0mCZuW7G3Tu9d3XTG4baaNbtUD56nrPTGy7XKBBrJOIDe6gvzy2XzS7NCAStLadsE20waqHYPHWrDdEe8" +
+        "dN9v/i0j0xgvdDiPHVedLo57Wk0Gmaw9Dva7X9e7cpRnx0ys5YnKbFFAADs=";
 
-    #region BMP Tests
+    [Fact]
+    public void Gif_EncodedByGdiPlus_DecodesEveryPixel()
+    {
+        const int Size = 64;
+        const uint GdiPlusGreenChannelFnv1a = 3482593537;
+        const int GdiPlusGreenChannelSum = 517798;
+
+        var result = GifDecoder.Decode(Convert.FromBase64String(GdiPlusGrid64x64Gif));
+
+        result.Should().NotBeNull();
+        result!.Width.Should().Be(Size);
+        result.Height.Should().Be(Size);
+        int stride = result.HasAlpha ? 4 : 3;
+        uint greenHash = 2166136261;
+        int greenSum = 0;
+        for (int y = 0; y < Size; y++)
+        {
+            for (int x = 0; x < Size; x++)
+            {
+                int at = (y * Size + x) * stride;
+                result.PixelData[at].Should().Be((byte)((x * 37 + y * 11) % 6 * 51), $"red at ({x},{y})");
+                result.PixelData[at + 2].Should().Be((byte)((x * 13 + y * 7) % 6 * 51), $"blue at ({x},{y})");
+                if (result.HasAlpha) result.PixelData[at + 3].Should().Be(255);
+                byte green = result.PixelData[at + 1];
+                greenSum += green;
+                greenHash = unchecked((greenHash ^ green) * 16777619);
+            }
+        }
+        greenSum.Should().Be(GdiPlusGreenChannelSum);
+        greenHash.Should().Be(GdiPlusGreenChannelFnv1a, "the green channel is dithered by the encoder; GDI+ decodes it to exactly these bytes");
+    }
+
+    [Fact]
+    public void Gif_FrameSmallerThanScreen_ComposedAtItsOffsetOnTransparentCanvas()
+    {
+        using var ms = new MemoryStream();
+        WriteGifHeader(ms, screenWidth: 4, screenHeight: 3, globalColorTable: new byte[] { 255, 0, 0, 0, 255, 0 });
+        WriteGifImage(ms, left: 1, top: 1, width: 2, height: 1, indices: new byte[] { 0, 1 });
+        ms.WriteByte(GifTrailer);
+
+        var result = GifDecoder.Decode(ms.ToArray());
+
+        result.Should().NotBeNull();
+        result!.Width.Should().Be(4);
+        result.Height.Should().Be(3);
+        result.HasAlpha.Should().BeTrue();
+        var expected = new byte[4 * 3 * 4];
+        new byte[] { 255, 0, 0, 255, 0, 255, 0, 255 }.CopyTo(expected, (1 * 4 + 1) * 4);
+        result.PixelData.Should().Equal(expected);
+    }
+
+    [Fact]
+    public void Gif_FrameLargerThanScreen_CanvasGrowsToHoldTheFrame()
+    {
+        using var ms = new MemoryStream();
+        WriteGifHeader(ms, screenWidth: 1, screenHeight: 1, globalColorTable: new byte[] { 255, 0, 0, 0, 255, 0 });
+        WriteGifImage(ms, left: 0, top: 0, width: 2, height: 2, indices: new byte[] { 0, 1, 1, 0 });
+        ms.WriteByte(GifTrailer);
+
+        var result = GifDecoder.Decode(ms.ToArray());
+
+        result.Should().NotBeNull();
+        result!.Width.Should().Be(2);
+        result.Height.Should().Be(2);
+        result.HasAlpha.Should().BeFalse();
+        result.PixelData.Should().Equal(255, 0, 0, 0, 255, 0, 0, 255, 0, 255, 0, 0);
+    }
+
+    [Fact]
+    public void Gif_HeaderClaimingHugeFrame_ReturnsNullWithoutAllocatingIt()
+    {
+        using var ms = new MemoryStream();
+        WriteGifHeader(ms, screenWidth: 40000, screenHeight: 40000, globalColorTable: new byte[] { 255, 0, 0, 0, 255, 0 });
+        WriteGifImage(ms, left: 0, top: 0, width: 40000, height: 40000, indices: new byte[] { 0, 1 });
+        ms.WriteByte(GifTrailer);
+        var gif = ms.ToArray();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var result = GifDecoder.Decode(gif);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        result.Should().BeNull();
+        allocated.Should().BeLessThan(1024 * 1024);
+    }
+
+    [Fact]
+    public void Bmp_32BitAllAlphaBytesZero_RenderedOpaque()
+    {
+        var data = CreateBmpFile(width: 1, height: 1, bitDepth: 32, pixelBytes: 4);
+        WriteBgra(data, BmpFileHeaderSize + BmpInfoHeaderSize, 10, 20, 30, 0);
+
+        var image = PdfImage.FromBmp("test", data);
+
+        image.Should().NotBeNull();
+        image!.SMaskData.Should().BeNull("Chrome treats a 32-bit BMP whose alpha bytes are all zero as opaque");
+        image.Data.Should().Equal(10, 20, 30);
+    }
+
+    [Fact]
+    public void Bmp_32BitBitfields_ChannelsComeFromTheMasks()
+    {
+        var data = CreateBmp(BmpInfoHeaderSize, width: 1, height: 1, bitDepth: 32, compression: BmpBitfields,
+            masks: new uint[] { 0x000000FF, 0x0000FF00, 0x00FF0000 },
+            pixelRows: new byte[] { 10, 20, 30, 0 });
+
+        var image = PdfImage.FromBmp("test", data);
+
+        image.Should().NotBeNull();
+        image!.SMaskData.Should().BeNull();
+        image.Data.Should().Equal(10, 20, 30);
+    }
+
+    [Fact]
+    public void Bmp_16Bit565Bitfields_Decoded()
+    {
+        var data = CreateBmp(BmpInfoHeaderSize, width: 2, height: 1, bitDepth: 16, compression: BmpBitfields,
+            masks: new uint[] { 0xF800, 0x07E0, 0x001F },
+            pixelRows: new byte[] { 0x00, 0xF8, 0xE0, 0x07 });
+
+        var image = PdfImage.FromBmp("test", data);
+
+        image.Should().NotBeNull();
+        image!.Data.Should().Equal(255, 0, 0, 0, 255, 0);
+    }
+
+    [Fact]
+    public void Bmp_16BitWithoutMasks_Uses555Layout()
+    {
+        var data = CreateBmp(BmpInfoHeaderSize, width: 2, height: 1, bitDepth: 16, compression: 0,
+            masks: Array.Empty<uint>(),
+            pixelRows: new byte[] { 0x00, 0x7C, 0x10, 0x02 });
+
+        var image = PdfImage.FromBmp("test", data);
+
+        image.Should().NotBeNull();
+        image!.Data.Should().Equal(255, 0, 0, 0, 132, 132);
+    }
+
+    [Fact]
+    public void Bmp_V5HeaderWithAlphaMask_KeepsAlpha()
+    {
+        const int V5HeaderSize = 124;
+        var data = CreateBmp(V5HeaderSize, width: 1, height: 1, bitDepth: 32, compression: BmpBitfields,
+            masks: new uint[] { 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000 },
+            pixelRows: new byte[] { 30, 20, 10, 128 });
+
+        var image = PdfImage.FromBmp("test", data);
+
+        image.Should().NotBeNull();
+        image!.Data.Should().Equal(10, 20, 30);
+        image.SMaskData.Should().Equal(128);
+    }
+
+    [Fact]
+    public void Bmp_HeaderClaimingHugeImage_ReturnsNullWithoutAllocatingIt()
+    {
+        var data = CreateBmpFile(width: 20000, height: 20000, bitDepth: 32, pixelBytes: 16);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var result = BmpDecoder.Decode(data);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        result.Should().BeNull();
+        allocated.Should().BeLessThan(1024 * 1024);
+    }
 
     [Fact]
     public void Bmp_24Bit_Decoded()
     {
-        // 2x2 BMP, 24-bit, bottom-up
-        byte[] bmpData = CreateMinimal2x2Bmp24();
+        byte[] bmpData = CreateBmp24BottomUp2x2RedGreenOverBlueWhite();
 
         var image = PdfImage.FromBmp("test", bmpData);
 
@@ -113,29 +277,17 @@ public class GifBmpImageTests
         image.Height.Should().Be(2);
         image.Format.Should().Be(PdfImageFormat.Raw);
         image.SMaskData.Should().BeNull();
-        image.Data.Length.Should().Be(12); // 2x2 RGB = 12 bytes
-
-        // Row 0 (top of image) = red, green
-        image.Data[0].Should().Be(255); // R
-        image.Data[1].Should().Be(0);   // G
-        image.Data[2].Should().Be(0);   // B
-        image.Data[3].Should().Be(0);   // R
-        image.Data[4].Should().Be(255); // G
-        image.Data[5].Should().Be(0);   // B
-
-        // Row 1 (bottom of image) = blue, white
-        image.Data[6].Should().Be(0);   // R
-        image.Data[7].Should().Be(0);   // G
-        image.Data[8].Should().Be(255); // B
-        image.Data[9].Should().Be(255);  // R
-        image.Data[10].Should().Be(255); // G
-        image.Data[11].Should().Be(255); // B
+        image.Data.Should().Equal(
+            255, 0, 0,
+            0, 255, 0,
+            0, 0, 255,
+            255, 255, 255);
     }
 
     [Fact]
     public void Bmp_32Bit_HasAlpha()
     {
-        byte[] bmpData = CreateMinimal2x2Bmp32();
+        byte[] bmpData = CreateBmp32BottomUp2x2TopLeftRedAlpha128();
 
         var image = PdfImage.FromBmp("test", bmpData);
 
@@ -144,13 +296,11 @@ public class GifBmpImageTests
         image.Height.Should().Be(2);
         image.Format.Should().Be(PdfImageFormat.Raw);
         image.SMaskData.Should().NotBeNull();
-        image.SMaskData!.Length.Should().Be(4); // 2x2 = 4 alpha values
-
-        // Check first pixel: red with alpha 128
-        image.Data[0].Should().Be(255); // R
-        image.Data[1].Should().Be(0);   // G
-        image.Data[2].Should().Be(0);   // B
-        image.SMaskData[0].Should().Be(128); // Alpha
+        image.SMaskData!.Length.Should().Be(4);
+        image.Data[0].Should().Be(255);
+        image.Data[1].Should().Be(0);
+        image.Data[2].Should().Be(0);
+        image.SMaskData[0].Should().Be(128);
     }
 
     [Fact]
@@ -168,35 +318,25 @@ public class GifBmpImageTests
     }
 
     [Fact]
-    public void Bmp_BottomUp_RowsFlipped()
+    public void Bmp_BottomUp_FirstFileRowBecomesBottomRow()
     {
-        // Create a 2x2 bottom-up BMP where:
-        // File order (bottom to top): row1=[blue,white], row0=[red,green]
-        // Output order (top to bottom): row0=[red,green], row1=[blue,white]
-        byte[] bmpData = CreateMinimal2x2Bmp24();
+        byte[] bmpData = CreateBmp24BottomUp2x2RedGreenOverBlueWhite();
 
         var image = PdfImage.FromBmp("test", bmpData);
 
         image.Should().NotBeNull();
-        // Top row should be red, green (not blue, white)
-        image!.Data[0].Should().Be(255); // R of top-left pixel
+        image!.Data[0].Should().Be(255);
         image.Data[1].Should().Be(0);
         image.Data[2].Should().Be(0);
-
-        // Bottom row should be blue, white
         image.Data[6].Should().Be(0);
         image.Data[7].Should().Be(0);
-        image.Data[8].Should().Be(255); // B of bottom-left pixel
+        image.Data[8].Should().Be(255);
     }
-
-    #endregion
-
-    #region E2E Data URI Tests
 
     [Fact]
     public async Task GifDataUri_RendersInPdf()
     {
-        byte[] gifData = CreateMinimal2x2Gif();
+        byte[] gifData = CreateGif2x2RedGreenBlueYellow();
         string base64 = Convert.ToBase64String(gifData);
         string html = $"<html><body><img src=\"data:image/gif;base64,{base64}\" width=\"50\" height=\"50\" /></body></html>";
 
@@ -211,7 +351,7 @@ public class GifBmpImageTests
     [Fact]
     public async Task BmpDataUri_RendersInPdf()
     {
-        byte[] bmpData = CreateMinimal2x2Bmp24();
+        byte[] bmpData = CreateBmp24BottomUp2x2RedGreenOverBlueWhite();
         string base64 = Convert.ToBase64String(bmpData);
         string html = $"<html><body><img src=\"data:image/bmp;base64,{base64}\" width=\"50\" height=\"50\" /></body></html>";
 
@@ -223,259 +363,210 @@ public class GifBmpImageTests
         text.Should().Contain("%PDF");
     }
 
-    #endregion
-
-    #region Test Data Builders
-
-    /// <summary>
-    /// Create a minimal 2x2 GIF89a with 4 colors:
-    /// (0,0)=red, (1,0)=green, (0,1)=blue, (1,1)=yellow
-    /// </summary>
-    private static byte[] CreateMinimal2x2Gif()
+    private static byte[] CreateGif2x2RedGreenBlueYellow()
     {
         using var ms = new MemoryStream();
-
-        // GIF89a signature
-        ms.Write(new byte[] { 0x47, 0x49, 0x46, 0x38, 0x39, 0x61 }, 0, 6);
-
-        // Logical Screen Descriptor
-        WriteInt16LE(ms, 2); // width
-        WriteInt16LE(ms, 2); // height
-        ms.WriteByte(0x81); // packed: global color table flag=1, color resolution=0, sort=0, GCT size=1 (4 colors = 2^(1+1))
-        ms.WriteByte(0);    // background color index
-        ms.WriteByte(0);    // pixel aspect ratio
-
-        // Global Color Table (4 entries x 3 bytes = 12 bytes)
-        // Index 0: Red
-        ms.Write(new byte[] { 255, 0, 0 }, 0, 3);
-        // Index 1: Green
-        ms.Write(new byte[] { 0, 255, 0 }, 0, 3);
-        // Index 2: Blue
-        ms.Write(new byte[] { 0, 0, 255 }, 0, 3);
-        // Index 3: Yellow
-        ms.Write(new byte[] { 255, 255, 0 }, 0, 3);
-
-        // Image Descriptor
-        ms.WriteByte(0x2C); // image separator
-        WriteInt16LE(ms, 0); // left
-        WriteInt16LE(ms, 0); // top
-        WriteInt16LE(ms, 2); // width
-        WriteInt16LE(ms, 2); // height
-        ms.WriteByte(0);     // packed: no local color table, not interlaced
-
-        // LZW image data
-        // Min code size = 2 (for 4 colors)
-        ms.WriteByte(2);
-
-        // LZW encode pixels: 0, 1, 2, 3
-        // With min code size 2: clear=4, eoi=5, initial code size=3 bits
-        byte[] lzwData = LzwEncode(new byte[] { 0, 1, 2, 3 }, 2);
-
-        // Write as sub-block
-        ms.WriteByte((byte)lzwData.Length);
-        ms.Write(lzwData, 0, lzwData.Length);
-        ms.WriteByte(0); // block terminator
-
-        // Trailer
-        ms.WriteByte(0x3B);
-
+        WriteGifHeader(ms, screenWidth: 2, screenHeight: 2, globalColorTable: new byte[]
+        {
+            255, 0, 0,
+            0, 255, 0,
+            0, 0, 255,
+            255, 255, 0,
+        });
+        WriteGifImage(ms, left: 0, top: 0, width: 2, height: 2, indices: new byte[] { 0, 1, 2, 3 });
+        ms.WriteByte(GifTrailer);
         return ms.ToArray();
     }
 
-    /// <summary>
-    /// Create a 2x1 GIF89a with transparency:
-    /// Pixel 0 = red (opaque), Pixel 1 = transparent (index 1)
-    /// </summary>
-    private static byte[] CreateTransparentGif()
+    private static byte[] CreateGif2x1RedThenTransparent()
     {
         using var ms = new MemoryStream();
-
-        // GIF89a signature
-        ms.Write(new byte[] { 0x47, 0x49, 0x46, 0x38, 0x39, 0x61 }, 0, 6);
-
-        // Logical Screen Descriptor
-        WriteInt16LE(ms, 2); // width
-        WriteInt16LE(ms, 1); // height
-        ms.WriteByte(0x80); // packed: global color table flag=1, GCT size=0 (2 colors = 2^(0+1))
-        ms.WriteByte(0);    // background color index
-        ms.WriteByte(0);    // pixel aspect ratio
-
-        // Global Color Table (2 entries x 3 bytes = 6 bytes)
-        // Index 0: Red
-        ms.Write(new byte[] { 255, 0, 0 }, 0, 3);
-        // Index 1: Green (will be transparent)
-        ms.Write(new byte[] { 0, 255, 0 }, 0, 3);
-
-        // Graphic Control Extension (for transparency)
-        ms.WriteByte(0x21); // extension introducer
-        ms.WriteByte(0xF9); // graphic control label
-        ms.WriteByte(4);    // block size
-        ms.WriteByte(0x01); // packed: transparent color flag = 1
-        WriteInt16LE(ms, 0); // delay time
-        ms.WriteByte(1);    // transparent color index
-        ms.WriteByte(0);    // block terminator
-
-        // Image Descriptor
-        ms.WriteByte(0x2C); // image separator
-        WriteInt16LE(ms, 0); // left
-        WriteInt16LE(ms, 0); // top
-        WriteInt16LE(ms, 2); // width
-        WriteInt16LE(ms, 1); // height
-        ms.WriteByte(0);     // packed
-
-        // LZW image data
-        // Min code size = 2 (minimum is 2 per GIF spec even for 2 colors)
-        ms.WriteByte(2);
-
-        byte[] lzwData = LzwEncode(new byte[] { 0, 1 }, 2);
-
-        ms.WriteByte((byte)lzwData.Length);
-        ms.Write(lzwData, 0, lzwData.Length);
-        ms.WriteByte(0); // block terminator
-
-        // Trailer
-        ms.WriteByte(0x3B);
-
+        WriteGifHeader(ms, screenWidth: 2, screenHeight: 1, globalColorTable: new byte[]
+        {
+            255, 0, 0,
+            0, 255, 0,
+        });
+        WriteGifTransparentIndex(ms, 1);
+        WriteGifImage(ms, left: 0, top: 0, width: 2, height: 1, indices: new byte[] { 0, 1 });
+        ms.WriteByte(GifTrailer);
         return ms.ToArray();
     }
 
-    /// <summary>
-    /// Simple LZW encoder for GIF test data.
-    /// Encodes data with the given minimum code size.
-    /// </summary>
+    private static void WriteGifHeader(MemoryStream ms, int screenWidth, int screenHeight, byte[] globalColorTable)
+    {
+        int entries = globalColorTable.Length / 3;
+        int sizeField = 0;
+        while ((2 << sizeField) < entries) sizeField++;
+
+        ms.Write(Encoding.ASCII.GetBytes("GIF89a"), 0, 6);
+        WriteInt16LE(ms, screenWidth);
+        WriteInt16LE(ms, screenHeight);
+        ms.WriteByte((byte)(0x80 | sizeField));
+        ms.WriteByte(0);
+        ms.WriteByte(0);
+        ms.Write(globalColorTable, 0, globalColorTable.Length);
+        for (int i = entries; i < (2 << sizeField); i++)
+            ms.Write(new byte[3], 0, 3);
+    }
+
+    private static void WriteGifTransparentIndex(MemoryStream ms, int transparentIndex)
+    {
+        const byte TransparentColorFlag = 0x01;
+        ms.WriteByte(GifExtensionIntroducer);
+        ms.WriteByte(GifGraphicControlLabel);
+        ms.WriteByte(4);
+        ms.WriteByte(TransparentColorFlag);
+        WriteInt16LE(ms, 0);
+        ms.WriteByte((byte)transparentIndex);
+        ms.WriteByte(0);
+    }
+
+    private static void WriteGifImage(MemoryStream ms, int left, int top, int width, int height, byte[] indices)
+    {
+        const int MinCodeSize = 2;
+        ms.WriteByte(GifImageSeparator);
+        WriteInt16LE(ms, left);
+        WriteInt16LE(ms, top);
+        WriteInt16LE(ms, width);
+        WriteInt16LE(ms, height);
+        ms.WriteByte(0);
+        ms.WriteByte(MinCodeSize);
+
+        byte[] lzwData = LzwEncode(indices, MinCodeSize);
+        for (int offset = 0; offset < lzwData.Length; offset += 255)
+        {
+            int blockSize = Math.Min(255, lzwData.Length - offset);
+            ms.WriteByte((byte)blockSize);
+            ms.Write(lzwData, offset, blockSize);
+        }
+        ms.WriteByte(0);
+    }
+
     private static byte[] LzwEncode(byte[] data, int minCodeSize)
     {
+        const int MaxCode = 4095;
         int clearCode = 1 << minCodeSize;
         int eoiCode = clearCode + 1;
-
-        // Use a simple encoding: clear code, then each pixel as a literal, then EOI
-        // This is not optimal but always correct
-        var bits = new System.Collections.Generic.List<bool>();
+        var bits = new List<bool>();
         int codeSize = minCodeSize + 1;
+        int nextTableCode = eoiCode + 1;
 
-        // Write clear code
-        WriteBitsLSB(bits, clearCode, codeSize);
-
-        // Write each pixel as a literal code
+        WriteBitsLsbFirst(bits, clearCode, codeSize);
         for (int i = 0; i < data.Length; i++)
-            WriteBitsLSB(bits, data[i], codeSize);
+        {
+            if (nextTableCode >= MaxCode)
+            {
+                WriteBitsLsbFirst(bits, clearCode, codeSize);
+                codeSize = minCodeSize + 1;
+                nextTableCode = eoiCode + 1;
+            }
+            WriteBitsLsbFirst(bits, data[i], codeSize);
+            if (nextTableCode >= (1 << codeSize) && codeSize < 12)
+                codeSize++;
+            nextTableCode++;
+        }
+        WriteBitsLsbFirst(bits, eoiCode, codeSize);
 
-        // Write EOI
-        WriteBitsLSB(bits, eoiCode, codeSize);
-
-        // Convert bits to bytes
-        int byteCount = (bits.Count + 7) / 8;
-        byte[] result = new byte[byteCount];
+        byte[] result = new byte[(bits.Count + 7) / 8];
         for (int i = 0; i < bits.Count; i++)
         {
             if (bits[i])
                 result[i / 8] |= (byte)(1 << (i % 8));
         }
-
         return result;
     }
 
-    private static void WriteBitsLSB(System.Collections.Generic.List<bool> bits, int value, int count)
+    private static void WriteBitsLsbFirst(List<bool> bits, int value, int count)
     {
         for (int i = 0; i < count; i++)
             bits.Add((value & (1 << i)) != 0);
     }
 
-    /// <summary>
-    /// Create a minimal 2x2 BMP, 24-bit, bottom-up.
-    /// Top row (in output): red, green. Bottom row: blue, white.
-    /// Since BMP is bottom-up, file stores bottom row first.
-    /// </summary>
-    private static byte[] CreateMinimal2x2Bmp24()
+    private static byte[] CreateBmp24BottomUp2x2RedGreenOverBlueWhite()
     {
-        // Row stride for 2 pixels * 3 bytes = 6 bytes, padded to 4-byte boundary = 8
-        int rowStride = 8;
-        int pixelDataSize = rowStride * 2;
-        int fileSize = 14 + 40 + pixelDataSize; // header + DIB + pixels
-        int dataOffset = 14 + 40;
+        const int RowStride = 8;
+        var data = CreateBmpFile(width: 2, height: 2, bitDepth: 24, pixelBytes: RowStride * 2);
+        int bottomRow = BmpFileHeaderSize + BmpInfoHeaderSize;
+        int topRow = bottomRow + RowStride;
 
-        var data = new byte[fileSize];
-
-        // BITMAPFILEHEADER (14 bytes)
-        data[0] = 0x42; // 'B'
-        data[1] = 0x4D; // 'M'
-        WriteInt32LE(data, 2, fileSize);
-        WriteInt32LE(data, 10, dataOffset);
-
-        // BITMAPINFOHEADER (40 bytes)
-        WriteInt32LE(data, 14, 40);       // header size
-        WriteInt32LE(data, 18, 2);        // width
-        WriteInt32LE(data, 22, 2);        // height (positive = bottom-up)
-        WriteInt16LE(data, 26, 1);        // planes
-        WriteInt16LE(data, 28, 24);       // bit depth
-        WriteInt32LE(data, 30, 0);        // compression = BI_RGB
-        WriteInt32LE(data, 34, pixelDataSize);
-        WriteInt32LE(data, 38, 2835);     // X pixels per meter
-        WriteInt32LE(data, 42, 2835);     // Y pixels per meter
-        WriteInt32LE(data, 46, 0);        // colors used
-        WriteInt32LE(data, 50, 0);        // important colors
-
-        // Pixel data (bottom-up: file row 0 = bottom of image)
-        int offset = dataOffset;
-
-        // File row 0 (= output row 1 = bottom): blue, white (BGR format)
-        data[offset] = 255; data[offset + 1] = 0; data[offset + 2] = 0;     // Blue in BGR = (255, 0, 0)
-        data[offset + 3] = 255; data[offset + 4] = 255; data[offset + 5] = 255; // White in BGR
-        // 2 bytes padding (stride=8, data=6)
-        offset += rowStride;
-
-        // File row 1 (= output row 0 = top): red, green (BGR format)
-        data[offset] = 0; data[offset + 1] = 0; data[offset + 2] = 255;     // Red in BGR = (0, 0, 255)
-        data[offset + 3] = 0; data[offset + 4] = 255; data[offset + 5] = 0; // Green in BGR = (0, 255, 0)
-
+        WriteBgr(data, bottomRow, 0, 0, 255);
+        WriteBgr(data, bottomRow + 3, 255, 255, 255);
+        WriteBgr(data, topRow, 255, 0, 0);
+        WriteBgr(data, topRow + 3, 0, 255, 0);
         return data;
     }
 
-    /// <summary>
-    /// Create a minimal 2x2 BMP, 32-bit (BGRA), bottom-up.
-    /// Pixel (0,0) = red with alpha 128.
-    /// </summary>
-    private static byte[] CreateMinimal2x2Bmp32()
+    private static byte[] CreateBmp32BottomUp2x2TopLeftRedAlpha128()
     {
-        int rowStride = 2 * 4; // 2 pixels * 4 bytes = 8 (already 4-byte aligned)
-        int pixelDataSize = rowStride * 2;
-        int fileSize = 14 + 40 + pixelDataSize;
-        int dataOffset = 14 + 40;
+        const int RowStride = 8;
+        var data = CreateBmpFile(width: 2, height: 2, bitDepth: 32, pixelBytes: RowStride * 2);
+        int bottomRow = BmpFileHeaderSize + BmpInfoHeaderSize;
+        int topRow = bottomRow + RowStride;
 
+        WriteBgra(data, bottomRow, 0, 0, 255, 255);
+        WriteBgra(data, bottomRow + 4, 255, 255, 255, 255);
+        WriteBgra(data, topRow, 255, 0, 0, 128);
+        WriteBgra(data, topRow + 4, 0, 255, 0, 200);
+        return data;
+    }
+
+    private static byte[] CreateBmpFile(int width, int height, int bitDepth, int pixelBytes)
+    {
+        const int PixelsPerMeterAt72Dpi = 2835;
+        int dataOffset = BmpFileHeaderSize + BmpInfoHeaderSize;
+        int fileSize = dataOffset + pixelBytes;
         var data = new byte[fileSize];
 
-        // BITMAPFILEHEADER
-        data[0] = 0x42; data[1] = 0x4D;
+        data[0] = (byte)'B';
+        data[1] = (byte)'M';
         WriteInt32LE(data, 2, fileSize);
         WriteInt32LE(data, 10, dataOffset);
-
-        // BITMAPINFOHEADER
-        WriteInt32LE(data, 14, 40);
-        WriteInt32LE(data, 18, 2);
-        WriteInt32LE(data, 22, 2);  // positive = bottom-up
+        WriteInt32LE(data, 14, BmpInfoHeaderSize);
+        WriteInt32LE(data, 18, width);
+        WriteInt32LE(data, 22, height);
         WriteInt16LE(data, 26, 1);
-        WriteInt16LE(data, 28, 32); // 32-bit
-        WriteInt32LE(data, 30, 0);  // BI_RGB
-        WriteInt32LE(data, 34, pixelDataSize);
-        WriteInt32LE(data, 38, 2835);
-        WriteInt32LE(data, 42, 2835);
-
-        int offset = dataOffset;
-
-        // File row 0 (= bottom row in output): BGRA
-        // blue pixel, alpha 255
-        data[offset] = 255; data[offset + 1] = 0; data[offset + 2] = 0; data[offset + 3] = 255;
-        // white pixel, alpha 255
-        data[offset + 4] = 255; data[offset + 5] = 255; data[offset + 6] = 255; data[offset + 7] = 255;
-        offset += rowStride;
-
-        // File row 1 (= top row in output): BGRA
-        // red pixel, alpha 128: B=0, G=0, R=255, A=128
-        data[offset] = 0; data[offset + 1] = 0; data[offset + 2] = 255; data[offset + 3] = 128;
-        // green pixel, alpha 200: B=0, G=255, R=0, A=200
-        data[offset + 4] = 0; data[offset + 5] = 255; data[offset + 6] = 0; data[offset + 7] = 200;
-
+        WriteInt16LE(data, 28, bitDepth);
+        WriteInt32LE(data, 30, 0);
+        WriteInt32LE(data, 34, pixelBytes);
+        WriteInt32LE(data, 38, PixelsPerMeterAt72Dpi);
+        WriteInt32LE(data, 42, PixelsPerMeterAt72Dpi);
         return data;
+    }
+
+    private static byte[] CreateBmp(int headerSize, int width, int height, int bitDepth, int compression, uint[] masks, byte[] pixelRows)
+    {
+        const int MasksOffset = BmpFileHeaderSize + BmpInfoHeaderSize;
+        int dataOffset = Math.Max(BmpFileHeaderSize + headerSize, MasksOffset + masks.Length * 4);
+        var data = new byte[dataOffset + pixelRows.Length];
+
+        data[0] = (byte)'B';
+        data[1] = (byte)'M';
+        WriteInt32LE(data, 2, data.Length);
+        WriteInt32LE(data, 10, dataOffset);
+        WriteInt32LE(data, 14, headerSize);
+        WriteInt32LE(data, 18, width);
+        WriteInt32LE(data, 22, height);
+        WriteInt16LE(data, 26, 1);
+        WriteInt16LE(data, 28, bitDepth);
+        WriteInt32LE(data, 30, compression);
+        WriteInt32LE(data, 34, pixelRows.Length);
+        for (int i = 0; i < masks.Length; i++)
+            WriteInt32LE(data, MasksOffset + i * 4, unchecked((int)masks[i]));
+        pixelRows.CopyTo(data, dataOffset);
+        return data;
+    }
+
+    private static void WriteBgr(byte[] data, int offset, byte r, byte g, byte b)
+    {
+        data[offset] = b;
+        data[offset + 1] = g;
+        data[offset + 2] = r;
+    }
+
+    private static void WriteBgra(byte[] data, int offset, byte r, byte g, byte b, byte a)
+    {
+        WriteBgr(data, offset, r, g, b);
+        data[offset + 3] = a;
     }
 
     private static void WriteInt16LE(MemoryStream ms, int value)
@@ -497,6 +588,4 @@ public class GifBmpImageTests
         data[offset + 2] = (byte)((value >> 16) & 0xFF);
         data[offset + 3] = (byte)((value >> 24) & 0xFF);
     }
-
-    #endregion
 }
