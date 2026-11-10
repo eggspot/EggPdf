@@ -74,13 +74,8 @@ public class FontResolver
             var bytes = File.ReadAllBytes(path);
             if (bytes == null || bytes.Length < 4) return null;
 
-            if (WoffDecoder.IsWoff(bytes))
-            {
-                bytes = WoffDecoder.Decode(bytes);
-                if (bytes == null) return null;
-            }
-
-            return TtfParser.Parse(bytes);
+            var fontBytes = WoffDecoder.DecodeIfWoff(bytes);
+            return fontBytes == null ? null : TtfParser.Parse(fontBytes);
         }
         catch
         {

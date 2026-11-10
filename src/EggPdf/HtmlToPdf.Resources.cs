@@ -39,7 +39,11 @@ public static partial class HtmlToPdf
         if (rawBytes == null || rawBytes.Length == 0) return null;
 
         Text.TrueType.FontData? fontData;
-        try { fontData = Text.TrueType.TtfParser.Parse(rawBytes); }
+        try
+        {
+            var fontBytes = Text.TrueType.WoffDecoder.DecodeIfWoff(rawBytes);
+            fontData = fontBytes == null ? null : Text.TrueType.TtfParser.Parse(fontBytes);
+        }
         catch { fontData = null; }
         cache.TryAdd(url, fontData);
         return fontData;

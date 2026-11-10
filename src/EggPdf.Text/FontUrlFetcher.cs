@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading;
 
@@ -143,6 +144,44 @@ public static class FontUrlFetcher
             return bare;
 
         return null;
+    }
+
+    /// <summary>
+    /// Split an @font-face src list into its sources at the commas between them; commas inside url(), local(),
+    /// format() or quoted strings (a data: URI's "base64,") stay part of their source.
+    /// </summary>
+    public static List<string> SplitFontSrcList(string src)
+    {
+        var sources = new List<string>();
+        if (string.IsNullOrEmpty(src)) return sources;
+
+        int depth = 0, start = 0;
+        char quote = '\0';
+        for (int i = 0; i < src.Length; i++)
+        {
+            char c = src[i];
+            if (quote != '\0')
+            {
+                if (c == '\\') i++;
+                else if (c == quote) quote = '\0';
+            }
+            else if (c == '"' || c == '\'') quote = c;
+            else if (c == '(') depth++;
+            else if (c == ')' && depth > 0) depth--;
+            else if (c == ',' && depth == 0)
+            {
+                AddSource(sources, src, start, i);
+                start = i + 1;
+            }
+        }
+        AddSource(sources, src, start, src.Length);
+        return sources;
+    }
+
+    private static void AddSource(List<string> sources, string src, int start, int end)
+    {
+        var source = src.Substring(start, end - start).Trim();
+        if (source.Length > 0) sources.Add(source);
     }
 
     /// <summary>Clear the font cache, including recorded fetch failures.</summary>
