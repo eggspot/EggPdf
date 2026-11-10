@@ -207,6 +207,94 @@ public class CssTokenizerTests
     }
 
     [Fact]
+    public void HtmlCommentMarkers_AreCdoAndCdcTokens()
+    {
+        var tokens = Tokenize("<!-- p --> -->").Where(t => t.Type != CssTokenType.Whitespace).ToList();
+
+        tokens.Select(t => t.Type).Should().Equal(CssTokenType.CDO, CssTokenType.Ident, CssTokenType.CDC, CssTokenType.CDC);
+    }
+
+    [Theory]
+    [InlineData("1e3", 1000)]
+    [InlineData("2.5E-1", 0.25)]
+    [InlineData("-1e+2", -100)]
+    public void Number_WithExponent_IsOneNumber(string css, double expected)
+    {
+        var tokens = Tokenize(css);
+
+        tokens.Should().ContainSingle();
+        tokens[0].Type.Should().Be(CssTokenType.Number);
+        tokens[0].NumericValue.Should().BeApproximately(expected, 1e-9);
+    }
+
+    [Fact]
+    public void Dimension_WithExponent_KeepsItsUnit()
+    {
+        var tokens = Tokenize("1e2px");
+
+        tokens.Should().ContainSingle();
+        tokens[0].Type.Should().Be(CssTokenType.Dimension);
+        tokens[0].NumericValue.Should().Be(100);
+        tokens[0].Unit.Should().Be("px");
+    }
+
+    [Fact]
+    public void Number_FollowedByE_WithoutDigits_IsADimension()
+    {
+        var tokens = Tokenize("2em");
+
+        tokens.Should().ContainSingle();
+        tokens[0].Type.Should().Be(CssTokenType.Dimension);
+        tokens[0].Unit.Should().Be("em");
+    }
+
+    [Fact]
+    public void LoneMinus_IsADelim()
+    {
+        var tokens = Tokenize("a - b").Where(t => t.Type != CssTokenType.Whitespace).ToList();
+
+        tokens.Select(t => t.Type).Should().Equal(CssTokenType.Ident, CssTokenType.Delim, CssTokenType.Ident);
+        tokens[1].Value.Should().Be("-");
+    }
+
+    [Fact]
+    public void NumberFollowedByMinus_IsNumberThenDelim()
+    {
+        var tokens = Tokenize("5-");
+
+        tokens.Select(t => t.Type).Should().Equal(CssTokenType.Number, CssTokenType.Delim);
+    }
+
+    [Theory]
+    [InlineData("# a")]
+    [InlineData("@ a")]
+    public void HashOrAtWithoutName_IsADelim(string css)
+    {
+        var tokens = Tokenize(css);
+
+        tokens[0].Type.Should().Be(CssTokenType.Delim);
+        tokens[0].Value.Should().Be(css.Substring(0, 1));
+    }
+
+    [Fact]
+    public void UnterminatedComment_RunsToTheEnd()
+    {
+        var tokens = Tokenize("a /* bc");
+
+        tokens.Select(t => t.Type).Should().Equal(CssTokenType.Ident, CssTokenType.Whitespace);
+    }
+
+    [Fact]
+    public void CustomPropertyName_IsAnIdent()
+    {
+        var tokens = Tokenize("--main-color");
+
+        tokens.Should().ContainSingle();
+        tokens[0].Type.Should().Be(CssTokenType.Ident);
+        tokens[0].Value.Should().Be("--main-color");
+    }
+
+    [Fact]
     public void NeverThrows_OnAnyInput()
     {
         var inputs = new[] { "", "  ", "\"unclosed", "'unclosed", "/*unclosed", "@", "#", "url(", "123abc", "---" };
