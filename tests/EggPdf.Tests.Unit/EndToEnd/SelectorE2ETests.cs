@@ -5,10 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// End-to-end tests for advanced CSS selectors: HTML-to-PDF pipeline.
-/// Verifies that sibling combinators, :not(), :nth-child(), etc. apply styles correctly.
-/// </summary>
 public class SelectorE2ETests
 {
     [Fact]
@@ -28,7 +24,6 @@ public class SelectorE2ETests
         text.Should().Contain("Title");
         text.Should().Contain("First paragraph");
         text.Should().Contain("Second paragraph");
-        // Red color (1.00 0.00 0.00 rg) should be present
         text.Should().Contain("1.00 0.00 0.00 rg", "h1 + p selector should apply red color");
     }
 
@@ -65,7 +60,6 @@ public class SelectorE2ETests
 
         text.Should().Contain("Skipped");
         text.Should().Contain("Styled blue");
-        // Blue color should be present for the non-skipped paragraph
         text.Should().Contain("0.00 0.00 1.00 rg", ":not(.skip) should apply blue to non-skipped paragraphs");
     }
 
@@ -205,7 +199,6 @@ public class SelectorE2ETests
 
         text.Should().Contain("Section");
         text.Should().Contain("First after heading");
-        // Red should be applied to "First after heading" via .container > h2 + p
-        text.Should().Contain("1.00 0.00 0.00 rg");
+        text.Should().Contain("1.00 0.00 0.00 rg", ".container > h2 + p makes 'First after heading' red");
     }
 }
