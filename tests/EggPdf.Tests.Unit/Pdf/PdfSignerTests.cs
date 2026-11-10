@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Security.Cryptography.Pkcs;
 using System.Security.Cryptography.X509Certificates;
@@ -11,11 +12,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Pdf;
 
-/// <summary>
-/// One-call PKI signing: PdfSigner.Sign embeds a detached CMS/PKCS#7 signature
-/// (adbe.pkcs7.detached) with a correct /ByteRange, verifiable by standard
-/// CMS validators.
-/// </summary>
 public class PdfSignerTests
 {
     private static X509Certificate2 CreateSelfSignedCert()
@@ -31,6 +27,34 @@ public class PdfSignerTests
 #endif
     }
 
+    private static int[] ByteRange(string pdfText)
+    {
+        var match = Regex.Match(pdfText, @"/ByteRange \[(\d+) (\d+) (\d+) (\d+)\]");
+        match.Success.Should().BeTrue("the ByteRange placeholder must be replaced with real offsets");
+        var range = new int[4];
+        for (int i = 0; i < range.Length; i++)
+            range[i] = int.Parse(match.Groups[i + 1].Value, NumberStyles.None, CultureInfo.InvariantCulture);
+        return range;
+    }
+
+    /// <summary>
+    /// The CMS bytes inside /Contents, cut at the length its DER header states: the field is zero-padded to a
+    /// fixed width, and trimming trailing zero hex digits instead also ate a real trailing 0x00 signature byte.
+    /// </summary>
+    private static byte[] EmbeddedCms(string pdfText)
+    {
+        var match = Regex.Match(pdfText, @"/Contents <([0-9A-Fa-f]+)>");
+        match.Success.Should().BeTrue("the signature dictionary must carry its CMS as hex in /Contents");
+        var hex = match.Groups[1].Value;
+        var paddedField = new byte[hex.Length / 2];
+        for (int i = 0; i < paddedField.Length; i++)
+            paddedField[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
+
+        var cms = new byte[DerTlvReader.ReadTotalLength(paddedField)];
+        Array.Copy(paddedField, cms, cms.Length);
+        return cms;
+    }
+
     [Fact]
     public async Task Sign_ProducesVerifiableDetachedCms()
     {
@@ -44,46 +68,22 @@ public class PdfSignerTests
             Location = "Hanoi"
         });
 
-        signed.Should().NotBeNull();
         var text = Encoding.ASCII.GetString(signed);
-
-        // 1. Structure: signature dictionary with real ByteRange
         text.Should().Contain("/SubFilter /adbe.pkcs7.detached");
-        var brMatch = Regex.Match(text, @"/ByteRange \[(\d+) (\d+) (\d+) (\d+)\]");
-        brMatch.Success.Should().BeTrue("ByteRange must contain real numbers");
-        int r0 = int.Parse(brMatch.Groups[1].Value);
-        int r1 = int.Parse(brMatch.Groups[2].Value);
-        int r2 = int.Parse(brMatch.Groups[3].Value);
-        int r3 = int.Parse(brMatch.Groups[4].Value);
-        r0.Should().Be(0);
-        (r2 + r3).Should().Be(signed.Length, "ranges must cover the file except the Contents hex");
-        r2.Should().BeGreaterThan(r1, "the Contents gap sits between the two ranges");
+        var range = ByteRange(text);
+        int firstStart = range[0], firstLength = range[1], secondStart = range[2], secondLength = range[3];
+        firstStart.Should().Be(0);
+        (secondStart + secondLength).Should().Be(signed.Length, "the ranges cover the file except the Contents hex");
+        secondStart.Should().BeGreaterThan(firstLength, "the Contents gap sits between the two ranges");
 
-        // 2. Extract the CMS from /Contents <hex>. The field is zero-padded
-        // to a fixed width — read the DER length header to find where the
-        // real CMS ends instead of trimming trailing zero hex chars, which
-        // can't tell padding apart from a genuine trailing 0x00 signature
-        // byte (this was flaky: it failed whenever the RSA signature itself
-        // happened to end in 0x00, corrupting the DER length).
-        var cMatch = Regex.Match(text, @"/Contents <([0-9A-Fa-f]+)>");
-        cMatch.Success.Should().BeTrue();
-        var fullHex = cMatch.Groups[1].Value;
-        var allBytes = new byte[fullHex.Length / 2];
-        for (int i = 0; i < allBytes.Length; i++)
-            allBytes[i] = Convert.ToByte(fullHex.Substring(i * 2, 2), 16);
-        var cms = new byte[DerTlvReader.ReadTotalLength(allBytes)];
-        Array.Copy(allBytes, cms, cms.Length);
-
-        // 3. Verify the signature over the ByteRange content with a real validator
-        var content = new byte[r1 + r3];
-        Array.Copy(signed, r0, content, 0, r1);
-        Array.Copy(signed, r2, content, r1, r3);
-
+        var content = new byte[firstLength + secondLength];
+        Array.Copy(signed, firstStart, content, 0, firstLength);
+        Array.Copy(signed, secondStart, content, firstLength, secondLength);
         var signedCms = new SignedCms(new ContentInfo(content), detached: true);
-        signedCms.Decode(cms);
+        signedCms.Decode(EmbeddedCms(text));
+
         var act = () => signedCms.CheckSignature(verifySignatureOnly: true);
         act.Should().NotThrow("the embedded CMS must be cryptographically valid over the ByteRange");
-
         signedCms.SignerInfos.Count.Should().Be(1);
         signedCms.Certificates.Count.Should().BeGreaterThanOrEqualTo(1);
     }
