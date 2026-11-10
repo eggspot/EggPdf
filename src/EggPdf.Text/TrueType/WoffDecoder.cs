@@ -28,10 +28,15 @@ public static class WoffDecoder
     }
 
     /// <summary>
-    /// The decoded font when <paramref name="data"/> is WOFF, <paramref name="data"/> itself when it is not, or null
-    /// when it is WOFF that cannot be decoded.
+    /// The decoded font when <paramref name="data"/> is WOFF or WOFF 2.0 (see <see cref="Woff2Decoder"/>),
+    /// <paramref name="data"/> itself when it is neither, or null when it is one that cannot be decoded.
     /// </summary>
-    public static byte[]? DecodeIfWoff(byte[] data) => IsWoff(data) ? Decode(data) : data;
+    public static byte[]? DecodeIfWoff(byte[] data)
+    {
+        if (IsWoff(data)) return Decode(data);
+        if (Woff2Decoder.IsWoff2(data)) return Woff2Decoder.Decode(data);
+        return data;
+    }
 
     /// <summary>
     /// Decode WOFF to raw TrueType/OpenType bytes.

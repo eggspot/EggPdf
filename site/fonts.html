@@ -199,9 +199,11 @@
         Use absolute paths in <code>src: url(...)</code> if you prefer not to set <code>basePath</code>.
       </p>
       <p>
-        Sources can be TrueType (<code>.ttf</code>), OpenType (<code>.otf</code>) or WOFF (<code>.woff</code>) files,
-        URLs or <code>data:</code> URIs. WOFF2 is not decoded yet: list a WOFF or TTF source after it, and the next
-        <code>src</code> entry is used.
+        Sources can be TrueType (<code>.ttf</code>), OpenType (<code>.otf</code>), WOFF (<code>.woff</code>) or
+        WOFF2 (<code>.woff2</code>) files, URLs or <code>data:</code> URIs. WOFF2 is decoded on .NET 6 and later,
+        which have a built-in Brotli decoder; on .NET Standard 2.0/2.1 a WOFF2 source is skipped and the next
+        <code>src</code> entry is used, so list a WOFF or TTF source after it if you target those. Font collections
+        in WOFF2 are not supported.
       </p>
 
       <h2 id="font-weight-style">Weight and style</h2>

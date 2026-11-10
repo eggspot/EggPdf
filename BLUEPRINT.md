@@ -733,7 +733,7 @@ Text is deceptively complex:
 | Font subsetting | Extract only used glyphs for PDF embedding (reduces file size). Handle composite glyphs transitively |
 | ToUnicode CMap | Map glyph IDs back to Unicode for text extraction/copy from PDF |
 | WOFF decoding | WOFF 1.0 is zlib-compressed TrueType/OpenType. Decompress to get raw font data. Required for most @font-face usage |
-| WOFF2 decoding | WOFF 2.0 uses Brotli compression. More complex -- defer to later phase or document as limitation |
+| WOFF2 decoding | WOFF 2.0 uses Brotli compression and transformed glyf/loca/hmtx tables. Done in `Woff2Decoder` on .NET 6+ (BCL Brotli); .NET Standard falls back to the next `src` |
 | OpenType/CFF | Some .otf fonts use CFF (PostScript) outlines. Detect and handle or fall back to another font |
 
 **System font discovery** (cross-platform):
@@ -1380,6 +1380,7 @@ EggPdf/
 |   |   |   |-- OpenType/
 |   |   |   |   |-- GsubTable.cs             # Ligatures
 |   |   |   |-- WoffDecoder.cs               # WOFF 1.0 -> TrueType decompression
+|   |   |   |-- Woff2Decoder.cs              # WOFF 2.0 -> TrueType (Brotli, glyf/loca/hmtx transforms)
 |   |   |   |-- SystemFontLocator.cs         # Find fonts on Win/Mac/Linux
 |   |   |   |-- FontFallbackChain.cs         # Missing glyph -> try next font
 |   |   |   |-- FontSynthesizer.cs           # Fake bold (stroke) / fake italic (skew)
@@ -1954,7 +1955,8 @@ Every layer exists but in minimal form:
 **PDF compliance:**
 - **PDF/A compliance** option (ICC color profile, XMP metadata, full font embedding, conformance declaration)
 - **PDF encryption**: user password, owner password, permission flags (print, copy, modify)
-- **WOFF2 decoding** (Brotli decompression -- complex, but needed for full @font-face support)
+- **WOFF2 decoding** -- done (`Woff2Decoder`): Brotli via the BCL on .NET 6+, glyf/loca and hmtx transforms reversed;
+  .NET Standard falls back to the next `src`; WOFF2 font collections are not supported
 - **OpenType/CFF outlines** support (PostScript-outlined .otf fonts)
 
 **Developer experience:**
