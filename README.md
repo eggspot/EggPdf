@@ -365,7 +365,8 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 - Automatic hyphenation
 - Text that shares a line with inline elements (`<b>`, `<span>`, `<a>`, ...) keeps every text feature of a
   plain paragraph: `text-align: justify`, `overflow-wrap: break-word`, bidi word order in `direction: rtl`
-  and in mixed Arabic/Hebrew lines, `::first-letter` and `initial-letter`, `line-clamp`, `hyphens: auto` and
+  and in mixed Arabic/Hebrew lines, `::first-line` (wrapped with its own font), `::first-letter` and
+  `initial-letter`, `line-clamp`, `hyphens: auto` and
   `text-wrap: balance`; a larger inline run lowers the line's other text to a shared baseline instead of
   overlapping the line above
 - Negative `text-indent` (hanging indents); a justified paragraph's last line is never stretched
