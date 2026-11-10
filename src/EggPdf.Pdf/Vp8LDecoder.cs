@@ -12,10 +12,12 @@ namespace EggPdf.Pdf;
 /// </summary>
 public static class Vp8LDecoder
 {
+    private const byte Signature = 0x2F;
+
     /// <summary>Decode a VP8L chunk payload (the bytes after the "VP8L" FourCC and chunk size) to raw ARGB8888 pixels, row-major, top-to-bottom.</summary>
     public static (int width, int height, byte[] argb)? Decode(byte[] data)
     {
-        if (data == null || data.Length < 5 || data[0] != 0x2F)
+        if (data == null || data.Length < 5 || data[0] != Signature)
             return null;
 
         try
@@ -23,7 +25,7 @@ public static class Vp8LDecoder
             var br = new BitReader(data, 1);
             int width = (int)br.ReadBits(14) + 1;
             int height = (int)br.ReadBits(14) + 1;
-            br.ReadBits(1); // alpha_is_used -- informational only, decoding path is unaffected
+            br.ReadBits(1);
             int version = (int)br.ReadBits(3);
             if (version != 0) return null;
 
@@ -34,10 +36,6 @@ public static class Vp8LDecoder
                 transforms.Add(ReadTransform(br, type, width, height));
             }
 
-            // A color-indexing transform with a small (<=16 color) palette packs
-            // several pixels' indices into one bundled pixel's green channel --
-            // the main pixel stream is then encoded at that narrower bundled
-            // width, not the real image width.
             int decodeWidth = width;
             foreach (var t in transforms)
             {
@@ -51,10 +49,6 @@ public static class Vp8LDecoder
 
             var argb = DecodeImageStream(br, decodeWidth, height, allowRecursion: true);
 
-            // Undo transforms in reverse of the order they were read (they were
-            // applied in that order during encoding, most-recent-first to undo).
-            // Color-indexing unbundling can grow the array from decodeWidth to
-            // the real width, so each step's result feeds the next.
             for (int i = transforms.Count - 1; i >= 0; i--)
                 argb = InverseTransform(transforms[i], argb, width, height);
 
@@ -62,23 +56,19 @@ public static class Vp8LDecoder
         }
         catch
         {
-            // Infallible per project convention: a malformed/unsupported stream
-            // yields "couldn't decode" rather than throwing.
             return null;
         }
     }
-
-    // ===== Transforms =====
 
     private enum TransformType { Predictor = 0, Color = 1, SubtractGreen = 2, ColorIndexing = 3 }
 
     private struct Transform
     {
         public TransformType Type;
-        public int Bits;          // block size_bits (predictor/color transforms)
-        public byte[]? Image;     // ARGB sub-image carrying per-block transform params (predictor/color)
-        public int ImageWidth;    // width of that sub-image, in blocks
-        public byte[]? Palette;   // ARGB color table (color-indexing transform)
+        public int Bits;
+        public byte[]? Image;
+        public int ImageWidth;
+        public byte[]? Palette;
         public int PaletteSize;
     }
 
@@ -104,8 +94,6 @@ public static class Vp8LDecoder
                 int size = (int)br.ReadBits(8) + 1;
                 t.PaletteSize = size;
                 var img = DecodeImageStream(br, size, 1, allowRecursion: false);
-                // Palette entries are delta-coded (each after the first is a sum,
-                // mod 256 per channel, of itself and all preceding entries).
                 var palette = new byte[size * 4];
                 Array.Copy(img, 0, palette, 0, 4);
                 for (int i = 1; i < size; i++)
@@ -129,8 +117,8 @@ public static class Vp8LDecoder
                 for (int i = 0; i < width * height; i++)
                 {
                     byte g = argb[i * 4 + 1];
-                    argb[i * 4 + 0] = (byte)(argb[i * 4 + 0] + g); // red
-                    argb[i * 4 + 2] = (byte)(argb[i * 4 + 2] + g); // blue
+                    argb[i * 4 + 0] = (byte)(argb[i * 4 + 0] + g);
+                    argb[i * 4 + 2] = (byte)(argb[i * 4 + 2] + g);
                 }
                 return argb;
 
@@ -157,9 +145,6 @@ public static class Vp8LDecoder
 
         if (paletteSize <= 16)
         {
-            // Indices were bundled: several pixels' index values packed into one
-            // byte's green channel (8/bits-per-index indices per source pixel),
-            // and the *bundled* image is narrower than the real image.
             int bitsPerIndex = paletteSize <= 2 ? 1 : paletteSize <= 4 ? 2 : 4;
             int indicesPerByte = 8 / bitsPerIndex;
             int bundledWidth = (width + indicesPerByte - 1) / indicesPerByte;
@@ -241,23 +226,16 @@ public static class Vp8LDecoder
                 int pi = (y * width + x) * 4;
                 if (x == 0 && y == 0)
                 {
-                    // First pixel predicts as opaque black (R=G=B=0, A=0xFF).
                     argb[pi + 3] = (byte)(argb[pi + 3] + 0xFF);
                     continue;
                 }
 
                 int mode = x == 0
-                    ? 2  // left edge: predict from pixel above (mode "T")
+                    ? 2
                     : y == 0
-                        ? 1 // top edge: predict from pixel to the left (mode "L")
+                        ? 1
                         : blockImg[((y >> bits) * blockImgW + (x >> bits)) * 4 + 1];
 
-                // On the top row (y=0, x>0) there is no row above at all --
-                // mode is hardcoded to 1 ("L") there, which never reads T/TL/TR,
-                // but Predict still builds all four neighbor pixels unconditionally
-                // before dispatching on mode, so up/upLeft/upRight must still be
-                // valid (in-bounds) indices even though their values are unused;
-                // falling back to "left" keeps them safely in range.
                 int left = x > 0 ? pi - 4 : pi - width * 4;
                 int up = y > 0 ? pi - width * 4 : left;
                 int upLeft = y > 0 ? (x > 0 ? up - 4 : up) : left;
@@ -328,8 +306,7 @@ public static class Vp8LDecoder
     /// <summary>
     /// "Select" predictor (mode 11). Matches libwebp's Select(a=T, b=L, c=TL):
     /// per channel, Sub3 = |b-c| - |c-a|; summed across channels, choose a (T)
-    /// if the sum is &lt;= 0, else b (L). Not simple "closer to TL wins" --
-    /// implemented to match the spec exactly rather than by intuition.
+    /// if the sum is &lt;= 0, else b (L).
     /// </summary>
     private static int[] Select(int[] a, int[] b, int[] c)
     {
@@ -339,15 +316,12 @@ public static class Vp8LDecoder
         return sum <= 0 ? a : b;
     }
 
-    // ===== Image stream decoding (Huffman groups + pixel loop) =====
-
     private static byte[] DecodeImageStream(BitReader br, int width, int height, bool allowRecursion)
     {
         int colorCacheBits = 0;
         if (br.ReadBits(1) != 0)
             colorCacheBits = (int)br.ReadBits(4);
 
-        // Optional meta-Huffman image: assigns a Huffman-group index per block.
         byte[]? huffmanImage = null;
         int huffmanBits = 0;
         int huffmanImageW = 0;
@@ -409,7 +383,7 @@ public static class Vp8LDecoder
                 int distance = DecodeDistance(br, distCode, width);
 
                 int srcPos = pos - distance;
-                if (srcPos < 0) return argb; // malformed: bail out with what we have
+                if (srcPos < 0) return argb;
                 for (int k = 0; k < length && pos < total; k++, pos++, srcPos++)
                 {
                     Array.Copy(argb, srcPos * 4, argb, pos * 4, 4);
@@ -453,7 +427,6 @@ public static class Vp8LDecoder
         return (int)((p * 0x1e35a7bdu) >> (32 - cacheBits));
     }
 
-    // Length/distance prefix codes 0-23 share the same extra-bits table.
     private static readonly int[] ExtraBits =
     {
         0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10
@@ -480,7 +453,6 @@ public static class Vp8LDecoder
         return distCodeValue - 120;
     }
 
-    // Special-case mapping for small distances (nearby pixels), per spec Table.
     private static readonly (int x, int y)[] DistanceMap =
     {
         (0,1),(1,0),(1,1),(-1,1),(0,2),(2,0),(1,2),(-1,2),(2,1),(-2,1),(2,2),(-2,2),
@@ -503,11 +475,9 @@ public static class Vp8LDecoder
         return dist < 1 ? 1 : dist;
     }
 
-    // ===== Huffman (prefix) code decoding =====
-
     private struct HuffmanGroup
     {
-        public HuffmanTree Green; // alphabet: 256 literal + 24 length + color-cache indices
+        public HuffmanTree Green;
         public HuffmanTree Red;
         public HuffmanTree Blue;
         public HuffmanTree Alpha;
@@ -535,7 +505,6 @@ public static class Vp8LDecoder
 
         if (br.ReadBits(1) != 0)
         {
-            // Simple code length code: 1 or 2 symbols, trivial tree.
             int numSymbols = (int)br.ReadBits(1) + 1;
             int firstSymbolLenBits = (int)br.ReadBits(1) == 0 ? 1 : 8;
             int s0 = (int)br.ReadBits(firstSymbolLenBits);
@@ -547,14 +516,12 @@ public static class Vp8LDecoder
             }
             else
             {
-                lengths[s0] = 0; // single symbol: zero-bit code (always this value)
+                lengths[s0] = 0;
                 return HuffmanTree.BuildSingleSymbol(s0);
             }
             return HuffmanTree.Build(lengths);
         }
 
-        // Normal code length code: a 19-symbol meta-alphabet describes the
-        // actual code lengths, itself Huffman-coded.
         int numCodeLengths = (int)br.ReadBits(4) + 4;
         var clLengths = new int[19];
         for (int i = 0; i < numCodeLengths; i++)
@@ -589,7 +556,7 @@ public static class Vp8LDecoder
                 int repeat = (int)br.ReadBits(3) + 3;
                 symbol += repeat;
             }
-            else // 18
+            else
             {
                 int repeat = (int)br.ReadBits(7) + 11;
                 symbol += repeat;
@@ -602,16 +569,19 @@ public static class Vp8LDecoder
     private static int ReadSymbol(BitReader br, HuffmanTree tree)
     {
         if (tree.SingleSymbol.HasValue) return tree.SingleSymbol.Value;
-        int node = 0; // index into tree.Nodes; root is 0
+        int node = 0;
         while (true)
         {
             int bit = (int)br.ReadBits(1);
             node = tree.Nodes[node * 2 + bit];
-            if (node < 0) return -node - 1; // leaf encodes symbol as -(symbol+1)
+            if (node < 0) return -node - 1;
         }
     }
 
-    /// <summary>Canonical Huffman tree, stored as a flat binary-tree node array (2 children per node); negative entries are leaves.</summary>
+    /// <summary>
+    /// Canonical Huffman tree, stored as a flat binary-tree node array (2 children per node, root at 0);
+    /// a negative entry is a leaf holding -(symbol + 1).
+    /// </summary>
     private struct HuffmanTree
     {
         public int[] Nodes;
@@ -625,7 +595,6 @@ public static class Vp8LDecoder
             for (int i = 0; i < codeLengths.Length; i++) if (codeLengths[i] > maxLen) maxLen = codeLengths[i];
             if (maxLen == 0) return BuildSingleSymbol(0);
 
-            // Canonical Huffman: count codes per length, assign first code per length, then walk symbols in order.
             var blCount = new int[maxLen + 1];
             for (int i = 0; i < codeLengths.Length; i++) if (codeLengths[i] > 0) blCount[codeLengths[i]]++;
 
@@ -637,7 +606,6 @@ public static class Vp8LDecoder
                 nextCode[bits] = codeAcc;
             }
 
-            // Node array grown dynamically; root at index 0.
             var nodes = new List<int> { -1, -1 };
             for (int symbol = 0; symbol < codeLengths.Length; symbol++)
             {
@@ -671,7 +639,7 @@ public static class Vp8LDecoder
     {
         private readonly byte[] _data;
         private int _bytePos;
-        private int _bitPos; // 0-7 within current byte
+        private int _bitPos;
 
         public BitReader(byte[] data, int startByte)
         {
