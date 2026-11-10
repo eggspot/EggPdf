@@ -12,7 +12,8 @@ namespace EggPdf.Tests.Unit.Text;
 /// <summary>
 /// Variable-font instancing, checked against Chrome using Windows' Bahnschrift (wght 300-700, wdth 75-100).
 /// Tests return early on machines that don't have the font. The reference numbers were measured in Edge:
-/// the width of a vertical stem ('I' at 400px) at each weight, and text widths at 1000px.
+/// the width of a vertical stem ('I' at 400px) at each weight, and text widths at 1000px. Weight 650 lies between
+/// masters, so it exercises avar remapping and tuple interpolation.
 /// </summary>
 public class VariableFontInstancerTests
 {
@@ -70,7 +71,7 @@ public class VariableFontInstancerTests
     [InlineData(300, 28.13)]
     [InlineData(400, 39.84)]
     [InlineData(500, 43.75)]
-    [InlineData(650, 51.56)]   // between masters: exercises avar remapping and tuple interpolation
+    [InlineData(650, 51.56)]
     [InlineData(700, 55.47)]
     public void InstanceForWeight_StemWidthMatchesChrome(int weight, double chromeStemPx)
     {
@@ -107,8 +108,8 @@ public class VariableFontInstancerTests
         var font = Load("bahnschrift.ttf");
         if (font == null) return;
 
-        // Chrome: "Hamburgefonstiv" is 7648.93 wide at 1000px at every weight (this font's widths don't vary).
-        // Chrome applies pair kerning (-36.6 here) that MeasureTextWidth leaves out, hence the constant offset.
+        const double chromeWidthAt1000PxEveryWeight = 7648.93;
+        const double chromePairKerningAllowance = 45;
         double first = 0;
         foreach (int weight in new[] { 300, 400, 650, 700 })
         {
@@ -116,7 +117,8 @@ public class VariableFontInstancerTests
             double width = instance.MeasureTextWidth("Hamburgefonstiv") * 1000.0 / instance.UnitsPerEm;
             if (first == 0) first = width;
             width.Should().BeApproximately(first, 0.01, "advances are identical at every weight");
-            width.Should().BeInRange(7648.93, 7648.93 + 45, $"weight {weight}");
+            width.Should().BeInRange(chromeWidthAt1000PxEveryWeight, chromeWidthAt1000PxEveryWeight + chromePairKerningAllowance,
+                $"weight {weight}: Chrome's width includes pair kerning, which MeasureTextWidth leaves out");
         }
     }
 
@@ -130,10 +132,40 @@ public class VariableFontInstancerTests
         bytes.Should().NotBeNull();
         var condensed = TtfParser.Parse(bytes!)!;
 
-        // Chrome: font-stretch 75% -> 5597.17 vs 7648.93 at 1000px, a ratio of 0.7318 (kerning aside)
+        const double chromeWidthAtStretch75 = 5597.17, chromeWidthAtStretch100 = 7648.93;
         double narrow = condensed.MeasureTextWidth("Hamburgefonstiv") * 1000.0 / condensed.UnitsPerEm;
         double normal = font.MeasureTextWidth("Hamburgefonstiv") * 1000.0 / font.UnitsPerEm;
-        (narrow / normal).Should().BeApproximately(5597.17 / 7648.93, 0.005);
+        (narrow / normal).Should().BeApproximately(chromeWidthAtStretch75 / chromeWidthAtStretch100, 0.005);
+    }
+
+    [Fact]
+    public void Instantiate_WidthAxis_UpdatesTheHorizontalHeaderExtents()
+    {
+        var font = Load("bahnschrift.ttf");
+        if (font == null) return;
+
+        var bytes = VariableFontInstancer.Instantiate(font.RawData, new Dictionary<string, float> { ["wdth"] = 75 })!;
+
+        short XMaxExtent(byte[] data)
+        {
+            int hhea = TableOffset(data, "hhea");
+            return (short)((data[hhea + 16] << 8) | data[hhea + 17]);
+        }
+
+        XMaxExtent(bytes).Should().BeLessThan(XMaxExtent(font.RawData),
+            "the widest glyph of the condensed instance reaches less far than the default instance's");
+    }
+
+    private static int TableOffset(byte[] d, string wanted)
+    {
+        int tables = (d[4] << 8) | d[5];
+        for (int i = 0; i < tables; i++)
+        {
+            int r = 12 + i * 16;
+            string tag = "" + (char)d[r] + (char)d[r + 1] + (char)d[r + 2] + (char)d[r + 3];
+            if (tag == wanted) return (d[r + 8] << 24) | (d[r + 9] << 16) | (d[r + 10] << 8) | d[r + 11];
+        }
+        return -1;
     }
 
     [Fact]
@@ -194,8 +226,8 @@ public class VariableFontInstancerTests
         var font = Load("bahnschrift.ttf");
         if (font == null) return;
 
-        ushort eAcute = font.GetGlyphId('é'); // composite: e + acute
-        eAcute.Should().BeGreaterThan(0);
+        ushort eAcute = font.GetGlyphId('é');
+        eAcute.Should().BeGreaterThan(0, "é is a composite of e and an acute accent in this font");
 
         var light = VariableFontInstancer.InstanceForWeight(font, 300);
         var bold = VariableFontInstancer.InstanceForWeight(font, 700);
