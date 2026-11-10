@@ -183,9 +183,9 @@ public class TtfSubsetter
         if (tables.TryGetValue("name", out var nameT))
             subsetTables["name"] = ExtractTable(data, nameT);
         if (tables.TryGetValue("post", out var post))
-            subsetTables["post"] = BuildMinimalPost();
+            subsetTables["post"] = BuildPostWithoutGlyphNames(data, post);
 
-        byte[] fontBytes = AssembleTtf(subsetTables);
+        byte[] fontBytes = SfntWriter.WriteFont(subsetTables);
 
         return new SubsetResult
         {
@@ -415,9 +415,12 @@ public class TtfSubsetter
         WriteU16BE(bw, 0);
         WriteU16BE(bw, 1);
 
-        bool needsFormat12 = cpToGid.Keys.Any(k => k > 0xFFFF);
+        bool hasSupplementary = false;
+        foreach (var codepoint in cpToGid.Keys)
+            if (codepoint > 0xFFFF) { hasSupplementary = true; break; }
+        var segments = hasSupplementary ? null : Format4Segments(cpToGid);
 
-        if (needsFormat12)
+        if (segments == null || Format4Length(segments.Count) > ushort.MaxValue)
         {
             WriteU16BE(bw, WindowsPlatform);
             WriteU16BE(bw, UnicodeFullEncoding);
@@ -429,13 +432,15 @@ public class TtfSubsetter
             WriteU16BE(bw, WindowsPlatform);
             WriteU16BE(bw, UnicodeBmpEncoding);
             WriteU32BE(bw, FirstSubtableOffset);
-            WriteFormat4(bw, cpToGid);
+            WriteFormat4(bw, segments);
         }
 
         return ms.ToArray();
     }
 
-    private static void WriteFormat4(BinaryWriter bw, Dictionary<int, ushort> cpToGid)
+    private static int Format4Length(int segmentCount) => 14 + segmentCount * 8 + 2;
+
+    private static List<(ushort startCode, ushort endCode, short idDelta)> Format4Segments(Dictionary<int, ushort> cpToGid)
     {
         int[] sorted = GetSortedKeys(cpToGid, bmp: true);
 
@@ -458,15 +463,19 @@ public class TtfSubsetter
             }
         }
         segments.Add((0xFFFF, 0xFFFF, 1));
+        return segments;
+    }
 
+    private static void WriteFormat4(BinaryWriter bw, List<(ushort startCode, ushort endCode, short idDelta)> segments)
+    {
         int segCount = segments.Count;
         int searchRange = 1;
-        while (searchRange * 2 <= segCount) searchRange *= 2;
+        int entrySelector = 0;
+        while (searchRange * 2 <= segCount) { searchRange *= 2; entrySelector++; }
         searchRange *= 2;
-        int entrySelector = (int)Math.Log(searchRange / 2, 2);
         int rangeShift = segCount * 2 - searchRange;
 
-        int length = 14 + segCount * 8;
+        int length = Format4Length(segCount);
 
         WriteU16BE(bw, 4);
         WriteU16BE(bw, (ushort)length);
@@ -608,77 +617,16 @@ public class TtfSubsetter
         return buf;
     }
 
-    private static byte[] BuildMinimalPost()
+    private const int PostHeaderSize = 32;
+    private const uint PostVersionWithoutGlyphNames = 0x00030000;
+
+    private static byte[] BuildPostWithoutGlyphNames(byte[] data, (uint offset, uint length) post)
     {
-        var buf = new byte[32];
-        WriteU32(buf, 0, 0x00030000);
+        var buf = new byte[PostHeaderSize];
+        if (post.length >= PostHeaderSize && post.offset + PostHeaderSize <= data.Length)
+            Array.Copy(data, post.offset, buf, 0, PostHeaderSize);
+        WriteU32(buf, 0, PostVersionWithoutGlyphNames);
         return buf;
-    }
-
-    private static byte[] AssembleTtf(Dictionary<string, byte[]> tables)
-    {
-        int numTables = tables.Count;
-
-        int searchRange = 1;
-        int entrySelector = 0;
-        while (searchRange * 2 <= numTables) { searchRange *= 2; entrySelector++; }
-        searchRange *= 16;
-        int rangeShift = numTables * 16 - searchRange;
-
-        int headerSize = 12 + numTables * 16;
-        if (headerSize % 4 != 0) headerSize += 4 - headerSize % 4;
-
-        using var ms = new MemoryStream();
-
-        WriteU32(ms, 0x00010000);
-        WriteU16(ms, (ushort)numTables);
-        WriteU16(ms, (ushort)searchRange);
-        WriteU16(ms, (ushort)entrySelector);
-        WriteU16(ms, (ushort)rangeShift);
-
-        int dataOffset = headerSize;
-        var tableEntries = new List<(string tag, byte[] data, uint offset)>();
-        var orderedTags = tables.Keys.OrderBy(t => t).ToList();
-        foreach (var tag in orderedTags)
-        {
-            var tdata = tables[tag];
-            tableEntries.Add((tag, tdata, (uint)dataOffset));
-            dataOffset += tdata.Length;
-            if (dataOffset % 4 != 0) dataOffset += 4 - dataOffset % 4;
-        }
-
-        foreach (var entry in tableEntries)
-        {
-            var tagBytes = System.Text.Encoding.ASCII.GetBytes(entry.tag.PadRight(4).Substring(0, 4));
-            ms.Write(tagBytes, 0, 4);
-            WriteU32(ms, CalculateChecksum(entry.data));
-            WriteU32(ms, entry.offset);
-            WriteU32(ms, (uint)entry.data.Length);
-        }
-
-        while (ms.Position < headerSize) ms.WriteByte(0);
-
-        foreach (var entry in tableEntries)
-        {
-            ms.Write(entry.data, 0, entry.data.Length);
-            while (ms.Position % 4 != 0) ms.WriteByte(0);
-        }
-
-        return ms.ToArray();
-    }
-
-    private static uint CalculateChecksum(byte[] data)
-    {
-        uint sum = 0;
-        int len = (data.Length + 3) & ~3;
-        for (int i = 0; i < len; i += 4)
-        {
-            uint val = 0;
-            for (int j = 0; j < 4 && i + j < data.Length; j++)
-                val = (val << 8) | data[i + j];
-            sum += val;
-        }
-        return sum;
     }
 
     private static ushort ReadU16(byte[] data, int offset)
@@ -708,20 +656,6 @@ public class TtfSubsetter
         buf[offset + 1] = (byte)((value >> 16) & 0xFF);
         buf[offset + 2] = (byte)((value >> 8) & 0xFF);
         buf[offset + 3] = (byte)(value & 0xFF);
-    }
-
-    private static void WriteU16(MemoryStream ms, ushort value)
-    {
-        ms.WriteByte((byte)(value >> 8));
-        ms.WriteByte((byte)(value & 0xFF));
-    }
-
-    private static void WriteU32(MemoryStream ms, uint value)
-    {
-        ms.WriteByte((byte)(value >> 24));
-        ms.WriteByte((byte)((value >> 16) & 0xFF));
-        ms.WriteByte((byte)((value >> 8) & 0xFF));
-        ms.WriteByte((byte)(value & 0xFF));
     }
 
     private static void WriteU16BE(BinaryWriter bw, ushort value)
