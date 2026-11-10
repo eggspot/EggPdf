@@ -36,6 +36,7 @@ internal static class BidiClassifier
         if (c >= 0x0590 && c <= 0x08FF) return RtlBlocks(c);
         if (c >= 0xFB1D && c <= 0xFDFF) return PresentationFormsA(c);
         if (c >= 0xFE70 && c <= 0xFEFF) return c == 0xFEFF ? BidiType.BN : BidiType.AL;
+        if (c >= 0xFE50 && c <= 0xFE6A) return SmallForm(c);
 
         return FromCategory(c);
     }
@@ -44,9 +45,12 @@ internal static class BidiClassifier
     public static BidiType ClassifySupplementary(string text, int index)
     {
         int cp = char.ConvertToUtf32(text[index], text[index + 1]);
+        if (cp >= 0x10D30 && cp <= 0x10D39) return BidiType.AN;
+        if ((cp >= 0x10D00 && cp <= 0x10D3F) || (cp >= 0x10EC0 && cp <= 0x10EFF) || (cp >= 0x10F30 && cp <= 0x10F6F)) return BidiType.AL;
+        if ((cp >= 0x1EC70 && cp <= 0x1ECBF) || (cp >= 0x1ED00 && cp <= 0x1ED4F) || (cp >= 0x1EE00 && cp <= 0x1EEFF)) return BidiType.AL;
         if ((cp >= 0x10800 && cp <= 0x10CFF) || (cp >= 0x10E80 && cp <= 0x10FFF)) return BidiType.R;
         if (cp >= 0x1E800 && cp <= 0x1EFFF) return BidiType.R;
-        if (cp >= 0x10D00 && cp <= 0x10D3F) return BidiType.AL;
+        if (cp >= 0x1F100 && cp <= 0x1F10A) return BidiType.EN;
         if (cp >= 0x1D7CE && cp <= 0x1D7FF) return BidiType.EN;
         if (cp >= 0xE0001 && cp <= 0xE007F) return BidiType.BN;
 
@@ -122,6 +126,7 @@ internal static class BidiClassifier
             case 0x2044: return BidiType.CS;
             case 0x207A: case 0x207B: case 0x208A: case 0x208B: return BidiType.ES;
             case 0x2212: return BidiType.ES;
+            case 0x212E: return BidiType.ET;
             case 0x2213: return BidiType.ET;
         }
         if (c >= 0x2030 && c <= 0x2034) return BidiType.ET;
@@ -152,12 +157,24 @@ internal static class BidiClassifier
             if (c == 0x0606 || c == 0x0607 || c == 0x060E || c == 0x060F || c == 0x06DE || c == 0x06E9) return BidiType.ON;
             return BidiType.AL;
         }
-        if (c == 0x08E2) return BidiType.AN;
+        if (c == 0x08E2 || c == 0x0890 || c == 0x0891) return BidiType.AN;
 
         if (c < 0x0600) return BidiType.R;
         if (c >= 0x07C0 && c <= 0x085F)
             return (c >= 0x07F6 && c <= 0x07F9) ? BidiType.ON : BidiType.R;
         return BidiType.AL;
+    }
+
+    /// <summary>The small form variants (FE50-FE6A) keep the classes of the punctuation they shrink.</summary>
+    private static BidiType SmallForm(char c)
+    {
+        switch ((int)c)
+        {
+            case 0xFE50: case 0xFE52: case 0xFE55: return BidiType.CS;
+            case 0xFE5F: case 0xFE69: case 0xFE6A: return BidiType.ET;
+            case 0xFE62: case 0xFE63: return BidiType.ES;
+            default: return BidiType.ON;
+        }
     }
 
     private static BidiType PresentationFormsA(char c)
