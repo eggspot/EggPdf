@@ -6,57 +6,70 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Text;
 
-/// <summary>
-/// Hand-constructs a minimal sfnt containing only a table directory plus CPAL/COLR
-/// table bytes (every other table in TtfParser.ParseInternal is read behind its own
-/// "if the table exists" check, so head/hmtx/cmap/glyf aren't needed just to exercise
-/// CPAL/COLR parsing). This verifies the actual byte-level table parsing, not just the
-/// higher-level substitution logic.
-/// </summary>
 public class ColrCpalParsingTests
 {
+    private const ushort UseTextColorPaletteIndex = 0xFFFF;
+    private static readonly byte[] RedBgra = { 0x00, 0x00, 0xFF, 0xFF };
+    private static readonly byte[] BlueBgra = { 0xFF, 0x00, 0x00, 0xFF };
+
     private static void WriteU16(MemoryStream ms, int v) => ms.Write(new byte[] { (byte)(v >> 8), (byte)v }, 0, 2);
     private static void WriteU32(MemoryStream ms, uint v) => ms.Write(new byte[] { (byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v }, 0, 4);
 
+    /// <summary>A CPAL table with one palette of two BGRA colors: entry 0 red, entry 1 blue.</summary>
     private static byte[] BuildCpalTable()
     {
+        const int version = 0, numPaletteEntries = 2, numPalettes = 1, numColorRecords = 2;
+        const int headerSize = 12, paletteIndexArraySize = 2 * numPalettes;
+        const int firstColorRecordOfPalette0 = 0;
+
         using var ms = new MemoryStream();
-        WriteU16(ms, 0);  // version
-        WriteU16(ms, 2);  // numPaletteEntries
-        WriteU16(ms, 1);  // numPalettes
-        WriteU16(ms, 2);  // numColorRecords
-        WriteU32(ms, 14); // colorRecordsArrayOffset (right after this 12-byte header + 2-byte index array)
-        WriteU16(ms, 0);  // colorRecordIndices[0]
-        // Color records, BGRA order: entry 0 = red, entry 1 = blue
-        ms.Write(new byte[] { 0x00, 0x00, 0xFF, 0xFF }, 0, 4); // B=0 G=0 R=255 A=255 -> red
-        ms.Write(new byte[] { 0xFF, 0x00, 0x00, 0xFF }, 0, 4); // B=255 G=0 R=0 A=255 -> blue
+        WriteU16(ms, version);
+        WriteU16(ms, numPaletteEntries);
+        WriteU16(ms, numPalettes);
+        WriteU16(ms, numColorRecords);
+        WriteU32(ms, headerSize + paletteIndexArraySize);
+        WriteU16(ms, firstColorRecordOfPalette0);
+        ms.Write(RedBgra, 0, 4);
+        ms.Write(BlueBgra, 0, 4);
         return ms.ToArray();
     }
 
+    /// <summary>A version 0 COLR table: base glyph 5 drawn as glyph 10 in palette color 0, then glyph 11 in the text color.</summary>
     private static byte[] BuildColrTable()
     {
+        const int version = 0, numBaseGlyphRecords = 1, numLayerRecords = 2;
+        const int headerSize = 14, baseGlyphRecordSize = 6;
+        const int baseGlyph = 5, firstLayerIndex = 0;
+
         using var ms = new MemoryStream();
-        WriteU16(ms, 0);  // version
-        WriteU16(ms, 1);  // numBaseGlyphRecords
-        WriteU32(ms, 14); // baseGlyphRecordsOffset
-        WriteU32(ms, 20); // layerRecordsOffset (14 + 1*6)
-        WriteU16(ms, 2);  // numLayerRecords
-        // BaseGlyphRecord: glyphID=5, firstLayerIndex=0, numLayers=2
-        WriteU16(ms, 5);
-        WriteU16(ms, 0);
-        WriteU16(ms, 2);
-        // LayerRecords
-        WriteU16(ms, 10); WriteU16(ms, 0);      // layer glyph 10, palette index 0 (red)
-        WriteU16(ms, 11); WriteU16(ms, 0xFFFF); // layer glyph 11, "use text color" sentinel
+        WriteU16(ms, version);
+        WriteU16(ms, numBaseGlyphRecords);
+        WriteU32(ms, headerSize);
+        WriteU32(ms, headerSize + numBaseGlyphRecords * baseGlyphRecordSize);
+        WriteU16(ms, numLayerRecords);
+
+        WriteU16(ms, baseGlyph);
+        WriteU16(ms, firstLayerIndex);
+        WriteU16(ms, numLayerRecords);
+
+        WriteU16(ms, 10); WriteU16(ms, 0);
+        WriteU16(ms, 11); WriteU16(ms, UseTextColorPaletteIndex);
         return ms.ToArray();
     }
 
+    /// <summary>
+    /// An sfnt with only a table directory and the given tables: TtfParser reads every other table only when it
+    /// exists, so head/hmtx/cmap/glyf aren't needed to exercise the byte-level CPAL/COLR parsing.
+    /// </summary>
     private static byte[] BuildMinimalSfntWithTables(params (string tag, byte[] data)[] tables)
     {
+        const uint trueTypeOutlines = 0x00010000;
+        const int searchRange = 0, entrySelector = 0, rangeShift = 0, unusedChecksum = 0;
+
         using var ms = new MemoryStream();
-        WriteU32(ms, 0x00010000); // sfVersion
+        WriteU32(ms, trueTypeOutlines);
         WriteU16(ms, tables.Length);
-        WriteU16(ms, 0); WriteU16(ms, 0); WriteU16(ms, 0); // searchRange, entrySelector, rangeShift
+        WriteU16(ms, searchRange); WriteU16(ms, entrySelector); WriteU16(ms, rangeShift);
 
         int headerSize = 12 + tables.Length * 16;
         int cursor = headerSize;
@@ -70,7 +83,7 @@ public class ColrCpalParsingTests
         for (int i = 0; i < tables.Length; i++)
         {
             ms.Write(System.Text.Encoding.ASCII.GetBytes(tables[i].tag), 0, 4);
-            WriteU32(ms, 0); // checksum, unused
+            WriteU32(ms, unusedChecksum);
             WriteU32(ms, (uint)offsets[i]);
             WriteU32(ms, (uint)tables[i].data.Length);
         }
@@ -124,8 +137,7 @@ public class ColrCpalParsingTests
     [Fact]
     public void Parse_NoColrOrCpalTable_LeavesBothNull()
     {
-        var sfnt = BuildMinimalSfntWithTables(("CPAL", Array.Empty<byte>())); // malformed/empty, but present
-        var font = TtfParser.Parse(BuildMinimalSfntWithTables()); // no tables at all
+        var font = TtfParser.Parse(BuildMinimalSfntWithTables());
         font.Should().NotBeNull();
         font!.ColrLayers.Should().BeNull();
         font.CpalPalette.Should().BeNull();
@@ -134,8 +146,9 @@ public class ColrCpalParsingTests
     [Fact]
     public void Parse_ColrVersion1_IsIgnored()
     {
+        const int colrVersion1 = 1;
         using var ms = new MemoryStream();
-        WriteU16(ms, 1); // version 1 (COLRv1, unsupported) -- rest of the table is irrelevant
+        WriteU16(ms, colrVersion1);
         WriteU16(ms, 0); WriteU32(ms, 0); WriteU32(ms, 0); WriteU16(ms, 0);
         var sfnt = BuildMinimalSfntWithTables(("COLR", ms.ToArray()));
 
