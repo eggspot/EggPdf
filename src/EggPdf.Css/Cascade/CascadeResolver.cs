@@ -119,11 +119,12 @@ public partial class CascadeResolver
                 AddCandidates(winners, _authorRules[ri], _authorRuleSpecificities[ri], ri);
         }
 
-        var importantProperties = ApplyWinnersInCascadeOrder(winners, style);
-
         var inlineCss = element.GetAttribute("style");
+        var (isRtlForLogical, isVerticalForLogical) = PredictWritingDirection(winners, element, inlineCss, style);
+        var importantProperties = ApplyWinnersInCascadeOrder(winners, style, isRtlForLogical, isVerticalForLogical);
+
         if (!string.IsNullOrEmpty(inlineCss))
-            ApplyInlineStyle(inlineCss!, style, importantProperties);
+            ApplyInlineStyle(inlineCss!, style, importantProperties, isRtlForLogical, isVerticalForLogical);
 
         if (element.HasAttribute("hidden"))
             style.Set("display", "none");
@@ -196,7 +197,8 @@ public partial class CascadeResolver
             }
         }
 
-        ApplyWinnersInCascadeOrder(winners, style);
+        var (isRtlForLogical, isVerticalForLogical) = PredictWritingDirection(winners, element, null, style);
+        ApplyWinnersInCascadeOrder(winners, style, isRtlForLogical, isVerticalForLogical);
 
         if (pseudo != "first-line" && pseudo != "first-letter" && pseudo != "marker" && pseudo != "placeholder")
         {
