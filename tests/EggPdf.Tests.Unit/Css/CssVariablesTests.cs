@@ -19,7 +19,6 @@ public class CssVariablesTests
         var sheet = CssStyleSheetParser.Parse(":root { --main-color: red; } div { color: var(--main-color); }");
         var resolver = new CascadeResolver(new[] { sheet });
 
-        // Resolve :root (html element) first, then body, then div
         var html = doc.DocumentElement!;
         var htmlStyle = resolver.Resolve(html, null);
 
@@ -29,21 +28,20 @@ public class CssVariablesTests
         var div = body.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
         var style = resolver.Resolve(div, bodyStyle);
 
-        style.Color.Should().Be("red");
+        style.Color.Should().Be("red", ":root's custom property reaches the div through html and body");
     }
 
     [Fact]
     public void CustomProperty_WithFallback()
     {
         var doc = HtmlParser.Parse("<div>Hello</div>");
-        // --accent is not defined, so fallback "blue" should be used
         var sheet = CssStyleSheetParser.Parse("div { color: var(--accent, blue); }");
         var resolver = new CascadeResolver(new[] { sheet });
 
         var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
         var style = resolver.Resolve(div, null);
 
-        style.Color.Should().Be("blue");
+        style.Color.Should().Be("blue", "--accent is never defined, so the fallback applies");
     }
 
     [Fact]
@@ -56,14 +54,12 @@ public class CssVariablesTests
         var div = doc.Body!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "div");
         var divStyle = resolver.Resolve(div, null);
 
-        // Custom property should be on the div
         divStyle.Get("--text-color").Should().Be("green");
 
         var span = div.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "span");
         var spanStyle = resolver.Resolve(span, divStyle);
 
-        // span inherits --text-color from div, resolves var(--text-color) to "green"
-        spanStyle.Color.Should().Be("green");
+        spanStyle.Color.Should().Be("green", "the span inherits --text-color from the div");
     }
 
     [Fact]
@@ -89,7 +85,6 @@ public class CssVariablesTests
     [Fact]
     public void CustomProperty_CycleDetection()
     {
-        // --a references --b, --b references --a - cycle
         var style = new ComputedStyle();
         style.Set("--a", "var(--b)");
         style.Set("--b", "var(--a)");
@@ -102,7 +97,6 @@ public class CssVariablesTests
     public void CustomProperty_UndefinedWithFallback()
     {
         var doc = HtmlParser.Parse("<p>text</p>");
-        // --undefined is never declared, fallback is "12px"
         var sheet = CssStyleSheetParser.Parse("p { font-size: var(--undefined, 12px); }");
         var resolver = new CascadeResolver(new[] { sheet });
 
@@ -145,8 +139,7 @@ public class CssVariablesTests
     {
         var style = new ComputedStyle();
         var result = CssVariableResolver.ResolveVariables("var(--missing)", style);
-        // When undefined with no fallback, the var() resolves to empty
-        result.Should().Be("");
+        result.Should().Be("", "an undefined variable without a fallback resolves to nothing");
     }
 
     [Fact]
@@ -164,10 +157,9 @@ public class CssVariablesTests
     [Fact]
     public void CustomProperty_FallbackWithComma()
     {
-        // The fallback value can itself contain commas (e.g., font-family fallback)
         var style = new ComputedStyle();
         var result = CssVariableResolver.ResolveVariables("var(--font, Arial, sans-serif)", style);
-        result.Should().Be("Arial, sans-serif");
+        result.Should().Be("Arial, sans-serif", "the fallback keeps its own commas");
     }
 
     [Fact]
@@ -187,12 +179,9 @@ public class CssVariablesTests
         CssVariableResolver.IsCustomProperty("").Should().BeFalse();
     }
 
-    // ── env() tests ──────────────────────────────────────────────────────────
-
     [Fact]
     public void Env_SafeAreaInset_ReturnsZero()
     {
-        // env(safe-area-inset-top) should resolve to 0px for PDF rendering
         var style = new ComputedStyle();
         var result = CssVariableResolver.ResolveVariables("env(safe-area-inset-top)", style);
         result.Should().Be("0px");
@@ -201,7 +190,6 @@ public class CssVariablesTests
     [Fact]
     public void Env_WithFallback_UsesFallback()
     {
-        // env(--unknown, 10px) — unknown env var, uses fallback
         var style = new ComputedStyle();
         var result = CssVariableResolver.ResolveVariables("env(--unknown, 10px)", style);
         result.Should().Be("10px");
@@ -210,20 +198,14 @@ public class CssVariablesTests
     [Fact]
     public void Env_InCalc_Works()
     {
-        // calc(100px + env(safe-area-inset-top)) should resolve to calc(100px + 0px)
         var style = new ComputedStyle();
         var result = CssVariableResolver.ResolveVariables("calc(100px + env(safe-area-inset-top))", style);
         result.Should().Be("calc(100px + 0px)");
     }
 
-    // ── @property initial-value wiring ───────────────────────────────────────
-
     [Fact]
     public void AtProperty_InitialValue_UsedWhenPropertyNotSet()
     {
-        // @property --brand-color { initial-value: red; inherits: false; }
-        // div { color: var(--brand-color); }  -- --brand-color never explicitly set
-        // Expected: color resolves to "red" from @property initial-value
         var doc = HtmlParser.Parse("<div>X</div>");
         var sheet = CssStyleSheetParser.Parse(@"
             @property --brand-color { syntax: '<color>'; inherits: false; initial-value: red; }
@@ -244,7 +226,6 @@ public class CssVariablesTests
     [Fact]
     public void AtProperty_InitialValue_OverriddenByExplicitValue()
     {
-        // When the custom property IS explicitly set, explicit value takes priority
         var doc = HtmlParser.Parse("<div>X</div>");
         var sheet = CssStyleSheetParser.Parse(@"
             @property --brand-color { syntax: '<color>'; inherits: false; initial-value: red; }
@@ -263,13 +244,9 @@ public class CssVariablesTests
             "explicit custom property value should override @property initial-value");
     }
 
-    // ── @layer cascade priority ───────────────────────────────────────────────
-
     [Fact]
     public void Layer_RulesLoseToUnlayeredRules_SameSpecificity()
     {
-        // Unlayered rule should win even when the layered rule appears LATER in source
-        // (layer order is lower priority than being unlayered)
         var css = "p { color: blue; } @layer base { p { color: red; } }";
         var doc = HtmlParser.Parse("<p>Text</p>");
         var sheet = CssStyleSheetParser.Parse(css);
@@ -283,7 +260,6 @@ public class CssVariablesTests
     [Fact]
     public void Layer_LaterLayerWinsOverEarlierLayer()
     {
-        // Later-declared layer wins over earlier layer at same specificity
         var css = "@layer base { p { color: red; } } @layer theme { p { color: green; } }";
         var doc = HtmlParser.Parse("<p>Text</p>");
         var sheet = CssStyleSheetParser.Parse(css);
@@ -294,16 +270,12 @@ public class CssVariablesTests
             "later @layer (theme) should win over earlier @layer (base)");
     }
 
-    // ── @container cascade evaluation ────────────────────────────────────────
-
     [Fact]
     public void ContainerQuery_MatchingCondition_AppliesRule()
     {
-        // With a 600px page width, @container (min-width: 300px) should match
         var css = "@container (min-width: 300px) { p { color: green; } }";
         var doc = HtmlParser.Parse("<p>Text</p>");
         var sheet = CssStyleSheetParser.Parse(css);
-        // Pass page width 600 so the container query matches
         var resolver = new CascadeResolver(new[] { sheet }, pageWidth: 600f);
         var p = doc.FindByTag("body")!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
         var style = resolver.Resolve(p, null);
@@ -314,7 +286,6 @@ public class CssVariablesTests
     [Fact]
     public void ContainerQuery_NonMatchingCondition_SkipsRule()
     {
-        // With a 200px page width, @container (min-width: 400px) must not match
         var css = "@container (min-width: 400px) { p { color: red; } }";
         var doc = HtmlParser.Parse("<p>Text</p>");
         var sheet = CssStyleSheetParser.Parse(css);
@@ -326,20 +297,17 @@ public class CssVariablesTests
     }
 
     [Fact]
-    public void Layer_HigherSpecificityInEarlierLayer_WinsOverLowerSpecificityUnlayered()
+    public void Layer_HigherSpecificityInALayer_LosesToLowerSpecificityUnlayered()
     {
-        // A higher-specificity layered rule should still win (specificity > layer order)
         var css = "@layer base { #id { color: red; } } p { color: blue; }";
         var doc = HtmlParser.Parse("<p id='id'>Text</p>");
         var sheet = CssStyleSheetParser.Parse(css);
         var resolver = new CascadeResolver(new[] { sheet });
         var p = doc.FindByTag("body")!.ChildNodes.OfType<HtmlElement>().First(e => e.TagName == "p");
         var style = resolver.Resolve(p, null);
-        style.Color.Should().Be("red",
-            "higher-specificity rule in an earlier layer wins over lower-specificity unlayered rule");
+        style.Color.Should().Be("blue",
+            "layer order is compared before specificity (CSS Cascade 5), so the unlayered rule wins");
     }
-
-    // ── ::placeholder pseudo-element ─────────────────────────────────────────
 
     [Fact]
     public void Placeholder_CssRule_AppliesColorToPlaceholder()

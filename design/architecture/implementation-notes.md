@@ -27,6 +27,42 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 - In `background`, `url(...)` and gradient functions are extracted before tokenizing by spaces
   (they may contain spaces and commas); the last unrecognised token is the colour.
 
+## EggPdf.Css/Parser/CssStyleSheetParser.cs
+
+- Nested blocks (`@media`, `@supports`, `@layer`, `@container`) share one block parser: rules go to the
+  enclosing block's rule list, a nested `@media` is combined with the enclosing query ("outer and inner",
+  each comma-separated query paired), and every style rule records its layer and source position.
+- Layer order is the order in which a layer name first appears, in an `@layer a, b;` statement or a
+  block; a repeated name keeps its first index, an anonymous layer gets a new one. Unlayered rules
+  use `int.MaxValue`.
+- `@supports` treats unknown and vendor-prefixed properties as unsupported and everything else as
+  supported; `@import ... layer` / `layer(name)` is accepted and `supports(...)` decides whether the
+  import happens.
+
+## EggPdf.Css/Cascade/CascadeResolver.cs
+
+- Rules from a sheet's plain rules, matched `@media` and `@container` blocks are added in source order,
+  and a selector list is split so each selector has its own specificity and prefilter.
+- Precedence per property: importance, then layer (normal: later layer and unlayered win; important:
+  earlier layer wins and layered beats unlayered), then specificity, then source order. Winning
+  declarations are applied in that order so a shorthand and its longhands resolve like the cascade.
+  Inline normal declarations never override a longhand set by an author `!important` declaration.
+- `revert` takes the user-agent value (UA default plus inheritance), or removes the property when the
+  UA has none.
+- The per-element scratch collections are reused: a resolver serves one render on one thread.
+- `Resolve` runs for every element and enumerates `ComputedStyle.All` (an `IEnumerable`) for the
+  inherited custom properties; .NET 10 stack-allocates that boxed enumerator only while the method has
+  no second such loop. Inline-style handling lives in `ApplyInlineStyle` for that reason: inlining it
+  into `Resolve` cost ~40 KB per render of a 100-row table (measured with `GetAllocatedBytesForCurrentThread`).
+
+## EggPdf.Css/Selectors/SelectorMatcher.cs
+
+- An unknown pseudo-class or functional pseudo-class never matches, like Chrome dropping the rule;
+  single-colon `:before`/`:after` never match the element itself.
+- Sibling positions for parents with 32 or more children come from `SiblingIndex`, cached per parent
+  node and rebuilt when the child count changes, so `:nth-*`, `+` and `~` stay linear on large tables.
+  Smaller parents are scanned directly, which allocates nothing.
+
 ## EggPdf.Css/BasicStyleResolver.cs
 
 - Checkbox and radio inputs get a fixed 13px native control size with no padding: they are painted

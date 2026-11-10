@@ -30,10 +30,13 @@ public class CssStyleRule
     public string SelectorText { get; set; } = "";
     public List<CssDeclaration> Declarations { get; set; } = new();
     /// <summary>
-    /// Layer priority index. Unlayered rules use int.MaxValue (highest priority).
-    /// Layered rules use their declaration order (0, 1, 2…); later layers win over earlier ones.
+    /// Layer priority index. Unlayered rules use int.MaxValue (highest priority for normal declarations).
+    /// Layered rules use the order in which their layer name first appeared (0, 1, 2…), in an
+    /// <c>@layer a, b;</c> statement or a layer block; later layers win over earlier ones.
     /// </summary>
     public int LayerOrder { get; set; } = int.MaxValue;
+
+    internal int SourceIndex { get; set; }
 }
 
 /// <summary>@media rule with nested rules.</summary>
