@@ -8,7 +8,11 @@ allowed-tools: Bash, Read, Grep, Glob
 
 # Performance Regression Check
 
-Verify that code changes haven't introduced performance regressions. This MUST pass before any PR is shipped.
+Verify that code changes haven't introduced performance regressions. This MUST pass before any PR is merged.
+
+For a PR, don't run the benchmarks on the dev PC: the `Benchmarks` workflow runs them on the PR and posts the
+table as a PR comment. Compare that comment with the previous merged PR's comment using the thresholds below.
+Run the steps below locally only when asked to, or to profile a regression CI already showed.
 
 ## Steps
 
