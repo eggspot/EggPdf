@@ -7,32 +7,33 @@ namespace EggPdf.Tests.Unit.Pdf;
 
 public class PdfImageTests
 {
-    // Minimal valid JPEG: 1x1 pixel red
-    // SOI + APP0 + SOF0 + SOS + image data + EOI
+    private const int RgbBytesPerPixel = 3;
+
+    /// <summary>One red pixel: SOI + APP0 + SOF0 + SOS + image data + EOI.</summary>
     private static readonly byte[] MinimalJpeg = CreateMinimalJpeg();
 
-    // 1x1 red RGB PNG (color type 2, bit depth 8)
+    /// <summary>One red pixel, RGB (color type 2, bit depth 8).</summary>
     private static readonly byte[] Minimal1x1RgbPng = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
         0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
         0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x78, 0x01, 0x63, 0xF8, 0xCF, 0xC0, 0x00,
         0x00, 0x03, 0x01, 0x01, 0x00, 0xDB, 0x7D, 0x2E, 0xBC, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,
         0x44, 0xAE, 0x42, 0x60, 0x82 };
 
-    // 1x1 red RGBA PNG (color type 6, bit depth 8, alpha=128)
+    /// <summary>One red pixel with alpha 128, RGBA (color type 6, bit depth 8).</summary>
     private static readonly byte[] Minimal1x1RgbaPng = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
         0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
         0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x01, 0x63, 0xF8, 0xCF, 0xC0, 0xD0,
         0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0xDE, 0x25, 0x4D, 0x42, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
         0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82 };
 
-    // 1x1 gray128 grayscale PNG (color type 0, bit depth 8)
+    /// <summary>One gray-128 pixel, grayscale (color type 0, bit depth 8).</summary>
     private static readonly byte[] Minimal1x1GrayPng = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
         0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x00, 0x00, 0x00, 0x00, 0x3A, 0x7E, 0x9B,
         0x55, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x01, 0x63, 0x68, 0x00, 0x00, 0x00,
         0x82, 0x00, 0x81, 0x4C, 0x17, 0xD7, 0xDF, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
         0x42, 0x60, 0x82 };
 
-    // 1x1 indexed PNG (color type 3, bit depth 8, red palette entry)
+    /// <summary>One pixel of palette index 0, which is red (color type 3, bit depth 8).</summary>
     private static readonly byte[] Minimal1x1IndexedPng = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
         0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x03, 0x00, 0x00, 0x00, 0x28, 0xCB, 0x34,
         0xBB, 0x00, 0x00, 0x00, 0x03, 0x50, 0x4C, 0x54, 0x45, 0xFF, 0x00, 0x00, 0x19, 0xE2, 0x09, 0x37,
@@ -40,14 +41,12 @@ public class PdfImageTests
         0x00, 0x01, 0x73, 0x75, 0x01, 0x18, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42,
         0x60, 0x82 };
 
-    // 2x2 RGB PNG (color type 2, bit depth 8)
+    /// <summary>2x2 RGB (color type 2, bit depth 8): red, green / blue, yellow.</summary>
     private static readonly byte[] Minimal2x2RgbPng = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
         0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x02, 0x00, 0x00, 0x00, 0xFD, 0xD4, 0x9A,
         0x73, 0x00, 0x00, 0x00, 0x14, 0x49, 0x44, 0x41, 0x54, 0x78, 0x01, 0x63, 0xF8, 0xCF, 0xC0, 0xC0,
         0x00, 0xC2, 0x0C, 0xFF, 0xFF, 0xFF, 0x67, 0x00, 0x00, 0x1E, 0xEF, 0x04, 0xFC, 0x1D, 0xB0, 0xC7,
         0x92, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82 };
-
-    #region JPEG Tests
 
     [Fact]
     public void FromJpeg_ValidJpeg_ReturnsImage()
@@ -73,14 +72,10 @@ public class PdfImageTests
         image.Should().BeNull();
     }
 
-    #endregion
-
-    #region RGB / RGBA Tests
-
     [Fact]
     public void FromRgb_ValidData_CreatesImage()
     {
-        byte[] rgb = new byte[3 * 2 * 2]; // 2x2 image, 3 bytes per pixel
+        byte[] rgb = new byte[2 * 2 * RgbBytesPerPixel];
         var image = PdfImage.FromRgb("test", 2, 2, rgb);
 
         image.Should().NotBeNull();
@@ -93,30 +88,17 @@ public class PdfImageTests
     [Fact]
     public void FromRgba_ValidData_SeparatesAlpha()
     {
-        byte[] rgba = new byte[4 * 2 * 2]; // 2x2 image, 4 bytes per pixel
-        rgba[3] = 128; // first pixel alpha = 128
+        const int firstPixelAlphaOffset = 3;
+        byte[] rgba = new byte[2 * 2 * 4];
+        rgba[firstPixelAlphaOffset] = 128;
         var image = PdfImage.FromRgba("test", 2, 2, rgba);
 
         image.Should().NotBeNull();
         image.Format.Should().Be(PdfImageFormat.Raw);
         image.SMaskData.Should().NotBeNull();
-        image.SMaskData!.Length.Should().Be(4); // 2x2 = 4 alpha bytes
+        image.SMaskData!.Length.Should().Be(4, "one alpha byte per pixel of the 2x2 image");
         image.SMaskData[0].Should().Be(128);
-        image.Data.Length.Should().Be(12); // 2x2*3 = 12 RGB bytes
-    }
-
-    #endregion
-
-    #region PNG Signature Detection
-
-    [Fact]
-    public void FromPng_ValidSignature_Detected()
-    {
-        // The PNG signature is the first 8 bytes
-        Minimal1x1RgbPng[0].Should().Be(0x89);
-        Minimal1x1RgbPng[1].Should().Be(0x50); // 'P'
-        Minimal1x1RgbPng[2].Should().Be(0x4E); // 'N'
-        Minimal1x1RgbPng[3].Should().Be(0x47); // 'G'
+        image.Data.Length.Should().Be(2 * 2 * RgbBytesPerPixel, "the alpha is split off, leaving RGB");
     }
 
     [Fact]
@@ -144,22 +126,17 @@ public class PdfImageTests
     [Fact]
     public void FromPng_TruncatedData_ReturnsNull()
     {
-        // Just the PNG signature, nothing else
-        var image = PdfImage.FromPng("test", new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
+        var pngSignatureOnly = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+        var image = PdfImage.FromPng("test", pngSignatureOnly);
         image.Should().BeNull();
     }
 
     [Fact]
     public void FromPng_JpegData_ReturnsNull()
     {
-        // JPEG data should not be decoded as PNG
         var image = PdfImage.FromPng("test", MinimalJpeg);
-        image.Should().BeNull();
+        image.Should().BeNull("JPEG data is not decoded as PNG");
     }
-
-    #endregion
-
-    #region PNG RGB Decoding
 
     [Fact]
     public void FromPng_1x1Rgb_ReturnsImage()
@@ -179,11 +156,7 @@ public class PdfImageTests
         var image = PdfImage.FromPng("test", Minimal1x1RgbPng);
 
         image.Should().NotBeNull();
-        // 1x1 RGB = 3 bytes: R=255, G=0, B=0
-        image!.Data.Length.Should().Be(3);
-        image.Data[0].Should().Be(255); // R
-        image.Data[1].Should().Be(0);   // G
-        image.Data[2].Should().Be(0);   // B
+        image!.Data.Should().Equal(new byte[] { 255, 0, 0 }, "one red RGB pixel");
     }
 
     [Fact]
@@ -194,7 +167,7 @@ public class PdfImageTests
         image.Should().NotBeNull();
         image!.Width.Should().Be(2);
         image.Height.Should().Be(2);
-        image.Data.Length.Should().Be(12); // 2x2x3 = 12 bytes
+        image.Data.Length.Should().Be(2 * 2 * RgbBytesPerPixel);
     }
 
     [Fact]
@@ -203,26 +176,12 @@ public class PdfImageTests
         var image = PdfImage.FromPng("test", Minimal2x2RgbPng);
 
         image.Should().NotBeNull();
-        // Row 0: red (255,0,0), green (0,255,0)
-        image!.Data[0].Should().Be(255); // R of pixel (0,0)
-        image.Data[1].Should().Be(0);    // G of pixel (0,0)
-        image.Data[2].Should().Be(0);    // B of pixel (0,0)
-        image.Data[3].Should().Be(0);    // R of pixel (1,0)
-        image.Data[4].Should().Be(255);  // G of pixel (1,0)
-        image.Data[5].Should().Be(0);    // B of pixel (1,0)
-
-        // Row 1: blue (0,0,255), yellow (255,255,0)
-        image.Data[6].Should().Be(0);    // R of pixel (0,1)
-        image.Data[7].Should().Be(0);    // G of pixel (0,1)
-        image.Data[8].Should().Be(255);  // B of pixel (0,1)
-        image.Data[9].Should().Be(255);  // R of pixel (1,1)
-        image.Data[10].Should().Be(255); // G of pixel (1,1)
-        image.Data[11].Should().Be(0);   // B of pixel (1,1)
+        image!.Data.Should().Equal(new byte[]
+        {
+            255, 0, 0, 0, 255, 0,
+            0, 0, 255, 255, 255, 0,
+        }, "row 0 is red then green, row 1 is blue then yellow");
     }
-
-    #endregion
-
-    #region PNG RGBA Decoding
 
     [Fact]
     public void FromPng_1x1Rgba_ReturnsImageWithAlpha()
@@ -242,21 +201,9 @@ public class PdfImageTests
         var image = PdfImage.FromPng("test", Minimal1x1RgbaPng);
 
         image.Should().NotBeNull();
-        // RGB data: R=255, G=0, B=0
-        image!.Data.Length.Should().Be(3);
-        image.Data[0].Should().Be(255); // R
-        image.Data[1].Should().Be(0);   // G
-        image.Data[2].Should().Be(0);   // B
-
-        // Alpha: 128 (50% transparent)
-        image.SMaskData.Should().NotBeNull();
-        image.SMaskData!.Length.Should().Be(1);
-        image.SMaskData[0].Should().Be(128);
+        image!.Data.Should().Equal(new byte[] { 255, 0, 0 }, "the color part is one red pixel");
+        image.SMaskData.Should().Equal(new byte[] { 128 }, "the alpha channel (50% transparent) goes to the soft mask");
     }
-
-    #endregion
-
-    #region PNG Grayscale Decoding
 
     [Fact]
     public void FromPng_1x1Grayscale_ReturnsImage()
@@ -276,16 +223,8 @@ public class PdfImageTests
         var image = PdfImage.FromPng("test", Minimal1x1GrayPng);
 
         image.Should().NotBeNull();
-        // Grayscale is expanded to RGB: gray=128 -> (128, 128, 128)
-        image!.Data.Length.Should().Be(3);
-        image.Data[0].Should().Be(128);
-        image.Data[1].Should().Be(128);
-        image.Data[2].Should().Be(128);
+        image!.Data.Should().Equal(new byte[] { 128, 128, 128 }, "grayscale is expanded to RGB");
     }
-
-    #endregion
-
-    #region PNG Indexed (Palette) Decoding
 
     [Fact]
     public void FromPng_1x1Indexed_ReturnsImage()
@@ -304,16 +243,8 @@ public class PdfImageTests
         var image = PdfImage.FromPng("test", Minimal1x1IndexedPng);
 
         image.Should().NotBeNull();
-        // Palette index 0 -> red (255, 0, 0)
-        image!.Data.Length.Should().Be(3);
-        image.Data[0].Should().Be(255); // R
-        image.Data[1].Should().Be(0);   // G
-        image.Data[2].Should().Be(0);   // B
+        image!.Data.Should().Equal(new byte[] { 255, 0, 0 }, "palette index 0 is red");
     }
-
-    #endregion
-
-    #region PNG in PDF
 
     [Fact]
     public void FromPng_EmbeddedInPdf_ContainsXObject()
@@ -351,12 +282,8 @@ public class PdfImageTests
         page.AddText("test", 10, 10, "Helvetica", 12);
 
         byte[] pdfBytes = doc.ToByteArray();
-        pdfBytes.Length.Should().BeGreaterThan(0);
+        System.Text.Encoding.ASCII.GetString(pdfBytes).Should().Contain("/SMask", "the PNG's alpha is written as a soft mask");
     }
-
-    #endregion
-
-    #region Image Format Detection in HtmlToPdf
 
     [Fact]
     public void HtmlToPdf_PngDataUri_RendersToPdf()
@@ -366,10 +293,9 @@ public class PdfImageTests
 
         var pdfBytes = HtmlToPdf.Render(html);
 
-        pdfBytes.Should().NotBeNull();
-        pdfBytes.Length.Should().BeGreaterThan(0);
         var text = System.Text.Encoding.ASCII.GetString(pdfBytes);
-        text.Should().Contain("%PDF");
+        text.Should().StartWith("%PDF");
+        text.Should().Contain("/Subtype /Image", "the PNG data URI is decoded and embedded");
     }
 
     [Fact]
@@ -380,11 +306,8 @@ public class PdfImageTests
 
         var pdfBytes = HtmlToPdf.Render(html);
 
-        pdfBytes.Should().NotBeNull();
-        pdfBytes.Length.Should().BeGreaterThan(0);
+        System.Text.Encoding.ASCII.GetString(pdfBytes).Should().Contain("/DCTDecode", "the JPEG is embedded as-is with the DCT filter");
     }
-
-    #endregion
 
     [Fact]
     public void PdfDocument_ImageEmbedded_ContainsXObject()
@@ -392,9 +315,8 @@ public class PdfImageTests
         var doc = new PdfDocument();
         var page = doc.AddPage(612, 792);
 
-        byte[] rgb = new byte[3]; // 1x1 red pixel
-        rgb[0] = 255;
-        var image = PdfImage.FromRgb("TestImg", 1, 1, rgb);
+        byte[] oneRedPixel = { 255, 0, 0 };
+        var image = PdfImage.FromRgb("TestImg", 1, 1, oneRedPixel);
         doc.AddImage(image);
 
         page.AddImage("TestImg", 100, 100, 50, 50);
@@ -405,13 +327,12 @@ public class PdfImageTests
 
         text.Should().Contain("/XObject");
         text.Should().Contain("/TestImg");
-        text.Should().Contain("Do"); // image paint operator
+        text.Should().Contain("/TestImg Do", "the image is painted with the Do operator");
     }
 
-    /// <summary>Create a minimal valid JPEG for testing (1x1 pixel).</summary>
+    /// <summary>A pre-built minimal JPEG file: one red pixel in ~107 bytes.</summary>
     private static byte[] CreateMinimalJpeg()
     {
-        // This is a pre-built minimal JPEG file (1x1 red pixel, ~107 bytes)
         return new byte[]
         {
             0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
