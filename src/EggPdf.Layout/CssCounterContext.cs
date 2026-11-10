@@ -13,7 +13,6 @@ namespace EggPdf.Layout;
 /// </summary>
 public class CssCounterContext
 {
-    // Maps counter name -> stack of values (each push by counter-reset adds a new scope).
     private readonly Dictionary<string, Stack<int>> _counters =
         new Dictionary<string, Stack<int>>(StringComparer.OrdinalIgnoreCase);
 
@@ -28,7 +27,6 @@ public class CssCounterContext
     /// <summary>Same as <see cref="PageCounterSentinel"/>, for counter(pages) (the total page count).</summary>
     public const string PagesCounterSentinel = "EGGPDF-PAGES";
 
-    // Maps custom counter style name -> rule
     private Dictionary<string, CssCounterStyleRule>? _customStyles;
 
     /// <summary>Register custom @counter-style rules from parsed stylesheets.</summary>
@@ -40,12 +38,11 @@ public class CssCounterContext
             _customStyles[rule.Name] = rule;
     }
 
-    /// <summary>Process counter-reset declaration for an element.</summary>
+    /// <summary>Process counter-reset declaration ("name", "name value", "name1 value1 name2 value2") for an element; each reset opens a new scope.</summary>
     public void ApplyReset(string? counterReset)
     {
         if (string.IsNullOrWhiteSpace(counterReset) || counterReset == "none") return;
 
-        // Format: "name" or "name value" or "name1 value1 name2 value2"
         var parts = counterReset.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
         int i = 0;
         while (i < parts.Length)
@@ -68,7 +65,7 @@ public class CssCounterContext
         }
     }
 
-    /// <summary>Process counter-increment declaration for an element.</summary>
+    /// <summary>Process counter-increment declaration for an element; a counter that doesn't exist yet is created at 0.</summary>
     public void ApplyIncrement(string? counterIncrement)
     {
         if (string.IsNullOrWhiteSpace(counterIncrement) || counterIncrement == "none") return;
@@ -88,7 +85,6 @@ public class CssCounterContext
 
             if (!_counters.TryGetValue(name, out var stack) || stack.Count == 0)
             {
-                // Create counter at 0 if it doesn't exist (implicit creation)
                 if (stack == null)
                 {
                     stack = new Stack<int>();
@@ -126,7 +122,6 @@ public class CssCounterContext
 
             if (!_counters.TryGetValue(name, out var stack) || stack.Count == 0)
             {
-                // Counter doesn't exist — create it (no scope push like counter-reset would do)
                 if (stack == null)
                 {
                     stack = new Stack<int>();
@@ -136,7 +131,6 @@ public class CssCounterContext
             }
             else
             {
-                // Replace the top-of-stack value in-place
                 stack.Pop();
                 stack.Push(value);
             }
@@ -153,7 +147,6 @@ public class CssCounterContext
         while (i < parts.Length)
         {
             var name = parts[i++];
-            // Skip optional initial value token
             if (i < parts.Length && int.TryParse(parts[i], NumberStyles.Integer,
                     CultureInfo.InvariantCulture, out _))
                 i++;
@@ -203,15 +196,10 @@ public class CssCounterContext
                 var args = remaining.Substring(8, close - 8).Trim();
                 remaining = remaining.Substring(close + 1);
 
-                // args may be "name" or "name, style"
                 int comma = args.IndexOf(',');
                 var counterName = comma >= 0 ? args.Substring(0, comma).Trim() : args.Trim();
                 var counterStyle = comma >= 0 ? args.Substring(comma + 1).Trim() : "decimal";
 
-                // counter(page) / counter(pages) are reserved CSS Paged Media counters —
-                // not something counter-reset can define — and their real value isn't known
-                // until pagination runs, well after layout. Emit a sentinel for PdfRenderer
-                // to substitute per page instead of resolving (incorrectly) to 0 here.
                 if (string.Equals(counterName, "page", StringComparison.OrdinalIgnoreCase))
                     result.Append(PageCounterSentinel);
                 else if (string.Equals(counterName, "pages", StringComparison.OrdinalIgnoreCase))
@@ -224,7 +212,6 @@ public class CssCounterContext
             }
             else if (remaining.StartsWith("counters(", StringComparison.OrdinalIgnoreCase))
             {
-                // counters(name, separator) — simplified: just show current value
                 int close = remaining.IndexOf(')');
                 if (close < 0) { remaining = ""; break; }
                 var args = remaining.Substring(9, close - 9).Trim();
@@ -258,7 +245,6 @@ public class CssCounterContext
             }
             else
             {
-                // Skip unknown token
                 int space = remaining.IndexOf(' ');
                 remaining = space >= 0 ? remaining.Substring(space + 1) : "";
             }
@@ -274,15 +260,13 @@ public class CssCounterContext
     /// </summary>
     private static string ResolveQuoteChar(EggPdf.Css.ComputedStyle? style, bool open)
     {
-        // Default smart quotes
-        string defaultOpen  = "\u201C"; // "
-        string defaultClose = "\u201D"; // "
+        string defaultOpen = "\u201C";
+        string defaultClose = "\u201D";
 
         var quotesVal = style?.Get("quotes");
         if (string.IsNullOrEmpty(quotesVal) || quotesVal == "none" || quotesVal == "auto")
             return open ? defaultOpen : defaultClose;
 
-        // Parse: 'x' 'y' or "x" "y" — take the first pair (outer level)
         var tokens = new System.Collections.Generic.List<string>();
         int i = 0;
         while (i < quotesVal.Length && tokens.Count < 2)
@@ -299,7 +283,6 @@ public class CssCounterContext
             }
             else
             {
-                // Unquoted token — unlikely but handle gracefully
                 int end = quotesVal.IndexOf(' ', i);
                 if (end < 0) end = quotesVal.Length;
                 tokens.Add(quotesVal.Substring(i, end - i));
@@ -328,7 +311,6 @@ public class CssCounterContext
 
     private string FormatCounterValue(int value, string style)
     {
-        // Check custom @counter-style rules first
         if (_customStyles != null && _customStyles.TryGetValue(style, out var customRule))
             return FormatCustomCounterValue(value, customRule);
 
@@ -359,9 +341,7 @@ public class CssCounterContext
 
         if (system == "extends" && rule.Extends != null)
         {
-            // Delegate to the extended style (may be built-in or another custom style)
             core = FormatCounterValue(value, rule.Extends);
-            // Strip any existing suffix from the parent format (suffix comes from this rule)
         }
         else if (rule.Symbols.Count == 0)
         {
@@ -372,7 +352,6 @@ public class CssCounterContext
             switch (system)
             {
                 case "cyclic":
-                    // Cycle through symbols: 1→sym[0], 2→sym[1], ..., N→sym[(N-1)%count]
                     if (rule.Symbols.Count > 0)
                         core = rule.Symbols[(value - 1 + rule.Symbols.Count * 1000) % rule.Symbols.Count];
                     else
@@ -380,7 +359,6 @@ public class CssCounterContext
                     break;
 
                 case "symbolic":
-                    // Repeat: 1→sym[0], 2→sym[1], ..., N+1→sym[0]sym[0], ...
                     if (rule.Symbols.Count > 0)
                     {
                         int idx = (value - 1) % rule.Symbols.Count;
@@ -394,7 +372,6 @@ public class CssCounterContext
                     break;
 
                 case "alphabetic":
-                    // Like alphabet: 1→a, 2→b, ..., 26→z, 27→aa, ...
                     if (rule.Symbols.Count > 0)
                     {
                         int n = value;
@@ -412,7 +389,6 @@ public class CssCounterContext
                     break;
 
                 case "numeric":
-                    // Like decimal but with custom digits
                     if (rule.Symbols.Count > 0)
                     {
                         int base2 = rule.Symbols.Count;
@@ -433,7 +409,6 @@ public class CssCounterContext
                     break;
 
                 case "fixed":
-                    // Use each symbol once, fall back to decimal
                     if (value >= 1 && value <= rule.Symbols.Count)
                         core = rule.Symbols[value - 1];
                     else
