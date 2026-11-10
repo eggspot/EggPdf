@@ -6,7 +6,6 @@ namespace EggPdf.Tests.Layout;
 
 public class FlexLayoutTests
 {
-    // Body margin is 8px by default, so flex container at X=8, Width=600-16=584
     private const float PageWidth = 600f;
     private const float PageHeight = 800f;
     private const float BodyMargin = 8f;
@@ -30,34 +29,21 @@ public class FlexLayoutTests
         var divs = FindInnerDivs(root);
         divs.Count.Should().BeGreaterOrEqualTo(3);
 
-        // Container is the first div
         var container = divs[0];
         container.Style.Display.Should().Be("flex");
 
-        // Find the two flex items (children of the flex container)
         var item1 = container.Children[0];
         var item2 = container.Children[1];
 
-        // Items should be side by side horizontally
         item1.Width.Should().Be(100f);
         item2.Width.Should().Be(100f);
-
-        // Item2 should be to the right of item1
-        item2.X.Should().BeApproximately(item1.X + 100f, 1f);
-
-        // Both should have the same Y position
-        item1.Y.Should().BeApproximately(item2.Y, 1f);
+        item2.X.Should().BeApproximately(item1.X + 100f, 1f, "the second item sits right after the first");
+        item1.Y.Should().BeApproximately(item2.Y, 1f, "both items are on one row");
     }
 
     [Fact]
     public void FlexColumn_ContentOverflowsMinHeight_ItemNotShrunkBelowContent()
     {
-        // Reproduces the VCRRM certificate bug: a `.page { display:flex; flex-direction:column;
-        // min-height:... }` container whose text content is taller than min-height. Because
-        // block text doesn't reflow when its box is squeezed vertically (unlike width-shrinking,
-        // where text rewraps), the paragraph's rendered box must keep its full content height —
-        // flex-shrink must not compress it — or the next sibling gets positioned on top of the
-        // paragraph's still-visible text instead of below it.
         string longText = string.Concat(System.Linq.Enumerable.Repeat(
             "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt. ", 20));
 
@@ -71,10 +57,9 @@ public class FlexLayoutTests
         var paragraph = root.FindByTag("p");
         paragraph.Should().NotBeNull();
 
-        // The paragraph must keep the height its wrapped text actually needs — far more
-        // than the container's 40px min-height — not be shrunk down to fit.
         paragraph!.Height.Should().BeGreaterThan(40f,
-            "block text content must not be compressed below the height its wrapped lines need");
+            "text does not reflow when squeezed vertically, so flex-shrink must not compress the paragraph below the " +
+            "height its wrapped lines need, far more than the container's 40px min-height");
 
         var secondItem = container.Children[1];
         secondItem.Y.Should().BeGreaterOrEqualTo(paragraph.Y + paragraph.Height - 0.5f,
@@ -84,9 +69,6 @@ public class FlexLayoutTests
     [Fact]
     public void FlexColumn_OverflowHidden_ItemShrinksToFitContainer()
     {
-        // CSS Flexbox §4.5: the automatic minimum size only applies when overflow is
-        // visible. An overflow:hidden item is meant to be clipped, so it must still be
-        // allowed to shrink below its content height to fit the container.
         string longText = string.Concat(System.Linq.Enumerable.Repeat(
             "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt. ", 20));
 
@@ -98,17 +80,12 @@ public class FlexLayoutTests
         var paragraph = root.FindByTag("p");
         paragraph.Should().NotBeNull();
         paragraph!.Height.Should().BeLessOrEqualTo(80f + 0.5f,
-            "an overflow:hidden column item has no automatic minimum and shrinks to the container");
+            "the automatic minimum size (css-flexbox §4.5) applies only to overflow:visible, so a clipped item shrinks to the container");
     }
 
     [Fact]
     public void FlexColumn_ExplicitHeightLargerThanContent_StillShrinksToFitContainer()
     {
-        // The automatic minimum size (§4.5) is a CONTENT-based floor. An item with an
-        // explicit height has a baseSize equal to that specified height, not to its
-        // content need — pinning the automatic minimum to baseSize in that case would
-        // block flex-shrink from ever honoring an explicit height taller than the
-        // container, which is exactly the scenario flex-shrink exists to handle.
         var root = LayoutFlex(
             "<div style='display: flex; flex-direction: column; height: 60px; width: 200px'>" +
             "<p style='margin: 0; height: 500px; overflow: visible'>short</p>" +
@@ -117,14 +94,12 @@ public class FlexLayoutTests
         var paragraph = root.FindByTag("p");
         paragraph.Should().NotBeNull();
         paragraph!.Height.Should().BeApproximately(60f, 0.5f,
-            "an item's own explicit height must not become an automatic minimum that blocks shrinking to fit the container");
+            "the automatic minimum (§4.5) is a content-based floor, so an explicit height taller than the container still shrinks");
     }
 
     [Fact]
     public void FlexColumn_MaxHeightBelowContent_AutoMinimumClampedToMaxHeight()
     {
-        // The content-based automatic minimum is itself clamped by max-height, so an
-        // explicit max-height smaller than the content must win (min must not exceed max).
         string longText = string.Concat(System.Linq.Enumerable.Repeat(
             "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt. ", 20));
 
@@ -153,22 +128,15 @@ public class FlexLayoutTests
         var item1 = container.Children[0];
         var item2 = container.Children[1];
 
-        // Items should be stacked vertically
         item1.Height.Should().Be(50f);
         item2.Height.Should().Be(60f);
-
-        // Item2 should be below item1
-        item2.Y.Should().BeApproximately(item1.Y + 50f, 1f);
-
-        // Both should have the same X position
+        item2.Y.Should().BeApproximately(item1.Y + 50f, 1f, "a column stacks the second item below the first");
         item1.X.Should().BeApproximately(item2.X, 1f);
     }
 
     [Fact]
     public void FlexGrow_DistributesSpace()
     {
-        // Container width = 584px (600 - 2*8 body margin)
-        // Two items with flex-grow:1 each should share equally
         var root = LayoutFlex(
             "<div style='display: flex'>" +
             "<div style='flex-grow: 1; height: 50px'></div>" +
@@ -181,7 +149,6 @@ public class FlexLayoutTests
 
         float containerWidth = container.ContentWidth;
 
-        // Each item should get half the space
         item1.Width.Should().BeApproximately(containerWidth / 2, 1f);
         item2.Width.Should().BeApproximately(containerWidth / 2, 1f);
     }
@@ -189,7 +156,6 @@ public class FlexLayoutTests
     [Fact]
     public void FlexGrow_Proportional()
     {
-        // flex-grow:1 vs flex-grow:2 -> 1/3 and 2/3 of free space
         var root = LayoutFlex(
             "<div style='display: flex'>" +
             "<div style='flex-grow: 1; height: 50px'></div>" +
@@ -202,15 +168,13 @@ public class FlexLayoutTests
 
         float containerWidth = container.ContentWidth;
 
-        // Item1 should get 1/3, item2 should get 2/3
-        item1.Width.Should().BeApproximately(containerWidth / 3, 1f);
+        item1.Width.Should().BeApproximately(containerWidth / 3, 1f, "flex-grow 1 against 2 takes a third of the free space");
         item2.Width.Should().BeApproximately(containerWidth * 2 / 3, 1f);
     }
 
     [Fact]
     public void FlexShrink_AbsorbsNegativeSpace()
     {
-        // Container is 584px but items total 700px -> shrink needed
         var root = LayoutFlex(
             "<div style='display: flex'>" +
             "<div style='width: 400px; height: 50px'></div>" +
@@ -223,15 +187,10 @@ public class FlexLayoutTests
 
         float containerWidth = container.ContentWidth;
 
-        // Total of items should equal container width (they shrink to fit)
-        (item1.Width + item2.Width).Should().BeApproximately(containerWidth, 1f);
-
-        // Items should shrink proportionally to their sizes
-        // flex-shrink is 1 by default for both; shrink factor = shrink * baseSize
-        // item1: 1 * 400 = 400, item2: 1 * 300 = 300, total = 700
-        // Overflow = 700 - 584 = 116
-        // item1 shrinks by 116 * (400/700) = 66.3, item2 shrinks by 116 * (300/700) = 49.7
-        item1.Width.Should().BeGreaterThan(item2.Width);
+        (item1.Width + item2.Width).Should().BeApproximately(containerWidth, 1f,
+            "the 700px of items shrink to fit the 584px container");
+        item1.Width.Should().BeGreaterThan(item2.Width,
+            "the 116px overflow is taken in proportion to flex-shrink times base size: 66.3px from 400px, 49.7px from 300px");
     }
 
     [Fact]
@@ -251,7 +210,6 @@ public class FlexLayoutTests
         float totalItems = 200f;
         float freeSpace = containerWidth - totalItems;
 
-        // Items should be centered: offset = freeSpace/2
         float expectedStart = container.X + container.PaddingLeft + freeSpace / 2;
         item1.X.Should().BeApproximately(expectedStart, 1f);
         item2.X.Should().BeApproximately(expectedStart + 100f, 1f);
@@ -272,10 +230,7 @@ public class FlexLayoutTests
 
         float containerWidth = container.ContentWidth;
 
-        // First item at start
         item1.X.Should().BeApproximately(container.X + container.PaddingLeft, 1f);
-
-        // Last item at end
         item2.X.Should().BeApproximately(container.X + container.PaddingLeft + containerWidth - 100f, 1f);
     }
 
@@ -294,14 +249,12 @@ public class FlexLayoutTests
 
         float containerWidth = container.ContentWidth;
         float freeSpace = containerWidth - 200f;
-        float perItem = freeSpace / 2; // space-around: each item gets equal share
+        float spaceAroundEachItem = freeSpace / 2;
 
-        // First item offset by perItem/2
-        float expectedX1 = container.X + container.PaddingLeft + perItem / 2;
+        float expectedX1 = container.X + container.PaddingLeft + spaceAroundEachItem / 2;
         item1.X.Should().BeApproximately(expectedX1, 1f);
 
-        // Second item after first item + perItem gap
-        float expectedX2 = expectedX1 + 100f + perItem;
+        float expectedX2 = expectedX1 + 100f + spaceAroundEachItem;
         item2.X.Should().BeApproximately(expectedX2, 1f);
     }
 
@@ -320,19 +273,18 @@ public class FlexLayoutTests
 
         float containerWidth = container.ContentWidth;
         float freeSpace = containerWidth - 200f;
-        float gap = freeSpace / 3; // space-evenly: n+1 gaps
+        float evenGap = freeSpace / 3;
 
-        float expectedX1 = container.X + container.PaddingLeft + gap;
-        item1.X.Should().BeApproximately(expectedX1, 1f);
+        float expectedX1 = container.X + container.PaddingLeft + evenGap;
+        item1.X.Should().BeApproximately(expectedX1, 1f, "space-evenly splits the free space into one more gap than items");
 
-        float expectedX2 = expectedX1 + 100f + gap;
+        float expectedX2 = expectedX1 + 100f + evenGap;
         item2.X.Should().BeApproximately(expectedX2, 1f);
     }
 
     [Fact]
     public void AlignItems_Center()
     {
-        // Container with explicit height, items centered on cross axis
         var root = LayoutFlex(
             "<div style='display: flex; align-items: center; height: 200px'>" +
             "<div style='width: 100px; height: 50px'></div>" +
@@ -341,16 +293,13 @@ public class FlexLayoutTests
         var container = FindInnerDivs(root)[0];
         var item = container.Children[0];
 
-        // Item should be vertically centered
-        // Line cross size is the explicit container height (200px)
         float expectedY = container.Y + container.PaddingTop + (200f - 50f) / 2;
-        item.Y.Should().BeApproximately(expectedY, 1f);
+        item.Y.Should().BeApproximately(expectedY, 1f, "the line's cross size is the container's explicit 200px height");
     }
 
     [Fact]
     public void AlignItems_Stretch()
     {
-        // Default: items stretch to fill cross axis
         var root = LayoutFlex(
             "<div style='display: flex; height: 200px'>" +
             "<div style='width: 100px'></div>" +
@@ -359,14 +308,12 @@ public class FlexLayoutTests
         var container = FindInnerDivs(root)[0];
         var item = container.Children[0];
 
-        // Item should stretch to container height (200px)
-        item.Height.Should().BeApproximately(200f, 1f);
+        item.Height.Should().BeApproximately(200f, 1f, "align-items defaults to stretch");
     }
 
     [Fact]
     public void FlexWrap_ItemsWrapToNextLine()
     {
-        // Container is 584px, 200+200=400 fits, third 200 wraps (400+200=600 > 584)
         var root = LayoutFlex(
             "<div style='display: flex; flex-wrap: wrap'>" +
             "<div style='width: 200px; height: 50px'></div>" +
@@ -375,19 +322,14 @@ public class FlexLayoutTests
             "</div>");
 
         var container = FindInnerDivs(root)[0];
-
-        // Should have 3 children
         container.Children.Count.Should().Be(3);
 
         var item1 = container.Children[0];
         var item2 = container.Children[1];
         var item3 = container.Children[2];
 
-        // First two items should be on the same line (side by side)
-        item1.Y.Should().BeApproximately(item2.Y, 1f);
-
-        // Third item should be on a new line (below)
-        item3.Y.Should().BeGreaterThan(item1.Y);
+        item1.Y.Should().BeApproximately(item2.Y, 1f, "two 200px items fit the 584px container");
+        item3.Y.Should().BeGreaterThan(item1.Y, "a third would need 600px, so it wraps");
     }
 
     [Fact]
@@ -403,7 +345,6 @@ public class FlexLayoutTests
         var item1 = container.Children[0];
         var item2 = container.Children[1];
 
-        // Gap of 20px between items
         float expectedX2 = item1.X + 100f + 20f;
         item2.X.Should().BeApproximately(expectedX2, 1f);
     }
@@ -411,7 +352,6 @@ public class FlexLayoutTests
     [Fact]
     public void FlexBasis_OverridesWidth()
     {
-        // flex-basis: 200px should override width: 100px
         var root = LayoutFlex(
             "<div style='display: flex'>" +
             "<div style='width: 100px; flex-basis: 200px; height: 50px'></div>" +
@@ -438,12 +378,10 @@ public class FlexLayoutTests
         var outerContainer = FindInnerDivs(root)[0];
         outerContainer.Children.Count.Should().Be(2);
 
-        // Inner flex container
         var innerContainer = outerContainer.Children[0];
         innerContainer.Style.Display.Should().Be("flex");
         innerContainer.Children.Count.Should().Be(2);
 
-        // Inner items should be stacked vertically
         var innerItem1 = innerContainer.Children[0];
         var innerItem2 = innerContainer.Children[1];
         innerItem2.Y.Should().BeGreaterThan(innerItem1.Y);
@@ -461,12 +399,10 @@ public class FlexLayoutTests
             "</div>");
 
         var container = FindInnerDivs(root)[0];
-        var item1 = container.Children[0]; // first in DOM
-        var item2 = container.Children[1]; // second in DOM
+        var firstInDom = container.Children[0];
+        var secondInDom = container.Children[1];
 
-        // In row-reverse, last DOM item should be positioned first (leftmost)
-        // item2 (second in DOM) should be at left, item1 at right
-        item2.X.Should().BeLessThan(item1.X);
+        secondInDom.X.Should().BeLessThan(firstInDom.X, "row-reverse puts the last DOM item leftmost");
     }
 
     [Fact]
@@ -504,9 +440,7 @@ public class FlexLayoutTests
 
         var container = FindInnerDivs(root)[0];
 
-        // Container height should be determined by tallest child (80px)
-        // because align-items:stretch makes children stretch to max height
-        container.Height.Should().BeApproximately(80f, 1f);
+        container.Height.Should().BeApproximately(80f, 1f, "an auto-height row is as tall as its tallest item");
     }
 
     [Fact]
@@ -531,11 +465,10 @@ public class FlexLayoutTests
             "</div>");
 
         var container = FindInnerDivs(root)[0];
-        var item1 = container.Children[0]; // first in DOM
-        var item2 = container.Children[1]; // second in DOM
+        var firstInDom = container.Children[0];
+        var secondInDom = container.Children[1];
 
-        // In column-reverse, last DOM item should be positioned first (top)
-        item2.Y.Should().BeLessThan(item1.Y);
+        secondInDom.Y.Should().BeLessThan(firstInDom.Y, "column-reverse puts the last DOM item on top");
     }
 
     [Fact]
@@ -548,11 +481,10 @@ public class FlexLayoutTests
             "</div>");
 
         var container = FindInnerDivs(root)[0];
-        var item1 = container.Children[0]; // align-self: flex-end
-        var item2 = container.Children[1]; // inherits flex-start
+        var alignedToEnd = container.Children[0];
+        var alignedToStart = container.Children[1];
 
-        // item1 should be at the bottom, item2 at the top
-        item1.Y.Should().BeGreaterThan(item2.Y);
+        alignedToEnd.Y.Should().BeGreaterThan(alignedToStart.Y, "align-self: flex-end overrides align-items: flex-start");
     }
 
     [Fact]
@@ -568,15 +500,13 @@ public class FlexLayoutTests
 
         float containerWidth = container.ContentWidth;
 
-        // Item should be at the right edge
-        float expectedX = container.X + container.PaddingLeft + containerWidth - 100f;
-        item.X.Should().BeApproximately(expectedX, 1f);
+        float rightEdgeX = container.X + container.PaddingLeft + containerWidth - 100f;
+        item.X.Should().BeApproximately(rightEdgeX, 1f);
     }
 
     [Fact]
     public void FlexGrow_WithFixedItems()
     {
-        // One fixed-width item, one growing
         var root = LayoutFlex(
             "<div style='display: flex'>" +
             "<div style='width: 100px; height: 50px'></div>" +
@@ -589,7 +519,6 @@ public class FlexLayoutTests
 
         fixedItem.Width.Should().BeApproximately(100f, 1f);
 
-        // Growing item should fill remaining space
         float containerWidth = container.ContentWidth;
         growItem.Width.Should().BeApproximately(containerWidth - 100f, 1f);
     }
@@ -606,13 +535,11 @@ public class FlexLayoutTests
 
         var container = FindInnerDivs(root)[0];
 
-        // Only 2 visible children
         container.Children.Count.Should().Be(2);
 
-        // Second visible item should be right after first (no gap from hidden)
         var item1 = container.Children[0];
         var item2 = container.Children[1];
-        item2.X.Should().BeApproximately(item1.X + 100f, 1f);
+        item2.X.Should().BeApproximately(item1.X + 100f, 1f, "the display:none item leaves no gap");
     }
 
     [Fact]
@@ -629,7 +556,6 @@ public class FlexLayoutTests
         container.PaddingLeft.Should().Be(20f);
         container.PaddingTop.Should().Be(20f);
 
-        // Item should respect container padding
         item.X.Should().BeApproximately(container.X + 20f, 1f);
         item.Y.Should().BeApproximately(container.Y + 20f, 1f);
     }
@@ -637,10 +563,6 @@ public class FlexLayoutTests
     [Fact]
     public void FlexShorthand_SingleNumber_ProportionalSizing()
     {
-        // flex: 2 + flex: 1 + flex: 1 + flex: 1 → widths in 2:1:1:1 ratio
-        // CSS spec: flex: <n> means flex-grow:<n>, flex-shrink:1, flex-basis:0
-        // With flex-basis:0, ALL container space is distributed by grow ratio
-        // Using explicit width on items to prove flex-basis:0 overrides it
         var root = LayoutFlex(
             "<div style='display: flex'>" +
             "<div style='flex: 2; width: 50px; height: 50px'></div>" +
@@ -657,9 +579,8 @@ public class FlexLayoutTests
         var item3 = container.Children[2];
         var item4 = container.Children[3];
 
-        // flex-basis:0 means full container width distributed 2:1:1:1,
-        // ignoring the width:50px (flex-basis:0 takes precedence over width)
-        item1.Width.Should().BeApproximately(w * 2f / 5f, 1f);
+        item1.Width.Should().BeApproximately(w * 2f / 5f, 1f,
+            "flex: <n> means flex-basis 0, so the whole width is shared 2:1:1:1 and width:50px is ignored");
         item2.Width.Should().BeApproximately(w * 1f / 5f, 1f);
         item3.Width.Should().BeApproximately(w * 1f / 5f, 1f);
         item4.Width.Should().BeApproximately(w * 1f / 5f, 1f);
@@ -668,7 +589,6 @@ public class FlexLayoutTests
     [Fact]
     public void FlexShorthand_None_ZeroGrow()
     {
-        // flex: none → flex-grow:0, flex-shrink:0, flex-basis:auto → item keeps natural size
         var root = LayoutFlex(
             "<div style='display: flex'>" +
             "<div style='flex: none; width: 100px; height: 50px'></div>" +
@@ -679,18 +599,13 @@ public class FlexLayoutTests
         var item1 = container.Children[0];
         var item2 = container.Children[1];
 
-        // flex: none → items keep their specified widths, no grow or shrink
-        item1.Width.Should().BeApproximately(100f, 1f);
+        item1.Width.Should().BeApproximately(100f, 1f, "flex: none neither grows nor shrinks");
         item2.Width.Should().BeApproximately(80f, 1f);
     }
 
     [Fact]
     public void FlexRow_SpaceBetween_BlockChildItems_SizedToTextNotContainerWidth()
     {
-        // Two items each wrapping block <p> children (no explicit widths, no flex properties).
-        // Without the fix: each item's baseSize = container width (inflated by auto-width <p> blocks).
-        // With the fix: each item's baseSize = max leaf text width, much smaller than container.
-        // Result: neither item should be anywhere near the container width (400px).
         var root = LayoutFlex(
             "<div style='display:flex; justify-content:space-between; width:400px; margin:0; padding:0'>" +
             "<div style='margin:0; padding:0'><p style='margin:0'>Left item</p></div>" +
@@ -701,12 +616,9 @@ public class FlexLayoutTests
         var item1 = container.Children[0];
         var item2 = container.Children[1];
 
-        // If content-based sizing is wrong, items would each be ~200px (shrunk from 400px).
-        // With correct sizing, items should be their text widths (~50-80px each).
-        item1.Width.Should().BeLessThan(200f, "item should be sized to text, not container");
+        item1.Width.Should().BeLessThan(200f,
+            "an item wrapping an auto-width <p> is sized to its text, not to the 400px container shrunk in half");
         item2.Width.Should().BeLessThan(200f, "item should be sized to text, not container");
-
-        // Items at opposite ends (space-between) — item2 should start well past item1
         item2.X.Should().BeGreaterThan(item1.X + item1.Width + 50f,
             "space-between should place items far apart when they are narrower than container");
     }
@@ -714,7 +626,6 @@ public class FlexLayoutTests
     [Fact]
     public void FlexGrow_ProportionalRatio_FlexShorthand_2and1()
     {
-        // flex:2 + flex:1 + flex:1 → widths in ratio 2:1:1 → 200:100:100 in 400px
         var root = LayoutFlex(
             "<div style='display:flex; width:400px; margin:0; padding:0'>" +
             "<div style='flex:2; margin:0; padding:0'></div>" +
@@ -733,8 +644,6 @@ public class FlexLayoutTests
     [Fact]
     public void FlexRow_AutoWidthItems_InnerBlockChildrenFitFinalWidth()
     {
-        // Two flex:1 items each wrapping a <p>. After layout the <p> must fit
-        // within its flex-parent, not overflow at the initial full-container width.
         var root = LayoutFlex(
             "<div style='display:flex; width:400px; margin:0; padding:0'>" +
             "<div style='flex:1; margin:0; padding:0'>" +
@@ -754,9 +663,9 @@ public class FlexLayoutTests
         item1.Width.Should().BeApproximately(200f, 1f);
         item2.Width.Should().BeApproximately(200f, 1f);
 
-        // Inner <p> tags must not exceed their parent's width
         foreach (var child in item1.Children)
-            child.Width.Should().BeLessOrEqualTo(item1.Width + 0.5f, "inner content must fit within flex item");
+            child.Width.Should().BeLessOrEqualTo(item1.Width + 0.5f,
+                "the <p> is laid out at the item's final width, not the initial full-container width");
         foreach (var child in item2.Children)
             child.Width.Should().BeLessOrEqualTo(item2.Width + 0.5f, "inner content must fit within flex item");
     }
@@ -764,8 +673,6 @@ public class FlexLayoutTests
     [Fact]
     public void FlexRow_SpaceBetween_AutoWidth_InnerChildrenDoNotOverflow()
     {
-        // justify-content: space-between with two auto-width items.
-        // Each item's inner block must not overflow into the other item's space.
         var root = LayoutFlex(
             "<div style='display:flex; justify-content:space-between; width:400px; margin:0; padding:0'>" +
             "<div style='margin:0; padding:0'><p style='margin:0'>Left text</p></div>" +
@@ -776,10 +683,8 @@ public class FlexLayoutTests
         var item1 = container.Children[0];
         var item2 = container.Children[1];
 
-        // Items must not overlap
         item2.X.Should().BeGreaterOrEqualTo(item1.X + item1.Width - 0.5f, "items must not overlap");
 
-        // Inner children must fit within their parent
         foreach (var child in item1.Children)
             child.Width.Should().BeLessOrEqualTo(item1.Width + 0.5f);
         foreach (var child in item2.Children)
@@ -789,9 +694,6 @@ public class FlexLayoutTests
     [Fact]
     public void Order_ReordersItems()
     {
-        // DOM order: A(order=2), B(order=0), C(order=1)
-        // Visual/paint order (sorted by `order`): B(0), C(1), A(2)
-        // container.Children are in visual order after layout.
         var root = LayoutFlex(
             "<div style='display:flex; margin:0; padding:0; width:300px'>" +
             "<div style='order:2; width:80px; height:50px; margin:0'>A</div>" +
@@ -802,27 +704,21 @@ public class FlexLayoutTests
         var container = FindInnerDivs(root)[0];
         container.Children.Count.Should().Be(3);
 
-        // Children in container are in visual order (sorted by `order` property):
-        // [0] = B(order=0), [1] = C(order=1), [2] = A(order=2)
-        var visual1 = container.Children[0]; // should be B (order=0)
-        var visual2 = container.Children[1]; // should be C (order=1)
-        var visual3 = container.Children[2]; // should be A (order=2)
+        var visual1 = container.Children[0];
+        var visual2 = container.Children[1];
+        var visual3 = container.Children[2];
 
-        // Verify sorted by `order` value
         visual1.Style.Get("order").Should().Be("0", "first visual item should be B (order=0)");
         visual2.Style.Get("order").Should().Be("1", "second visual item should be C (order=1)");
         visual3.Style.Get("order").Should().Be("2", "third visual item should be A (order=2)");
 
-        // And they should be physically side-by-side left-to-right
-        visual1.X.Should().BeLessThan(visual2.X);
+        visual1.X.Should().BeLessThan(visual2.X, "layout children come in order-property order, placed left to right");
         visual2.X.Should().BeLessThan(visual3.X);
     }
 
     [Fact]
     public void FlexShorthand_ThreeValues_GrowShrinkBasis()
     {
-        // flex: 1 0 100px → grow=1, shrink=0, basis=100px
-        // Two items: flex: 1 0 100px → each starts at 100px basis, then grows equally
         var root = LayoutFlex(
             "<div style='display:flex; width:400px; margin:0; padding:0'>" +
             "<div style='flex: 1 0 100px; margin:0'></div>" +
@@ -835,8 +731,8 @@ public class FlexLayoutTests
         var item1 = container.Children[0];
         var item2 = container.Children[1];
 
-        // Each starts at 100px basis + equal share of remaining 200px = 200px each
-        item1.Width.Should().BeApproximately(200f, 2f);
+        item1.Width.Should().BeApproximately(200f, 2f,
+            "flex: 1 0 100px starts each item at its 100px basis and shares the remaining 200px equally");
         item2.Width.Should().BeApproximately(200f, 2f);
     }
 }
