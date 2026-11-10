@@ -1,11 +1,13 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 
 namespace EggPdf.Core;
 
 /// <summary>
 /// Represents an RGBA color value.
 /// </summary>
-public readonly struct Color : IEquatable<Color>
+public readonly partial struct Color : IEquatable<Color>
 {
     public byte R { get; }
     public byte G { get; }
@@ -85,7 +87,8 @@ public readonly struct Color : IEquatable<Color>
         => CssNamedColors.TryGet(name, out var color) ? color : null;
 
     /// <summary>
-    /// Try to parse any CSS color value: hex, named, rgb(), rgba(), hsl(), hsla().
+    /// Try to parse any CSS color value: hex, named, rgb(), rgba(), hsl(), hsla(), hwb(), lab(), lch(), oklab(), oklch(),
+    /// color(), color-mix() and light-dark().
     /// Returns null if the value cannot be parsed.
     /// </summary>
     public static Color? TryParse(string? value)
@@ -95,24 +98,20 @@ public readonly struct Color : IEquatable<Color>
 
         value = value.Trim();
 
-        if (value == "transparent")
+        if (string.Equals(value, "transparent", StringComparison.OrdinalIgnoreCase))
             return Transparent;
 
-        if (value.StartsWith("#"))
+        if (value[0] == '#')
         {
             try { return FromHex(value); }
             catch { return null; }
         }
 
         if (value.StartsWith("rgb", StringComparison.OrdinalIgnoreCase))
-        {
             return TryParseRgbFunction(value);
-        }
 
         if (value.StartsWith("hsl", StringComparison.OrdinalIgnoreCase))
-        {
             return TryParseHslFunction(value);
-        }
 
         if (value.StartsWith("color-mix(", StringComparison.OrdinalIgnoreCase))
             return TryParseColorMix(value);
@@ -143,20 +142,8 @@ public readonly struct Color : IEquatable<Color>
 
     private static Color? TryParseRgbFunction(string value)
     {
-        int openParen = value.IndexOf('(');
-        int closeParen = value.LastIndexOf(')');
-        if (openParen < 0 || closeParen < 0) return null;
-
-        var inner = value.Substring(openParen + 1, closeParen - openParen - 1).Trim();
-
-        float alpha = 1f;
-        int slashIdx = inner.IndexOf('/');
-        if (slashIdx >= 0)
-        {
-            var alphaPart = inner.Substring(slashIdx + 1).Trim();
-            alpha = ParseColorNumber(alphaPart, true);
-            inner = inner.Substring(0, slashIdx).Trim();
-        }
+        var inner = ExtractInner(value); if (inner == null) return null;
+        float? alpha = SplitAlpha(ref inner);
 
         var parts = inner.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 3) return null;
@@ -165,56 +152,83 @@ public readonly struct Color : IEquatable<Color>
         byte g = ClampByte(ParseColorNumber(parts[1].Trim(), false));
         byte b = ClampByte(ParseColorNumber(parts[2].Trim(), false));
 
-        if (parts.Length >= 4 && slashIdx < 0)
+        if (parts.Length >= 4 && !alpha.HasValue)
             alpha = ParseColorNumber(parts[3].Trim(), true);
 
-        return FromRgba(r, g, b, ClampByte(alpha * 255f));
+        return FromRgba(r, g, b, AlphaByte(alpha));
     }
 
     private static Color? TryParseHslFunction(string value)
     {
-        int openParen = value.IndexOf('(');
-        int closeParen = value.LastIndexOf(')');
-        if (openParen < 0 || closeParen < 0) return null;
-
-        var inner = value.Substring(openParen + 1, closeParen - openParen - 1).Trim();
-
-        float alpha = 1f;
-        int slashIdx = inner.IndexOf('/');
-        if (slashIdx >= 0)
-        {
-            alpha = ParseColorNumber(inner.Substring(slashIdx + 1).Trim(), true);
-            inner = inner.Substring(0, slashIdx).Trim();
-        }
+        var inner = ExtractInner(value); if (inner == null) return null;
+        float? alpha = SplitAlpha(ref inner);
 
         var parts = inner.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 3) return null;
 
-        float h = ParseColorNumber(parts[0].Trim().TrimEnd('d', 'e', 'g'), false);
-        float s = ParseColorNumber(parts[1].Trim().TrimEnd('%'), false) / 100f;
-        float l = ParseColorNumber(parts[2].Trim().TrimEnd('%'), false) / 100f;
+        float h = ParseHue(parts[0]);
+        float s = ParseScaledComponent(parts[1], 100f) / 100f;
+        float l = ParseScaledComponent(parts[2], 100f) / 100f;
 
-        if (parts.Length >= 4 && slashIdx < 0)
+        if (parts.Length >= 4 && !alpha.HasValue)
             alpha = ParseColorNumber(parts[3].Trim(), true);
 
         HslToRgb(h, s, l, out byte r, out byte g, out byte b);
-        return FromRgba(r, g, b, ClampByte(alpha * 255f));
+        return FromRgba(r, g, b, AlphaByte(alpha));
     }
+
+    /// <summary>Removes a "/ alpha" suffix from <paramref name="inner"/> and returns the alpha (0-1), or null when there is none.</summary>
+    private static float? SplitAlpha(ref string inner)
+    {
+        int slashIdx = inner.IndexOf('/');
+        if (slashIdx < 0) return null;
+        float alpha = ParseColorNumber(inner.Substring(slashIdx + 1).Trim(), true);
+        inner = inner.Substring(0, slashIdx).Trim();
+        return alpha;
+    }
+
+    private static byte AlphaByte(float? alpha) => alpha.HasValue ? ClampByte(alpha.Value * 255f) : (byte)255;
+
+    private static bool EndsWithPercent(string s) => s.Length > 0 && s[s.Length - 1] == '%';
 
     private static float ParseColorNumber(string s, bool isAlpha)
     {
         s = s.Trim();
-        if (s.EndsWith("%"))
+        if (EndsWithPercent(s))
         {
-            if (float.TryParse(s.Substring(0, s.Length - 1), System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out float pct))
+            if (float.TryParse(s.Substring(0, s.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out float pct))
                 return isAlpha ? pct / 100f : pct / 100f * 255f;
             return 0;
         }
-        if (float.TryParse(s, System.Globalization.NumberStyles.Float,
-            System.Globalization.CultureInfo.InvariantCulture, out float val))
+        if (float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out float val))
             return val;
         return 0;
+    }
+
+    /// <summary>A number, or a percentage of <paramref name="hundredPercent"/> ("none" is 0).</summary>
+    private static float ParseScaledComponent(string s, float hundredPercent)
+    {
+        s = s.Trim();
+        bool isPercent = EndsWithPercent(s);
+        if (isPercent) s = s.Substring(0, s.Length - 1);
+        if (!float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out float val))
+            return 0;
+        return isPercent ? val / 100f * hundredPercent : val;
+    }
+
+    /// <summary>A CSS hue in degrees: a bare number is degrees; deg, grad, rad and turn units are converted.</summary>
+    private static float ParseHue(string token)
+    {
+        token = token.Trim();
+        if (token.EndsWith("deg", StringComparison.OrdinalIgnoreCase))
+            return ParseScaledComponent(token.Substring(0, token.Length - 3), 0f);
+        if (token.EndsWith("grad", StringComparison.OrdinalIgnoreCase))
+            return ParseScaledComponent(token.Substring(0, token.Length - 4), 0f) * 0.9f;
+        if (token.EndsWith("rad", StringComparison.OrdinalIgnoreCase))
+            return (float)(ParseScaledComponent(token.Substring(0, token.Length - 3), 0f) * 180.0 / Math.PI);
+        if (token.EndsWith("turn", StringComparison.OrdinalIgnoreCase))
+            return ParseScaledComponent(token.Substring(0, token.Length - 4), 0f) * 360f;
+        return ParseScaledComponent(token, 0f);
     }
 
     private static byte ClampByte(float value)
@@ -244,179 +258,100 @@ public readonly struct Color : IEquatable<Color>
         b = ClampByte((b1 + m) * 255f);
     }
 
-    private static Color? TryParseColorMix(string value)
-    {
-        int openParen = value.IndexOf('(');
-        int closeParen = value.LastIndexOf(')');
-        if (openParen < 0 || closeParen < 0) return null;
-
-        var inner = value.Substring(openParen + 1, closeParen - openParen - 1).Trim();
-
-        var parts = inner.Split(',');
-        if (parts.Length != 3) return null;
-
-        var (c1, p1) = ParseColorWithOptionalPct(parts[1].Trim());
-        var (c2, p2) = ParseColorWithOptionalPct(parts[2].Trim());
-
-        if (c1 == null || c2 == null) return null;
-
-        float w1 = p1 ?? (p2.HasValue ? 1f - p2.Value : 0.5f);
-        float w2 = p2 ?? (1f - w1);
-
-        float total = w1 + w2;
-        if (total <= 0) return null;
-        w1 /= total;
-        w2 /= total;
-
-        byte r = ClampByte(c1.Value.R * w1 + c2.Value.R * w2);
-        byte g = ClampByte(c1.Value.G * w1 + c2.Value.G * w2);
-        byte b = ClampByte(c1.Value.B * w1 + c2.Value.B * w2);
-        byte a = ClampByte(c1.Value.A * w1 + c2.Value.A * w2);
-        return FromRgba(r, g, b, a);
-    }
-
     /// <summary>light-dark(light, dark): a PDF is always rendered in the light color scheme, so this is the first argument.</summary>
     private static Color? TryParseLightDark(string value)
     {
-        int openParen = value.IndexOf('(');
-        int closeParen = value.LastIndexOf(')');
-        if (openParen < 0 || closeParen < 0) return null;
-
-        var inner = value.Substring(openParen + 1, closeParen - openParen - 1).Trim();
-
-        int commaPos = -1;
-        int depth = 0;
-        for (int i = 0; i < inner.Length; i++)
-        {
-            if (inner[i] == '(') depth++;
-            else if (inner[i] == ')') depth--;
-            else if (inner[i] == ',' && depth == 0) { commaPos = i; break; }
-        }
-        if (commaPos < 0) return null;
-
-        var lightPart = inner.Substring(0, commaPos).Trim();
-        return TryParse(lightPart);
+        var inner = ExtractInner(value); if (inner == null) return null;
+        var parts = SplitTopLevel(inner, ',');
+        return parts.Count == 2 ? TryParse(parts[0]) : null;
     }
 
     private static Color? TryParseHwb(string value)
     {
         var inner = ExtractInner(value); if (inner == null) return null;
-        float alpha = 1f;
-        var slashIdx = inner.IndexOf('/');
-        if (slashIdx >= 0)
-        {
-            alpha = ParseColorNumber(inner.Substring(slashIdx + 1).Trim(), true);
-            inner = inner.Substring(0, slashIdx).Trim();
-        }
+        float? alpha = SplitAlpha(ref inner);
         var parts = inner.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 3) return null;
-        float h = ParseColorNumber(parts[0].TrimEnd('d','e','g'), false);
-        float w = ParseColorNumber(parts[1].TrimEnd('%'), false) / 100f;
-        float b = ParseColorNumber(parts[2].TrimEnd('%'), false) / 100f;
+        float h = ParseHue(parts[0]);
+        float w = ParseScaledComponent(parts[1], 100f) / 100f;
+        float b = ParseScaledComponent(parts[2], 100f) / 100f;
         if (w + b > 1f) { float s = w + b; w /= s; b /= s; }
         HslToRgb(h, 1f, 0.5f, out byte r0, out byte g0, out byte b0);
         float rf = r0 / 255f, gf = g0 / 255f, bf = b0 / 255f;
         rf = rf * (1f - w - b) + w;
         gf = gf * (1f - w - b) + w;
         bf = bf * (1f - w - b) + w;
-        return FromRgba(ClampByte(rf * 255f), ClampByte(gf * 255f), ClampByte(bf * 255f), ClampByte(alpha * 255f));
+        return FromRgba(ClampByte(rf * 255f), ClampByte(gf * 255f), ClampByte(bf * 255f), AlphaByte(alpha));
     }
+
+    private const float OklabLightnessAt100Percent = 1f;
+    private const float OklabAxisAt100Percent = 0.4f;
+    private const float LabLightnessAt100Percent = 100f;
+    private const float LabAxisAt100Percent = 125f;
+    private const float LchChromaAt100Percent = 150f;
 
     private static Color? TryParseOklab(string value)
     {
         var inner = ExtractInner(value); if (inner == null) return null;
-        float alpha = 1f;
-        var slashIdx = inner.IndexOf('/');
-        if (slashIdx >= 0) { alpha = ParseColorNumber(inner.Substring(slashIdx + 1).Trim(), true); inner = inner.Substring(0, slashIdx).Trim(); }
+        float? alpha = SplitAlpha(ref inner);
         var parts = inner.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 3) return null;
-        float L = ParseColorNumber(parts[0].TrimEnd('%'), false);
-        if (parts[0].EndsWith("%")) L /= 100f;
-        float a = ParseColorNumber(parts[1], false);
-        float b = ParseColorNumber(parts[2], false);
-        OklabToSrgb(L, a, b, out float r, out float g, out float bl);
-        return FromRgba(ClampByte(r * 255f), ClampByte(g * 255f), ClampByte(bl * 255f), ClampByte(alpha * 255f));
+        float L = ParseScaledComponent(parts[0], OklabLightnessAt100Percent);
+        float a = ParseScaledComponent(parts[1], OklabAxisAt100Percent);
+        float b = ParseScaledComponent(parts[2], OklabAxisAt100Percent);
+        return FromOklab(L, a, b, alpha);
     }
 
     private static Color? TryParseOklch(string value)
     {
         var inner = ExtractInner(value); if (inner == null) return null;
-        float alpha = 1f;
-        var slashIdx = inner.IndexOf('/');
-        if (slashIdx >= 0) { alpha = ParseColorNumber(inner.Substring(slashIdx + 1).Trim(), true); inner = inner.Substring(0, slashIdx).Trim(); }
+        float? alpha = SplitAlpha(ref inner);
         var parts = inner.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 3) return null;
-        float L = ParseColorNumber(parts[0].TrimEnd('%'), false);
-        if (parts[0].EndsWith("%")) L /= 100f;
-        float C = ParseColorNumber(parts[1], false);
-        float H = ParseColorNumber(parts[2].TrimEnd('d','e','g'), false);
-        float hRad = H * (float)Math.PI / 180f;
-        float a = C * (float)Math.Cos(hRad);
-        float b = C * (float)Math.Sin(hRad);
-        OklabToSrgb(L, a, b, out float r, out float g, out float bl);
-        return FromRgba(ClampByte(r * 255f), ClampByte(g * 255f), ClampByte(bl * 255f), ClampByte(alpha * 255f));
+        float L = ParseScaledComponent(parts[0], OklabLightnessAt100Percent);
+        float C = ParseScaledComponent(parts[1], OklabAxisAt100Percent);
+        double hRad = ParseHue(parts[2]) * Math.PI / 180.0;
+        return FromOklab(L, (float)(C * Math.Cos(hRad)), (float)(C * Math.Sin(hRad)), alpha);
     }
 
     private static Color? TryParseLab(string value)
     {
         var inner = ExtractInner(value); if (inner == null) return null;
-        float alpha = 1f;
-        var slashIdx = inner.IndexOf('/');
-        if (slashIdx >= 0) { alpha = ParseColorNumber(inner.Substring(slashIdx + 1).Trim(), true); inner = inner.Substring(0, slashIdx).Trim(); }
+        float? alpha = SplitAlpha(ref inner);
         var parts = inner.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 3) return null;
-        float L = ParseColorNumber(parts[0].TrimEnd('%'), false);
-        float a = ParseColorNumber(parts[1], false);
-        float b = ParseColorNumber(parts[2], false);
-        CieLabToSrgb(L, a, b, out float r, out float g, out float bl);
-        return FromRgba(ClampByte(r * 255f), ClampByte(g * 255f), ClampByte(bl * 255f), ClampByte(alpha * 255f));
+        float L = ParseScaledComponent(parts[0], LabLightnessAt100Percent);
+        float a = ParseScaledComponent(parts[1], LabAxisAt100Percent);
+        float b = ParseScaledComponent(parts[2], LabAxisAt100Percent);
+        return FromCieLab(L, a, b, alpha);
     }
 
     private static Color? TryParseLch(string value)
     {
         var inner = ExtractInner(value); if (inner == null) return null;
-        float alpha = 1f;
-        var slashIdx = inner.IndexOf('/');
-        if (slashIdx >= 0) { alpha = ParseColorNumber(inner.Substring(slashIdx + 1).Trim(), true); inner = inner.Substring(0, slashIdx).Trim(); }
+        float? alpha = SplitAlpha(ref inner);
         var parts = inner.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 3) return null;
-        float L = ParseColorNumber(parts[0].TrimEnd('%'), false);
-        float C = ParseColorNumber(parts[1], false);
-        float H = ParseColorNumber(parts[2].TrimEnd('d','e','g'), false);
-        float hRad = H * (float)Math.PI / 180f;
-        float a = C * (float)Math.Cos(hRad);
-        float b = C * (float)Math.Sin(hRad);
-        CieLabToSrgb(L, a, b, out float r, out float g, out float bl);
-        return FromRgba(ClampByte(r * 255f), ClampByte(g * 255f), ClampByte(bl * 255f), ClampByte(alpha * 255f));
+        float L = ParseScaledComponent(parts[0], LabLightnessAt100Percent);
+        float C = ParseScaledComponent(parts[1], LchChromaAt100Percent);
+        double hRad = ParseHue(parts[2]) * Math.PI / 180.0;
+        return FromCieLab(L, (float)(C * Math.Cos(hRad)), (float)(C * Math.Sin(hRad)), alpha);
     }
 
-    private static Color? TryParseColorFunction(string value)
+    private static Color FromOklab(float L, float a, float b, float? alpha)
     {
-        var inner = ExtractInner(value); if (inner == null) return null;
-        float alpha = 1f;
-        var slashIdx = inner.IndexOf('/');
-        if (slashIdx >= 0) { alpha = ParseColorNumber(inner.Substring(slashIdx + 1).Trim(), true); inner = inner.Substring(0, slashIdx).Trim(); }
-        var parts = inner.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 4) return null;
-        float c1 = ParseColorNumber(parts[1], false);
-        float c2 = ParseColorNumber(parts[2], false);
-        float c3 = ParseColorNumber(parts[3], false);
-        var cs = parts[0].ToLowerInvariant();
-        float r, g, b;
-        if (cs == "display-p3")
-        {
-            r = Math.Max(0, Math.Min(1, 0.8225f * c1 + 0.1774f * c2 + 0.0001f * c3));
-            g = Math.Max(0, Math.Min(1, 0.0332f * c1 + 0.9669f * c2 - 0.0001f * c3));
-            b = Math.Max(0, Math.Min(1, 0.0171f * c1 + 0.0724f * c2 + 0.9108f * c3));
-        }
-        else
-        {
-            r = Math.Max(0, Math.Min(1, c1));
-            g = Math.Max(0, Math.Min(1, c2));
-            b = Math.Max(0, Math.Min(1, c3));
-        }
-        return FromRgba(ClampByte(r * 255f), ClampByte(g * 255f), ClampByte(b * 255f), ClampByte(alpha * 255f));
+        OklabToSrgb(L, a, b, out double r, out double g, out double bl);
+        return FromUnitRgb(r, g, bl, alpha);
     }
+
+    private static Color FromCieLab(float L, float a, float b, float? alpha)
+    {
+        CieLabToSrgb(L, a, b, out double r, out double g, out double bl);
+        return FromUnitRgb(r, g, bl, alpha);
+    }
+
+    private static Color FromUnitRgb(double r, double g, double b, float? alpha)
+        => FromRgba(ClampByte((float)(r * 255.0)), ClampByte((float)(g * 255.0)), ClampByte((float)(b * 255.0)), AlphaByte(alpha));
 
     private static string? ExtractInner(string value)
     {
@@ -426,65 +361,24 @@ public readonly struct Color : IEquatable<Color>
         return value.Substring(op + 1, cp - op - 1).Trim();
     }
 
-    private static void OklabToSrgb(float L, float a, float b, out float r, out float g, out float bl)
+    /// <summary>Splits on <paramref name="separator"/> outside parentheses, trimming each part.</summary>
+    private static List<string> SplitTopLevel(string value, char separator)
     {
-        float l_ = L + 0.3963377774f * a + 0.2158037573f * b;
-        float m_ = L - 0.1055613458f * a - 0.0638541728f * b;
-        float s_ = L - 0.0894841775f * a - 1.2914855480f * b;
-        float lc = l_ * l_ * l_;
-        float mc = m_ * m_ * m_;
-        float sc = s_ * s_ * s_;
-        float lr = 4.0767416621f * lc - 3.3077115913f * mc + 0.2309699292f * sc;
-        float lg = -1.2684380046f * lc + 2.6097574011f * mc - 0.3413193965f * sc;
-        float lb = -0.0041960863f * lc - 0.7034186147f * mc + 1.7076147010f * sc;
-        r = LinearToGamma(lr); g = LinearToGamma(lg); bl = LinearToGamma(lb);
-        r = Math.Max(0, Math.Min(1, r));
-        g = Math.Max(0, Math.Min(1, g));
-        bl = Math.Max(0, Math.Min(1, bl));
-    }
-
-    private static void CieLabToSrgb(float L, float a, float b, out float r, out float g, out float bl)
-    {
-        float fy = (L + 16f) / 116f;
-        float fx = a / 500f + fy;
-        float fz = fy - b / 200f;
-        const float d = 6f / 29f;
-        float X = (fx > d ? fx * fx * fx : 3f * d * d * (fx - 4f / 29f)) * 0.95047f;
-        float Y = (fy > d ? fy * fy * fy : 3f * d * d * (fy - 4f / 29f)) * 1.00000f;
-        float Z = (fz > d ? fz * fz * fz : 3f * d * d * (fz - 4f / 29f)) * 1.08883f;
-        float lr =  3.2404542f * X - 1.5371385f * Y - 0.4985314f * Z;
-        float lg = -0.9692660f * X + 1.8760108f * Y + 0.0415560f * Z;
-        float lb =  0.0556434f * X - 0.2040259f * Y + 1.0572252f * Z;
-        r = LinearToGamma(lr); g = LinearToGamma(lg); bl = LinearToGamma(lb);
-        r = Math.Max(0, Math.Min(1, r));
-        g = Math.Max(0, Math.Min(1, g));
-        bl = Math.Max(0, Math.Min(1, bl));
-    }
-
-    private static float LinearToGamma(float c)
-    {
-        if (c <= 0.0031308f) return 12.92f * c;
-        return 1.055f * (float)Math.Pow(c, 1f / 2.4f) - 0.055f;
-    }
-
-    private static (Color? color, float? pct) ParseColorWithOptionalPct(string token)
-    {
-        float? pct = null;
-        var lastSpace = token.LastIndexOf(' ');
-        if (lastSpace > 0)
+        var parts = new List<string>();
+        int depth = 0, start = 0;
+        for (int i = 0; i < value.Length; i++)
         {
-            var maybePct = token.Substring(lastSpace + 1).Trim();
-            if (maybePct.EndsWith("%"))
+            char c = value[i];
+            if (c == '(') depth++;
+            else if (c == ')') depth--;
+            else if (c == separator && depth == 0)
             {
-                if (float.TryParse(maybePct.TrimEnd('%'), System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out float p))
-                {
-                    pct = p / 100f;
-                    token = token.Substring(0, lastSpace).Trim();
-                }
+                parts.Add(value.Substring(start, i - start).Trim());
+                start = i + 1;
             }
         }
-        return (TryParse(token), pct);
+        parts.Add(value.Substring(start).Trim());
+        return parts;
     }
 
     public bool Equals(Color other) => R == other.R && G == other.G && B == other.B && A == other.A;
