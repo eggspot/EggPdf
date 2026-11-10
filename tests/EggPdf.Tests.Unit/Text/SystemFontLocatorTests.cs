@@ -16,12 +16,10 @@ public class SystemFontLocatorTests
     [Fact]
     public void FindFont_SansSerif_FindsSomething()
     {
-        // Every system should have at least one sans-serif font
         var path = SystemFontLocator.FindFont("sans-serif");
 
-        // May be null on minimal Docker images, but when a font is found it must be a real file
-        if (path != null)
-            System.IO.File.Exists(path).Should().BeTrue("a located font path must point at an existing file");
+        (path == null || System.IO.File.Exists(path)).Should().BeTrue(
+            "a minimal Docker image may have no sans-serif font, but a located font path must point at an existing file");
     }
 
     [Fact]
