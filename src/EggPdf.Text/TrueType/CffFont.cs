@@ -25,8 +25,13 @@ internal sealed class CffFont
     private List<(int offset, int length)> _charStrings = new List<(int, int)>();
     private List<(int offset, int length)> _globalSubrs = new List<(int, int)>();
     private readonly List<FontDict> _fontDicts = new List<FontDict>();
-    private byte[]? _fdSelect;                       // glyph -> font dict (null: everything uses dict 0)
+    private byte[]? _fdSelectFontDictByGlyph;
     private ItemVariationStore? _store;
+
+    private const int FdArrayOperator = 1236;
+    private const int FdSelectOperator = 1237;
+    private const int VariationStoreLengthPrefix = 2;
+    private const int LastDictOperator = 27;
 
     private sealed class FontDict
     {
@@ -52,11 +57,9 @@ internal sealed class CffFont
         }
         catch (Exception)
         {
-            return null; // infallible by convention
+            return null;
         }
     }
-
-    // ── Structure ────────────────────────────────────────────────────────────
 
     private int U16(int o) => (_d[o] << 8) | _d[o + 1];
     private uint U32(int o) => (uint)((_d[o] << 24) | (_d[o + 1] << 16) | (_d[o + 2] << 8) | _d[o + 3]);
@@ -75,20 +78,21 @@ internal sealed class CffFont
         else
         {
             pos = _cff + headerSize;
-            pos = SkipIndex(pos);                              // Name INDEX
-            var topDicts = ReadIndex(pos, out pos);
+            int afterNameIndex = SkipIndex(pos);
+            var topDicts = ReadIndex(afterNameIndex, out pos);
             top = ParseDict(topDicts[0].offset, topDicts[0].length);
-            pos = SkipIndex(pos);                              // String INDEX
+            int afterStringIndex = SkipIndex(pos);
+            pos = afterStringIndex;
         }
         _globalSubrs = ReadIndex(pos, out _);
 
         _charStrings = ReadIndex(_cff + (int)Operand(top, 17), out _);
 
-        if (top.ContainsKey(1236)) // FDArray (CID-keyed CFF, and always in CFF2)
+        if (top.ContainsKey(FdArrayOperator))
         {
-            var fds = ReadIndex(_cff + (int)Operand(top, 1236), out _);
+            var fds = ReadIndex(_cff + (int)Operand(top, FdArrayOperator), out _);
             foreach (var fd in fds) _fontDicts.Add(ReadFontDict(ParseDict(fd.offset, fd.length)));
-            if (top.ContainsKey(1237)) _fdSelect = ReadFdSelect(_cff + (int)Operand(top, 1237));
+            if (top.ContainsKey(FdSelectOperator)) _fdSelectFontDictByGlyph = ReadFdSelect(_cff + (int)Operand(top, FdSelectOperator));
         }
         else
         {
@@ -96,7 +100,7 @@ internal sealed class CffFont
         }
 
         if (_isCff2 && top.TryGetValue(24, out var vs) && vs.Count > 0)
-            _store = new ItemVariationStore(_d, _cff + (int)vs[0] + 2, coords); // the store is preceded by a 2-byte length
+            _store = new ItemVariationStore(_d, _cff + (int)vs[0] + VariationStoreLengthPrefix, coords);
     }
 
     private FontDict ReadFontDict(Dictionary<int, List<double>> dict)
@@ -176,7 +180,7 @@ internal sealed class CffFont
         while (p < end)
         {
             int b = _d[p++];
-            if (b <= 27) // 22 (vsindex) and 23 (blend) are CFF2 operators
+            if (b <= LastDictOperator)
             {
                 int op = b == 12 ? 1200 + _d[p++] : b;
                 dict[op] = operands;
@@ -211,12 +215,11 @@ internal sealed class CffFont
         }
     }
 
-    // ── Type 2 charstrings ───────────────────────────────────────────────────
-
+    /// <summary>A line to (X3, Y3), or a cubic curve with control points (X1, Y1) and (X2, Y2) ending at (X3, Y3).</summary>
     private struct Segment
     {
         public bool IsCurve;
-        public float X1, Y1, X2, Y2, X3, Y3;   // line: (X3, Y3) is the end point
+        public float X1, Y1, X2, Y2, X3, Y3;
     }
 
     /// <summary>All contours of a glyph, converted to TrueType-style quadratic outlines.</summary>
@@ -237,8 +240,16 @@ internal sealed class CffFont
 
     private static int Bias(int count) => count < 1240 ? 107 : count < 33900 ? 1131 : 32768;
 
+    /// <summary>Executes a Type 2 (CFF1) or CFF2 charstring into contours of lines and cubic curves.</summary>
     private sealed class Interpreter
     {
+        private const int Hstem = 1, Vstem = 3, Vmoveto = 4, Rlineto = 5, Hlineto = 6, Vlineto = 7, Rrcurveto = 8;
+        private const int Callsubr = 10, Return = 11, EscapeOperator = 12, Endchar = 14, Vsindex = 15, BlendOperator = 16;
+        private const int Hstemhm = 18, Hintmask = 19, Cntrmask = 20, Rmoveto = 21, Hmoveto = 22, Vstemhm = 23;
+        private const int Rcurveline = 24, Rlinecurve = 25, Vvcurveto = 26, Hhcurveto = 27, Callgsubr = 29, Vhcurveto = 30, Hvcurveto = 31;
+        private const int Abs = 9, Add = 10, Sub = 11, Div = 12, Neg = 14, Drop = 18, Mul = 24, Sqrt = 26, Dup = 27, Exch = 28;
+        private const int Hflex = 34, Flex = 35, Hflex1 = 36, Flex1 = 37;
+
         private readonly CffFont _f;
         private readonly int _gid;
         private readonly FontDict _fd;
@@ -257,7 +268,7 @@ internal sealed class CffFont
         public Interpreter(CffFont font, int gid)
         {
             _f = font; _gid = gid;
-            int fdIndex = font._fdSelect != null ? font._fdSelect[gid] : 0;
+            int fdIndex = font._fdSelectFontDictByGlyph != null ? font._fdSelectFontDictByGlyph[gid] : 0;
             _fd = font._fontDicts[Math.Min(fdIndex, font._fontDicts.Count - 1)];
             if (font._store != null) _scalars = font._store.Scalars(_fd.VsIndex);
         }
@@ -338,29 +349,29 @@ internal sealed class CffFont
 
                 switch (b)
                 {
-                    case 1: case 3: case 18: case 23: // hstem vstem hstemhm vstemhm
+                    case Hstem: case Vstem: case Hstemhm: case Vstemhm:
                         TakeWidth((_sp & 1) == 1);
                         _stems += _sp / 2; _sp = 0;
                         break;
-                    case 19: case 20: // hintmask cntrmask: pending stem args, then the mask bytes
+                    case Hintmask: case Cntrmask:
                         TakeWidth((_sp & 1) == 1);
                         _stems += _sp / 2; _sp = 0;
                         p += (_stems + 7) / 8;
                         break;
-                    case 21: TakeWidth(_sp > 2); MoveTo(_stack[_sp - 2], _stack[_sp - 1]); _sp = 0; break;
-                    case 22: TakeWidth(_sp > 1); MoveTo(_stack[_sp - 1], 0); _sp = 0; break;
-                    case 4: TakeWidth(_sp > 1); MoveTo(0, _stack[_sp - 1]); _sp = 0; break;
-                    case 5: for (int i = 0; i + 1 < _sp; i += 2) LineTo(_stack[i], _stack[i + 1]); _sp = 0; break;
-                    case 6: case 7: // hlineto vlineto: alternate directions
+                    case Rmoveto: TakeWidth(_sp > 2); MoveTo(_stack[_sp - 2], _stack[_sp - 1]); _sp = 0; break;
+                    case Hmoveto: TakeWidth(_sp > 1); MoveTo(_stack[_sp - 1], 0); _sp = 0; break;
+                    case Vmoveto: TakeWidth(_sp > 1); MoveTo(0, _stack[_sp - 1]); _sp = 0; break;
+                    case Rlineto: for (int i = 0; i + 1 < _sp; i += 2) LineTo(_stack[i], _stack[i + 1]); _sp = 0; break;
+                    case Hlineto: case Vlineto:
                     {
-                        bool horizontal = b == 6;
+                        bool horizontal = b == Hlineto;
                         for (int i = 0; i < _sp; i++, horizontal = !horizontal)
                             if (horizontal) LineTo(_stack[i], 0); else LineTo(0, _stack[i]);
                         _sp = 0;
                         break;
                     }
-                    case 8: for (int i = 0; i + 5 < _sp; i += 6) CurveTo(_stack[i], _stack[i + 1], _stack[i + 2], _stack[i + 3], _stack[i + 4], _stack[i + 5]); _sp = 0; break;
-                    case 24: // rcurveline
+                    case Rrcurveto: for (int i = 0; i + 5 < _sp; i += 6) CurveTo(_stack[i], _stack[i + 1], _stack[i + 2], _stack[i + 3], _stack[i + 4], _stack[i + 5]); _sp = 0; break;
+                    case Rcurveline:
                     {
                         int i = 0;
                         for (; i + 7 < _sp; i += 6) CurveTo(_stack[i], _stack[i + 1], _stack[i + 2], _stack[i + 3], _stack[i + 4], _stack[i + 5]);
@@ -368,7 +379,7 @@ internal sealed class CffFont
                         _sp = 0;
                         break;
                     }
-                    case 25: // rlinecurve
+                    case Rlinecurve:
                     {
                         int i = 0;
                         for (; i + 7 < _sp; i += 2) LineTo(_stack[i], _stack[i + 1]);
@@ -376,7 +387,7 @@ internal sealed class CffFont
                         _sp = 0;
                         break;
                     }
-                    case 26: // vvcurveto
+                    case Vvcurveto:
                     {
                         int i = 0; float dx1 = 0;
                         if ((_sp & 1) == 1) dx1 = _stack[i++];
@@ -384,7 +395,7 @@ internal sealed class CffFont
                         _sp = 0;
                         break;
                     }
-                    case 27: // hhcurveto
+                    case Hhcurveto:
                     {
                         int i = 0; float dy1 = 0;
                         if ((_sp & 1) == 1) dy1 = _stack[i++];
@@ -392,22 +403,22 @@ internal sealed class CffFont
                         _sp = 0;
                         break;
                     }
-                    case 30: case 31: HvCurves(b == 31); _sp = 0; break;
-                    case 10: case 29: // callsubr callgsubr
+                    case Vhcurveto: case Hvcurveto: HvCurves(b == Hvcurveto); _sp = 0; break;
+                    case Callsubr: case Callgsubr:
                     {
-                        var subrs = b == 10 ? _fd.LocalSubrs : _f._globalSubrs;
+                        var subrs = b == Callsubr ? _fd.LocalSubrs : _f._globalSubrs;
                         int index = (int)_stack[--_sp] + Bias(subrs.Count);
                         if (index >= 0 && index < subrs.Count) Execute(subrs[index].offset, subrs[index].length, depth + 1);
                         break;
                     }
-                    case 11: return;
-                    case 14: // endchar (CFF1); an optional width precedes it
+                    case Return: return;
+                    case Endchar:
                         TakeWidth(_sp == 1 || _sp == 5);
                         _ended = true;
                         break;
-                    case 15: _scalars = _f._store != null ? _f._store.Scalars((int)_stack[--_sp]) : _scalars; _sp = 0; break; // vsindex
-                    case 16: Blend(); break;
-                    case 12: Escape(d[p++]); break;
+                    case Vsindex: _scalars = _f._store != null ? _f._store.Scalars((int)_stack[--_sp]) : _scalars; _sp = 0; break;
+                    case BlendOperator: Blend(); break;
+                    case EscapeOperator: Escape(d[p++]); break;
                     default: _sp = 0; break;
                 }
             }
@@ -446,19 +457,19 @@ internal sealed class CffFont
         {
             switch (op)
             {
-                case 34: // hflex
+                case Hflex:
                     CurveTo(_stack[0], 0, _stack[1], _stack[2], _stack[3], 0);
                     CurveTo(_stack[4], 0, _stack[5], -_stack[2], _stack[6], 0);
                     _sp = 0; break;
-                case 35: // flex
+                case Flex:
                     CurveTo(_stack[0], _stack[1], _stack[2], _stack[3], _stack[4], _stack[5]);
                     CurveTo(_stack[6], _stack[7], _stack[8], _stack[9], _stack[10], _stack[11]);
                     _sp = 0; break;
-                case 36: // hflex1
+                case Hflex1:
                     CurveTo(_stack[0], _stack[1], _stack[2], _stack[3], _stack[4], 0);
                     CurveTo(_stack[5], 0, _stack[6], _stack[7], _stack[8], -(_stack[1] + _stack[3] + _stack[7]));
                     _sp = 0; break;
-                case 37: // flex1
+                case Flex1:
                 {
                     float dx = _stack[0] + _stack[2] + _stack[4] + _stack[6] + _stack[8];
                     float dy = _stack[1] + _stack[3] + _stack[5] + _stack[7] + _stack[9];
@@ -467,24 +478,27 @@ internal sealed class CffFont
                     else CurveTo(_stack[6], _stack[7], _stack[8], _stack[9], -dx, _stack[10]);
                     _sp = 0; break;
                 }
-                case 9: if (_sp > 0) _stack[_sp - 1] = Math.Abs(_stack[_sp - 1]); break;                        // abs
-                case 10: if (_sp > 1) { _stack[_sp - 2] += _stack[_sp - 1]; _sp--; } break;                     // add
-                case 11: if (_sp > 1) { _stack[_sp - 2] -= _stack[_sp - 1]; _sp--; } break;                     // sub
-                case 12: if (_sp > 1) { _stack[_sp - 2] /= _stack[_sp - 1]; _sp--; } break;                     // div
-                case 14: if (_sp > 0) _stack[_sp - 1] = -_stack[_sp - 1]; break;                                // neg
-                case 18: if (_sp > 0) _sp--; break;                                                             // drop
-                case 24: if (_sp > 1) { _stack[_sp - 2] *= _stack[_sp - 1]; _sp--; } break;                     // mul
-                case 26: if (_sp > 0) _stack[_sp - 1] = (float)Math.Sqrt(_stack[_sp - 1]); break;               // sqrt
-                case 27: if (_sp > 0) { _stack[_sp] = _stack[_sp - 1]; _sp++; } break;                          // dup
-                case 28: if (_sp > 1) { (_stack[_sp - 1], _stack[_sp - 2]) = (_stack[_sp - 2], _stack[_sp - 1]); } break; // exch
+                case Abs: if (_sp > 0) _stack[_sp - 1] = Math.Abs(_stack[_sp - 1]); break;
+                case Add: if (_sp > 1) { _stack[_sp - 2] += _stack[_sp - 1]; _sp--; } break;
+                case Sub: if (_sp > 1) { _stack[_sp - 2] -= _stack[_sp - 1]; _sp--; } break;
+                case Div: if (_sp > 1) { _stack[_sp - 2] /= _stack[_sp - 1]; _sp--; } break;
+                case Neg: if (_sp > 0) _stack[_sp - 1] = -_stack[_sp - 1]; break;
+                case Drop: if (_sp > 0) _sp--; break;
+                case Mul: if (_sp > 1) { _stack[_sp - 2] *= _stack[_sp - 1]; _sp--; } break;
+                case Sqrt: if (_sp > 0) _stack[_sp - 1] = (float)Math.Sqrt(_stack[_sp - 1]); break;
+                case Dup: if (_sp > 0) { _stack[_sp] = _stack[_sp - 1]; _sp++; } break;
+                case Exch: if (_sp > 1) { (_stack[_sp - 1], _stack[_sp - 2]) = (_stack[_sp - 2], _stack[_sp - 1]); } break;
                 default: _sp = 0; break;
             }
         }
     }
 
-    // ── Cubic to quadratic ───────────────────────────────────────────────────
-
-    /// <summary>Approximates cubic Bezier segments by quadratic ones, the curve type glyf outlines use.</summary>
+    /// <summary>
+    /// Approximates cubic Bezier segments by quadratic ones, the curve type glyf outlines use. A cubic's distance from
+    /// its best single quadratic scales with |p3 - 3c2 + 3c1 - p0| / n^3, which picks the number of pieces n; each
+    /// piece's quadratic control point is (3(c1 + c2) - p0 - p3) / 4 of that piece's sub-cubic. An outline that returns
+    /// to its start drops the duplicate closing point.
+    /// </summary>
     private static class Quadratic
     {
         public static List<OutlinePoint> Convert(
@@ -499,7 +513,6 @@ internal sealed class CffFont
                 cx = s.X3; cy = s.Y3;
             }
 
-            // An outline that returns to its start doesn't need the duplicate closing point
             if (points.Count > 1)
             {
                 var first = points[0]; var last = points[points.Count - 1];
@@ -510,7 +523,6 @@ internal sealed class CffFont
 
         private static void AddCubic(List<OutlinePoint> pts, float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3, float tol)
         {
-            // Distance of the cubic from the best single quadratic scales with |p3 - 3c2 + 3c1 - p0| / n^3
             float dx = x3 - 3 * x2 + 3 * x1 - x0, dy = y3 - 3 * y2 + 3 * y1 - y0;
             double deviation = Math.Sqrt(dx * dx + dy * dy) * Math.Sqrt(3.0) / 36.0;
             int n = (int)Math.Ceiling(Math.Pow(deviation / tol, 1.0 / 3.0));
@@ -521,7 +533,6 @@ internal sealed class CffFont
                 float t0 = i / (float)n, t1 = (i + 1) / (float)n, span = t1 - t0;
                 Eval(x0, y0, x1, y1, x2, y2, x3, y3, t0, out float sx0, out float sy0, out float dx0, out float dy0);
                 Eval(x0, y0, x1, y1, x2, y2, x3, y3, t1, out float sx3, out float sy3, out float dx1, out float dy1);
-                // Sub-cubic control points, then the quadratic control point (3(c1 + c2) - p0 - p3) / 4
                 float c1x = sx0 + span / 3f * dx0, c1y = sy0 + span / 3f * dy0;
                 float c2x = sx3 - span / 3f * dx1, c2y = sy3 - span / 3f * dy1;
                 float qx = (3 * (c1x + c2x) - sx0 - sx3) / 4f, qy = (3 * (c1y + c2y) - sy0 - sy3) / 4f;
