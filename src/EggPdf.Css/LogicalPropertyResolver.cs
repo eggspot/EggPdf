@@ -17,6 +17,7 @@ public static class LogicalPropertyResolver
     private static readonly string[] BorderParts = { "width", "color", "style" };
     private static readonly string[] Sides = { "inline-start", "inline-end", "block-start", "block-end" };
     private static readonly HashSet<string> LogicalNames = BuildLogicalNames();
+    private static readonly string[] LogicalNameList = new List<string>(LogicalNames).ToArray();
 
     /// <summary>
     /// Fill in physical properties from logical ones the element declares, where the physical property is still unset,
@@ -24,16 +25,12 @@ public static class LogicalPropertyResolver
     /// </summary>
     public static void Resolve(ComputedStyle style, bool isRTL = false, bool isVertical = false)
     {
-        List<KeyValuePair<string, string>>? logical = null;
-        foreach (var kv in style.All)
+        var names = LogicalNameList;
+        for (int i = 0; i < names.Length; i++)
         {
-            if (LogicalNames.Contains(kv.Key))
-                (logical ??= new List<KeyValuePair<string, string>>()).Add(kv);
-        }
-        if (logical != null)
-        {
-            foreach (var kv in logical)
-                Apply(style, kv.Key, kv.Value, isRTL, isVertical, overwrite: false, protectedProperties: null, applied: null);
+            var value = style.Get(names[i]);
+            if (value != null)
+                ApplyLogical(style, names[i], value, isRTL, isVertical, overwrite: false, protectedProperties: null, applied: null);
         }
 
         var floatValue = style.Get("float");
