@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using System.IO.Compression;
 
@@ -7,19 +6,32 @@ namespace EggPdf.Text.TrueType;
 /// <summary>
 /// Decodes WOFF (Web Open Font Format) 1.0 to raw TrueType/OpenType data.
 /// WOFF wraps TrueType/OTF tables with zlib compression and metadata.
-/// Required for @font-face with .woff files (most common web font format).
+/// Required for @font-face with .woff files.
 /// </summary>
 public static class WoffDecoder
 {
-    private const uint WoffSignature = 0x774F4646; // 'wOFF'
+    private const uint WoffSignature = 0x774F4646;
+    private const int HeaderSize = 44;
+    private const int FlavorField = 4;
+    private const int NumTablesField = 12;
+    private const int TableEntrySize = 20;
+    private const int SfntHeaderSize = 12;
+    private const int SfntTableRecordSize = 16;
+    private const int ZlibHeaderSize = 2;
+    private const long MaxDeflateRatio = 1032;
 
     /// <summary>Check if data starts with WOFF signature.</summary>
     public static bool IsWoff(byte[] data)
     {
         if (data == null || data.Length < 4) return false;
-        uint sig = (uint)((data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]);
-        return sig == WoffSignature;
+        return ReadU32(data, 0) == WoffSignature;
     }
+
+    /// <summary>
+    /// The decoded font when <paramref name="data"/> is WOFF, <paramref name="data"/> itself when it is not, or null
+    /// when it is WOFF that cannot be decoded.
+    /// </summary>
+    public static byte[]? DecodeIfWoff(byte[] data) => IsWoff(data) ? Decode(data) : data;
 
     /// <summary>
     /// Decode WOFF to raw TrueType/OpenType bytes.
@@ -27,7 +39,7 @@ public static class WoffDecoder
     /// </summary>
     public static byte[]? Decode(byte[] data)
     {
-        if (data == null || data.Length < 44)
+        if (data == null || data.Length < HeaderSize)
             return null;
 
         try
@@ -36,152 +48,126 @@ public static class WoffDecoder
         }
         catch
         {
-            return null; // infallible
+            return null;
         }
     }
 
+    private readonly struct TableEntry
+    {
+        public readonly uint Tag, Offset, CompLength, OrigLength, OrigChecksum;
+
+        public TableEntry(uint tag, uint offset, uint compLength, uint origLength, uint origChecksum)
+        {
+            Tag = tag;
+            Offset = offset;
+            CompLength = compLength;
+            OrigLength = origLength;
+            OrigChecksum = origChecksum;
+        }
+
+        public bool IsCompressed => CompLength < OrigLength;
+
+        /// <summary>
+        /// The spec forbids a stored length larger than the original; a compressed table must hold a zlib header and
+        /// cannot inflate past deflate's maximum ratio, which bounds the output by the input.
+        /// </summary>
+        public bool IsValid(int fileLength)
+        {
+            if (CompLength > OrigLength || (long)Offset + CompLength > fileLength) return false;
+            return !IsCompressed || (CompLength >= ZlibHeaderSize && OrigLength <= CompLength * MaxDeflateRatio);
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds the sfnt: offset table, table directory, then every table padded to 4 bytes. The output size comes
+    /// from the table directory, never from the header's totalSfntSize claim.
+    /// </summary>
     private static byte[]? DecodeInternal(byte[] data)
     {
-        int pos = 0;
+        if (ReadU32(data, 0) != WoffSignature) return null;
 
-        // WOFF Header
-        uint signature = ReadU32(data, ref pos);
-        if (signature != WoffSignature) return null;
+        uint flavor = ReadU32(data, FlavorField);
+        int numTables = ReadU16(data, NumTablesField);
+        if (HeaderSize + (long)numTables * TableEntrySize > data.Length) return null;
 
-        uint flavor = ReadU32(data, ref pos);     // The "sfVersion" of the original font
-        uint woffLength = ReadU32(data, ref pos);  // Total WOFF file size
-        ushort numTables = ReadU16(data, ref pos);
-        ushort reserved = ReadU16(data, ref pos);  // Must be 0
-        uint totalSfntSize = ReadU32(data, ref pos); // Total decompressed size
-        // Skip: majorVersion(2), minorVersion(2), metaOffset(4), metaLength(4),
-        //       metaOrigLength(4), privOffset(4), privLength(4)
-        pos += 20;
-
-        // Read table directory entries
-        var entries = new WoffTableEntry[numTables];
+        var entries = new TableEntry[numTables];
+        long outputLength = SfntHeaderSize + (long)numTables * SfntTableRecordSize;
         for (int i = 0; i < numTables; i++)
         {
-            entries[i] = new WoffTableEntry
-            {
-                Tag = ReadU32(data, ref pos),
-                Offset = ReadU32(data, ref pos),
-                CompLength = ReadU32(data, ref pos),
-                OrigLength = ReadU32(data, ref pos),
-                OrigChecksum = ReadU32(data, ref pos),
-            };
+            int at = HeaderSize + i * TableEntrySize;
+            var entry = new TableEntry(ReadU32(data, at), ReadU32(data, at + 4), ReadU32(data, at + 8),
+                ReadU32(data, at + 12), ReadU32(data, at + 16));
+            if (!entry.IsValid(data.Length)) return null;
+            entries[i] = entry;
+            outputLength += Pad4(entry.OrigLength);
         }
+        if (outputLength > int.MaxValue) return null;
 
-        // Build output TrueType file
-        using var ms = new MemoryStream((int)totalSfntSize);
+        var output = new byte[outputLength];
+        int entrySelector = 0;
+        while ((2 << entrySelector) <= numTables) entrySelector++;
+        int searchRange = SfntTableRecordSize << entrySelector;
+        WriteU32(output, 0, flavor);
+        WriteU16(output, 4, numTables);
+        WriteU16(output, 6, searchRange);
+        WriteU16(output, 8, entrySelector);
+        WriteU16(output, 10, numTables * SfntTableRecordSize - searchRange);
 
-        // Write TrueType offset table
-        WriteU32(ms, flavor); // sfVersion
-        WriteU16(ms, numTables);
-
-        // Compute searchRange, entrySelector, rangeShift
-        int searchRange = 1, entrySelector = 0;
-        while (searchRange * 2 <= numTables) { searchRange *= 2; entrySelector++; }
-        searchRange *= 16;
-        int rangeShift = numTables * 16 - searchRange;
-
-        WriteU16(ms, (ushort)searchRange);
-        WriteU16(ms, (ushort)entrySelector);
-        WriteU16(ms, (ushort)rangeShift);
-
-        // Calculate output table offsets
-        int headerSize = 12 + numTables * 16;
-        uint outputOffset = (uint)headerSize;
-        var outputOffsets = new uint[numTables];
-
+        long tableOffset = SfntHeaderSize + (long)numTables * SfntTableRecordSize;
         for (int i = 0; i < numTables; i++)
         {
-            outputOffsets[i] = outputOffset;
-            outputOffset += entries[i].OrigLength;
-            // Pad to 4-byte boundary
-            if (outputOffset % 4 != 0)
-                outputOffset += 4 - (outputOffset % 4);
-        }
-
-        // Write table directory entries
-        for (int i = 0; i < numTables; i++)
-        {
-            WriteU32(ms, entries[i].Tag);
-            WriteU32(ms, entries[i].OrigChecksum);
-            WriteU32(ms, outputOffsets[i]);
-            WriteU32(ms, entries[i].OrigLength);
-        }
-
-        // Write table data (decompress if needed)
-        for (int i = 0; i < numTables; i++)
-        {
-            // Pad to current output offset
-            while (ms.Position < outputOffsets[i])
-                ms.WriteByte(0);
-
             var entry = entries[i];
-            if (entry.CompLength == entry.OrigLength)
-            {
-                // Not compressed — copy directly
-                ms.Write(data, (int)entry.Offset, (int)entry.OrigLength);
-            }
-            else
-            {
-                // zlib compressed — decompress (skip 2-byte zlib header)
-                using var compressed = new MemoryStream(data, (int)entry.Offset + 2, (int)entry.CompLength - 2);
-                using var deflate = new DeflateStream(compressed, CompressionMode.Decompress);
-                var decompressed = new byte[entry.OrigLength];
-                int totalRead = 0;
-                while (totalRead < decompressed.Length)
-                {
-                    int read = deflate.Read(decompressed, totalRead, decompressed.Length - totalRead);
-                    if (read == 0) break;
-                    totalRead += read;
-                }
-                ms.Write(decompressed, 0, totalRead);
-            }
+            int record = SfntHeaderSize + i * SfntTableRecordSize;
+            WriteU32(output, record, entry.Tag);
+            WriteU32(output, record + 4, entry.OrigChecksum);
+            WriteU32(output, record + 8, (uint)tableOffset);
+            WriteU32(output, record + 12, entry.OrigLength);
 
-            // Pad to 4-byte boundary
-            while (ms.Position % 4 != 0)
-                ms.WriteByte(0);
+            if (!CopyTable(data, entry, output, (int)tableOffset)) return null;
+            tableOffset += Pad4(entry.OrigLength);
         }
 
-        return ms.ToArray();
+        return output;
     }
 
-    private struct WoffTableEntry
+    private static bool CopyTable(byte[] data, TableEntry entry, byte[] output, int outputOffset)
     {
-        public uint Tag;
-        public uint Offset;
-        public uint CompLength;
-        public uint OrigLength;
-        public uint OrigChecksum;
+        if (!entry.IsCompressed)
+        {
+            System.Buffer.BlockCopy(data, (int)entry.Offset, output, outputOffset, (int)entry.OrigLength);
+            return true;
+        }
+
+        using var compressed = new MemoryStream(data, (int)entry.Offset + ZlibHeaderSize, (int)entry.CompLength - ZlibHeaderSize);
+        using var inflater = new DeflateStream(compressed, CompressionMode.Decompress);
+        int total = 0;
+        while (total < entry.OrigLength)
+        {
+            int read = inflater.Read(output, outputOffset + total, (int)entry.OrigLength - total);
+            if (read == 0) return false;
+            total += read;
+        }
+        return true;
     }
 
-    private static uint ReadU32(byte[] data, ref int pos)
+    private static long Pad4(uint length) => (length + 3L) & ~3L;
+
+    private static uint ReadU32(byte[] data, int pos)
+        => (uint)((data[pos] << 24) | (data[pos + 1] << 16) | (data[pos + 2] << 8) | data[pos + 3]);
+
+    private static ushort ReadU16(byte[] data, int pos) => (ushort)((data[pos] << 8) | data[pos + 1]);
+
+    private static void WriteU32(byte[] output, int at, uint value)
     {
-        uint val = (uint)((data[pos] << 24) | (data[pos + 1] << 16) | (data[pos + 2] << 8) | data[pos + 3]);
-        pos += 4;
-        return val;
+        output[at] = (byte)(value >> 24);
+        output[at + 1] = (byte)(value >> 16);
+        output[at + 2] = (byte)(value >> 8);
+        output[at + 3] = (byte)value;
     }
 
-    private static ushort ReadU16(byte[] data, ref int pos)
+    private static void WriteU16(byte[] output, int at, int value)
     {
-        ushort val = (ushort)((data[pos] << 8) | data[pos + 1]);
-        pos += 2;
-        return val;
-    }
-
-    private static void WriteU32(Stream s, uint val)
-    {
-        s.WriteByte((byte)(val >> 24));
-        s.WriteByte((byte)((val >> 16) & 0xFF));
-        s.WriteByte((byte)((val >> 8) & 0xFF));
-        s.WriteByte((byte)(val & 0xFF));
-    }
-
-    private static void WriteU16(Stream s, ushort val)
-    {
-        s.WriteByte((byte)(val >> 8));
-        s.WriteByte((byte)(val & 0xFF));
+        output[at] = (byte)(value >> 8);
+        output[at + 1] = (byte)value;
     }
 }

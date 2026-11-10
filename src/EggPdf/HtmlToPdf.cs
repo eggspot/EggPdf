@@ -487,9 +487,9 @@ public static partial class HtmlToPdf
         {
             foreach (var face in faces)
             {
-                foreach (var srcPart in face.Src.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                foreach (var srcPart in Text.FontUrlFetcher.SplitFontSrcList(face.Src))
                 {
-                    var url = Text.FontUrlFetcher.ParseFontSrcUrl(srcPart.Trim());
+                    var url = Text.FontUrlFetcher.ParseFontSrcUrl(srcPart);
                     if (url == null || !ResourceLoader.IsRemote(url) || !seen.Add(url))
                         continue;
 
@@ -934,10 +934,9 @@ public static partial class HtmlToPdf
             var face = SelectFontFace(candidates, targetWeight, italic);
             if (face == null) continue;
 
-            var srcParts = face.Src.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
-            foreach (var srcPart in srcParts)
+            foreach (var srcPart in Text.FontUrlFetcher.SplitFontSrcList(face.Src))
             {
-                var url = Text.FontUrlFetcher.ParseFontSrcUrl(srcPart.Trim());
+                var url = Text.FontUrlFetcher.ParseFontSrcUrl(srcPart);
                 if (url == null) continue;
 
                 Text.TrueType.FontData? fontData = null;

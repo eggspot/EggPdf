@@ -454,6 +454,9 @@ public static partial class CssStyleSheetParser
             case CssTokenType.String:
                 sb.Append(CssStringEscapes.Quote(t.Value ?? ""));
                 break;
+            case CssTokenType.Url:
+                sb.Append("url(").Append(CssStringEscapes.Quote(t.Value ?? "")).Append(')');
+                break;
             default:
                 sb.Append(t.Value ?? "");
                 break;
