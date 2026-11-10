@@ -5,10 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// End-to-end tests for absolute/fixed positioning: HTML-to-PDF pipeline.
-/// Verifies that positioned elements produce correct PDF output.
-/// </summary>
 public class PositionedE2ETests
 {
     [Fact]
