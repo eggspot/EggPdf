@@ -287,11 +287,12 @@ internal static partial class FilterPixels
     public static FilterImage ComponentTransfer(FilterImage src, TransferFunction?[] funcs)
     {
         var result = new FilterImage(src.Width, src.Height, src.Linear);
+        var ch = new float[4];
         for (int i = 0; i < src.Px.Length; i += 4)
         {
             float a = src.Px[i + 3];
-            float[] ch = { 0, 0, 0, a };
-            if (a > 0f) { ch[0] = src.Px[i] / a; ch[1] = src.Px[i + 1] / a; ch[2] = src.Px[i + 2] / a; }
+            ch[0] = Unpremultiply(src.Px[i], a); ch[1] = Unpremultiply(src.Px[i + 1], a); ch[2] = Unpremultiply(src.Px[i + 2], a);
+            ch[3] = a;
             for (int c = 0; c < 4; c++)
                 if (funcs[c] != null) ch[c] = Clamp01(funcs[c]!.Apply(ch[c]));
             float na = ch[3];
