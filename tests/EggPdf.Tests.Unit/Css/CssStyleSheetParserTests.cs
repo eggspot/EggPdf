@@ -114,9 +114,8 @@ public class CssStyleSheetParserTests
         var css = "p { color: red; } @@invalid$$ { } h1 { font-size: 2em; }";
         var sheet = CssStyleSheetParser.Parse(css);
 
-        // Should get at least the valid rules
-        sheet.Rules.Should().Contain(r => r.SelectorText == "p");
-        sheet.Rules.Should().Contain(r => r.SelectorText == "h1");
+        sheet.Rules.Should().Contain(r => r.SelectorText == "p", "the valid rule before the malformed one survives");
+        sheet.Rules.Should().Contain(r => r.SelectorText == "h1", "and so does the one after it");
     }
 
     [Fact]
@@ -149,12 +148,9 @@ public class CssStyleSheetParserTests
         CssStyleSheetParser.Parse(";;;").Rules.Should().BeEmpty("stray semicolons are not rules");
     }
 
-    // --- @supports ---
-
     [Fact]
     public void Supports_KnownProperty_RulesIncluded()
     {
-        // @supports (display: flex) should include its rules (display is a known property)
         var sheet = CssStyleSheetParser.Parse("@supports (display: flex) { p { color: red; } }");
 
         sheet.Rules.Should().Contain(r => r.SelectorText == "p" &&
@@ -165,11 +161,11 @@ public class CssStyleSheetParserTests
     [Fact]
     public void Supports_NotVendorPrefixedProperty_RulesIncluded()
     {
-        // Vendor-prefixed properties count as unsupported, so `not (...)` holds and the rules apply
         var sheet = CssStyleSheetParser.Parse("@supports not (-webkit-appearance: none) { p { color: green; } }");
 
         sheet.Rules.Should().Contain(r => r.SelectorText == "p" &&
-            r.Declarations.Any(d => d.Property == "color" && d.Value == "green"));
+            r.Declarations.Any(d => d.Property == "color" && d.Value == "green"),
+            "vendor-prefixed properties count as unsupported, so `not (...)` holds and the rules apply");
 
         var positive = CssStyleSheetParser.Parse("@supports (-webkit-appearance: none) { p { color: green; } }");
         positive.Rules.Should().BeEmpty("the un-negated vendor-prefixed test fails, so its rules are dropped");
@@ -208,8 +204,6 @@ public class CssStyleSheetParserTests
         sheet.PageRules.Should().HaveCount(1, "@page should be extracted to top-level PageRules");
     }
 
-    // ── @container tests ─────────────────────────────────────────────────────
-
     [Fact]
     public void ContainerQuery_IsCapturedWithItsConditionAndRules()
     {
@@ -232,15 +226,11 @@ public class CssStyleSheetParserTests
         sheet.ContainerRules[0].Condition.Replace(" ", "").Should().Be("(min-width:300px)");
     }
 
-    // ── @scope ────────────────────────────────────────────────────────────────
-
     [Fact]
     public void Scope_RulesFlattened_IntoRegularRules()
     {
-        // @scope (.card) { p { color: red; } } → .card p { color: red; }
         var css = "@scope (.card) { p { color: red; } }";
         var sheet = CssStyleSheetParser.Parse(css);
-        // Should produce at least one rule with the scoped selector
         sheet.Rules.Should().HaveCountGreaterThan(0, "@scope rules should be flattened into regular rules");
         sheet.Rules.Should().Contain(r =>
             r.SelectorText.IndexOf(".card", StringComparison.OrdinalIgnoreCase) >= 0,
@@ -259,8 +249,6 @@ public class CssStyleSheetParserTests
         sheet.Rules.Should().Contain(r => r.SelectorText.Contains(".container") && r.SelectorText.Contains("p")
             && r.Declarations.Any(d => d.Property == "color" && d.Value == "blue"));
     }
-
-    // ── @property ────────────────────────────────────────────────────────────
 
     [Fact]
     public void Property_AtRule_ParsedWithName()
@@ -301,8 +289,6 @@ public class CssStyleSheetParserTests
         sheet.PropertyRules[0].Inherits.Should().BeFalse();
     }
 
-    // ── @page margin boxes ────────────────────────────────────────────────────
-
     [Fact]
     public void PageRule_MarginBox_BottomCenter_Parsed()
     {
@@ -322,9 +308,8 @@ public class CssStyleSheetParserTests
         var sheet = CssStyleSheetParser.Parse(css);
         sheet.PageRules.Should().HaveCount(1);
         var rule = sheet.PageRules[0];
-        // Both the regular declarations and the margin box should be parsed
         rule.Declarations.Should().Contain(d => d.Property == "size");
-        rule.Declarations.Should().Contain(d => d.Property == "margin");
+        rule.Declarations.Should().Contain(d => d.Property == "margin", "a margin box between declarations doesn't end them");
         rule.MarginBoxes.Should().HaveCount(1);
         rule.MarginBoxes[0].Position.Should().Be("top-right");
     }
