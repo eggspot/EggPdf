@@ -17,13 +17,12 @@ public class LineBreakingTests
     [Fact]
     public void LongText_BreaksAtWordBoundary()
     {
-        var lines = SimpleLineBreaker.Break(
-            "The quick brown fox jumps over the lazy dog", 200, 16);
+        const string sentence = "The quick brown fox jumps over the lazy dog";
+        var lines = SimpleLineBreaker.Break(sentence, 200, 16);
 
         lines.Should().HaveCountGreaterThan(1);
-        // Each line should be a valid substring
-        foreach (var line in lines)
-            line.Should().NotBeNullOrEmpty();
+        lines.Should().OnlyContain(line => line.Length > 0 && line.Trim() == line);
+        string.Join(" ", lines).Should().Be(sentence, "lines break only at the spaces between words, losing no word");
     }
 
     [Fact]
@@ -36,9 +35,8 @@ public class LineBreakingTests
     [Fact]
     public void SingleLongWord_NotBroken()
     {
-        // By default, a single long word is not broken
         var lines = SimpleLineBreaker.Break("Supercalifragilisticexpialidocious", 100, 16);
-        lines.Should().HaveCount(1);
+        lines.Should().HaveCount(1, "by default a word wider than the line overflows rather than breaking");
     }
 
     [Fact]
