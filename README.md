@@ -224,7 +224,8 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   `contain: strict` clip the element's own painting to its bounds. `contain`'s other values
   (`layout`, `style`, `content` alone) are recalculation-isolation hints with no analog in a
   single-pass renderer and are accepted as a no-op rather than rejected
-- Webfonts: remote `<link>` stylesheets (Google Fonts) and `@font-face` over http(s), data: URIs, or files
+- Webfonts: remote `<link>` stylesheets (Google Fonts) and `@font-face` over http(s), data: URIs, or files,
+  in TTF, OTF or WOFF (a WOFF2 source is not decoded yet; the next `src` entry is used instead)
 - SVG rendering (vector output, not rasterized) -- `<circle>`/`<ellipse>`/`<rect>`/`<polygon>`/
   `<polyline>`/`<path>`/`<line>` (arcs flattened as true curves), plus SVG filter graphs:
   `filter="url(#id)"` (attribute or `style`) with feGaussianBlur, feOffset, feFlood,

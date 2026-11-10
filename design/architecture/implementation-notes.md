@@ -438,3 +438,19 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 - `color-mix()` interpolates with premultiplied alpha. srgb and srgb-linear are exact; the xyz spaces are
   linear light and mix like srgb-linear; the other RGB spaces and hsl/hwb mix in srgb, and lab, lch and
   oklch mix in oklab (hue interpolation is not modelled). A missing interpolation method means oklab.
+
+## EggPdf.Text/TrueType/WoffDecoder.cs
+
+- The output size is computed from the table directory, never from the header's `totalSfntSize`. A table
+  may not be stored longer than its original length (the spec forbids it), and a compressed table cannot
+  claim more than deflate's maximum ratio (1032:1), so the output is bounded by the input.
+- A compressed table that inflates to fewer bytes than its declared length makes the font invalid, rather
+  than shifting every later table.
+- `DecodeIfWoff` is the single entry point for both installed font files and `@font-face` sources.
+
+## EggPdf.Text/FontUrlFetcher.cs
+
+- An `@font-face` `src` list is split only at commas outside parentheses and quotes, so a `data:` URI's
+  `base64,` stays inside its source.
+- Declaration values serialize a `url()` token as `url('...')`, never as the bare URL, so later steps
+  (shorthand expansion, `@font-face` source lists) can still tell a URL's commas from list separators.
