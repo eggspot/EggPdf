@@ -9,27 +9,34 @@ namespace EggPdf.Pdf;
 /// Primaries and white point are the standard D50-adapted sRGB values; the tone curve is
 /// approximated as a single gamma-2.2 'curv' tag rather than sRGB's exact piecewise curve --
 /// sufficient for the structural conformance a PDF/A OutputIntent requires, not a colorimetric
-/// reference profile.
+/// reference profile. The profile is identical on every call, so it is built once.
 /// </summary>
 public static class IccSrgbProfile
 {
-    // The profile is identical on every call (only an informational creation-date field would
-    // differ, and that doesn't need to reflect real render time) -- build it once and hand out
-    // copies instead of re-deriving the tag table on every PDF/A render.
+    private const int HeaderSize = 128;
+    private const int TagEntrySize = 12;
+    private const uint ProfileVersion2_1 = 0x02100000;
+    private const uint PerceptualIntent = 0;
+    private const double D50X = 0.9642, D50Y = 1.0000, D50Z = 0.8249;
+
     private static readonly byte[] Cached = Build();
 
     /// <summary>A fresh copy of the generated profile bytes, safe for the caller to treat as owned.</summary>
     public static byte[] Generate() => (byte[])Cached.Clone();
 
+    /// <summary>
+    /// Builds the tag data first so offsets and sizes are known before the header is laid out; every tag starts on a
+    /// 4-byte boundary (ICC.1:2001-04 §6.5). The preferred CMM, platform, flags, device attributes, profile ID and the
+    /// reserved header bytes are zero.
+    /// </summary>
     private static byte[] Build()
     {
-        // Tag data, built first so offsets/sizes are known before the header is laid out.
         var tags = new (string sig, byte[] data)[]
         {
             ("desc", BuildDescTag("sRGB IEC61966-2.1")),
             ("cprt", BuildTextTag("Public Domain")),
-            ("wtpt", BuildXyzTag(0.9642, 1.0000, 0.8249)), // D50 PCS white point
-            ("rXYZ", BuildXyzTag(0.4360, 0.2225, 0.0139)), // D50-adapted sRGB primaries
+            ("wtpt", BuildXyzTag(D50X, D50Y, D50Z)),
+            ("rXYZ", BuildXyzTag(0.4360, 0.2225, 0.0139)),
             ("gXYZ", BuildXyzTag(0.3851, 0.7169, 0.0971)),
             ("bXYZ", BuildXyzTag(0.1431, 0.0606, 0.7139)),
             ("rTRC", BuildGammaCurveTag(2.2)),
@@ -37,10 +44,9 @@ public static class IccSrgbProfile
             ("bTRC", BuildGammaCurveTag(2.2)),
         };
 
-        int tagTableSize = 4 + tags.Length * 12;
-        int dataStart = 128 + tagTableSize;
+        int tagTableSize = 4 + tags.Length * TagEntrySize;
+        int dataStart = HeaderSize + tagTableSize;
 
-        // Every tag data element must start on a 4-byte boundary (ICC.1:2001-04 §6.5).
         var offsets = new int[tags.Length];
         var sizes = new int[tags.Length];
         int pos = dataStart;
@@ -54,12 +60,11 @@ public static class IccSrgbProfile
 
         var buf = new byte[totalSize];
 
-        // Header (128 bytes)
         WriteU32(buf, 0, (uint)totalSize);
-        WriteU32(buf, 8, 0x02100000); // profile version 2.1.0
-        WriteAscii(buf, 12, "mntr");  // device class: display
-        WriteAscii(buf, 16, "RGB ");  // data colour space
-        WriteAscii(buf, 20, "XYZ ");  // profile connection space
+        WriteU32(buf, 8, ProfileVersion2_1);
+        WriteAscii(buf, 12, "mntr");
+        WriteAscii(buf, 16, "RGB ");
+        WriteAscii(buf, 20, "XYZ ");
         var now = DateTime.UtcNow;
         WriteU16(buf, 24, (ushort)now.Year);
         WriteU16(buf, 26, (ushort)now.Month);
@@ -67,26 +72,22 @@ public static class IccSrgbProfile
         WriteU16(buf, 30, (ushort)now.Hour);
         WriteU16(buf, 32, (ushort)now.Minute);
         WriteU16(buf, 34, (ushort)now.Second);
-        WriteAscii(buf, 36, "acsp"); // profile file signature (required)
-        WriteU32(buf, 64, 0);        // rendering intent: perceptual
-        WriteS15Fixed16(buf, 68, 0.9642); // PCS illuminant (always D50, per spec)
-        WriteS15Fixed16(buf, 72, 1.0000);
-        WriteS15Fixed16(buf, 76, 0.8249);
-        WriteAscii(buf, 80, "EGGP"); // profile creator (informational)
-        // Preferred CMM, primary platform, flags, manufacturer/model/attributes,
-        // profile ID, and the trailing reserved bytes are all legitimately zero.
+        WriteAscii(buf, 36, "acsp");
+        WriteU32(buf, 64, PerceptualIntent);
+        WriteS15Fixed16(buf, 68, D50X);
+        WriteS15Fixed16(buf, 72, D50Y);
+        WriteS15Fixed16(buf, 76, D50Z);
+        WriteAscii(buf, 80, "EGGP");
 
-        // Tag table
-        WriteU32(buf, 128, (uint)tags.Length);
+        WriteU32(buf, HeaderSize, (uint)tags.Length);
         for (int i = 0; i < tags.Length; i++)
         {
-            int entryOffset = 132 + i * 12;
+            int entryOffset = HeaderSize + 4 + i * TagEntrySize;
             WriteAscii(buf, entryOffset, tags[i].sig);
             WriteU32(buf, entryOffset + 4, (uint)offsets[i]);
             WriteU32(buf, entryOffset + 8, (uint)sizes[i]);
         }
 
-        // Tag data
         for (int i = 0; i < tags.Length; i++)
             Array.Copy(tags[i].data, 0, buf, offsets[i], tags[i].data.Length);
 
@@ -95,27 +96,27 @@ public static class IccSrgbProfile
 
     private static int Pad4(int size) => (size + 3) & ~3;
 
-    /// <summary>textDescriptionType ('desc') -- ICC.1:2001-04 §6.5.17.</summary>
+    /// <summary>
+    /// textDescriptionType ('desc') -- ICC.1:2001-04 §6.5.17: signature, reserved, ASCII count and NUL-terminated text,
+    /// then an empty Unicode description (language, count), an empty ScriptCode description (code, count) and a 67-byte
+    /// zeroed Macintosh description.
+    /// </summary>
     private static byte[] BuildDescTag(string ascii)
     {
         var asciiBytes = Encoding.ASCII.GetBytes(ascii);
-        int n = asciiBytes.Length + 1; // includes the NUL terminator
-        // sig(4) + reserved(4) + count(4) + ascii(n) + unicodeLang(4) + unicodeCount(4) + scriptCode(2) + macCount(1) + macDesc(67)
-        var buf = new byte[4 + 4 + 4 + n + 4 + 4 + 2 + 1 + 67];
+        int countWithTerminator = asciiBytes.Length + 1;
+        var buf = new byte[4 + 4 + 4 + countWithTerminator + 4 + 4 + 2 + 1 + 67];
         WriteAscii(buf, 0, "desc");
-        WriteU32(buf, 8, (uint)n);
+        WriteU32(buf, 8, (uint)countWithTerminator);
         Array.Copy(asciiBytes, 0, buf, 12, asciiBytes.Length);
-        // NUL terminator, Unicode lang/count, ScriptCode, and the Mac description are all
-        // legitimately zero (no Unicode/Mac variant supplied).
         return buf;
     }
 
-    /// <summary>textType ('text') -- ICC.1:2001-04 §6.5.18.</summary>
+    /// <summary>textType ('text') -- ICC.1:2001-04 §6.5.18: signature, reserved, NUL-terminated text.</summary>
     private static byte[] BuildTextTag(string ascii)
     {
         var asciiBytes = Encoding.ASCII.GetBytes(ascii);
-        int n = asciiBytes.Length + 1; // includes the NUL terminator
-        var buf = new byte[4 + 4 + n];
+        var buf = new byte[4 + 4 + asciiBytes.Length + 1];
         WriteAscii(buf, 0, "text");
         Array.Copy(asciiBytes, 0, buf, 8, asciiBytes.Length);
         return buf;
@@ -132,12 +133,12 @@ public static class IccSrgbProfile
         return buf;
     }
 
-    /// <summary>curveType ('curv') with a single entry -- a pure power-law gamma curve.</summary>
+    /// <summary>curveType ('curv') with a single entry -- a pure power-law gamma curve as a u8Fixed8Number.</summary>
     private static byte[] BuildGammaCurveTag(double gamma)
     {
         var buf = new byte[4 + 4 + 4 + 2];
         WriteAscii(buf, 0, "curv");
-        WriteU32(buf, 8, 1); // count = 1 -> single u8Fixed8Number gamma value
+        WriteU32(buf, 8, 1);
         WriteU16(buf, 12, (ushort)Math.Round(gamma * 256.0));
         return buf;
     }
