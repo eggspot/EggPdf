@@ -234,9 +234,16 @@ public static partial class BlockLayout
         }
     }
 
+    /// <summary>
+    /// The height vertical-align centres or bottom-aligns in a cell: what its content needs, not a specified height
+    /// or min-height that only makes the cell taller.
+    /// </summary>
+    private static float VerticalAlignContentHeight(LayoutBox cell) =>
+        float.IsNaN(cell.FlowContentHeight) ? cell.ContentHeight : Math.Min(cell.FlowContentHeight, cell.ContentHeight);
+
     private static void StretchCell(LayoutBox cell, float height)
     {
-        float contentHeight = cell.ContentHeight;
+        float contentHeight = VerticalAlignContentHeight(cell);
         float offset = 0f;
         var verticalAlign = cell.Style.Get("vertical-align") ?? "top";
         if (verticalAlign == "middle")
