@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Text;
 
 namespace EggPdf.Css.Cascade;
 
@@ -7,7 +9,7 @@ namespace EggPdf.Css.Cascade;
 /// Handles nested var(), fallback values, and cycle detection.
 /// Infallible: returns original value on error.
 /// </summary>
-public static class CssVariableResolver
+public static partial class CssVariableResolver
 {
     private const int MaxDepth = 10;
     private const string VarPrefix = "var(";
@@ -21,14 +23,14 @@ public static class CssVariableResolver
         if (string.IsNullOrEmpty(value))
             return value;
 
-        bool hasVar = value.IndexOf(VarPrefix, StringComparison.OrdinalIgnoreCase) >= 0;
-        bool hasEnv = value.IndexOf(EnvPrefix, StringComparison.OrdinalIgnoreCase) >= 0;
+        bool hasVar = IndexOfFunction(value, VarPrefix, 0) >= 0;
+        bool hasEnv = IndexOfFunction(value, EnvPrefix, 0) >= 0;
 
         if (!hasVar && !hasEnv)
             return value;
 
         string result = hasEnv ? ResolveEnv(value) : value;
-        if (result.IndexOf(VarPrefix, StringComparison.OrdinalIgnoreCase) >= 0)
+        if (IndexOfFunction(result, VarPrefix, 0) >= 0)
             result = ResolveVariablesRecursive(result, style, 0);
 
         return result;
@@ -37,8 +39,8 @@ public static class CssVariableResolver
     /// <summary>
     /// Known safe-area-inset environment variables — all 0px for PDF rendering.
     /// </summary>
-    private static readonly System.Collections.Generic.HashSet<string> SafeAreaVars =
-        new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> SafeAreaVars =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "safe-area-inset-top", "safe-area-inset-right",
             "safe-area-inset-bottom", "safe-area-inset-left"
@@ -50,21 +52,16 @@ public static class CssVariableResolver
     /// </summary>
     private static string ResolveEnv(string value)
     {
-        if (value.IndexOf(EnvPrefix, StringComparison.OrdinalIgnoreCase) < 0)
-            return value;
-
         int pos = 0;
-        var result = new System.Text.StringBuilder(value.Length);
+        StringBuilder? result = null;
 
         while (pos < value.Length)
         {
-            int startIdx = value.IndexOf(EnvPrefix, pos, StringComparison.OrdinalIgnoreCase);
+            int startIdx = IndexOfFunction(value, EnvPrefix, pos);
             if (startIdx < 0)
-            {
-                result.Append(value, pos, value.Length - pos);
                 break;
-            }
 
+            result ??= new StringBuilder(value.Length);
             result.Append(value, pos, startIdx - pos);
 
             int openParen = startIdx + EnvPrefix.Length - 1;
@@ -72,14 +69,11 @@ public static class CssVariableResolver
             if (closeParen < 0)
             {
                 result.Append(value, startIdx, value.Length - startIdx);
-                break;
+                return result.ToString();
             }
 
             string envContent = value.Substring(openParen + 1, closeParen - openParen - 1).Trim();
-
-            string envName;
-            string? fallback;
-            ParseVarContent(envContent, out envName, out fallback);
+            ParseVarContent(envContent, out string envName, out string? fallback);
 
             if (SafeAreaVars.Contains(envName))
                 result.Append("0px");
@@ -89,33 +83,27 @@ public static class CssVariableResolver
             pos = closeParen + 1;
         }
 
+        if (result == null)
+            return value;
+        result.Append(value, pos, value.Length - pos);
         return result.ToString();
     }
 
     private static string ResolveVariablesRecursive(string value, ComputedStyle style, int depth)
     {
-        if (depth >= MaxDepth)
-            return value;
-
-        if (string.IsNullOrEmpty(value))
-            return value;
-
-        int startIdx = value.IndexOf(VarPrefix, StringComparison.OrdinalIgnoreCase);
-        if (startIdx < 0)
+        if (depth >= MaxDepth || string.IsNullOrEmpty(value))
             return value;
 
         int pos = 0;
-        var result = new System.Text.StringBuilder(value.Length);
+        StringBuilder? result = null;
 
         while (pos < value.Length)
         {
-            startIdx = IndexOfVar(value, pos);
+            int startIdx = IndexOfFunction(value, VarPrefix, pos);
             if (startIdx < 0)
-            {
-                result.Append(value, pos, value.Length - pos);
                 break;
-            }
 
+            result ??= new StringBuilder(value.Length);
             result.Append(value, pos, startIdx - pos);
 
             int openParen = startIdx + VarPrefix.Length;
@@ -123,17 +111,13 @@ public static class CssVariableResolver
             if (closeParen < 0)
             {
                 result.Append(value, startIdx, value.Length - startIdx);
-                break;
+                return result.ToString();
             }
 
             string varContent = value.Substring(openParen, closeParen - openParen).Trim();
-
-            string varName;
-            string? fallback;
-            ParseVarContent(varContent, out varName, out fallback);
+            ParseVarContent(varContent, out string varName, out string? fallback);
 
             string? resolved = style.Get(varName);
-
             if (resolved != null)
                 result.Append(ResolveVariablesRecursive(resolved, style, depth + 1));
             else if (fallback != null)
@@ -142,20 +126,46 @@ public static class CssVariableResolver
             pos = closeParen + 1;
         }
 
+        if (result == null)
+            return value;
+        result.Append(value, pos, value.Length - pos);
         return result.ToString();
     }
 
     /// <summary>
-    /// Find "var(" in a case-insensitive way starting from pos.
+    /// The index of the function <paramref name="prefix"/> ("var(" or "env(") at or after <paramref name="start"/>,
+    /// matched case-insensitively, outside quoted strings and not as the tail of a longer name (so "myvar(" is not var()).
     /// </summary>
-    private static int IndexOfVar(string value, int startPos)
+    private static int IndexOfFunction(string value, string prefix, int start)
     {
-        return value.IndexOf(VarPrefix, startPos, StringComparison.OrdinalIgnoreCase);
+        char quote = '\0';
+        for (int i = start; i < value.Length; i++)
+        {
+            char c = value[i];
+            if (quote != '\0')
+            {
+                if (c == '\\') i++;
+                else if (c == quote) quote = '\0';
+                continue;
+            }
+            if (c == '"' || c == '\'')
+            {
+                quote = c;
+                continue;
+            }
+            if (char.ToLowerInvariant(c) == prefix[0] &&
+                string.Compare(value, i, prefix, 0, prefix.Length, StringComparison.OrdinalIgnoreCase) == 0 &&
+                (i == 0 || !IsNameChar(value[i - 1])))
+                return i;
+        }
+        return -1;
     }
 
-    /// <summary>
-    /// Find matching closing paren for the opening paren at the given position.
-    /// </summary>
+    private static bool IsNameChar(char c) => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c > 127;
+
+    private static bool ContainsReference(string value)
+        => IndexOfFunction(value, VarPrefix, 0) >= 0 || IndexOfFunction(value, EnvPrefix, 0) >= 0;
+
     private static int FindMatchingParen(string value, int openParenPos)
     {
         int depth = 0;
@@ -211,50 +221,5 @@ public static class CssVariableResolver
     public static bool IsCustomProperty(string property)
     {
         return property.Length > 2 && property[0] == '-' && property[1] == '-';
-    }
-
-    /// <summary>
-    /// Detect cycles by checking if resolving a custom property would
-    /// reference itself (directly or indirectly). Returns true if safe.
-    /// </summary>
-    public static bool HasCycle(string propertyName, ComputedStyle style)
-    {
-        return HasCycleRecursive(propertyName, style, 0);
-    }
-
-    private static bool HasCycleRecursive(string propertyName, ComputedStyle style, int depth)
-    {
-        if (depth >= MaxDepth)
-            return true;
-
-        string? value = style.Get(propertyName);
-        if (string.IsNullOrEmpty(value))
-            return false;
-
-        int pos = 0;
-        while (pos < value.Length)
-        {
-            int idx = IndexOfVar(value, pos);
-            if (idx < 0) break;
-
-            int openParen = idx + VarPrefix.Length;
-            int closeParen = FindMatchingParen(value, openParen - 1);
-            if (closeParen < 0) break;
-
-            string varContent = value.Substring(openParen, closeParen - openParen).Trim();
-            string varName;
-            string? fallback;
-            ParseVarContent(varContent, out varName, out fallback);
-
-            if (string.Equals(varName, propertyName, StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            if (HasCycleRecursive(varName, style, depth + 1))
-                return true;
-
-            pos = closeParen + 1;
-        }
-
-        return false;
     }
 }
