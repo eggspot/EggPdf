@@ -5,18 +5,27 @@ namespace EggPdf.Svg;
 /// <summary>A lighting-filter light source, with positions already mapped to canvas pixels.</summary>
 internal sealed class FilterLight
 {
-    public string Kind = "distant";                 // distant | point | spot
-    public float Azimuth, Elevation;                // degrees (distant)
-    public float X, Y, Z;                           // position (point, spot)
-    public float PointsAtX, PointsAtY, PointsAtZ;   // spot target
+    /// <summary><c>distant</c>, <c>point</c> or <c>spot</c>.</summary>
+    public string Kind = "distant";
+
+    /// <summary>A distant light's direction, in degrees.</summary>
+    public float Azimuth, Elevation;
+
+    /// <summary>A point or spot light's position.</summary>
+    public float X, Y, Z;
+
+    /// <summary>The point a spot light aims at.</summary>
+    public float PointsAtX, PointsAtY, PointsAtZ;
+
     public float SpotExponent = 1f;
-    public float? ConeAngle;                        // degrees; null = unlimited
+
+    /// <summary>A spot light's cone half-angle in degrees; null when unlimited.</summary>
+    public float? ConeAngle;
 }
 
+/// <summary>feTurbulence follows the reference implementation in the SVG specification.</summary>
 internal static partial class FilterPixels
 {
-    // ── feTurbulence (the reference implementation of the SVG specification) ──
-
     private const int BSize = 0x100, BMask = 0xff, PerlinN = 0x1000;
 
     private sealed class Lattice
@@ -175,15 +184,13 @@ internal static partial class FilterPixels
         return img;
     }
 
-    // ── feConvolveMatrix ─────────────────────────────────────────────────────
-
+    /// <summary>feConvolveMatrix; with <paramref name="preserveAlpha"/> the specification convolves unpremultiplied color.</summary>
     public static FilterImage ConvolveMatrix(FilterImage src, int orderX, int orderY, float[] kernel, float divisor, float bias,
         int targetX, int targetY, string edgeMode, bool preserveAlpha)
     {
         int w = src.Width, h = src.Height;
         var result = new FilterImage(w, h, src.Linear);
 
-        // Work on straight colour when alpha is preserved (the spec convolves un-premultiplied colour then)
         float[] source = src.Px;
         if (preserveAlpha)
         {
@@ -236,7 +243,7 @@ internal static partial class FilterPixels
         return result;
     }
 
-    /// <summary>Resolve an out-of-range sample index per edgeMode; false means "treat as transparent black".</summary>
+    /// <summary>Resolve an out-of-range sample index per edgeMode (<c>duplicate</c> when unknown); false means "treat as transparent black".</summary>
     private static bool MapEdge(ref int i, int size, string mode)
     {
         if (i >= 0 && i < size) return true;
@@ -244,12 +251,11 @@ internal static partial class FilterPixels
         {
             case "wrap": i = ((i % size) + size) % size; return true;
             case "none": return false;
-            default: i = i < 0 ? 0 : size - 1; return true; // duplicate
+            default: i = i < 0 ? 0 : size - 1; return true;
         }
     }
 
-    // ── feDisplacementMap ────────────────────────────────────────────────────
-
+    /// <summary>feDisplacementMap: each pixel takes the source pixel displaced by the map's selected channels; outside the image is transparent.</summary>
     public static FilterImage DisplacementMap(FilterImage src, FilterImage map, float scale, char xChannel, char yChannel)
     {
         int w = src.Width, h = src.Height;
@@ -281,9 +287,7 @@ internal static partial class FilterPixels
         }
     }
 
-    // ── feImage ──────────────────────────────────────────────────────────────
-
-    /// <summary>Draw <paramref name="bitmap"/> scaled (bilinear) into the rectangle (x, y, w, h) of <paramref name="dst"/>.</summary>
+    /// <summary>feImage: draw <paramref name="bitmap"/> scaled (bilinear) into the rectangle (x, y, w, h) of <paramref name="dst"/>.</summary>
     public static void DrawBitmap(FilterImage dst, FilterImage bitmap, float x, float y, float w, float h)
     {
         if (w <= 0f || h <= 0f) return;
@@ -320,9 +324,7 @@ internal static partial class FilterPixels
         return img.Px[(y * img.Width + x) * 4 + c];
     }
 
-    // ── feTile ───────────────────────────────────────────────────────────────
-
-    /// <summary>Repeat the pixels of the rectangle [x0,x1) x [y0,y1) across the whole image.</summary>
+    /// <summary>feTile: repeat the pixels of the rectangle [x0,x1) x [y0,y1) across the whole image.</summary>
     public static FilterImage Tile(FilterImage src, int x0, int y0, int x1, int y1)
     {
         int tw = x1 - x0, th = y1 - y0;
@@ -340,11 +342,10 @@ internal static partial class FilterPixels
         return result;
     }
 
-    // ── feDiffuseLighting / feSpecularLighting ───────────────────────────────
-
     /// <summary>
-    /// Light the alpha channel treated as a height map (Sobel surface normals). Diffuse output is opaque;
-    /// specular output is premultiplied with alpha = its strongest channel, per the specification.
+    /// feDiffuseLighting / feSpecularLighting: light the alpha channel treated as a height map (Sobel surface
+    /// normals). Diffuse output is opaque; specular output is premultiplied with alpha = its strongest channel, per
+    /// the specification. A spot light's axis runs from its position to the point it aims at.
     /// </summary>
     public static FilterImage Lighting(FilterImage src, bool specular, float surfaceScale, float constant, float specularExponent,
         float lr, float lg, float lb, FilterLight light)
@@ -359,7 +360,6 @@ internal static partial class FilterPixels
             return src.Px[(y * w + x) * 4 + 3];
         }
 
-        // Spot light axis
         float sx = 0, sy = 0, sz = 0;
         if (light.Kind == "spot")
         {
