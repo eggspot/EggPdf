@@ -441,10 +441,10 @@ public class InvoiceService(IRazorToPdfConverter pdf)
 | CountBalanced | **5.2 ms** | 135 KB |
 | CountFlat | **43.0 ms** | 9.2 MB |
 | LastPageBalanced | **5.2 ms** | 135 KB |
-| LastPageBalancedFromStream | **5.5 ms** | 2.7 MB |
-| SimplePage | **42.6 µs** | 39 KB |
-| InvoicePage | **510.3 µs** | 272 KB |
-| LargeTable | **4.9 ms** | 1.4 MB |
+| LastPageBalancedFromStream | **5.6 ms** | 2.7 MB |
+| SimplePage | **44.0 µs** | 39 KB |
+| InvoicePage | **505.4 µs** | 272 KB |
+| LargeTable | **5.0 ms** | 1.4 MB |
 
 *Auto-updated by CI. Targets: simple < 50ms, invoice < 100ms, large table < 5s.*
 <!-- BENCHMARK_END -->
