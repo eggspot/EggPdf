@@ -10,8 +10,6 @@ namespace EggPdf.Tests.Layout;
 /// </summary>
 public class BoxModelTests
 {
-    // ── min-height / max-height ─────────────────────────────────────────────
-
     [Fact]
     public void MinHeight_EnforcesMinimumWhenContentShorter()
     {
@@ -31,7 +29,7 @@ public class BoxModelTests
 
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
-        div!.Height.Should().BeLessOrEqualTo(51); // 50 + 1 for rounding
+        div!.Height.Should().BeLessOrEqualTo(51, "max-height 50px, plus 1px for rounding");
     }
 
     [Fact]
@@ -56,8 +54,6 @@ public class BoxModelTests
         div!.Height.Should().BeApproximately(50, 1f);
     }
 
-    // ── percentage dimensions ───────────────────────────────────────────────
-
     [Fact]
     public void Width_50Percent_HalfOfContainer()
     {
@@ -66,8 +62,7 @@ public class BoxModelTests
 
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
-        // 50% of 600 = 300, but body margin may reduce available width
-        div!.Width.Should().BeApproximately(300, 20f);
+        div!.Width.Should().BeApproximately(300, 20f, "50% of the 600px page, less up to the body margin");
     }
 
     [Fact]
@@ -80,11 +75,8 @@ public class BoxModelTests
 
         var divs = root.FindAllByTag("div");
         divs.Should().HaveCountGreaterOrEqualTo(2);
-        // Child width should equal parent content width
         divs[1].Width.Should().BeApproximately(divs[0].ContentWidth, 2f);
     }
-
-    // ── box-sizing ──────────────────────────────────────────────────────────
 
     [Fact]
     public void BoxSizingBorderBox_PaddingIncludedInWidth()
@@ -95,9 +87,7 @@ public class BoxModelTests
 
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
-        // Total width stays at 200px (padding is inside)
-        div!.Width.Should().BeApproximately(200, 1f);
-        // Content width = 200 - 2*20 = 160
+        div!.Width.Should().BeApproximately(200, 1f, "border-box puts the padding inside the 200px");
         div.ContentWidth.Should().BeApproximately(160, 2f);
     }
 
@@ -110,11 +100,8 @@ public class BoxModelTests
 
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
-        // Total width = 200 + 2*20 = 240px
-        div!.Width.Should().BeApproximately(240, 1f);
+        div!.Width.Should().BeApproximately(240, 1f, "content-box adds 2 x 20px padding to the 200px");
     }
-
-    // ── padding shorthands ──────────────────────────────────────────────────
 
     [Fact]
     public void PaddingShorthand_FourValues_AllSides()
@@ -146,8 +133,6 @@ public class BoxModelTests
         div.PaddingRight.Should().BeApproximately(20, 0.5f);
     }
 
-    // ── margin shorthands ───────────────────────────────────────────────────
-
     [Fact]
     public void MarginShorthand_FourValues_AllSides()
     {
@@ -172,11 +157,8 @@ public class BoxModelTests
 
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
-        // With auto margins, div should be centered (X > 0)
         div!.X.Should().BeGreaterThan(0, "auto margins should center the block");
     }
-
-    // ── nested padding stacks ───────────────────────────────────────────────
 
     [Fact]
     public void NestedPadding_ChildOffsetByParentPadding()
@@ -191,12 +173,9 @@ public class BoxModelTests
 
         var parent = divs[0];
         var child = divs[1];
-        // Child's X should be offset by parent's padding-left
-        child.X.Should().BeApproximately(parent.X + 30, 2f);
+        child.X.Should().BeApproximately(parent.X + 30, 2f, "the child starts inside the parent's padding");
         child.Y.Should().BeApproximately(parent.Y + 30, 2f);
     }
-
-    // ── border affects dimensions ───────────────────────────────────────────
 
     [Fact]
     public void Border_StyleIsPreserved()
@@ -207,7 +186,6 @@ public class BoxModelTests
 
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
-        // Border style is stored and the element is laid out
         div!.Width.Should().BeGreaterThan(0);
         div.Style.Get("border-top-width").Should().NotBeNullOrEmpty();
     }
@@ -223,8 +201,6 @@ public class BoxModelTests
         div.Should().NotBeNull();
         div!.Width.Should().BeApproximately(100, 2f);
     }
-
-    // ── overflow ────────────────────────────────────────────────────────────
 
     [Fact]
     public void OverflowHidden_StyleIsPreserved()
@@ -249,8 +225,6 @@ public class BoxModelTests
         div.Should().NotBeNull();
         div!.Style.Get("overflow").Should().Be("auto");
     }
-
-    // ── display variants ────────────────────────────────────────────────────
 
     [Fact]
     public void DisplayBlock_TakesFullWidth()
@@ -278,23 +252,19 @@ public class BoxModelTests
         span.Height.Should().BeApproximately(40, 1f);
     }
 
-    // ── margin: auto centering ────────────────────────────────────────────────
-
     [Fact]
     public void MarginAuto_BothSides_CentersBlock()
     {
-        // Use a zero-padding wrapper so the container edge is exactly known.
         var root = LayoutTestHelper.Layout(
             "<div id='wrap' style='width: 600px; padding: 0; margin: 0'>" +
             "<div id='inner' style='width: 200px; margin: 0 auto'></div>" +
             "</div>", 800, 800);
 
-        var wrap  = root.FindById("wrap");
+        var wrap = root.FindById("wrap");
         var inner = root.FindById("inner");
         wrap.Should().NotBeNull();
         inner.Should().NotBeNull();
 
-        // Container is 600px wide, inner is 200px — should center at wrap.X + 200
         float expectedX = wrap!.X + (600f - 200f) / 2f;
         inner!.X.Should().BeApproximately(expectedX, 1f,
             "margin: 0 auto should center a block within its container");
@@ -313,7 +283,6 @@ public class BoxModelTests
         wrap.Should().NotBeNull();
         inner.Should().NotBeNull();
 
-        // margin-left absorbs all remaining space → inner pushed to right edge of wrap
         float expectedX = wrap!.X + 600f - 200f;
         inner!.X.Should().BeApproximately(expectedX, 1f,
             "margin-left: auto should push block to the right edge");
@@ -332,7 +301,6 @@ public class BoxModelTests
         wrap.Should().NotBeNull();
         inner.Should().NotBeNull();
 
-        // margin-right: auto — left margin is 0, block stays at left edge of wrap
         inner!.X.Should().BeApproximately(wrap!.X, 1f,
             "margin-right: auto with margin-left: 0 should keep block at left");
     }
@@ -340,7 +308,6 @@ public class BoxModelTests
     [Fact]
     public void MarginAuto_ShorthandZeroAuto_Centering()
     {
-        // Common pattern: margin: 0 auto via shorthand expander
         var root = LayoutTestHelper.Layout(
             "<div id='wrap' style='width: 900px; padding: 0; margin: 0'>" +
             "<div id='inner' style='width: 300px; margin: 0 auto'></div>" +
@@ -351,12 +318,10 @@ public class BoxModelTests
         wrap.Should().NotBeNull();
         inner.Should().NotBeNull();
 
-        float expectedX = wrap!.X + (900f - 300f) / 2f; // 300 from wrap edge
+        float expectedX = wrap!.X + (900f - 300f) / 2f;
         inner!.X.Should().BeApproximately(expectedX, 1f,
             "margin: 0 auto should center within the 900px container");
     }
-
-    // ── outline-offset ───────────────────────────────────────────────────────
 
     [Fact]
     public void OutlineOffset_StylePreserved()
@@ -376,8 +341,6 @@ public class BoxModelTests
         var div = root.FindByTag("div");
         div!.Style.Get("outline-offset").Should().Be("-3px");
     }
-
-    // ── print-color-adjust ───────────────────────────────────────────────────
 
     [Fact]
     public void PrintColorAdjust_Economy_StylePreserved()
@@ -410,8 +373,6 @@ public class BoxModelTests
             "print-color-adjust is an inherited property");
     }
 
-    // ── container-type / container-name ──────────────────────────────────────
-
     [Fact]
     public void ContainerType_StylePreserved()
     {
@@ -431,8 +392,6 @@ public class BoxModelTests
         div.Should().NotBeNull();
         div!.Style.Get("container-name").Should().Be("card");
     }
-
-    // ── mix-blend-mode / background-blend-mode ───────────────────────────────
 
     [Fact]
     public void MixBlendMode_Multiply_StylePreserved()
@@ -463,8 +422,6 @@ public class BoxModelTests
         div.Should().NotBeNull();
         div!.Style.Get("background-blend-mode").Should().Be("multiply");
     }
-
-    // ── CSS masks ────────────────────────────────────────────────────────────
 
     [Fact]
     public void MaskImage_StylePreserved()
@@ -503,12 +460,9 @@ public class BoxModelTests
             "<div style='mask: url(mask.png) no-repeat center'>X</div>", 400, 600);
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
-        // The shorthand should expand — at minimum mask-image should be set
         div!.Style.Get("mask-image").Should().Be("url(mask.png)",
             "mask shorthand should expand mask-image longhand");
     }
-
-    // ── backdrop-filter ──────────────────────────────────────────────────────
 
     [Fact]
     public void BackdropFilter_Blur_StylePreserved()
@@ -537,11 +491,8 @@ public class BoxModelTests
             "<div style='backdrop-filter: blur(10px)'><span>child</span></div>", 400, 600);
         var span = root.FindByTag("span");
         span.Should().NotBeNull();
-        // backdrop-filter is NOT inherited — child should not have it
-        span!.Style.Get("backdrop-filter").Should().BeNullOrEmpty();
+        span!.Style.Get("backdrop-filter").Should().BeNullOrEmpty("backdrop-filter is not inherited");
     }
-
-    // ── border-image ─────────────────────────────────────────────────────────
 
     [Fact]
     public void BorderImage_Shorthand_ExpandsSource()
@@ -605,8 +556,6 @@ public class BoxModelTests
         div!.Style.Get("border-image-repeat").Should().Be("round");
     }
 
-    // ── contain ──────────────────────────────────────────────────────────────
-
     [Fact]
     public void Contain_Strict_StylePreserved()
     {
@@ -636,8 +585,6 @@ public class BoxModelTests
         span.Should().NotBeNull();
         span!.Style.Get("contain").Should().BeNullOrEmpty("contain is not inherited");
     }
-
-    // ── isolation ────────────────────────────────────────────────────────────
 
     [Fact]
     public void Isolation_Isolate_StylePreserved()
@@ -669,8 +616,6 @@ public class BoxModelTests
         span!.Style.Get("isolation").Should().BeNullOrEmpty("isolation is not inherited");
     }
 
-    // ── background-clip ──────────────────────────────────────────────────────
-
     [Fact]
     public void BackgroundClip_Text_StylePreserved()
     {
@@ -700,8 +645,6 @@ public class BoxModelTests
         span.Should().NotBeNull();
         span!.Style.Get("background-clip").Should().BeNullOrEmpty();
     }
-
-    // ── aspect-ratio ─────────────────────────────────────────────────────────
 
     [Fact]
     public void AspectRatio_WidthGiven_HeightComputed()
@@ -746,22 +689,17 @@ public class BoxModelTests
             "explicit height wins over aspect-ratio");
     }
 
-    // ── details/summary collapsed state ────────────────────────────────────
-
     [Fact]
     public void Details_Closed_HidesContent()
     {
-        // Without 'open', only <summary> should be visible; body content should be hidden
         var root = LayoutTestHelper.Layout(
             "<details><summary>Title</summary><p id='body'>Body content</p></details>", 400, 600);
         var bodyBox = root.FindById("body");
-        // body content must be hidden (display:none → no box, or zero-size box)
         if (bodyBox != null)
         {
             (bodyBox.Width == 0 && bodyBox.Height == 0).Should().BeTrue(
-                "closed <details> body content must have zero size (hidden)");
+                "closed <details> body content must have no box or a zero-size one");
         }
-        // summary should still be present
         var summaryBoxes = root.FindAll(b => b.Text?.Contains("Title") == true);
         summaryBoxes.Should().NotBeEmpty("summary text should always be visible");
     }
@@ -769,7 +707,6 @@ public class BoxModelTests
     [Fact]
     public void Details_Open_ShowsContent()
     {
-        // With 'open' attribute, body content should be visible
         var root = LayoutTestHelper.Layout(
             "<details open><summary>Title</summary><p id='body'>Body content</p></details>", 400, 600);
         var bodyBoxes = root.FindAll(b => b.Text?.Contains("Body content") == true);
@@ -784,8 +721,6 @@ public class BoxModelTests
         var summaryBoxes = root.FindAll(b => b.Text?.Contains("Always shown") == true);
         summaryBoxes.Should().NotBeEmpty("summary should always render");
     }
-
-    // ── fit-content / min-content / max-content ──────────────────────────────
 
     [Fact]
     public void FitContent_Width_DoesNotCrash()
@@ -827,12 +762,9 @@ public class BoxModelTests
         div!.Width.Should().BeGreaterThan(0);
     }
 
-    // ── viewport + miscellaneous units ───────────────────────────────────────
-
     [Fact]
     public void ViewportWidth_50vw_IsHalfPageWidth()
     {
-        // Page width = 600px → 50vw should resolve to ~300px (minus body margins ~8px each = 284)
         var root = LayoutTestHelper.Layout(
             "<div style='width: 50vw; height: 50px'>vw</div>", 600, 800);
         var div = root.FindByTag("div");
@@ -843,7 +775,6 @@ public class BoxModelTests
     [Fact]
     public void ViewportHeight_50vh_IsHalfPageHeight()
     {
-        // Page height = 800px → 50vh should resolve to ~400px
         var root = LayoutTestHelper.Layout(
             "<div style='height: 50vh; width: 200px'>vh</div>", 600, 800);
         var div = root.FindByTag("div");
@@ -864,7 +795,6 @@ public class BoxModelTests
     [Fact]
     public void Unit_Pc_Resolves()
     {
-        // 1pc = 12pt = 16px; 6pc = 96px
         var root = LayoutTestHelper.Layout(
             "<div style='width: 6pc; height: 50px'>pc</div>", 600, 800);
         var div = root.FindByTag("div");
