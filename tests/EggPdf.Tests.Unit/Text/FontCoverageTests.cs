@@ -59,10 +59,10 @@ public class FontCoverageTests : IDisposable
     [Fact]
     public void ReadFaces_BitmapOnlyColorFont_IsNotDrawable()
     {
-        // sbix/CBDT emoji fonts map code points but carry no vector outlines this engine can paint
         var path = SyntheticFonts.Write(_dir, "bitmap.ttf", SyntheticFonts.Build(new[] { 0x1F600 }, bitmapColorOnly: true));
 
-        FontCoverageReader.ReadFaces(path).Single()!.HasOutlines.Should().BeFalse();
+        FontCoverageReader.ReadFaces(path).Single()!.HasOutlines.Should().BeFalse(
+            "sbix/CBDT emoji fonts map code points but carry no vector outlines this engine can paint");
     }
 
     [Fact]
@@ -104,8 +104,6 @@ public class FontCoverageTests : IDisposable
     [Fact]
     public void ReadFaces_AgreesWithTheFullParser()
     {
-        // The cmap-only reader and TtfParser must agree on what a font covers, or the resolver
-        // would pick a font the embedder then finds empty.
         var cps = new[] { 0x20, 0x41, 0x5A, 0x0416, 0x0E01, 0x0E02, 0x0E50, 0xAC00 };
         var bytes = SyntheticFonts.Build(cps);
         var path = SyntheticFonts.Write(_dir, "same.ttf", bytes);
@@ -116,6 +114,7 @@ public class FontCoverageTests : IDisposable
         var disagreements = Enumerable.Range(0, 0xB000)
             .Where(cp => coverage.Contains(cp) != (font.GetGlyphId(cp) != 0))
             .ToList();
-        disagreements.Should().BeEmpty();
+        disagreements.Should().BeEmpty(
+            "if the cmap-only reader and TtfParser disagree, the resolver picks a font the embedder then finds empty");
     }
 }
