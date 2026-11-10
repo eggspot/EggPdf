@@ -5,10 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// Tests that CSS from &lt;style&gt; tags is applied to the rendered PDF output.
-/// This verifies the cascade resolver is wired into the main pipeline.
-/// </summary>
 public class StyleTagRenderTests
 {
     [Fact]
@@ -87,10 +83,9 @@ public class StyleTagRenderTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
-        // Inline elements split text into word-level boxes
-        text.Should().Contain("Custom");
+        text.Should().Contain("Custom", "the <em>'s text is split into word boxes");
         text.Should().Contain("style");
-        text.Should().Contain("Courier");
+        text.Should().Contain("Courier", "the <style> tag's em rule selects the monospace font");
     }
 
     [Fact]
@@ -134,7 +129,6 @@ public class StyleTagRenderTests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Red text");
-        // Should contain "1.00 0.00 0.00 rg" or similar red fill color
         text.Should().Contain("1.00 0.00 0.00 rg", "red color should produce 1 0 0 rg operator");
     }
 

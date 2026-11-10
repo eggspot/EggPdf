@@ -5,11 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// The PDF gs operator persists until changed: after painting semi-transparent
-/// content, opacity must be explicitly reset to 1, otherwise the alpha leaks
-/// into every subsequent element (washed-out text bug).
-/// </summary>
 public class OpacityLeakTests
 {
     [Fact]
@@ -22,9 +17,8 @@ public class OpacityLeakTests
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("/GS50 gs", "the rgba(…,0.5) background sets 50% alpha");
         text.Should().Contain("/GS100 gs", "opacity must be reset to 1 after the transparent fill");
-
-        // The reset must come AFTER the 50% state
-        text.IndexOf("/GS100 gs").Should().BeGreaterThan(text.IndexOf("/GS50 gs"));
+        text.IndexOf("/GS100 gs").Should().BeGreaterThan(text.IndexOf("/GS50 gs"),
+            "the gs state persists until changed, so the reset must follow the 50% fill or later text is washed out");
     }
 
     [Fact]

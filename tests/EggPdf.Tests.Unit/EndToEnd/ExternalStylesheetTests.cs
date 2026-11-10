@@ -6,10 +6,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// Tests for external stylesheet loading via &lt;link&gt; elements and @import rules.
-/// Uses data: URIs to avoid filesystem dependencies in unit tests.
-/// </summary>
 public class ExternalStylesheetTests
 {
     /// <summary>Encode CSS text as a base64 data: URI.</summary>
@@ -112,7 +108,6 @@ public class ExternalStylesheetTests
     [Fact]
     public async Task ImportRule_DataUri_Applied()
     {
-        // The @import rule references a data: URI containing nested CSS
         var importedCss = CssToDataUri(".nested { font-family: monospace; }");
         var html = $@"<html><head><style>
             @import url(""{importedCss}"");
@@ -132,11 +127,8 @@ public class ExternalStylesheetTests
     }
 
     [Fact]
-    public void CircularImport_DoesNotHang()
+    public void LinkedSheetImportingAnotherDataUri_RendersWithoutHanging()
     {
-        // Two data URIs that reference each other would be complex to construct,
-        // but we can test that the same URL imported twice doesn't cause infinite recursion.
-        // Use a data URI that imports itself -- the visited URL tracking should prevent looping.
         var selfImportCss = "@import url(\"data:text/css,p%20%7B%20color%3A%20red%3B%20%7D\"); .test { font-weight: bold; }";
         var dataUri = CssToDataUri(selfImportCss);
         var html = $@"<html><head>
@@ -145,7 +137,6 @@ public class ExternalStylesheetTests
             <p class=""test"">Should not hang</p>
         </body></html>";
 
-        // This should complete without hanging or throwing
         var pdf = HtmlToPdf.Render(html);
         pdf.Should().NotBeNull();
         pdf.Length.Should().BeGreaterThan(0);
@@ -165,12 +156,11 @@ public class ExternalStylesheetTests
             <p>Still renders</p>
         </body></html>";
 
-        // Should not throw
         var pdf = HtmlToPdf.Render(html);
         pdf.Should().NotBeNull();
         pdf.Length.Should().BeGreaterThan(0);
 
         var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Still renders");
+        text.Should().Contain("Still renders", "a missing, empty or undecodable stylesheet is skipped, not fatal");
     }
 }

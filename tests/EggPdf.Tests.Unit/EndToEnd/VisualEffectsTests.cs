@@ -55,8 +55,7 @@ public class VisualEffectsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "Rotated");
 
-        // cos5 = 1.00 (0.996), sin5 = 0.09
-        text.Should().Contain("1.00 -0.09 0.09 1.00");
+        text.Should().Contain("1.00 -0.09 0.09 1.00", "cos 5deg = 0.996 and sin 5deg = 0.087 at two decimals");
         text.Should().MatchRegex(@"1\.00 -0\.09 0\.09 1\.00 -?\d+\.\d+ -?\d+\.\d+ cm");
     }
 
@@ -78,10 +77,9 @@ public class VisualEffectsTests
         var text = PdfAssert.ValidPdf(pdf, "Shadow text");
 
         PdfAssert.Count(text, "(Shadow text) Tj").Should().Be(2, "one shadow copy plus the real text");
-        // Shadow is drawn first, offset by 2px (1.5pt) right and 2px down from the real text.
         var shadow = PdfAssert.TextPosition(text, "Shadow text");
-        text.IndexOf("(Shadow text) Tj").Should().BeLessThan(text.LastIndexOf("(Shadow text) Tj"));
-        shadow.X.Should().BeApproximately(7.50f, 0.01f);
+        text.IndexOf("(Shadow text) Tj").Should().BeLessThan(text.LastIndexOf("(Shadow text) Tj"), "the shadow is drawn first");
+        shadow.X.Should().BeApproximately(7.50f, 0.01f, "the shadow is offset 2px (1.5pt) right of the real text");
     }
 
     [Fact]
@@ -113,13 +111,12 @@ public class VisualEffectsTests
     [Fact]
     public async Task CssNesting_ImplicitDescendant_ExpandsWithoutAmpersand()
     {
-        // No "&": the nested selector is treated as a descendant of the parent, same as Chrome.
         var html = "<style>div { p { color: blue; } }</style><div><p>Implicit nest</p></div><p>Outside</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "(Implicit nest) Tj", "(Outside) Tj");
 
         PdfAssert.TextPaintedWith(text, "Implicit nest", "0.00 0.00 1.00 rg")
-            .Should().BeTrue("\"div { p { color: blue } }\" must expand to \"div p { color: blue }\"");
+            .Should().BeTrue("without '&', like Chrome, \"div { p { color: blue } }\" expands to the descendant rule \"div p { color: blue }\"");
         PdfAssert.TextPaintedWith(text, "Outside", "0.00 0.00 1.00 rg")
             .Should().BeFalse("the nested rule must not leak to a <p> outside the <div>");
     }
@@ -127,15 +124,13 @@ public class VisualEffectsTests
     [Fact]
     public async Task CssNesting_LiteralBraceInContentValue_DoesNotCorruptFollowingRule()
     {
-        // A declaration value can legitimately contain a brace character (e.g. content: "{"). The
-        // nesting pre-processor's implicit-nesting detection must not mistake it for a nested rule
-        // and eat the unrelated rule that follows it.
         var html = "<style>p::before { content: \"{\"; } p { color: blue; }</style><p>After</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "(After) Tj");
 
         PdfAssert.TextPaintedWith(text, "After", "0.00 0.00 1.00 rg")
-            .Should().BeTrue("the literal '{' in the content value must not swallow the following \"p { color: blue }\" rule");
+            .Should().BeTrue("the nesting pre-processor must not take the literal '{' in a content value for a nested rule " +
+                "and swallow the following \"p { color: blue }\" rule");
     }
 
     [Fact]
@@ -164,19 +159,19 @@ public class VisualEffectsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf);
 
-        // Non-Latin-1 text is emitted as a glyph-id (hex) run rather than a literal string.
-        text.Should().MatchRegex(@"BT [^\n]*(\) Tj|> Tj|\] TJ) ET", "the paragraph must be painted as a text run");
+        text.Should().MatchRegex(@"BT [^\n]*(\) Tj|> Tj|\] TJ) ET",
+            "the paragraph must be painted as a text run; non-Latin-1 text comes out as a glyph-id hex run");
     }
 
     [Fact]
     public async Task Emoji_MixedWithLatin_EmitsTextRun()
     {
-        // Emoji may not render in color without a color emoji font, but the run must still be painted.
         var html = "<p>Hello World 🌍🎉</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf);
 
-        text.Should().MatchRegex(@"BT [^\n]*(\) Tj|> Tj|\] TJ)[^\n]* ET", "the paragraph must be painted as a text run");
+        text.Should().MatchRegex(@"BT [^\n]*(\) Tj|> Tj|\] TJ)[^\n]* ET",
+            "the paragraph must be painted as a text run, in color or not depending on the installed emoji font");
     }
 
     [Fact]
@@ -193,38 +188,31 @@ public class VisualEffectsTests
     [Fact]
     public async Task ImageSet_UnloadableCandidates_TextStillRendersWithoutImage()
     {
-        // Neither image-set() candidate exists: the box still paints its text, and no image is embedded.
         var html = "<div style=\"background-image: image-set(url('low.png') 1x, url('high.png') 2x); width:100px; height:100px\">IS</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "IS");
 
-        text.Should().NotContain("/Subtype /Image");
+        text.Should().NotContain("/Subtype /Image", "neither image-set() candidate exists");
     }
 
-    // 1x1 red pixel PNG as base64 (same fixture used by ImageTests.cs).
     private const string RedPixelPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
 
     [Fact]
     public async Task ImageSet_PrefersOneXCandidateAndActuallyEmbedsIt()
     {
-        // PDF is a fixed 1x print context (no real screen density) — image-set()
-        // must resolve to a real, loadable URL, not just be stored inertly in the
-        // computed style. Listing the 2x candidate first proves selection is by
-        // density match, not "pick whichever comes first". The 2x candidate points
-        // at a path that doesn't exist, so if 1x weren't actually preferred/loaded,
-        // no image would end up embedded at all.
         var html = $"<div style=\"background-image: image-set(url('missing-2x.png') 2x, url('data:image/png;base64,{RedPixelPng}') 1x); width:100px; height:100px\">IS</div>";
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.Latin1.GetString(pdf);
 
-        text.Should().Contain("/Subtype /Image", "the 1x candidate must resolve, load, and get embedded as a real image XObject");
+        text.Should().Contain("/Subtype /Image",
+            "a PDF is a 1x print context, so the 1x candidate is chosen by density even though the 2x one is listed first, " +
+            "and it must load and embed; the 2x path doesn't exist, so nothing would embed otherwise");
     }
 
     [Fact]
     public async Task ImageSet_QuotedUrlWithoutUrlWrapper_StillResolves()
     {
-        // image-set() candidates may be bare quoted strings instead of url(...).
         var html = $"<div style=\"background-image: image-set('data:image/png;base64,{RedPixelPng}' 1x); width:100px; height:100px\">IS2</div>";
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
@@ -232,8 +220,6 @@ public class VisualEffectsTests
 
         text.Should().Contain("/Subtype /Image", "a bare-quoted (non-url()) candidate must still resolve and embed");
     }
-
-    // ── CSS Images Level 4 image() ───────────────────────────────────────────
 
     [Fact]
     public async Task ImageFunction_PlainUrl_ResolvesAndEmbeds()
@@ -249,9 +235,6 @@ public class VisualEffectsTests
     [Fact]
     public async Task ImageFunction_RtlTag_PicksRtlCandidateInRtlContext()
     {
-        // The ltr candidate points at a path that doesn't exist; only the rtl candidate is a
-        // real, loadable data: URL. In an RTL context, if the rtl-tagged candidate weren't
-        // actually selected, nothing would end up embedded.
         var html = $"<div style=\"direction: rtl; background-image: " +
             $"image(ltr url('missing-ltr.png'), rtl url('data:image/png;base64,{RedPixelPng}')); " +
             "width:100px; height:100px\">I</div>";
@@ -259,7 +242,8 @@ public class VisualEffectsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.Latin1.GetString(pdf);
 
-        text.Should().Contain("/Subtype /Image", "the rtl-tagged candidate must be selected under direction:rtl");
+        text.Should().Contain("/Subtype /Image",
+            "the rtl-tagged candidate must be selected under direction:rtl; the ltr one doesn't exist, so nothing would embed otherwise");
     }
 
     [Fact]
@@ -278,8 +262,6 @@ public class VisualEffectsTests
     [Fact]
     public async Task ImageFunction_ColorFallback_PaintsSolidFillWhenUrlMissing()
     {
-        // No image-src at all, just a <color> fallback -- must paint the solid color, not crash
-        // or paint nothing.
         var html = "<div style=\"background-image: image(red); width:50px; height:50px\">I</div>";
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
@@ -291,25 +273,21 @@ public class VisualEffectsTests
     [Fact]
     public async Task BackgroundClip_Text_ClipsGradientBandsAndHidesGlyphFill()
     {
-        // background-clip: text creates gradient text — PDF approximates by rendering the gradient bands clipped to the box
         var html = @"<h1 style='background-image: linear-gradient(to right, red, blue);
             background-clip: text; -webkit-background-clip: text;
             color: transparent; font-size: 32px'>Gradient Text</h1>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "Gradient Text");
 
-        text.Should().Contain("re W n", "the gradient must be clipped");
+        text.Should().Contain("re W n", "gradient text is approximated by gradient bands clipped to the box");
         text.Should().Contain("1.00 0.00 0.00 rg", "the red start of the gradient");
         HasIntermediateRedBlueBand(text).Should().BeTrue("intermediate gradient band");
         text.Should().Contain("/GS0 gs", "the transparent glyph fill is painted with zero alpha");
     }
 
-    // ── text-emphasis ─────────────────────────────────────────────────────────
-
     [Fact]
     public async Task TextEmphasis_Dot_PaintsOneRedMarkPerCharacterAboveText()
     {
-        // text-emphasis: dot paints a half-size mark above each character
         var html = "<p style='text-emphasis-style: dot; text-emphasis-color: red'>Hello</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "Hello");
@@ -334,18 +312,14 @@ public class VisualEffectsTests
     }
 
     [Fact]
-    public async Task TextEmphasis_StringMark_AppearsInPdf()
+    public async Task TextEmphasis_StringMark_PaintsOneMarkPerCharacter()
     {
-        // ASCII string mark 'x' should appear multiple times (once per char + emphasis marks)
         var html = "<p style='text-emphasis-style: \"x\"'>ABC</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
-        var text = Encoding.Latin1.GetString(pdf);
-        // "ABC" — 3 chars → 3 'x' emphasis marks painted above, plus the original 'ABC' text
-        // Count occurrences of 'x' in the PDF
-        int xCount = 0;
-        foreach (char c in text) if (c == 'x') xCount++;
-        xCount.Should().BeGreaterThanOrEqualTo(3,
-            "text-emphasis with 'x' mark should paint at least one 'x' per character (3 chars = A,B,C)");
+        var text = PdfAssert.ValidPdf(pdf, "ABC");
+
+        PdfAssert.Count(text, "(x) Tj").Should().Be(3, "the string mark 'x' is painted once above each of A, B and C");
+        Regex.Matches(text, @"Helvetica 6\.00 Tf").Count.Should().Be(3, "marks are half the 12pt font size");
     }
 
     [Fact]
@@ -372,8 +346,6 @@ public class VisualEffectsTests
             .Should().BeLessThan(baseText.Y, "under-position marks sit below the baseline");
     }
 
-    // ── box-shadow: inset ─────────────────────────────────────────────────────
-
     [Fact]
     public async Task BoxShadow_Inset_ClipsShadowToBoxAndPaintsItBeforeBackground()
     {
@@ -388,7 +360,6 @@ public class VisualEffectsTests
     [Fact]
     public async Task BoxShadow_Inset_PaintsInsideElement()
     {
-        // Inset shadow: a translucent red rect (offset 4px = 3pt) clipped to the box
         var html = "<div style='box-shadow: inset 4px 4px 0px rgba(255,0,0,0.8); width: 200px; height: 100px; background: white'>I</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "I");
@@ -396,13 +367,12 @@ public class VisualEffectsTests
         text.Should().Contain("6.00 760.89 150.00 75.00 re W n");
         text.Should().Contain("/GS80 gs");
         text.Should().Contain("1.00 0.00 0.00 rg");
-        text.Should().Contain("9.00 763.89 150.00 75.00 re f", "the shadow rect is shifted by the 4px offset");
+        text.Should().Contain("9.00 763.89 150.00 75.00 re f", "the translucent red shadow rect is shifted by the 4px (3pt) offset");
     }
 
     [Fact]
     public async Task BoxShadow_MultipleValues_PaintsOuterThenInsetThenBackground()
     {
-        // Multiple comma-separated shadows
         var html = "<div style='box-shadow: 2px 2px 4px black, inset 1px 1px 2px white; width: 100px; height: 50px; background: gray'>M</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "M");
@@ -415,8 +385,6 @@ public class VisualEffectsTests
         background.Should().BeGreaterThan(inset, "gray background painted last");
     }
 
-    // ── text-decoration-style ────────────────────────────────────────────────
-
     [Fact]
     public async Task TextDecorationStyle_Wavy_EmitsBezierCurves()
     {
@@ -424,7 +392,6 @@ public class VisualEffectsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = System.Text.Encoding.Latin1.GetString(pdf).Replace("\r\n", "\n");
         text.Should().Contain("Wavy");
-        // Wavy uses Bezier curves; verify 'c' operator (curveto) is present
         text.Should().Contain(" c\n", "wavy line should emit Bezier curveto operators");
     }
 
@@ -456,8 +423,6 @@ public class VisualEffectsTests
         text.Should().Contain("816.97 l S", "upper line of the double underline");
         text.Should().Contain("816.17 l S", "lower line of the double underline");
     }
-
-    // ── mix-blend-mode ───────────────────────────────────────────────────────
 
     [Fact]
     public async Task MixBlendMode_Multiply_WrapsBoxInBlendModeState()
@@ -491,8 +456,6 @@ public class VisualEffectsTests
         text.Should().NotContain("/GSBM_multiply gs\n0.00 0.00 0.00 rg\nBT", "text is not blended by background-blend-mode");
     }
 
-    // ── light-dark() ─────────────────────────────────────────────────────────
-
     [Fact]
     public async Task LightDark_DefaultsToLightValue_BlackText()
     {
@@ -504,28 +467,23 @@ public class VisualEffectsTests
         PdfAssert.TextPaintedWith(text, "LD", "1.00 1.00 1.00 rg").Should().BeFalse();
     }
 
-    // ── accent-color ─────────────────────────────────────────────────────────
-
     [Fact]
     public async Task AccentColor_Progress_UsesAccentColorForFill()
     {
-        // accent-color should override the default blue fill of <progress>
         var html = "<progress value='50' max='100' style='accent-color: #ff0000; width: 200px; height: 20px'></progress>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
-        // Red fill: rg 1.00 0.00 0.00 — should appear for the accent-colored fill bar
-        text.Should().Contain("1.00 0.00 0.00 rg", "accent-color red should produce r=1 g=0 b=0 fill");
+        text.Should().Contain("1.00 0.00 0.00 rg", "accent-color red replaces the progress bar's default blue fill");
     }
 
     [Fact]
     public async Task AccentColor_Meter_UsesAccentColorForFill()
     {
-        // #00aa00 = r=0, g=0.667, b=0
         var html = "<meter value='0.7' style='accent-color: #00aa00; width: 150px; height: 16px'></meter>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
-        // accent-color #00aa00 should override the default threshold-based meter color
-        text.Should().Contain("0.00 0.67 0.00 rg", "accent-color #00aa00 should override meter fill");
+        text.Should().Contain("0.00 0.67 0.00 rg",
+            "accent-color #00aa00 (0, 0.667, 0) replaces the meter's default threshold-based color");
     }
 
     [Fact]
@@ -534,11 +492,9 @@ public class VisualEffectsTests
         var html = "<input type='checkbox' checked style='accent-color: purple'>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
-        // purple = #800080 = (128,0,128) -> 128/255 = 0.50
-        text.Should().Contain("0.50 0.00 0.50 rg", "accent-color must set the checked checkbox's fill color");
+        text.Should().Contain("0.50 0.00 0.50 rg",
+            "accent-color must set the checked checkbox's fill color; purple is #800080, 128/255 = 0.50");
     }
-
-    // ── background-blend-mode (rendering) ────────────────────────────────────
 
     [Fact]
     public async Task BackgroundBlendMode_Multiply_ProducesBMInPdf()
@@ -548,8 +504,6 @@ public class VisualEffectsTests
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("/BM", "background-blend-mode must emit a PDF blend mode ExtGState");
     }
-
-    // ── isolation ────────────────────────────────────────────────────────────
 
     [Fact]
     public async Task Isolation_Isolate_ParentBackgroundPaintedBeforeMultiplyChild()
@@ -563,8 +517,6 @@ public class VisualEffectsTests
         parent.Should().BeGreaterThan(-1, "the isolated white parent background is painted");
         child.Should().BeGreaterThan(parent, "the multiply-blended child paints over the parent background");
     }
-
-    // ── background-clip: text ────────────────────────────────────────────────
 
     [Fact]
     public async Task BackgroundClipText_VerticalGradient_ClipsHorizontalBands()
@@ -581,7 +533,6 @@ public class VisualEffectsTests
     [Fact]
     public async Task BackgroundClipText_FallsBackToTransparentText()
     {
-        // When background-clip:text, text should still appear (fallback: render text normally)
         var html = "<h1 style='background: linear-gradient(red, blue); background-clip: text; color: transparent'>Hello</h1>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
@@ -591,15 +542,11 @@ public class VisualEffectsTests
     [Fact]
     public async Task BackgroundClipText_PaintsBackgroundGradient()
     {
-        // background-clip:text must still paint the gradient (at box level at minimum)
         var html = "<h1 style='background: linear-gradient(red, blue); background-clip: text; width: 200px'>Gradient</h1>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var pdfText = Encoding.ASCII.GetString(pdf);
-        // Red endpoint must appear in gradient rendering
-        pdfText.Should().Contain("1.00 0.00 0.00 rg", "red gradient color should be painted");
+        pdfText.Should().Contain("1.00 0.00 0.00 rg", "background-clip:text still paints the gradient, starting with its red end");
     }
-
-    // ── border-image ─────────────────────────────────────────────────────────
 
     [Fact]
     public async Task BorderImage_Gradient_ClipsGradientBandsToBorderBox()
@@ -616,14 +563,12 @@ public class VisualEffectsTests
     [Fact]
     public async Task BorderImage_Gradient_ProducesColorOutput()
     {
-        // linear-gradient(red, blue): should produce both red (1 0 0) and blue (0 0 1) rg ops
         var html = "<div style='width: 150px; height: 80px; border: 10px solid; border-image: linear-gradient(red, blue) 1'>Hi</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
-        // Gradient rendering produces multiple color stops; at minimum it produces a rect
         text.Should().Contain("re f", "border-image gradient must emit rectangle fill commands");
-        // Red stop: 1.00 0.00 0.00 rg
         text.Should().Contain("1.00 0.00 0.00 rg", "red gradient stop must appear in border-image");
+        text.Should().Contain("0.00 0.00 1.00 rg", "blue gradient stop must appear in border-image");
     }
 
     [Fact]
@@ -641,7 +586,6 @@ public class VisualEffectsTests
     [Fact]
     public async Task BorderImage_Url_MissingImage_DegradesToStrokedBorder()
     {
-        // border-image: url() with a non-existent image should degrade gracefully to the normal border
         var html = "<div style='width: 120px; height: 80px; border: 10px solid; " +
                    "border-image: url(missing.png) 30 fill stretch'>Content</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
@@ -649,28 +593,22 @@ public class VisualEffectsTests
 
         text.Should().Contain("7.50 w", "10px border stroke width");
         text.Should().Contain("re S");
-        text.Should().NotContain("/Subtype /Image");
+        text.Should().NotContain("/Subtype /Image", "the missing border image degrades to the normal border");
     }
 
     [Fact]
     public async Task BorderImage_Url_MissingImage_FallsBackToNormalBorder()
     {
-        // When border-image URL can't be loaded, a normal border should still paint
         var html = "<div style='width: 120px; height: 80px; border: 3px solid; " +
                    "border-image: url(missing.png) 10 stretch'>Content</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var pdfText = Encoding.ASCII.GetString(pdf);
-        // Should still have a stroked rectangle (normal border fallback)
-        pdfText.Should().Contain("re S", "border fallback must still emit a stroked rectangle");
+        pdfText.Should().Contain("re S", "when the border image can't load, the normal border is still stroked");
     }
-
-    // ── multiple background layers ────────────────────────────────────────────
 
     [Fact]
     public async Task MultipleBackgrounds_ShorthandWithTwoGradients_PaintsBothLayersClippedToBox()
     {
-        // The `background` shorthand must keep every comma-separated layer (not just the first),
-        // same as the background-image longhand (see MultipleBackgrounds_BothLayersRendered).
         var html = "<div style='width:200px; height:100px; background: linear-gradient(red,blue), linear-gradient(green,yellow)'>X</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "X");
@@ -678,21 +616,19 @@ public class VisualEffectsTests
         text.Should().Contain("6.00 760.89 150.00 75.00 re W n", "the gradient is clipped to the 200x100px box");
         text.Should().Contain("1.00 0.00 0.00 rg", "top layer starts red");
         text.Should().Contain("0.00 0.00 1.00 rg", "top layer ends blue");
-        text.Should().Contain("0.00 0.50 0.00 rg", "second (bottom) layer -- green -- must also render");
+        text.Should().Contain("0.00 0.50 0.00 rg",
+            "the background shorthand keeps every comma-separated layer like the background-image longhand, " +
+            "so the second (bottom) green layer renders too");
     }
 
     [Fact]
     public async Task MultipleBackgrounds_BothLayersRendered()
     {
-        // Two gradients: first is red-blue, second is green-yellow
-        // Both should produce color output in the PDF
         var html = "<div style='width:200px; height:100px; " +
                    "background-image: linear-gradient(red, blue), linear-gradient(green, yellow)'>X</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
-        // Red from first layer
         text.Should().Contain("1.00 0.00 0.00 rg", "first background layer (red gradient) must render");
-        // Green from second layer
         text.Should().Contain("0.00 0.50 0.00 rg", "second background layer (green gradient) must render");
     }
 
@@ -707,12 +643,9 @@ public class VisualEffectsTests
         text.Should().Contain("0.00 0.00 1.00 rg", "blue layer must render");
     }
 
-    // ── multi-stop gradients ─────────────────────────────────────────────────
-
     [Fact]
     public async Task LinearGradient_ThreeStops_AllColorsPresent()
     {
-        // red → green → blue — all three endpoint colors must appear in PDF
         var html = "<div style='width:200px; height:100px; background: linear-gradient(red, green, blue)'>X</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
@@ -746,15 +679,12 @@ public class VisualEffectsTests
     [Fact]
     public async Task LinearGradient_HorizontalDirection_ContainsRedAndBlue()
     {
-        // to right: red at left, blue at right — both must appear in PDF bands
         var html = "<div style='width:300px; height:100px; background: linear-gradient(to right, red, blue)'>X</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("1.00 0.00 0.00 rg", "red end must appear");
         text.Should().Contain("0.00 0.00 1.00 rg", "blue end must appear");
     }
-
-    // ── CSS units: vw/vh/vmin/vmax/ch/lh/pc ─────────────────────────────────
 
     [Fact]
     public async Task ViewportUnit_Vw_ResolvesToHalfPageWidth()
@@ -793,7 +723,7 @@ public class VisualEffectsTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf, "pc unit");
 
-        // Without the margin the first line baseline is at y=830.37; 2pc = 24pt pushes it down.
-        PdfAssert.TextPosition(text, "pc unit").Y.Should().BeApproximately(830.37f - 24f, 0.02f);
+        PdfAssert.TextPosition(text, "pc unit").Y.Should().BeApproximately(830.37f - 24f, 0.02f,
+            "without the margin the first baseline is at y=830.37, and 2pc = 24pt pushes it down");
     }
 }

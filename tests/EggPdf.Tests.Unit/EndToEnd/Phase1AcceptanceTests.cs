@@ -25,8 +25,7 @@ public class Phase1AcceptanceTests
         byte[] pdf = await HtmlToPdf.RenderAsync("<p>Test document content</p>");
 
         var text = Encoding.ASCII.GetString(pdf);
-        // The text should appear in the PDF content stream
-        text.Should().Contain("Test document content");
+        text.Should().Contain("(Test document content) Tj", "the text is painted as real, selectable text");
     }
 
     [Fact]
@@ -34,10 +33,11 @@ public class Phase1AcceptanceTests
     {
         byte[] pdf = await HtmlToPdf.RenderAsync("<h1>Big Title</h1><p>Small text</p>");
 
-        pdf.Should().NotBeEmpty();
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Big Title");
-        text.Should().Contain("Small text");
+        var text = PdfAssert.ValidPdf(pdf);
+        System.Text.RegularExpressions.Regex.IsMatch(text, @"24\.00 Tf[^\n]*\(Big Title\) Tj").Should().BeTrue(
+            "the h1 is 2em = 32px = 24pt");
+        System.Text.RegularExpressions.Regex.IsMatch(text, @"12\.00 Tf[^\n]*\(Small text\) Tj").Should().BeTrue(
+            "the paragraph is 16px = 12pt");
     }
 
     [Fact]
@@ -57,10 +57,9 @@ public class Phase1AcceptanceTests
         byte[] pdf = await HtmlToPdf.RenderAsync(
             "<div style='background-color: red; width: 200px; height: 100px'>Red box</div>");
 
-        pdf.Should().NotBeEmpty();
-        var text = Encoding.ASCII.GetString(pdf);
-        // Should contain rectangle fill operator
-        text.Should().Contain("re");
+        var text = PdfAssert.ValidPdf(pdf, "Red box");
+        text.Should().Contain("1.00 0.00 0.00 rg\n", "the background is filled red");
+        text.Should().Contain("150.00 75.00 re f", "as a 200x100px (150x75pt) rectangle");
     }
 
     [Fact]

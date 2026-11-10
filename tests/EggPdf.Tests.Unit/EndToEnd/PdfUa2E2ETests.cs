@@ -39,8 +39,7 @@ public class PdfUa2E2ETests
         var pdf = HtmlToPdf.Render(html, tagged: true, uaVersion: PdfUaVersion.Ua2);
         var text = PdfAssert.ValidPdf(pdf, "Menu", "Head", "Art", "Sec", "Side", "Foot");
 
-        // No custom landmark type names under UA-2 -- resolved straight to Div/Sect.
-        text.Should().NotContain("/S /Nav");
+        text.Should().NotContain("/S /Nav", "UA-2 has no custom landmark type names; they resolve straight to Div or Sect");
         text.Should().NotContain("/S /Header");
         text.Should().NotContain("/S /Footer");
         text.Should().NotContain("/S /Aside");

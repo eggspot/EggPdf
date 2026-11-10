@@ -6,10 +6,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// Regression tests for grid item positioning: every grid cell's content must
-/// paint at the cell's position, not at the grid container's origin.
-/// </summary>
 public class GridItemPositionTests
 {
     private static (float x, float y) FindTextPosition(byte[] pdf, string text)
@@ -32,9 +28,9 @@ public class GridItemPositionTests
         var left = FindTextPosition(pdf, "LEFTCOL");
         var right = FindTextPosition(pdf, "RIGHTCOL");
 
-        // Left column is 600-195-24 = 381px wide; right column starts at 405px ≈ 303.75pt after it
         right.x.Should().BeGreaterThan(left.x + 250,
-            "the second grid column's content must be offset to its cell, not painted at the container origin");
+            "the left column is 600 - 195 - 24 = 381px wide, so the second column's content starts ~304pt to the right " +
+            "at its own cell, not at the container origin");
         right.y.Should().BeApproximately(left.y, 2f, "both items are on the same grid row");
     }
 
@@ -49,9 +45,8 @@ public class GridItemPositionTests
         var b = FindTextPosition(pdf, "BBB");
         var c = FindTextPosition(pdf, "CCC");
 
-        // 100px = 75pt column width
-        b.x.Should().BeApproximately(a.x + 75f, 2f);
-        c.x.Should().BeApproximately(a.x + 150f, 2f);
+        b.x.Should().BeApproximately(a.x + 75f, 2f, "each column is 100px = 75pt wide");
+        c.x.Should().BeApproximately(a.x + 150f, 2f, "each column is 100px = 75pt wide");
     }
 
     [Fact]

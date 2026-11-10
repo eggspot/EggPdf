@@ -8,6 +8,10 @@ namespace EggPdf.Tests.Unit.EndToEnd;
 
 public class BoxShadowE2ETests
 {
+    private const int PageCanvasAndBackgroundFills = 2;
+
+    private static int FillCount(string text) => Regex.Matches(text, @"re f").Count;
+
     [Fact]
     public async Task SimpleShadow_ProducesExtraRectangle()
     {
@@ -16,42 +20,41 @@ public class BoxShadowE2ETests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Shadow");
-        // Box-shadow is a future feature; for now just verify the element renders
-        int fillCount = Regex.Matches(text, @"re f").Count;
-        fillCount.Should().BeGreaterOrEqualTo(1, "element background should be rendered");
+        FillCount(text).Should().BeGreaterThan(PageCanvasAndBackgroundFills,
+            "the shadow is filled besides the page canvas and the box's own background");
     }
 
     [Fact]
-    public async Task ShadowWithSpread_ProducesLargerRect()
+    public async Task ShadowWithSpread_PaintsTheShadowColor()
     {
         var html = "<div style='box-shadow: 0 0 0 5px red; width: 200px; height: 100px; background: white'>Spread</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Spread");
+        text.Should().Contain("1.00 0.00 0.00 rg", "the 5px spread shadow is painted red around the box");
     }
 
     [Fact]
-    public async Task ShadowWithBlur_ProducesMultipleLayers()
+    public async Task ShadowWithBlur_ProducesExtraFills()
     {
         var html = "<div style='box-shadow: 0 4px 8px rgba(0,0,0,0.2); width: 200px; height: 100px; background: white'>Blur</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Blur");
-        // Blur creates multiple layers with opacity
-        text.Should().StartWith("%PDF");
+        FillCount(text).Should().BeGreaterThan(PageCanvasAndBackgroundFills, "the blurred shadow is painted besides the background");
     }
 
     [Fact]
-    public async Task NamedColorShadow_ProducesValidPdf()
+    public async Task NamedColorShadow_PaintsInThatColor()
     {
         var html = "<div style='box-shadow: 3px 3px 5px gray; width: 200px; height: 100px; background: white'>Gray</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Gray");
-        text.Should().StartWith("%PDF");
+        text.Should().Contain("0.50 0.50 0.50 rg", "gray is #808080");
     }
 
     [Fact]
@@ -62,6 +65,8 @@ public class BoxShadowE2ETests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Multi");
+        text.Should().Contain("1.00 0.00 0.00 rg", "the red shadow is painted");
+        text.Should().Contain("0.00 0.00 1.00 rg", "the blue shadow is painted");
     }
 
     [Fact]
@@ -72,6 +77,7 @@ public class BoxShadowE2ETests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("No shadow");
+        FillCount(text).Should().Be(PageCanvasAndBackgroundFills);
     }
 
     [Fact]
@@ -96,6 +102,6 @@ public class BoxShadowE2ETests
         var html = "<div style='box-shadow: none; width: 200px; height: 100px; background: white'>None</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        pdf.Should().NotBeEmpty();
+        FillCount(Encoding.ASCII.GetString(pdf)).Should().Be(PageCanvasAndBackgroundFills, "box-shadow: none paints no shadow");
     }
 }

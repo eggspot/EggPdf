@@ -5,10 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// End-to-end tests for CSS Grid layout: HTML-to-PDF pipeline.
-/// Verifies that grid containers produce correct PDF output.
-/// </summary>
 public class GridE2ETests
 {
     [Fact]

@@ -6,11 +6,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// Mixed-size inline text shares one baseline (CSS default vertical-align:
-/// baseline). Small subtitles must not float at the line top, and flex
-/// align-items:baseline must align item baselines, not item tops.
-/// </summary>
 public class BaselineAlignmentTests
 {
     private static (float x, float y) FindTextPos(byte[] pdf, string text)
@@ -31,26 +26,14 @@ public class BaselineAlignmentTests
         var big = FindTextPos(pdf, "BIGTEXT");
         var small = FindTextPos(pdf, " SMALLTEXT");
 
-        // Baselines aligned: pdfY(big) = top+20, pdfY(small) ≈ top+shift+10 where
-        // shift ≈ (20-10)*0.8 = 8px → Td y difference ≈ 2px = 1.5pt (was 7.5pt top-aligned)
         (small.y - big.y).Should().BeLessThan(4f,
-            "the small span must sit near the big text's baseline, not the line top");
+            "with vertical-align: baseline the 10px span shifts down by about (20-10) * 0.8 = 8px, leaving the runs " +
+            "~1.5pt apart; top-aligned they would be 7.5pt apart");
     }
 
     [Fact]
     public async Task LargerInlineSpan_SitsOnParentBaseline()
     {
-        // Mirrors SmallerInlineSpan_SitsOnParentBaseline but with the size relationship
-        // flipped -- a real-world case: a certificate template's field value span (e.g.
-        // font-size: 22px) nested inside a 12px label line. vertical-align: baseline must
-        // still line up both runs' baselines regardless of which one is larger; only
-        // handling the "nested run is smaller" direction left the larger run un-shifted,
-        // so it kept its unshifted top-referenced Y and visually hung below the label's
-        // baseline instead of sitting on it.
-        // A preceding paragraph keeps the mixed-size line off the very top of the page. See
-        // LargerInlineSpan_AsVeryFirstPageContent_StillRenders below for the page-1-edge case,
-        // where a large run's upward shift can't rely on a parent's later position correction
-        // to keep it on-page and PdfRenderer's page-assignment must not drop it instead.
         var pdf = await HtmlToPdf.RenderAsync(
             "<html><body><p>Preceding paragraph</p>" +
             "<div style=\"font-size:10px\">SMALLTEXT <span style=\"font-size:20px\">BIGTEXT</span></div></body></html>");
@@ -59,26 +42,20 @@ public class BaselineAlignmentTests
         var big = FindTextPos(pdf, " BIGTEXT");
 
         (small.y - big.y).Should().BeLessThan(4f,
-            "the big span must sit on the small text's baseline, not hang below it at its unshifted top-referenced Y");
+            "a larger nested span (like a certificate's 22px field value on a 12px label line) must sit on the label's " +
+            "baseline too, not hang below it at its unshifted top-referenced Y");
     }
 
     [Fact]
     public async Task LargerInlineSpan_AsVeryFirstPageContent_StillRenders()
     {
-        // Edge case for the fix above: when the mixed-size line IS the very first content on
-        // the page (nothing above it to establish a positive Y), a large run's upward baseline
-        // shift can land at a momentarily negative layout Y -- BlockLayout doesn't try to guard
-        // against this itself (a block's Y is often still provisional at the point its own
-        // inline content is laid out, so any guard there can't reliably tell "genuinely at the
-        // page top" from "will be shifted into position later"). Instead PdfRenderer's page-
-        // assignment must not drop a box just because its Y fell slightly below 0 on page 1 --
-        // there's no earlier page it could belong to.
         var pdf = await HtmlToPdf.RenderAsync(
             "<html><body><div style=\"font-size:10px\">SMALLTEXT <span style=\"font-size:20px\">BIGTEXT</span></div></body></html>");
 
         var content = Encoding.ASCII.GetString(pdf);
         content.Should().Contain("BIGTEXT",
-            "a large inline run at the very top of the page must still render, not be dropped by page-assignment");
+            "at the very top of page 1 the large run's upward baseline shift can give it a slightly negative Y, and " +
+            "page assignment must keep it (there is no earlier page) instead of dropping it");
     }
 
     [Fact]
@@ -95,8 +72,7 @@ public class BaselineAlignmentTests
         float titleBaselineY = FindTextPos(baseline, "TITLE").y;
         float titleFlexStartY = FindTextPos(flexStart, "TITLE").y;
 
-        // With baseline alignment the smaller item shifts DOWN (smaller PDF y)
         titleBaselineY.Should().BeLessThan(titleFlexStartY - 3f,
-            "align-items:baseline must move the smaller item down to the shared baseline");
+            "align-items:baseline must move the smaller item down (a smaller PDF y) to the shared baseline");
     }
 }

@@ -15,11 +15,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// <see cref="PdfRenderOptions.ResourceResolver"/> and <see cref="PdfRenderOptions.AllowLocalFileAccess"/>:
-/// every external resource (stylesheets, @import, @font-face, images, backgrounds) goes through the caller's
-/// resolver, nothing bypasses it through a process-wide cache, and local file access can be switched off.
-/// </summary>
 [Collection(ResourceLoadingCollection.Name)]
 public class ResourceResolverRenderTests
 {
@@ -216,9 +211,9 @@ public class ResourceResolverRenderTests
         Func<Task> act = () => HtmlToPdf.RenderAsync(
             "<html><body><img src=\"https://slow.example/a.png\"></body></html>", With(resolver), cts.Token);
 
-        await act.Should().ThrowAsync<OperationCanceledException>();
-        // The render stops waiting as soon as the token fires; the resolver observes it on its own thread
-        SpinWait.SpinUntil(() => resolver.SawCancellation, TimeSpan.FromSeconds(5)).Should().BeTrue();
+        await act.Should().ThrowAsync<OperationCanceledException>("the render stops waiting as soon as the token fires");
+        SpinWait.SpinUntil(() => resolver.SawCancellation, TimeSpan.FromSeconds(5)).Should().BeTrue(
+            "the resolver observes the cancellation on its own thread");
     }
 
     [Fact]
@@ -316,18 +311,18 @@ public class ResourceResolverRenderTests
         FontUrlFetcher.FetchOverride = u => u == url ? BoldCss : null;
         try
         {
-            // A trusted render without a resolver fetches the URL and caches it process-wide
             var legacy = HtmlToPdf.Render(
                 $"<html><head><link rel=\"stylesheet\" href=\"{url}\"></head><body><p class=\"b\">x</p></body></html>");
-            Latin1(legacy).Should().Contain("Helvetica-Bold");
+            Latin1(legacy).Should().Contain("Helvetica-Bold",
+                "a trusted render without a resolver fetches the URL and caches it process-wide");
 
-            // A render with a resolver that refuses the URL must not get the cached copy
             var resolver = new RecordingResolver();
             var restricted = HtmlToPdf.Render(
                 $"<html><head><link rel=\"stylesheet\" href=\"{url}\"></head><body><p class=\"b\">x</p></body></html>",
                 With(resolver));
 
-            Latin1(restricted).Should().NotContain("Helvetica-Bold");
+            Latin1(restricted).Should().NotContain("Helvetica-Bold",
+                "a render whose resolver refuses the URL must not get the process-wide cached copy");
             resolver.Calls.Should().Contain((url, ResourceType.StyleSheet));
         }
         finally
@@ -374,9 +369,8 @@ public class ResourceResolverRenderTests
     }
 
     [Fact]
-    public async Task RenderDocument_NullThirdArgument_StillCompilesAndRenders()
+    public async Task RenderDocument_NullThirdArgument_StillBindsToTheOriginalOverloadAndRenders()
     {
-        // Pre-existing public calls must keep binding to the original overloads (no ambiguity, no rebinding)
         var document = HtmlParser.Parse("<html><body><p>Plain</p></body></html>");
 
         PdfAssert.ValidPdf(HtmlToPdf.RenderDocument(document, null, null), "Plain");
@@ -399,7 +393,10 @@ public class ResourceResolverRenderTests
     private sealed class HangingResolver : IResourceResolver
     {
         public Task<ResourceResult?> ResolveAsync(string url, ResourceType type, CancellationToken ct = default) =>
-            new TaskCompletionSource<ResourceResult?>().Task; // never completes, ignores ct
+            NeverCompletingTaskIgnoringCancellation();
+
+        private static Task<ResourceResult?> NeverCompletingTaskIgnoringCancellation() =>
+            new TaskCompletionSource<ResourceResult?>().Task;
     }
 
     private sealed class CancellableResolver : IResourceResolver

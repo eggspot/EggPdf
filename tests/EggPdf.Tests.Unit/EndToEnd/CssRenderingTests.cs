@@ -1,24 +1,33 @@
+using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// Tests that CSS properties produce correct output in the generated PDF.
-/// Verifies the full pipeline: HTML+CSS -> Parse -> Style -> Layout -> Paint -> PDF.
-/// </summary>
 public class CssRenderingTests
 {
+    private const string Red = "1.00 0.00 0.00 rg";
+    private const string Blue = "0.00 0.00 1.00 rg";
+    private const string CssGreen = "0.00 0.50 0.00 rg";
+
+    private static float FontSizeOf(string pdfText, string run)
+    {
+        var m = Regex.Match(pdfText, @"([\d.]+) Tf[^\n]*\(" + Regex.Escape(run) + @"\) Tj");
+        m.Success.Should().BeTrue($"a text run '{run}' must be painted");
+        return float.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+    }
+
     [Fact]
-    public async Task Color_Red_TextRendered()
+    public async Task Color_Red_PaintsTextRed()
     {
         var html = "<p style='color: red'>Red text</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Red text");
+        var text = PdfAssert.ValidPdf(pdf, "Red text");
+        PdfAssert.TextPaintedWith(text, "Red text", Red).Should().BeTrue();
     }
 
     [Fact]
@@ -27,9 +36,9 @@ public class CssRenderingTests
         var html = "<div style='background-color: blue; width: 200px; height: 100px'>Blue box</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("re"); // rectangle operator
-        text.Should().Contain("f");  // fill operator
+        var text = PdfAssert.ValidPdf(pdf, "Blue box");
+        text.Should().Contain(Blue + "\n");
+        text.Should().Contain("150.00 75.00 re f", "the 200x100px background is filled as a 150x75pt rectangle");
     }
 
     [Fact]
@@ -39,8 +48,8 @@ public class CssRenderingTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
         var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Bold"); // should contain the bold text
-        text.Should().Contain("Helvetica-Bold"); // should use bold font variant
+        text.Should().Contain("Bold text");
+        text.Should().Contain("Helvetica-Bold", "bold text uses the bold font variant");
     }
 
     [Fact]
@@ -51,7 +60,7 @@ public class CssRenderingTests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Italic text");
-        text.Should().Contain("Oblique"); // Helvetica-Oblique
+        text.Should().Contain("Oblique", "Helvetica's italic is Helvetica-Oblique");
     }
 
     [Fact]
@@ -106,10 +115,10 @@ public class CssRenderingTests
             <p style='color: green'>Green</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Red");
-        text.Should().Contain("Blue");
-        text.Should().Contain("Green");
+        var text = PdfAssert.ValidPdf(pdf);
+        PdfAssert.TextPaintedWith(text, "Red", Red).Should().BeTrue();
+        PdfAssert.TextPaintedWith(text, "Blue", Blue).Should().BeTrue();
+        PdfAssert.TextPaintedWith(text, "Green", CssGreen).Should().BeTrue("CSS green is #008000");
     }
 
     [Fact]
@@ -118,9 +127,9 @@ public class CssRenderingTests
         var html = "<div style='background-color: yellow; width: 100px; height: 50px'>Yellow</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Yellow");
-        text.Should().Contain("re"); // rectangle for background
+        var text = PdfAssert.ValidPdf(pdf, "Yellow");
+        text.Should().Contain("1.00 1.00 0.00 rg\n", "the named color yellow is #ffff00");
+        text.Should().Contain("75.00 37.50 re f");
     }
 
     [Fact]
@@ -129,8 +138,8 @@ public class CssRenderingTests
         var html = "<div style='background-color: #ff5733; width: 100px; height: 50px'>Hex</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Hex");
+        var text = PdfAssert.ValidPdf(pdf, "Hex");
+        text.Should().Contain("1.00 0.34 0.20 rg", "#ff5733 is (255, 87, 51)");
     }
 
     [Fact]
@@ -139,11 +148,11 @@ public class CssRenderingTests
         var html = "<h1>H1</h1><h2>H2</h2><h3>H3</h3><h4>H4</h4>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("H1");
-        text.Should().Contain("H2");
-        text.Should().Contain("H3");
-        text.Should().Contain("H4");
+        var text = PdfAssert.ValidPdf(pdf);
+        float h1 = FontSizeOf(text, "H1"), h2 = FontSizeOf(text, "H2"), h3 = FontSizeOf(text, "H3"), h4 = FontSizeOf(text, "H4");
+        h1.Should().BeGreaterThan(h2);
+        h2.Should().BeGreaterThan(h3);
+        h3.Should().BeGreaterThan(h4, "each heading level down is smaller: 2em, 1.5em, 1.17em, 1em");
     }
 
     [Fact]
@@ -152,15 +161,14 @@ public class CssRenderingTests
         var html = "<h1 style='font-size: 12px; color: gray'>Small heading</h1>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Small heading");
+        var text = PdfAssert.ValidPdf(pdf);
+        FontSizeOf(text, "Small heading").Should().Be(9f, "the inline 12px replaces h1's 2em and is 9pt");
+        PdfAssert.TextPaintedWith(text, "Small heading", "0.50 0.50 0.50 rg").Should().BeTrue("gray is #808080");
     }
 
     [Fact]
-    public async Task StyleTag_TextRendered()
+    public async Task StyleTag_ClassRule_AppliesColorAndWeight()
     {
-        // Note: Full <style> tag CSS cascade is applied via CascadeResolver.
-        // This test verifies the text survives the pipeline.
         var html = @"<html><head><style>
             .custom { color: red; font-weight: bold; }
         </style></head><body>
@@ -168,8 +176,9 @@ public class CssRenderingTests
         </body></html>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Styled paragraph");
+        var text = PdfAssert.ValidPdf(pdf, "Styled paragraph");
+        PdfAssert.TextPaintedWith(text, "Styled paragraph", Red).Should().BeTrue();
+        text.Should().Contain("Helvetica-Bold");
     }
 
     [Fact]
@@ -185,23 +194,25 @@ public class CssRenderingTests
     }
 
     [Fact]
-    public async Task TextAlign_Center_TextRendered()
+    public async Task TextAlign_Center_MovesTextTowardThePageMiddle()
     {
         var html = "<p style='text-align: center'>Centered text</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Centered text");
+        var text = PdfAssert.ValidPdf(pdf);
+        PdfAssert.TextPosition(text, "Centered text").X.Should().BeInRange(200f, 300f,
+            "a short line centred on the 595pt page starts well right of the 6pt body margin");
     }
 
     [Fact]
-    public async Task TextAlign_Right_TextRendered()
+    public async Task TextAlign_Right_MovesTextToTheRightEdge()
     {
         var html = "<p style='text-align: right'>Right-aligned text</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Right-aligned text");
+        var text = PdfAssert.ValidPdf(pdf);
+        PdfAssert.TextPosition(text, "Right-aligned text").X.Should().BeGreaterThan(400f,
+            "a short right-aligned line ends at the right content edge of the 595pt page");
     }
 
     [Fact]
@@ -212,7 +223,6 @@ public class CssRenderingTests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Underlined text");
-        // Should contain a line drawing operator (m...l S pattern)
         text.Should().Contain("l S", "underline should draw a line");
     }
 
@@ -245,9 +255,8 @@ public class CssRenderingTests
         var html = "<ul><li>First item</li><li>Second item</li></ul>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("First item");
-        text.Should().Contain("Second item");
+        var text = PdfAssert.ValidPdf(pdf, "First item", "Second item");
+        PdfAssert.Count(text, "(" + (char)0x95 + ") Tj").Should().Be(2, "each item gets a WinAnsi bullet (0x95) marker");
     }
 
     [Fact]
@@ -269,8 +278,9 @@ public class CssRenderingTests
         var html = "<div style='margin: 10px 20px; background-color: red; width: 100px; height: 50px'>Margin test</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Margin test");
+        var text = PdfAssert.ValidPdf(pdf, "Margin test");
+        text.Should().MatchRegex(@"\n21\.00 [\d.]+ 75\.00 37\.50 re f",
+            "the second value is the left margin: 8px body + 20px = 28px = 21pt");
     }
 
     [Fact]
@@ -279,8 +289,9 @@ public class CssRenderingTests
         var html = "<p style='text-indent: 40px'>This is a paragraph with indented first line</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("This is a paragraph");
+        var text = PdfAssert.ValidPdf(pdf);
+        PdfAssert.TextPosition(text, "This is a paragraph with indented first line").X.Should().BeApproximately(36f, 0.01f,
+            "the first line starts 40px in from the body's 8px margin: 48px = 36pt");
     }
 
     [Fact]
@@ -291,7 +302,7 @@ public class CssRenderingTests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Spaced text");
-        text.Should().Contain("Tc", "letter-spacing should emit Tc operator");
+        text.Should().Contain("1.50 Tc", "letter-spacing: 2px is a 1.5pt character spacing");
     }
 
     [Fact]
@@ -302,7 +313,7 @@ public class CssRenderingTests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Word spaced text");
-        text.Should().Contain("Tw", "word-spacing should emit Tw operator");
+        text.Should().Contain("3.75 Tw", "word-spacing: 5px is a 3.75pt word spacing");
     }
 
     [Fact]
@@ -311,10 +322,12 @@ public class CssRenderingTests
         var html = "<pre>Line 1\nLine 2\nLine 3</pre>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Line 1");
-        text.Should().Contain("Line 2");
-        text.Should().Contain("Line 3");
+        var text = PdfAssert.ValidPdf(pdf);
+        float line1 = PdfAssert.TextPosition(text, "Line 1").Y;
+        float line2 = PdfAssert.TextPosition(text, "Line 2").Y;
+        float line3 = PdfAssert.TextPosition(text, "Line 3").Y;
+        line2.Should().BeLessThan(line1, "each newline in <pre> starts a new line");
+        line3.Should().BeLessThan(line2, "each newline in <pre> starts a new line");
     }
 
     [Fact]
@@ -323,11 +336,8 @@ public class CssRenderingTests
         var html = "<div style='overflow: hidden; width: 100px; height: 50px; background-color: #eee'>Clipped</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        // PDF should be non-empty and contain the text
-        pdf.Length.Should().BeGreaterThan(100);
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("%PDF-1.7", "should be a valid PDF");
-        text.Should().Contain("Clipped");
+        var text = PdfAssert.ValidPdf(pdf, "Clipped");
+        text.Should().Contain("75.00 37.50 re W n", "overflow:hidden clips to the 100x50px box");
     }
 
     [Fact]
@@ -338,13 +348,8 @@ public class CssRenderingTests
             <p style='page-break-before: always'>Page 2 content</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Page 1 content");
-        text.Should().Contain("Page 2 content");
-
-        // Count page objects
-        int pageCount = CountOccurrences(text, "/Type /Page ");
-        pageCount.Should().BeGreaterOrEqualTo(2, "page-break-before:always should create at least 2 pages");
+        var text = PdfAssert.ValidPdf(pdf, "Page 1 content", "Page 2 content");
+        PdfAssert.PageCount(text).Should().Be(2, "page-break-before:always starts the second paragraph on a new page");
     }
 
     [Fact]
@@ -355,24 +360,8 @@ public class CssRenderingTests
             <p>Page 2 content</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Page 1 content");
-        text.Should().Contain("Page 2 content");
-
-        int pageCount = CountOccurrences(text, "/Type /Page ");
-        pageCount.Should().BeGreaterOrEqualTo(2, "page-break-after:always should create at least 2 pages");
-    }
-
-    private static int CountOccurrences(string text, string pattern)
-    {
-        int count = 0;
-        int index = 0;
-        while ((index = text.IndexOf(pattern, index, StringComparison.Ordinal)) != -1)
-        {
-            count++;
-            index += pattern.Length;
-        }
-        return count;
+        var text = PdfAssert.ValidPdf(pdf, "Page 1 content", "Page 2 content");
+        PdfAssert.PageCount(text).Should().Be(2, "page-break-after:always puts the second paragraph on a new page");
     }
 
     [Fact]
@@ -424,9 +413,8 @@ public class CssRenderingTests
         var html = "<p>Above</p><hr><p>Below</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Above");
-        text.Should().Contain("Below");
+        var text = PdfAssert.ValidPdf(pdf, "Above", "Below");
+        text.Should().MatchRegex(@"-?[\d.]+ -?[\d.]+ l S", "the <hr> is drawn as its border line");
     }
 
     [Fact]
@@ -435,9 +423,9 @@ public class CssRenderingTests
         var html = "<p>Line 1<br>Line 2</p>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Line 1");
-        text.Should().Contain("Line 2");
+        var text = PdfAssert.ValidPdf(pdf);
+        PdfAssert.TextPosition(text, "Line 2").Y.Should().BeLessThan(PdfAssert.TextPosition(text, "Line 1").Y,
+            "the <br> moves 'Line 2' onto the next line");
     }
 
     [Fact]
@@ -448,8 +436,7 @@ public class CssRenderingTests
 
         var text = Encoding.ASCII.GetString(pdf);
         text.Should().Contain("Cell");
-        // Border rendering should produce stroke rectangle operators
-        text.Should().Contain("re S", "table border should propagate to cells");
+        text.Should().Contain("re S", "the table's border attribute propagates to its cells, which are stroked");
     }
 
     [Fact]
@@ -486,11 +473,9 @@ public class CssRenderingTests
     {
         var html = "<p>E=mc<sup>2</sup></p>";
         var pdf = HtmlToPdf.Render(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
+        var text = PdfAssert.ValidPdf(pdf, "E=mc");
 
-        text.Should().Contain("2");
-        // The superscript text should be rendered (font size may differ)
-        text.Should().Contain("E=mc");
+        FontSizeOf(text, "2").Should().BeLessThan(12f, "the superscript is set smaller than the 12pt text");
     }
 
     [Fact]
@@ -498,11 +483,9 @@ public class CssRenderingTests
     {
         var html = "<p>H<sub>2</sub>O</p>";
         var pdf = HtmlToPdf.Render(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
+        var text = PdfAssert.ValidPdf(pdf);
 
-        text.Should().Contain("H");
-        text.Should().Contain("2");
-        text.Should().Contain("O");
+        FontSizeOf(text, "2").Should().BeLessThan(12f, "the subscript is set smaller than the 12pt text");
     }
 
     [Fact]
@@ -510,10 +493,9 @@ public class CssRenderingTests
     {
         var html = "<p style='outline: 2px solid blue;'>Outlined</p>";
         var pdf = HtmlToPdf.Render(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
+        var text = PdfAssert.ValidPdf(pdf, "Outlined");
 
-        // Outline should produce a stroke rectangle
-        text.Should().Contain("Outlined");
+        text.Should().Contain("0.00 0.00 1.00 RG", "the blue outline is stroked around the paragraph");
     }
 
     [Fact]
@@ -526,10 +508,10 @@ public class CssRenderingTests
             </tr>
         </table>";
         var pdf = HtmlToPdf.Render(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
+        var text = PdfAssert.ValidPdf(pdf);
 
-        text.Should().Contain("Center");
-        text.Should().Contain("Bottom");
+        PdfAssert.TextPosition(text, "Bottom").Y.Should().BeLessThan(PdfAssert.TextPosition(text, "Center").Y,
+            "in the 100px cells, bottom-aligned text sits lower (a smaller PDF y) than middle-aligned text");
     }
 
     [Fact]
@@ -542,10 +524,9 @@ public class CssRenderingTests
             </tr>
         </table>";
         var pdf = HtmlToPdf.Render(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
+        var text = PdfAssert.ValidPdf(pdf, "(A) Tj", "(B) Tj");
 
-        text.Should().Contain("A");
-        text.Should().Contain("B");
+        text.Should().Contain("0.00 0.00 0.00 RG", "the collapsed black cell borders are stroked");
     }
 
     [Fact]
@@ -556,10 +537,10 @@ public class CssRenderingTests
             <div style='position: absolute; z-index: 1; top: 20px; left: 20px; width: 50px; height: 50px; background: blue;'>Below</div>
         </div>";
         var pdf = HtmlToPdf.Render(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
+        var text = PdfAssert.ValidPdf(pdf, "Top", "Below");
 
-        text.Should().Contain("Top");
-        text.Should().Contain("Below");
+        text.IndexOf(Blue + "\n", System.StringComparison.Ordinal).Should().BeLessThan(text.IndexOf(Red + "\n", System.StringComparison.Ordinal),
+            "the z-index:1 blue box is painted before the z-index:2 red box, though it comes later in the source");
     }
 
     [Fact]
@@ -567,10 +548,10 @@ public class CssRenderingTests
     {
         var html = @"<div style='width: 100px; overflow-wrap: break-word;'>Superlongwordthatwillnotfitinasmallcontainer</div>";
         var pdf = HtmlToPdf.Render(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
+        var text = PdfAssert.ValidPdf(pdf, "Super");
 
-        // The long word should be present (broken across lines)
-        text.Should().Contain("Super");
+        text.Should().NotContain("(Superlongwordthatwillnotfitinasmallcontainer) Tj",
+            "overflow-wrap: break-word breaks the word across lines");
     }
 
     [Fact]
@@ -578,9 +559,9 @@ public class CssRenderingTests
     {
         var html = @"<div style='width: 80px; word-break: break-all;'>ABCDEFGHIJKLMNOP</div>";
         var pdf = HtmlToPdf.Render(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
+        var text = PdfAssert.ValidPdf(pdf, "ABCDE");
 
-        text.Should().Contain("ABCDE");
+        text.Should().NotContain("(ABCDEFGHIJKLMNOP) Tj", "word-break: break-all breaks between any two letters");
     }
 
     [Fact]
@@ -598,9 +579,9 @@ public class CssRenderingTests
     {
         var html = @"<p style='text-decoration: overline;'>Overlined text</p>";
         var pdf = HtmlToPdf.Render(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
+        var text = PdfAssert.ValidPdf(pdf, "Overlined text");
 
-        text.Should().Contain("Overlined text");
+        PdfAssert.Count(text, "l S").Should().Be(1, "the overline is one stroked line");
     }
 
     [Fact]
@@ -608,9 +589,9 @@ public class CssRenderingTests
     {
         var html = @"<p style='text-decoration: underline overline;'>Both decorations</p>";
         var pdf = HtmlToPdf.Render(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
+        var text = PdfAssert.ValidPdf(pdf, "Both decorations");
 
-        text.Should().Contain("Both decorations");
+        PdfAssert.Count(text, "l S").Should().Be(2, "underline and overline are each one stroked line");
     }
 
     [Fact]
@@ -618,11 +599,10 @@ public class CssRenderingTests
     {
         var html = @"<p style='color: rgba(255, 0, 0, 0.5);'>Semi-transparent</p>";
         var pdf = HtmlToPdf.Render(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
+        var text = PdfAssert.ValidPdf(pdf, "Semi-transparent");
 
-        text.Should().Contain("Semi-transparent");
-        // Should have red color operator (1.00 0.00 0.00 rg)
-        text.Should().Contain("1.00 0.00 0.00 rg");
+        text.Should().Contain(Red, "the rgb part is painted as the fill color");
+        text.Should().Contain("/GS50 gs", "the 0.5 alpha is applied through a graphics state");
     }
 
     [Fact]
@@ -633,7 +613,7 @@ public class CssRenderingTests
         var text = System.Text.Encoding.Latin1.GetString(pdf);
 
         text.Should().Contain("HSL Red");
-        text.Should().Contain("1.00 0.00 0.00 rg");
+        text.Should().Contain(Red);
     }
 
     [Fact]
@@ -641,10 +621,9 @@ public class CssRenderingTests
     {
         var html = @"<style>p { font: bold 20px serif; }</style><p>Bold serif</p>";
         var pdf = HtmlToPdf.Render(html);
-        var text = System.Text.Encoding.Latin1.GetString(pdf);
+        var text = PdfAssert.ValidPdf(pdf, "Bold serif");
 
-        text.Should().Contain("Bold serif");
-        // Should use Times-Bold (serif + bold)
-        text.Should().Contain("Times-Bold");
+        text.Should().Contain("Times-Bold", "bold + serif");
+        FontSizeOf(text, "Bold serif").Should().Be(15f, "20px is 15pt");
     }
 }

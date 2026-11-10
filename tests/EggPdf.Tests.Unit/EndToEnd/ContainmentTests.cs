@@ -5,14 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// content-visibility: hidden and contain: paint/strict. Most of the `contain` property's
-/// real-world purpose (isolating incremental recalculation for rendering performance) has
-/// no analog in a single-pass batch renderer, so only the observable effects are covered:
-/// contain:paint/strict clips descendant painting to the box (same mechanism as
-/// overflow:hidden), and content-visibility:hidden skips descendant layout+paint entirely
-/// while the element's own box still renders.
-/// </summary>
 public class ContainmentTests
 {
     private static string Latin1(byte[] pdf) => Encoding.Latin1.GetString(pdf);
@@ -56,11 +48,10 @@ public class ContainmentTests
     [Fact]
     public async Task ContainLayout_DoesNotClip()
     {
-        // contain:layout alone (without paint/strict) has no observable effect in a
-        // single-pass renderer; it must not spuriously clip.
         var pdf = await HtmlToPdf.RenderAsync(
             "<div style='contain: layout; width: 50px; height: 50px'>Text</div>");
         var text = PdfAssert.ValidPdf(pdf, "(Text) Tj");
-        text.Should().NotContain("re W n");
+        text.Should().NotContain("re W n",
+            "contain:layout alone only isolates incremental relayout, which a single-pass renderer has no use for, so it must not clip");
     }
 }

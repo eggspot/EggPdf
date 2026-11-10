@@ -7,22 +7,14 @@ using EggPdf.Html;
 using EggPdf.Layout;
 using FluentAssertions;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
 public class TableCellWithBrokenImageTests
 {
-    private readonly ITestOutputHelper _output;
-    public TableCellWithBrokenImageTests(ITestOutputHelper output) { _output = output; }
-
     [Fact]
     public async Task DisplayTableCell_SiblingHasEmptyBase64Image_SiblingCellStillRenders()
     {
-        // A <img src="data:image/png;base64,"> (empty payload -- a common placeholder before
-        // a real QR code / photo is filled in) sits in one table-cell; a plain text marker
-        // sits in the sibling cell. The broken image must not take down anything else in the
-        // document -- per the "infallible parsers / graceful degradation" project principle.
         var html = @"
             <html><body>
                 <div style=""display:table; width:400px"">
@@ -34,20 +26,15 @@ public class TableCellWithBrokenImageTests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var pageContents = ExtractPageContentStreams(pdf);
 
-        // MARKERTEXT is plain ASCII, so it survives on the literal-string Tj path regardless
-        // of whether other content on the page forced CID/hex encoding.
         string allText = string.Join("\n", pageContents);
         allText.Should().Contain("MARKERTEXT",
-            "a broken/empty image in one table-cell must not remove content from a sibling cell");
+            "an empty base64 image, a common placeholder before a real QR code or photo is filled in, must degrade " +
+            "gracefully and not remove content from a sibling cell");
     }
 
     [Fact]
     public async Task SignGrid_TwoCellsWithVietnameseText_BothCellsRenderSideBySideWithinPageBounds()
     {
-        // Verbatim structure/CSS from a real certificate template's signature block, with the
-        // real Vietnamese content (which forces the whole run onto the CID/hex-glyph paint
-        // path -- literal ASCII string search doesn't work here, hence decoding via Td
-        // positions instead of Encoding.ASCII.GetString(...).Contains(...)).
         var html = @"
             <html><head><style>
                 @page { size: 400px 800px; margin: 0; }
@@ -75,29 +62,18 @@ public class TableCellWithBrokenImageTests
         var pageContents = ExtractPageContentStreams(pdf);
         pageContents.Should().HaveCount(1);
 
-        // The second sign-cell (place-date/stamp-space/signer-name/signer-title) should start
-        // roughly at the horizontal midpoint of the 400px-wide, two-equal-column table -- i.e.
-        // well past X=150pt. Assert at least one text run lands there, proving cell 2's content
-        // was actually painted (not silently dropped), regardless of its exact glyph encoding.
         var xs = new System.Collections.Generic.List<float>();
         foreach (Match m in Regex.Matches(pageContents[0], @"(-?\d+\.\d+) (-?\d+\.\d+) Td"))
             xs.Add(float.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture));
 
         xs.Should().Contain(x => x > 150f,
-            "the second sign-cell's content must be painted in the right column, not silently dropped");
+            "the second sign-cell's content starts near the middle of the two equal 400px columns and must be painted " +
+            "there, not dropped; positions are checked because the Vietnamese text is painted as glyph-id hex, not literal text");
     }
 
     [Fact]
     public void SignGrid_LayoutDocumentDirectly_NestedGrandchildTextShiftsWithCell()
     {
-        // Root cause (found via code reading, not console debugging, once the container-level
-        // check above proved misleading -- see the deltaX fix in BlockLayout.cs's table-cell
-        // branch): repositioning a non-first-column cell from its pre-layout X to its real
-        // column X only shifted DIRECT children by deltaX, not the whole subtree. A cell whose
-        // content is one level deep (e.g. a bare <span>) happened to still look correct; a cell
-        // with nested divs (matching the real sign-grid content) left its grandchild text
-        // stuck at the pre-shift X. This asserts on a GRANDCHILD (a <span> inside a wrapper
-        // <div>, itself inside the cell), which is the level the original one-level shift missed.
         var html = @"
             <html><head><style>
                 @page { size: 400px 800px; margin: 0; }
@@ -123,13 +99,10 @@ public class TableCellWithBrokenImageTests
         var cells = root.FindAll(b => b.Element?.GetAttribute("class") == "sign-cell");
         cells.Should().HaveCount(2);
         var marker = root.FindAll(b => b.Element?.GetAttribute("class") == "marker").Single();
-        _output.WriteLine($"cell1.X={cells[1].X} marker(grandchild).X={marker.X}");
 
-        // Compare against the cell's own X (not just cells[0].X): padding alone can make a
-        // stuck-in-the-left-column grandchild's X a few px greater than cells[0].X, which would
-        // pass vacuously even when the text never actually moved into the right column.
         marker.X.Should().BeApproximately(cells[1].X, 20f,
-            "a grandchild of the second sign-cell (nested two levels deep) must shift to the right column along with its cell, not stay stuck at the pre-shift X");
+            "moving a cell into its column must shift its whole subtree, so a grandchild two levels deep moves with " +
+            "it; comparing with the second cell's own X keeps padding from passing a grandchild stuck in the left column");
     }
 
     /// <summary>Map each PDF page object (in document order) to its decompressed content stream text.</summary>
@@ -169,9 +142,9 @@ public class TableCellWithBrokenImageTests
                 zlib.CopyTo(outMs);
                 decoded = Encoding.Latin1.GetString(outMs.ToArray());
             }
-            catch
+            catch (System.IO.InvalidDataException)
             {
-                decoded = raw; // not compressed
+                decoded = raw;
             }
 
             result.Add(decoded);

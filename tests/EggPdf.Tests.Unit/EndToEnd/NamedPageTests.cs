@@ -7,7 +7,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>CSS Paged Media named pages: <c>page: name</c> on a block + <c>@page name { ... }</c>.</summary>
 public class NamedPageTests
 {
     private static List<(float w, float h)> MediaBoxes(byte[] pdf)
@@ -34,9 +33,9 @@ public class NamedPageTests
         var boxes = MediaBoxes(await HtmlToPdf.RenderAsync(html));
 
         boxes.Should().HaveCount(2, "the name change forces a page break, giving one page per group");
-        boxes[0].w.Should().BeApproximately(450f, 1f);   // 600px = 450pt
+        boxes[0].w.Should().BeApproximately(450f, 1f, "600px = 450pt");
         boxes[0].h.Should().BeApproximately(600f, 1f);
-        boxes[1].w.Should().BeApproximately(750f, 1f);   // 1000px = 750pt
+        boxes[1].w.Should().BeApproximately(750f, 1f, "1000px = 750pt");
         boxes[1].h.Should().BeApproximately(375f, 1f);
     }
 
@@ -78,15 +77,14 @@ public class NamedPageTests
     [Fact]
     public async Task NamedPage_ContentReflowsToItsPageWidth()
     {
-        // A wide page must not keep the base page's narrow content width: text that wraps on a
-        // narrow page fits one line on the wide one, so the wide group needs no extra pages.
         var longLine = new string('x', 10).Replace("x", "word ") ;
         var html = "<html><head><style>@page { size: 300px 400px; margin: 0 } @page wide { size: 1200px 400px; margin: 0 }" +
                    "body{margin:0}</style></head><body><div style='page: wide'>" + longLine + longLine + "</div></body></html>";
 
         var boxes = MediaBoxes(await HtmlToPdf.RenderAsync(html));
-        boxes.Should().HaveCount(1);
-        boxes[0].w.Should().BeApproximately(900f, 1f); // 1200px
+        boxes.Should().HaveCount(1,
+            "the wide page's content reflows to its own width, so text that would wrap on the narrow base page needs no extra pages");
+        boxes[0].w.Should().BeApproximately(900f, 1f, "1200px = 900pt");
     }
 
     [Fact]
@@ -105,10 +103,9 @@ public class NamedPageTests
     [Fact]
     public async Task PageProperty_WithoutNamedRule_DoesNotSplitDocument()
     {
-        // No @page <name> rule exists, so `page:` has nothing to select and the ordinary path runs.
         var html = "<html><body><div style='page: chapter'>One</div><div>Two</div></body></html>";
         var boxes = MediaBoxes(await HtmlToPdf.RenderAsync(html));
-        boxes.Should().HaveCount(1);
+        boxes.Should().HaveCount(1, "with no @page chapter rule, 'page: chapter' selects nothing and the ordinary path runs");
     }
 
     [Fact]
@@ -150,7 +147,6 @@ public class NamedPageTests
     [Fact]
     public async Task NestedNamedPage_KeepsStylingOfTheFragmentedWrapper()
     {
-        // The two wrapper fragments must both keep the wrapper's own rules (here a background colour)
         var html = @"<html><head><style>
             @page wide { size: 1000px 500px }
             main { background-color: rgb(255, 0, 0); }

@@ -10,6 +10,8 @@ namespace EggPdf.Tests.Unit.EndToEnd;
 
 public class PageRulesE2ETests
 {
+    private const float PdfPointsPerCssPixel = 0.75f;
+
     [Fact]
     public async Task PageSizeLetter_ChangesDimensions()
     {
@@ -23,8 +25,7 @@ public class PageRulesE2ETests
 
         pdf.Should().NotBeEmpty();
         var text = Encoding.ASCII.GetString(pdf);
-        // Letter = 816px × 1056px at 96dpi → ×0.75 = 612pt × 792pt
-        text.Should().Contain("/MediaBox [0 0 612.00 792.00]");
+        text.Should().Contain("/MediaBox [0 0 612.00 792.00]", "Letter is 816 x 1056 CSS px, 612 x 792 pt");
     }
 
     [Fact]
@@ -40,15 +41,13 @@ public class PageRulesE2ETests
 
         pdf.Should().NotBeEmpty();
         var text = Encoding.ASCII.GetString(pdf);
-        // A4 landscape: swap width/height → 1122.52px × 793.70px at 96dpi
-        // In PDF pt: 1122.52 × 0.75 = 841.89pt, 793.70 × 0.75 = 595.28pt
-        text.Should().Contain("/MediaBox [0 0 841.89 595.28]");
+        text.Should().Contain("/MediaBox [0 0 841.89 595.28]",
+            "landscape swaps A4's width and height: 1122.52 x 793.70 CSS px, 841.89 x 595.28 pt");
     }
 
     [Fact]
     public async Task PageMargin_AffectsContentArea()
     {
-        // With large margins, text should still be rendered but within the margin area
         var html = @"
             <html><head><style>
                 @page { margin: 100px; }
@@ -60,21 +59,13 @@ public class PageRulesE2ETests
 
         pdf.Should().NotBeEmpty();
         var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Content with page margins");
-        // MediaBox should remain full A4 size (margins don't change MediaBox)
-        text.Should().Contain("/MediaBox [0 0 595.28 841.89]");
+        text.Should().Contain("Content with page margins", "text still renders inside large page margins");
+        text.Should().Contain("/MediaBox [0 0 595.28 841.89]", "page margins don't change the MediaBox, which stays full A4");
     }
 
     [Fact]
     public async Task PageMargin_Asymmetric_ReservesRealBottomMargin()
     {
-        // A small top margin with a large bottom margin. The renderer used to derive
-        // its per-page content band as `pageHeight - marginTop*2`, treating marginTop
-        // as a stand-in for marginBottom — so the true, much larger margin-bottom was
-        // silently ignored (it wasn't even forwarded from @page to the renderer).
-        // With that bug, the reserved dead zone at the bottom of each page equals
-        // marginTop (20px), not the real marginBottom (200px), so text paints deep
-        // inside where the margin should be.
         var sb = new StringBuilder();
         sb.Append("<html><head><style>@page { margin-top: 20px; margin-bottom: 200px; } body{margin:0}</style></head><body>");
         for (int i = 0; i < 60; i++)
@@ -84,13 +75,13 @@ public class PageRulesE2ETests
         byte[] pdf = await HtmlToPdf.RenderAsync(sb.ToString());
         var text = Encoding.ASCII.GetString(pdf);
 
-        float marginBottomPt = 200f * 0.75f; // CSS px (96dpi) -> PDF pt
+        float marginBottomPt = 200f * PdfPointsPerCssPixel;
 
         foreach (Match m in Regex.Matches(text, @"(-?\d+\.\d+) (-?\d+\.\d+) Td \("))
         {
             float y = float.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
             y.Should().BeGreaterOrEqualTo(marginBottomPt - 1f,
-                "no text should be painted inside the reserved @page margin-bottom band");
+                "the 200px margin-bottom is reserved on every page; it must not be mistaken for the 20px margin-top");
         }
     }
 
@@ -107,8 +98,7 @@ public class PageRulesE2ETests
 
         pdf.Should().NotBeEmpty();
         var text = Encoding.ASCII.GetString(pdf);
-        // 500px * 0.75 = 375.00pt, 700px * 0.75 = 525.00pt
-        text.Should().Contain("/MediaBox [0 0 375.00 525.00]");
+        text.Should().Contain("/MediaBox [0 0 375.00 525.00]", "500 x 700 CSS px is 375 x 525 pt");
     }
 
     [Fact]
@@ -120,8 +110,7 @@ public class PageRulesE2ETests
 
         pdf.Should().NotBeEmpty();
         var text = Encoding.ASCII.GetString(pdf);
-        // A4 default: 793.70px × 1122.52px at 96dpi → ×0.75 = 595.28pt × 841.89pt
-        text.Should().Contain("/MediaBox [0 0 595.28 841.89]");
+        text.Should().Contain("/MediaBox [0 0 595.28 841.89]", "the default A4 is 793.70 x 1122.52 CSS px, 595.28 x 841.89 pt");
     }
 
     [Fact]
@@ -138,16 +127,12 @@ public class PageRulesE2ETests
 
         pdf.Should().NotBeEmpty();
         var text = Encoding.ASCII.GetString(pdf);
-        // A5: 559.37px × 793.70px at 96dpi → ×0.75 = 419.53pt × 595.28pt
-        text.Should().Contain("/MediaBox [0 0 419.53 595.28]");
+        text.Should().Contain("/MediaBox [0 0 419.53 595.28]", "A5 is 559.37 x 793.70 CSS px, 419.53 x 595.28 pt");
     }
-
-    // ── @page margin boxes ────────────────────────────────────────────────────
 
     [Fact]
     public async Task PageMarginBox_BottomCenter_TextAppearsOnPage()
     {
-        // @bottom-center is the most common margin box for page numbers
         var html = @"
             <html><head><style>
                 @page {
@@ -189,9 +174,6 @@ public class PageRulesE2ETests
     [Fact]
     public async Task PageMarginBox_CounterPage_ResolvesDifferentlyPerPhysicalPage()
     {
-        // A document spanning multiple pages: the same @bottom-center rule
-        // must paint a different resolved page number on each physical page,
-        // not the same literal text repeated.
         var sb = new StringBuilder(@"
             <html><head><style>
                 @page {
@@ -209,8 +191,8 @@ public class PageRulesE2ETests
         var pageCount = Regex.Matches(text, @"/Type /Page[^s]").Count;
         pageCount.Should().BeGreaterThan(1, "100 paragraphs must actually paginate for this test to be meaningful");
 
-        text.Should().Contain("(1) Tj", "page 1's margin box must show 1");
-        text.Should().Contain("(2) Tj", "page 2's margin box must show 2");
+        text.Should().Contain("(1) Tj", "page 1's margin box must show 1, not the same literal text on every page");
+        text.Should().Contain("(2) Tj", "page 2's margin box must show 2, not the same literal text on every page");
     }
 
     [Fact]
@@ -229,8 +211,6 @@ public class PageRulesE2ETests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("(Draft) Tj");
-        // 8pt font size selection and a red (1 0 0) fill color must both appear
-        // near the margin-box text, confirming the declared styling was read.
         text.Should().Contain("8.00 Tf",
             "the margin box's font-size:8pt must select an 8pt font size");
         text.Should().Contain("1.00 0.00 0.00 rg",
@@ -254,12 +234,9 @@ public class PageRulesE2ETests
 
         text.Should().Contain("(Confidential) Tj");
         text.Should().Contain("(Ordinary paragraph text) Tj");
-        // Exactly one page, so the margin box text must appear exactly once —
-        // not once for the margin box and again duplicated into body flow.
-        Regex.Matches(text, Regex.Escape("(Confidential) Tj")).Count.Should().Be(1);
+        Regex.Matches(text, Regex.Escape("(Confidential) Tj")).Count.Should().Be(1,
+            "on a one-page document the margin box text appears once, not again duplicated into the body flow");
     }
-
-    // ── @page :first / :left / :right selector-scoped margin-box overrides ────
 
     [Fact]
     public async Task PageMarginBoxFirst_SuppressesHeaderOnFirstPageOnly()
@@ -339,8 +316,6 @@ public class PageRulesE2ETests
     [Fact]
     public async Task PageMarginBoxFirst_TakesPriorityOverRightOnPageOne()
     {
-        // Page 1 is structurally an odd page, so it would match :right too --
-        // :first must win there, not :right.
         var html = @"
             <html><head><style>
                 @page { margin: 15mm; }
@@ -352,14 +327,13 @@ public class PageRulesE2ETests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
-        text.Should().Contain("(First) Tj", ":first must win on page 1");
+        text.Should().Contain("(First) Tj", "page 1 is an odd page and matches :right too, but :first must win there");
         text.Should().NotContain("(Right) Tj", ":right must not apply to page 1 when :first also targets it");
     }
 
     [Fact]
     public async Task PageMarginBox_WithPageSizeAndMargin_ParsesBoth()
     {
-        // Ensure margin box coexists with regular @page declarations
         var html = @"
             <html><head><style>
                 @page {
@@ -373,18 +347,13 @@ public class PageRulesE2ETests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
         var text = Encoding.ASCII.GetString(pdf);
-        // Letter: 612pt × 792pt
         text.Should().Contain("/MediaBox [0 0 612.00 792.00]",
-            "regular @page declarations should still be parsed when margin boxes are present");
+            "regular @page declarations such as size: letter should still be parsed when margin boxes are present");
     }
 
     [Fact]
     public async Task PinBottom_BoxFitsOnPage_MovesNearPageBottom()
     {
-        // -eggpdf-pin-bottom: page pins a box (that fits within a single physical page)
-        // to that page's bottom content edge, regardless of how much dynamic content
-        // precedes it — this is what makes an "acceptance box" trailing a variable-length
-        // terms section land flush against the bottom of whichever page it ends up on.
         string BuildHtml(bool pinned) => $@"
             <html><head><style>
                 @page {{ size: 400px 800px; margin: 20px; }}
@@ -402,10 +371,9 @@ public class PageRulesE2ETests
         float pinnedY = ExtractMarkerY(pinnedPdf, "PINMARK");
         float unpinnedY = ExtractMarkerY(unpinnedPdf, "PINMARK");
 
-        // PDF Y grows upward from the page bottom, so pinning to the bottom edge must
-        // produce a substantially SMALLER y than the box's natural (unpinned) flow position.
         pinnedY.Should().BeLessThan(unpinnedY - 100f,
-            "pinning should move the box substantially closer to the physical page bottom");
+            "-eggpdf-pin-bottom: page moves a box that fits on one page to that page's bottom content edge, " +
+            "and PDF y grows upward, so it ends up much lower than its natural flow position");
         pinnedY.Should().BeLessThan(60f,
             "pinned box's text should sit near the 20px (=15pt) bottom margin, not mid-page");
     }
@@ -413,9 +381,6 @@ public class PageRulesE2ETests
     [Fact]
     public async Task PinBottom_BoxTallerThanOnePage_LeftInNaturalFlow()
     {
-        // If the marked box itself doesn't fit within a single physical page, pinning it
-        // would corrupt layout (there's no single "page bottom" to align to), so it must be
-        // left exactly where normal flow placed it rather than forced/clipped.
         var html = @"
             <html><head><style>
                 @page { size: 400px 800px; margin: 20px; }
@@ -432,15 +397,13 @@ public class PageRulesE2ETests
         text.Should().Contain("PINMARK");
         text.Should().Contain("AFTERMARK");
         Regex.Matches(text, @"/MediaBox").Count.Should().BeGreaterThan(1,
-            "an oversized pinned box must still paginate across multiple pages, not collapse to one");
+            "a pinned box taller than a page has no single page bottom to align to, so it stays in normal flow " +
+            "and still paginates across several pages");
     }
 
     [Fact]
     public async Task PositionFixed_RepeatsOnEveryPhysicalPage()
     {
-        // position:fixed content's containing block is the page origin, not the document
-        // flow, so it must be repainted on every physical page rather than assigned to
-        // whichever single page its (page-local, near-zero) Y coordinate happens to fall in.
         var html = @"
             <html><head><style>
                 @page { size: 400px 800px; }
@@ -458,15 +421,12 @@ public class PageRulesE2ETests
         int pageCount = Regex.Matches(text, "/MediaBox").Count;
         pageCount.Should().BeGreaterThan(1, "the filler must force multiple physical pages");
         Regex.Matches(text, "HEADERMARK").Count.Should().Be(pageCount,
-            "position:fixed content must repeat on every physical page, not just the first");
+            "a position:fixed box's containing block is the page, so it repeats on every physical page");
     }
 
     [Fact]
     public async Task PositionFixed_CounterPage_ResolvesPerPhysicalPage()
     {
-        // counter(page)/counter(pages) inside a position:fixed footer's ::after content
-        // must resolve to each page's real, distinct page number — not "0" (no counter-reset
-        // ever defines a counter named "page") and not the same value repeated on every page.
         var html = @"
             <html><head><style>
                 @page { size: 400px 800px; }
@@ -484,12 +444,10 @@ public class PageRulesE2ETests
         var pageContents = ExtractPageContentStreams(pdf);
         pageContents.Count.Should().Be(3, "1650px over an 800px page should span 3 pages");
 
-        // The counter sentinel forces the "of"/digits onto the embedded CID-font path (any
-        // non-WinAnsi character in a run makes the whole font embedded), so the page number
-        // shows up as a hex glyph-id run rather than literal ASCII — assert the three pages'
-        // footer runs are pairwise distinct instead of string-matching literal digits.
         var footerRuns = pageContents.ConvertAll(ExtractLastTextShowOperand);
-        footerRuns.Should().OnlyHaveUniqueItems("each page's counter(page) substitution must differ");
+        footerRuns.Should().OnlyHaveUniqueItems(
+            "each page's counter(page) resolves to its own page number, not 0 or one repeated value; the runs are " +
+            "compared as glyph-id hex because the counter sentinel puts the footer on the embedded CID font");
     }
 
     /// <summary>Map each PDF page object (in document order) to its decompressed content stream text.</summary>
@@ -509,26 +467,27 @@ public class PageRulesE2ETests
             int start = streamObjMatch.Index + streamObjMatch.Length;
             int end = doc.IndexOf("endstream", start, System.StringComparison.Ordinal);
             string raw = doc.Substring(start, end - start).TrimEnd('\r', '\n');
-            byte[] rawBytes = Encoding.Latin1.GetBytes(raw);
 
-            string decoded;
-            try
-            {
-                using var ms = new System.IO.MemoryStream(rawBytes);
-                using var zlib = new System.IO.Compression.ZLibStream(ms, System.IO.Compression.CompressionMode.Decompress);
-                using var outMs = new System.IO.MemoryStream();
-                zlib.CopyTo(outMs);
-                decoded = Encoding.Latin1.GetString(outMs.ToArray());
-            }
-            catch
-            {
-                decoded = raw; // not compressed
-            }
-
-            result.Add(decoded);
+            result.Add(InflateOrKeepRaw(raw));
         }
 
         return result;
+    }
+
+    private static string InflateOrKeepRaw(string raw)
+    {
+        try
+        {
+            using var ms = new System.IO.MemoryStream(Encoding.Latin1.GetBytes(raw));
+            using var zlib = new System.IO.Compression.ZLibStream(ms, System.IO.Compression.CompressionMode.Decompress);
+            using var outMs = new System.IO.MemoryStream();
+            zlib.CopyTo(outMs);
+            return Encoding.Latin1.GetString(outMs.ToArray());
+        }
+        catch
+        {
+            return raw;
+        }
     }
 
     /// <summary>Extract the operand of the last text-show operator (Tj, in "(...)" or "&lt;...&gt;" form) in a content stream.</summary>
@@ -550,13 +509,6 @@ public class PageRulesE2ETests
     [Fact]
     public async Task TablePagination_SectionTallerThanOnePage_AllRowsPaintedWithinPageBounds()
     {
-        // A <section> bounded by page-break-after: always (a common "one logical chunk per
-        // forced break" document structure) can itself be taller than one physical page — e.g.
-        // a long table. The old pagination logic treated every forced-break-bounded section as
-        // exactly one physical page, so content past the first page's-worth of an oversized
-        // section got painted at Y coordinates beyond that single page's canvas: present in the
-        // PDF's text objects, but never visible in any viewer. Rows must instead spill onto
-        // additional physical pages, same as unbounded flowing content already does.
         var sb = new StringBuilder();
         sb.Append(@"<html><head><style>
             @page { size: 400px 800px; margin: 0; }
@@ -576,39 +528,29 @@ public class PageRulesE2ETests
         byte[] pdf = await HtmlToPdf.RenderAsync(sb.ToString());
         var pageContents = ExtractPageContentStreams(pdf);
 
-        // Section A + Section C are each one page on their own; if the table section were
-        // (buggily) treated as a single physical page regardless of its content height, the
-        // whole document would be exactly 3 pages. 40 rows of ~40px+ each need more than one
-        // 800px page, so the real count must exceed that.
         pageContents.Count.Should().BeGreaterThan(3,
-            "an oversized forced-break section must spill onto extra physical pages, not collapse into one");
+            "sections A and C take a page each, and the table section's 40 rows of 40px need more than one 800px page: " +
+            "a section between forced breaks spills onto extra pages instead of being squeezed into one");
 
-        const float pageHeightPt = 800f * 0.75f;
+        const float pageHeightPt = 800f * PdfPointsPerCssPixel;
         foreach (var content in pageContents)
         {
             foreach (Match m in Regex.Matches(content, @"(-?\d+\.\d+) (-?\d+\.\d+) Td"))
             {
                 float y = float.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
                 y.Should().BeInRange(-1f, pageHeightPt + 1f,
-                    "text must never be painted outside the physical page it was assigned to");
+                    "text must never be painted outside the physical page it was assigned to, where no viewer shows it");
             }
         }
 
-        // And every row must actually be present — no silent data loss.
         string allText = string.Join("\n", pageContents);
         for (int i = 0; i < 40; i++)
-            allText.Should().Contain($"ROW{i}");
+            allText.Should().Contain($"ROW{i}", "no row may be lost");
     }
 
     [Fact]
     public async Task Background_BoxSpanningMultiplePages_IsPaintedWholeAndClippedToEachPage()
     {
-        // A box taller than one physical page (already proven possible by the pagination fix
-        // above) used to have its background/border rectangle painted using its full,
-        // unclamped height on every page it touches — correct on the page it starts on, but
-        // wildly mispositioned on every continuation page, since box.Height there vastly
-        // exceeds what's actually visible. The visible symptom: instead of a full-page fill,
-        // only a small, misplaced sliver of color shows and the rest of the page stays blank.
         var html = @"
             <html><head><style>
                 @page { size: 400px 800px; margin-bottom: 200px; }
@@ -622,11 +564,13 @@ public class PageRulesE2ETests
         var pageContents = ExtractPageContentStreams(pdf);
         pageContents.Count.Should().BeGreaterThan(1, "an 800px box over a 600px content band must spill onto a second page");
 
-        const float pageHeightPt = 800f * 0.75f;
+        const float pageHeightPt = 800f * PdfPointsPerCssPixel;
         foreach (var content in pageContents)
         {
             var clip = Regex.Match(content, @"(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) re W n\n0\.20 0\.40 0\.60 rg\n(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) re f");
-            clip.Success.Should().BeTrue("the box is painted whole, clipped to the page's content band");
+            clip.Success.Should().BeTrue(
+                "on every page the box is painted whole and clipped to the page's content band, not drawn at its full " +
+                "height from a continuation page's origin");
             float clipY = float.Parse(clip.Groups[2].Value, CultureInfo.InvariantCulture);
             float clipTop = clipY + float.Parse(clip.Groups[4].Value, CultureInfo.InvariantCulture);
             float fillY = float.Parse(clip.Groups[6].Value, CultureInfo.InvariantCulture);
@@ -655,8 +599,8 @@ public class PageRulesE2ETests
         var pageContents = ExtractPageContentStreams(pdf);
         pageContents.Count.Should().Be(1);
 
-        const float expectedFooterHeightPt = 50f * 0.75f;
-        const float pageAreaBottomPt = 100f * 0.75f;
+        const float expectedFooterHeightPt = 50f * PdfPointsPerCssPixel;
+        const float pageAreaBottomPt = 100f * PdfPointsPerCssPixel;
         bool foundFooterOnPageAreaBottom = false;
         foreach (Match m in Regex.Matches(pageContents[0], @"([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) re f"))
         {
@@ -686,7 +630,7 @@ public class PageRulesE2ETests
         {
             float y = float.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
             float h = float.Parse(m.Groups[4].Value, CultureInfo.InvariantCulture);
-            if (Math.Abs(y) < 0.5f && Math.Abs(h - 50f * 0.75f) < 0.5f) footerAtSheetBottom = true;
+            if (Math.Abs(y) < 0.5f && Math.Abs(h - 50f * PdfPointsPerCssPixel) < 0.5f) footerAtSheetBottom = true;
         }
         footerAtSheetBottom.Should().BeTrue("the fluent footer is drawn in the page margin, against the whole sheet");
     }

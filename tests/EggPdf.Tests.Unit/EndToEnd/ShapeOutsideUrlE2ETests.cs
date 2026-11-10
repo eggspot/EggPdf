@@ -10,9 +10,13 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>shape-outside: url() through the whole pipeline: text wraps around the image's opaque pixels.</summary>
 public class ShapeOutsideUrlE2ETests
 {
+    private static readonly byte[] OpaqueBlackPixel = { 0, 0, 0, 255 };
+    private static readonly byte[] TransparentPixel = { 0, 0, 0, 0 };
+    private const float PageHeightPt = 300f;
+    private const float FloatHeightPt = 75f;
+
     /// <summary>A 2x2 RGBA PNG whose left column is opaque black and right column fully transparent.</summary>
     private static string LeftHalfPngDataUri()
     {
@@ -20,8 +24,8 @@ public class ShapeOutsideUrlE2ETests
         for (int y = 0; y < 2; y++)
         {
             raw.Add(0);
-            raw.AddRange(new byte[] { 0, 0, 0, 255 });   // left pixel: opaque
-            raw.AddRange(new byte[] { 0, 0, 0, 0 });     // right pixel: transparent
+            raw.AddRange(OpaqueBlackPixel);
+            raw.AddRange(TransparentPixel);
         }
 
         var zlib = new List<byte> { 0x78, 0x01, 0x01 };
@@ -54,7 +58,7 @@ public class ShapeOutsideUrlE2ETests
 
     private static List<float> TextXs(string pdf)
         => Regex.Matches(pdf, @"BT [^\r\n]*? (-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?) Td \([^\r\n]*\) Tj")
-            .Where(m => float.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture) > 225f) // lines beside the 100px float (page is 300pt tall)
+            .Where(m => float.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture) > PageHeightPt - FloatHeightPt)
             .Select(m => float.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)).ToList();
 
     private static string Html(string floatStyle, string uri) =>

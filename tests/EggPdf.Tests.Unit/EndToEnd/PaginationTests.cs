@@ -10,7 +10,6 @@ public class PaginationTests
     [Fact]
     public async Task LongContent_ProducesMultiplePages()
     {
-        // Generate enough content to fill more than one A4 page
         var sb = new StringBuilder();
         sb.Append("<html><body>");
         for (int i = 0; i < 100; i++)
@@ -19,10 +18,8 @@ public class PaginationTests
 
         byte[] pdf = await HtmlToPdf.RenderAsync(sb.ToString());
 
-        pdf.Should().NotBeEmpty();
-        var text = Encoding.ASCII.GetString(pdf);
-        // Should have more than 1 page
-        text.Should().Contain("/Type /Page");
+        var text = PdfAssert.ValidPdf(pdf);
+        PdfAssert.PageCount(text).Should().BeGreaterThan(1, "100 paragraphs don't fit on one A4 page");
     }
 
     [Fact]
@@ -34,11 +31,8 @@ public class PaginationTests
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        pdf.Should().NotBeEmpty();
-        var text = Encoding.ASCII.GetString(pdf);
-        // Should reference page-break property (content should span pages)
-        text.Should().Contain("Page 1 content");
-        text.Should().Contain("Page 2 content");
+        var text = PdfAssert.ValidPdf(pdf, "Page 1 content", "Page 2 content");
+        PdfAssert.PageCount(text).Should().Be(2, "page-break-before: always starts the second div on a new page");
     }
 
     [Fact]
@@ -52,10 +46,10 @@ public class PaginationTests
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        var text = Encoding.ASCII.GetString(pdf);
-        // Bookmarks should contain heading text
-        text.Should().Contain("Chapter 1");
-        text.Should().Contain("Chapter 2");
+        var text = PdfAssert.ValidPdf(pdf);
+        text.Should().Contain("/Outlines", "headings produce a bookmark outline");
+        text.Should().Contain("/Title (Chapter 1)");
+        text.Should().Contain("/Title (Chapter 2)");
     }
 
     [Fact]
@@ -68,11 +62,8 @@ public class PaginationTests
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        pdf.Should().NotBeEmpty();
-        // The link text should be in the PDF
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Go");
-        text.Should().Contain("Section");
+        var text = PdfAssert.ValidPdf(pdf, "Go");
+        text.Should().Contain("/Subtype /Link", "the internal link becomes a link annotation");
     }
 
     [Fact]
@@ -85,8 +76,9 @@ public class PaginationTests
 
         byte[] pdf = await HtmlToPdf.RenderAsync(sb.ToString());
 
-        pdf.Should().NotBeEmpty();
-        Encoding.ASCII.GetString(pdf, 0, 8).Should().StartWith("%PDF");
+        var text = PdfAssert.ValidPdf(pdf);
+        for (int i = 0; i < 50; i += 10)
+            text.Should().Contain($"Line {i}:", "no line may be lost across page boundaries");
     }
 
     [Fact]
@@ -99,9 +91,8 @@ public class PaginationTests
     }
 
     [Fact]
-    public async Task PageWithHeaderFooter_Rendered()
+    public async Task PageMarginRule_ContentRendersInsideTheMargin()
     {
-        // For now, test that page CSS is recognized
         var html = @"
             <html><head><style>
                 @page { margin: 2cm; }
@@ -111,8 +102,8 @@ public class PaginationTests
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
 
-        pdf.Should().NotBeEmpty();
-        var text = Encoding.ASCII.GetString(pdf);
-        text.Should().Contain("Content with page margins");
+        var text = PdfAssert.ValidPdf(pdf);
+        PdfAssert.TextPosition(text, "Content with page margins").X.Should().BeGreaterThan(56f,
+            "the 2cm (56.7pt) page margin plus the body margin push the text in from the sheet's edge");
     }
 }

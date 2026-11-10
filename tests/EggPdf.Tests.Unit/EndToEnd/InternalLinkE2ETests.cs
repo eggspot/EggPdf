@@ -8,7 +8,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>HTML <c>&lt;a href="#id"&gt;</c>: a clickable link whose /Dest points at the page/position of the element with that id.</summary>
 public class InternalLinkE2ETests
 {
     private const string Css = "@page { size: 400px 800px; margin: 0 } body { margin: 0 } .filler { height: 1650px }";
@@ -101,9 +100,6 @@ public class InternalLinkE2ETests
     [Fact]
     public async Task InternalLink_ToPositionFixedElement_ResolvesToItsFirstOccurrence()
     {
-        // A position:fixed element is painted on every physical page. Its id can only have one
-        // destination, so it is the first occurrence (page 1) -- what a browser's print layout
-        // does -- even when the link sits on a later page.
         var html = "<html><head><style>" + Css + " .hdr { position: fixed; top: 0; left: 0 }</style></head><body>" +
                    "<div id='hdr' class='hdr'>Running header</div><div class='filler'></div><a href='#hdr'>Back to header</a></body></html>";
 
@@ -112,7 +108,9 @@ public class InternalLinkE2ETests
         var pages = PageObjectNumbers(pdf);
         pages.Count.Should().Be(3);
         int destPage = int.Parse(Regex.Match(pdf, LinkAnnot).Groups[1].Value, CultureInfo.InvariantCulture);
-        destPage.Should().Be(pages[0], "the fixed element's first occurrence is on page 1, regardless of where the link is");
+        destPage.Should().Be(pages[0],
+            "a fixed element is painted on every page but its id has one destination, the first occurrence on page 1, " +
+            "as in a browser's print layout, wherever the link is");
     }
 
     [Fact]
