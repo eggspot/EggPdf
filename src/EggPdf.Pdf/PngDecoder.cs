@@ -11,7 +11,6 @@ namespace EggPdf.Pdf;
 /// </summary>
 internal static partial class PngDecoder
 {
-    // PNG magic bytes: 137 80 78 71 13 10 26 10
     internal static readonly byte[] PngSignature = { 137, 80, 78, 71, 13, 10, 26, 10 };
 
     /// <summary>Check if data starts with PNG signature.</summary>
@@ -48,9 +47,8 @@ internal static partial class PngDecoder
         if (!IsPng(data))
             return null;
 
-        int pos = 8; // skip signature
+        int pos = PngSignature.Length;
 
-        // IHDR must be first chunk
         if (!TryReadChunk(data, ref pos, out var ihdrType, out var ihdrData))
             return null;
         if (ihdrType != "IHDR" || ihdrData.Length < 13)
@@ -70,30 +68,17 @@ internal static partial class PngDecoder
             return null;
         if (interlaceMethod != 0 && interlaceMethod != Adam7InterlaceMethod)
             return null;
-        // Only 8-bit and 16-bit depth
-        if (bitDepth != 8 && bitDepth != 16)
-        {
-            // Indexed (color type 3) and grayscale (color type 0) also allow
-            // 1, 2, 4 bit depth — 1-bit grayscale is the common QR code format.
-            if ((colorType == 3 || colorType == 0) &&
-                (bitDepth == 1 || bitDepth == 2 || bitDepth == 4))
-            {
-                // OK
-            }
-            else
-            {
-                return null;
-            }
-        }
+        bool allowsSubByteDepth = colorType == 3 || colorType == 0;
+        bool isSubByteDepth = bitDepth == 1 || bitDepth == 2 || bitDepth == 4;
+        if (bitDepth != 8 && bitDepth != 16 && !(allowsSubByteDepth && isSubByteDepth))
+            return null;
 
-        // Validate color type
         if (colorType != 0 && colorType != 2 && colorType != 3 && colorType != 4 && colorType != 6)
             return null;
 
         byte[]? palette = null;
         byte[]? trns = null;
 
-        // Collect IDAT chunks and other relevant chunks
         using var idatStream = new MemoryStream();
 
         while (pos < data.Length)
@@ -117,13 +102,11 @@ internal static partial class PngDecoder
             {
                 break;
             }
-            // Skip all other chunks
         }
 
         if (idatStream.Length == 0)
             return null;
 
-        // Indexed color type requires a palette
         if (colorType == 3 && palette == null)
             return null;
 
@@ -164,7 +147,6 @@ internal static partial class PngDecoder
                 return null;
         }
 
-        // Convert to 8-bit RGB or RGBA
         return ConvertPixels(unfiltered, width, height, bitDepth, colorType, channels, stride, palette, trns);
     }
 
@@ -208,7 +190,7 @@ internal static partial class PngDecoder
 
         switch (colorType)
         {
-            case 0: // Grayscale
+            case 0:
             {
                 bool hasTransparency = trns != null && trns.Length >= 2;
                 int trnsGray = hasTransparency ? ((trns![0] << 8) | trns[1]) : -1;
@@ -225,7 +207,7 @@ internal static partial class PngDecoder
                             if (bitDepth == 16)
                             {
                                 int gray16 = (unfiltered[srcRow + x * 2] << 8) | unfiltered[srcRow + x * 2 + 1];
-                                gray = gray16 >> 8; // truncate to 8-bit
+                                gray = gray16 >> 8;
                                 int dstIdx = (y * width + x) * 4;
                                 rgba[dstIdx] = (byte)gray;
                                 rgba[dstIdx + 1] = (byte)gray;
@@ -256,7 +238,7 @@ internal static partial class PngDecoder
                         {
                             byte gray;
                             if (bitDepth == 16)
-                                gray = unfiltered[srcRow + x * 2]; // take high byte
+                                gray = unfiltered[srcRow + x * 2];
                             else
                                 gray = (byte)ScaleGraySample(GetGraySample(unfiltered, srcRow, x, bitDepth), bitDepth);
 
@@ -270,7 +252,7 @@ internal static partial class PngDecoder
                 }
             }
 
-            case 2: // RGB
+            case 2:
             {
                 bool hasTransparency = trns != null && trns.Length >= 6;
                 if (hasTransparency)
@@ -327,9 +309,9 @@ internal static partial class PngDecoder
                             {
                                 int srcIdx = srcRow + x * 6;
                                 int dstIdx = (y * width + x) * 3;
-                                rgb[dstIdx] = unfiltered[srcIdx];       // R high byte
-                                rgb[dstIdx + 1] = unfiltered[srcIdx + 2]; // G high byte
-                                rgb[dstIdx + 2] = unfiltered[srcIdx + 4]; // B high byte
+                                rgb[dstIdx] = unfiltered[srcIdx];
+                                rgb[dstIdx + 1] = unfiltered[srcIdx + 2];
+                                rgb[dstIdx + 2] = unfiltered[srcIdx + 4];
                             }
                             else
                             {
@@ -345,7 +327,7 @@ internal static partial class PngDecoder
                 }
             }
 
-            case 3: // Indexed (palette)
+            case 3:
             {
                 if (palette == null || palette.Length < 3)
                     return null;
@@ -396,7 +378,7 @@ internal static partial class PngDecoder
                 }
             }
 
-            case 4: // Grayscale + Alpha
+            case 4:
             {
                 var rgba = new byte[pixelCount * 4];
                 for (int y = 0; y < height; y++)
@@ -408,8 +390,8 @@ internal static partial class PngDecoder
                         if (bitDepth == 16)
                         {
                             int srcIdx = srcRow + x * 4;
-                            gray = unfiltered[srcIdx];     // high byte
-                            alpha = unfiltered[srcIdx + 2]; // high byte
+                            gray = unfiltered[srcIdx];
+                            alpha = unfiltered[srcIdx + 2];
                         }
                         else
                         {
@@ -428,7 +410,7 @@ internal static partial class PngDecoder
                 return new PngDecodeResult(width, height, rgba, true);
             }
 
-            case 6: // RGBA
+            case 6:
             {
                 var rgba = new byte[pixelCount * 4];
                 for (int y = 0; y < height; y++)
@@ -440,10 +422,10 @@ internal static partial class PngDecoder
                         {
                             int srcIdx = srcRow + x * 8;
                             int dstIdx = (y * width + x) * 4;
-                            rgba[dstIdx] = unfiltered[srcIdx];       // R high byte
-                            rgba[dstIdx + 1] = unfiltered[srcIdx + 2]; // G high byte
-                            rgba[dstIdx + 2] = unfiltered[srcIdx + 4]; // B high byte
-                            rgba[dstIdx + 3] = unfiltered[srcIdx + 6]; // A high byte
+                            rgba[dstIdx] = unfiltered[srcIdx];
+                            rgba[dstIdx + 1] = unfiltered[srcIdx + 2];
+                            rgba[dstIdx + 2] = unfiltered[srcIdx + 4];
+                            rgba[dstIdx + 3] = unfiltered[srcIdx + 6];
                         }
                         else
                         {
@@ -499,11 +481,11 @@ internal static partial class PngDecoder
     {
         switch (colorType)
         {
-            case 0: return 1; // Grayscale
-            case 2: return 3; // RGB
-            case 3: return 1; // Indexed (1 byte index)
-            case 4: return 2; // Grayscale + Alpha
-            case 6: return 4; // RGBA
+            case 0: return 1;
+            case 2: return 3;
+            case 3: return 1;
+            case 4: return 2;
+            case 6: return 4;
             default: return 0;
         }
     }
@@ -525,11 +507,11 @@ internal static partial class PngDecoder
 
             switch (filterType)
             {
-                case 0: // None
+                case 0:
                     Buffer.BlockCopy(raw, srcPos, output, dstRow, stride);
                     break;
 
-                case 1: // Sub
+                case 1:
                     for (int i = 0; i < stride; i++)
                     {
                         byte left = (i >= bytesPerPixel) ? output[dstRow + i - bytesPerPixel] : (byte)0;
@@ -537,7 +519,7 @@ internal static partial class PngDecoder
                     }
                     break;
 
-                case 2: // Up
+                case 2:
                     for (int i = 0; i < stride; i++)
                     {
                         byte up = (y > 0) ? output[prevRow + i] : (byte)0;
@@ -545,7 +527,7 @@ internal static partial class PngDecoder
                     }
                     break;
 
-                case 3: // Average
+                case 3:
                     for (int i = 0; i < stride; i++)
                     {
                         byte left = (i >= bytesPerPixel) ? output[dstRow + i - bytesPerPixel] : (byte)0;
@@ -554,7 +536,7 @@ internal static partial class PngDecoder
                     }
                     break;
 
-                case 4: // Paeth
+                case 4:
                     for (int i = 0; i < stride; i++)
                     {
                         byte left = (i >= bytesPerPixel) ? output[dstRow + i - bytesPerPixel] : (byte)0;
@@ -565,7 +547,7 @@ internal static partial class PngDecoder
                     break;
 
                 default:
-                    return false; // unknown filter type
+                    return false;
             }
 
             srcPos += stride;
@@ -588,6 +570,7 @@ internal static partial class PngDecoder
 
     private const int MaxOutputBytesPerPixel = 4;
     private const int ZlibHeaderBytes = 2;
+    private const int ChunkCrcBytes = 4;
 
     private static byte[]? DecompressZlib(byte[] zlibData, int maxOutputBytes)
     {
@@ -635,10 +618,7 @@ internal static partial class PngDecoder
         chunkData = new byte[length];
         if (length > 0)
             Buffer.BlockCopy(data, pos, chunkData, 0, length);
-        pos += length;
-
-        // Skip CRC (4 bytes)
-        pos += 4;
+        pos += length + ChunkCrcBytes;
 
         return true;
     }
