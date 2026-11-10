@@ -8,17 +8,24 @@ using EggPdf.Text.TrueType;
 
 namespace EggPdf.Svg;
 
-// Building the source graphic of a filtered element: shapes, text (via glyph outlines) and
-// gradient paints, rasterized into a premultiplied float canvas.
 public static partial class SvgRenderer
 {
     private static readonly FontResolver FilterFontResolver = new FontResolver();
 
-    /// <summary>Fill/stroke properties as they cascade down a filtered subtree.</summary>
+    private const float HairlineHalfWidth = 0.75f;
+
+    /// <summary>
+    /// Fill/stroke properties as they cascade down a filtered subtree, whose shapes, text (via glyph outlines) and
+    /// gradient paints are rasterized into the filter's premultiplied float source graphic. opacity is not inherited
+    /// but composes down the tree.
+    /// </summary>
     private struct FilterPaint
     {
         public string Fill, Stroke, Color;
         public float FillOpacity, StrokeWidth, StrokeOpacity, Opacity;
+
+        /// <summary><c>fill-rule: evenodd</c>; SVG's default is nonzero.</summary>
+        public bool EvenOdd;
 
         public static FilterPaint Default => new FilterPaint
         {
@@ -38,19 +45,17 @@ public static partial class SvgRenderer
         public float BoxX, BoxY, BoxW, BoxH;
     }
 
-    // ── Source collection ─────────────────────────────────────────────────────
-
     /// <summary>
     /// Gather every drawable shape under <paramref name="el"/> with its geometry in the root
     /// element's local space. Returns false when the subtree holds something that can't be
-    /// rasterized (raster images, pattern paints, text without an installed font).
+    /// rasterized (raster images, pattern paints, text without an installed font). The filtered element's own
+    /// transform is already on the CTM; its descendants' are applied here.
     /// </summary>
     private static bool CollectFilterShapes(SvgElement el, Matrix2D rel, FilterPaint inherited, bool isRoot,
         SvgDefs defs, List<FilterShape> shapes)
     {
         if (string.Equals(SvgFilter.Prop(el, "display"), "none", StringComparison.OrdinalIgnoreCase)) return true;
 
-        // The filtered element's own transform is already on the CTM; descendants' are not
         if (!isRoot)
         {
             var transform = el.GetAttribute("transform");
@@ -147,11 +152,13 @@ public static partial class SvgRenderer
         var v = SvgFilter.Prop(el, "fill"); if (v.Length > 0) paint.Fill = v;
         v = SvgFilter.Prop(el, "stroke"); if (v.Length > 0) paint.Stroke = v;
         v = SvgFilter.Prop(el, "color"); if (v.Length > 0) paint.Color = v;
+        v = SvgFilter.Prop(el, "fill-rule").Trim();
+        if (v.Equals("evenodd", StringComparison.OrdinalIgnoreCase)) paint.EvenOdd = true;
+        else if (v.Equals("nonzero", StringComparison.OrdinalIgnoreCase)) paint.EvenOdd = false;
         paint.FillOpacity = ReadFraction(SvgFilter.Prop(el, "fill-opacity"), paint.FillOpacity);
         paint.StrokeOpacity = ReadFraction(SvgFilter.Prop(el, "stroke-opacity"), paint.StrokeOpacity);
         v = SvgFilter.Prop(el, "stroke-width");
         if (v.Length > 0 && float.TryParse(v.Replace("px", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out float sw)) paint.StrokeWidth = sw;
-        // opacity is not inherited but composes down the tree
         paint.Opacity = parent.Opacity * ReadFraction(SvgFilter.Prop(el, "opacity"), 1f);
         return paint;
     }
@@ -173,12 +180,11 @@ public static partial class SvgRenderer
         return Color.TryParse(v) ?? Color.Black;
     }
 
-    // ── Text ──────────────────────────────────────────────────────────────────
-
     /// <summary>
     /// Turn a &lt;text&gt; element (and its &lt;tspan&gt; children) into glyph-outline shapes using the installed font
-    /// for its family. Advances come from the font's hmtx table (no kerning or shaping). Returns false when no
-    /// suitable font is installed, so the element paints unfiltered instead of vanishing.
+    /// for its family. Advances come from the font's hmtx table (no kerning or shaping); font y runs up, so it is
+    /// flipped. Returns false when no suitable font is installed, so the element paints unfiltered instead of
+    /// vanishing.
     /// </summary>
     private static bool AddTextShapes(SvgElement el, Matrix2D rel, FilterPaint paint, SvgDefs defs,
         List<FilterShape> shapes, ref float penX, ref float penY)
@@ -202,15 +208,18 @@ public static partial class SvgRenderer
             if (fs.Length > 0 && float.TryParse(fs.Replace("px", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out float parsedSize) && parsedSize > 0f) size = parsedSize;
             float scale = size / font.UnitsPerEm;
 
+            var codePoints = CodePoints(text);
             float width = 0f;
-            for (int i = 0; i < text.Length; i++) width += font.GetAdvanceWidth(font.GetGlyphId(text[i])) * scale;
+            foreach (int codePoint in codePoints) width += font.GetAdvanceWidth(font.GetGlyphId(codePoint)) * scale;
             var anchor = SvgFilter.Prop(el, "text-anchor");
             float startX = anchor == "middle" ? penX - width / 2f : anchor == "end" ? penX - width : penX;
 
+            var glyphPaint = paint;
+            glyphPaint.EvenOdd = false;
             float cursor = startX;
-            foreach (char ch in text)
+            foreach (int codePoint in codePoints)
             {
-                ushort gid = font.GetGlyphId(ch);
+                ushort gid = font.GetGlyphId(codePoint);
                 var contours = GlyphOutlines.Get(font, gid);
                 if (contours.Count > 0)
                 {
@@ -218,11 +227,11 @@ public static partial class SvgRenderer
                     foreach (var contour in contours)
                     {
                         var pts = new List<(float x, float y)>(contour.Count);
-                        foreach (var p in contour) pts.Add((cursor + p.x * scale, penY - p.y * scale)); // font y is up
+                        foreach (var p in contour) pts.Add((cursor + p.x * scale, penY - p.y * scale));
                         subpaths.Add((pts, true));
                     }
                     var (bx, by, bw, bh) = BoundsOf(subpaths);
-                    shapes.Add(new FilterShape { Subpaths = MapSubpaths(subpaths, rel), Paint = paint, Rel = rel, BoxX = bx, BoxY = by, BoxW = bw, BoxH = bh });
+                    shapes.Add(new FilterShape { Subpaths = MapSubpaths(subpaths, rel), Paint = glyphPaint, Rel = rel, BoxX = bx, BoxY = by, BoxW = bw, BoxH = bh });
                 }
                 cursor += font.GetAdvanceWidth(gid) * scale;
             }
@@ -253,7 +262,24 @@ public static partial class SvgRenderer
             var font = FilterFontResolver.Resolve(family, bold, italic);
             if (font != null) return VariableFontInstancer.InstanceForWeight(font, bold ? 700 : 400);
         }
-        return FilterFontResolver.Resolve("sans-serif", bold, italic);
+        var fallback = FilterFontResolver.Resolve("sans-serif", bold, italic);
+        return fallback == null ? null : VariableFontInstancer.InstanceForWeight(fallback, bold ? 700 : 400);
+    }
+
+    /// <summary>The text's Unicode code points, with surrogate pairs combined and a lone surrogate kept as itself.</summary>
+    private static List<int> CodePoints(string text)
+    {
+        var codePoints = new List<int>(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                codePoints.Add(char.ConvertToUtf32(text[i], text[i + 1]));
+                i++;
+            }
+            else codePoints.Add(text[i]);
+        }
+        return codePoints;
     }
 
     private static float FirstNumber(string list, float fallback)
@@ -276,8 +302,6 @@ public static partial class SvgRenderer
         }
         return sb.ToString();
     }
-
-    // ── Rasterizing the source graphic ───────────────────────────────────────
 
     private static void DrawFilterShape(FilterImage dst, FilterShape shape, float originX, float originY, float pxPerUnit, SvgDefs defs)
     {
@@ -316,8 +340,9 @@ public static partial class SvgRenderer
         byte r = solid?.R ?? 255, g = solid?.G ?? 255, b = solid?.B ?? 255;
         if (!stroke)
         {
-            var compound = CompoundPolygon(canvasPaths);
-            if (compound.Count >= 3) layer.FillPolygon(compound, r, g, b, 255);
+            var contours = new List<IReadOnlyList<(float x, float y)>>(canvasPaths.Count);
+            foreach (var (points, _) in canvasPaths) contours.Add(points);
+            layer.FillContours(contours, paint.EvenOdd, r, g, b, 255);
         }
         else
         {
@@ -332,25 +357,9 @@ public static partial class SvgRenderer
     }
 
     /// <summary>
-    /// One polygon for all contours so holes work under the even-odd fill: each contour is closed back to its
-    /// start, and the start points are then walked back in reverse so the connecting edges cancel out.
+    /// Replace a white coverage layer's colour with the gradient's colour at each covered pixel, mapping each pixel
+    /// centre to the filtered element's local space and then to the shape's own user space.
     /// </summary>
-    private static List<(float x, float y)> CompoundPolygon(List<(List<(float x, float y)> points, bool closed)> paths)
-    {
-        var result = new List<(float x, float y)>();
-        var starts = new List<(float x, float y)>();
-        foreach (var (points, _) in paths)
-        {
-            if (points.Count < 3) continue;
-            foreach (var p in points) result.Add(p);
-            result.Add(points[0]);
-            starts.Add(points[0]);
-        }
-        for (int i = starts.Count - 2; i >= 0; i--) result.Add(starts[i]);
-        return result;
-    }
-
-    /// <summary>Replace a white coverage layer's colour with the gradient's colour at each covered pixel.</summary>
     private static void ColorizeLayer(RasterCanvas layer, GradientPaint gradient, FilterShape shape, float originX, float originY, float pxPerUnit)
     {
         var px = layer.Pixels;
@@ -361,7 +370,6 @@ public static partial class SvgRenderer
             {
                 int i = (y * layer.Width + x) * 4;
                 if (px[i + 3] == 0) continue;
-                // pixel centre -> filtered-element local -> the shape's own user space
                 float lx = originX + (x + 0.5f) / pxPerUnit, ly = originY + (y + 0.5f) / pxPerUnit;
                 var (ux, uy) = inverse.Apply(lx, ly);
                 var (cr, cg, cb, ca) = gradient.ColorAt(ux, uy);
@@ -380,11 +388,14 @@ public static partial class SvgRenderer
         return new Matrix2D(a, b, c, d, e, f);
     }
 
-    /// <summary>Stroke a polyline as one quad per segment plus a round join disc at each joint (butt caps).</summary>
+    /// <summary>
+    /// Stroke a polyline as one quad per segment plus a round join disc at each joint (butt caps); hairlines get no
+    /// joins. A path's closing 'Z' repeats the first point, which is dropped.
+    /// </summary>
     private static void StrokePolyline(RasterCanvas layer, List<(float x, float y)> pts, bool closed, float width, byte r, byte g, byte b)
     {
         int n = pts.Count;
-        if (closed && n > 1 && pts[0] == pts[n - 1]) n--; // a path's closing 'Z' repeats the first point
+        if (closed && n > 1 && pts[0] == pts[n - 1]) n--;
         int segments = closed ? n : n - 1;
         float half = width / 2f;
 
@@ -402,7 +413,7 @@ public static partial class SvgRenderer
             }, r, g, b, 255);
         }
 
-        if (half < 0.75f) return; // hairlines don't need round joins
+        if (half < HairlineHalfWidth) return;
         int firstJoint = closed ? 0 : 1, lastJoint = closed ? n - 1 : n - 2;
         for (int i = firstJoint; i <= lastJoint; i++)
             layer.FillPolygon(ExtractEllipsePoints(pts[i].x, pts[i].y, half, half, 16), r, g, b, 255);

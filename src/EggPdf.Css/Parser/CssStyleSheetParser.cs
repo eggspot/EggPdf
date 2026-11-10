@@ -311,7 +311,7 @@ public static partial class CssStyleSheetParser
             }
             else if (tokens[pos].Type == CssTokenType.Ident)
             {
-                var property = tokens[pos].Value!.ToLowerInvariant();
+                var property = CssPropertyNames.Normalize(tokens[pos].Value!);
                 pos++;
                 SkipWhitespace(tokens, ref pos);
                 if (pos < tokens.Count && tokens[pos].Type == CssTokenType.Colon)
@@ -389,7 +389,7 @@ public static partial class CssStyleSheetParser
                 continue;
             }
 
-            var property = tokens[pos].Value!.ToLowerInvariant();
+            var property = CssPropertyNames.Normalize(tokens[pos].Value!);
             pos++;
             SkipWhitespace(tokens, ref pos);
 

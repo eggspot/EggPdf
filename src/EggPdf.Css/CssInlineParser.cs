@@ -16,11 +16,6 @@ public static class CssInlineParser
         if (string.IsNullOrWhiteSpace(css))
             return declarations;
 
-        // Split by semicolons, but not ones inside parens (e.g. a function
-        // argument) or quotes (e.g. a literal string, or -- the case that
-        // exposed this -- a "data:image/png;base64,..." URI, which contains
-        // a semicolon that a naive css.Split(';') would wrongly treat as a
-        // declaration boundary, truncating the value).
         var parts = SplitDeclarations(css);
 
         foreach (var part in parts)
@@ -29,19 +24,16 @@ public static class CssInlineParser
             if (string.IsNullOrEmpty(trimmed))
                 continue;
 
-            // Find the colon separating property from value
             int colonIndex = trimmed.IndexOf(':');
             if (colonIndex <= 0 || colonIndex >= trimmed.Length - 1)
                 continue;
 
-            var property = trimmed.Substring(0, colonIndex).Trim().ToLowerInvariant();
+            var property = CssPropertyNames.Normalize(trimmed.Substring(0, colonIndex).Trim());
             var value = trimmed.Substring(colonIndex + 1).Trim();
 
-            // Skip invalid property names
             if (string.IsNullOrEmpty(property) || property.Contains(" "))
                 continue;
 
-            // Check for !important
             bool important = false;
             if (value.EndsWith("!important", StringComparison.OrdinalIgnoreCase) ||
                 value.EndsWith("! important", StringComparison.OrdinalIgnoreCase))
@@ -60,7 +52,10 @@ public static class CssInlineParser
         return declarations;
     }
 
-    /// <summary>Split on ';' at paren-depth 0 and outside quotes.</summary>
+    /// <summary>
+    /// Split on ';' at paren-depth 0 and outside quotes, so a "data:image/png;base64,..." URI or a ';' in a
+    /// string doesn't end a declaration.
+    /// </summary>
     private static List<string> SplitDeclarations(string css)
     {
         var result = new List<string>();

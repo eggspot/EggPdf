@@ -52,20 +52,26 @@ public sealed class RasterCanvas
         Pixels[idx + 3] = (byte)Math.Round(outA * 255f);
     }
 
-    /// <summary>Even-odd point-in-polygon test (standard ray-casting crossing count).</summary>
-    private static bool PointInPolygon(float x, float y, IReadOnlyList<(float x, float y)> pts)
+    /// <summary>
+    /// The winding number of the closed contours around (x, y): each edge crossing a rightward ray counts +1 going
+    /// up and -1 going down. Its parity is the even-odd crossing count.
+    /// </summary>
+    private static int WindingNumber(float x, float y, IReadOnlyList<IReadOnlyList<(float x, float y)>> contours)
     {
-        bool inside = false;
-        int n = pts.Count;
-        for (int i = 0, j = n - 1; i < n; j = i++)
+        int winding = 0;
+        foreach (var pts in contours)
         {
-            float xi = pts[i].x, yi = pts[i].y;
-            float xj = pts[j].x, yj = pts[j].y;
-            bool crosses = ((yi > y) != (yj > y)) &&
-                (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-            if (crosses) inside = !inside;
+            int n = pts.Count;
+            for (int i = 0, j = n - 1; i < n; j = i++)
+            {
+                float xi = pts[i].x, yi = pts[i].y;
+                float xj = pts[j].x, yj = pts[j].y;
+                if ((yi > y) == (yj > y)) continue;
+                if (x >= (xj - xi) * (y - yi) / (yj - yi) + xi) continue;
+                winding += yj > yi ? 1 : -1;
+            }
         }
-        return inside;
+        return winding;
     }
 
     /// <summary>
@@ -73,18 +79,33 @@ public sealed class RasterCanvas
     /// NxN supersampling per pixel -- simple and easy to verify, not the fastest approach,
     /// but filter-effect canvases are small and infrequent so raw speed isn't the concern.
     /// </summary>
-    public void FillPolygon(IReadOnlyList<(float x, float y)> pts, byte r, byte g, byte b, byte a, int supersample = 4)
+    public void FillPolygon(IReadOnlyList<(float x, float y)> pts, byte r, byte g, byte b, byte a, int supersample = 4) =>
+        FillContours(new[] { pts }, evenOdd: true, r, g, b, a, supersample);
+
+    /// <summary>
+    /// Fill several closed contours as one shape, with the nonzero or even-odd rule, so holes and overlapping
+    /// contours (glyph outlines, self-intersecting paths) come out as SVG and fonts define them.
+    /// </summary>
+    internal void FillContours(IReadOnlyList<IReadOnlyList<(float x, float y)>> contours, bool evenOdd,
+        byte r, byte g, byte b, byte a, int supersample = 4)
     {
-        if (pts.Count < 3 || Width == 0 || Height == 0) return;
+        if (Width == 0 || Height == 0) return;
 
         float minX = float.MaxValue, maxX = float.MinValue, minY = float.MaxValue, maxY = float.MinValue;
-        foreach (var p in pts)
+        bool any = false;
+        foreach (var pts in contours)
         {
-            if (p.x < minX) minX = p.x;
-            if (p.x > maxX) maxX = p.x;
-            if (p.y < minY) minY = p.y;
-            if (p.y > maxY) maxY = p.y;
+            if (pts.Count < 3) continue;
+            any = true;
+            foreach (var p in pts)
+            {
+                if (p.x < minX) minX = p.x;
+                if (p.x > maxX) maxX = p.x;
+                if (p.y < minY) minY = p.y;
+                if (p.y > maxY) maxY = p.y;
+            }
         }
+        if (!any) return;
 
         int xStart = Math.Max(0, (int)Math.Floor(minX));
         int xEnd = Math.Min(Width - 1, (int)Math.Ceiling(maxX));
@@ -106,7 +127,8 @@ public sealed class RasterCanvas
                     for (int sx = 0; sx < ss; sx++)
                     {
                         float sampleX = px + (sx + 0.5f) / ss;
-                        if (PointInPolygon(sampleX, sampleY, pts)) hits++;
+                        int winding = WindingNumber(sampleX, sampleY, contours);
+                        if (evenOdd ? (winding & 1) != 0 : winding != 0) hits++;
                     }
                 }
                 if (hits == 0) continue;

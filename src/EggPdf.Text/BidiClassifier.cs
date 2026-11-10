@@ -29,7 +29,6 @@ internal static class BidiClassifier
         if (c < 0x80) return Ascii(c);
         if (c < 0x100) return Latin1(c);
 
-        // Fullwidth ASCII variants classify like the ASCII characters they mirror
         if (c >= 0xFF01 && c <= 0xFF5E) return Ascii((char)(c - 0xFEE0));
 
         if (c >= 0x2000 && c <= 0x2BFF) return GeneralPunctuationAndSymbols(c);
@@ -37,6 +36,7 @@ internal static class BidiClassifier
         if (c >= 0x0590 && c <= 0x08FF) return RtlBlocks(c);
         if (c >= 0xFB1D && c <= 0xFDFF) return PresentationFormsA(c);
         if (c >= 0xFE70 && c <= 0xFEFF) return c == 0xFEFF ? BidiType.BN : BidiType.AL;
+        if (c >= 0xFE50 && c <= 0xFE6A) return SmallForm(c);
 
         return FromCategory(c);
     }
@@ -45,11 +45,14 @@ internal static class BidiClassifier
     public static BidiType ClassifySupplementary(string text, int index)
     {
         int cp = char.ConvertToUtf32(text[index], text[index + 1]);
+        if (cp >= 0x10D30 && cp <= 0x10D39) return BidiType.AN;
+        if ((cp >= 0x10D00 && cp <= 0x10D3F) || (cp >= 0x10EC0 && cp <= 0x10EFF) || (cp >= 0x10F30 && cp <= 0x10F6F)) return BidiType.AL;
+        if ((cp >= 0x1EC70 && cp <= 0x1ECBF) || (cp >= 0x1ED00 && cp <= 0x1ED4F) || (cp >= 0x1EE00 && cp <= 0x1EEFF)) return BidiType.AL;
         if ((cp >= 0x10800 && cp <= 0x10CFF) || (cp >= 0x10E80 && cp <= 0x10FFF)) return BidiType.R;
-        if (cp >= 0x1E800 && cp <= 0x1EFFF) return BidiType.R;   // Mende Kikakui, Adlam, Arabic math
-        if (cp >= 0x10D00 && cp <= 0x10D3F) return BidiType.AL;  // Hanifi Rohingya
-        if (cp >= 0x1D7CE && cp <= 0x1D7FF) return BidiType.EN;  // mathematical digits
-        if (cp >= 0xE0001 && cp <= 0xE007F) return BidiType.BN;  // tags
+        if (cp >= 0x1E800 && cp <= 0x1EFFF) return BidiType.R;
+        if (cp >= 0x1F100 && cp <= 0x1F10A) return BidiType.EN;
+        if (cp >= 0x1D7CE && cp <= 0x1D7FF) return BidiType.EN;
+        if (cp >= 0xE0001 && cp <= 0xE007F) return BidiType.BN;
 
         switch (char.GetUnicodeCategory(text, index))
         {
@@ -63,7 +66,7 @@ internal static class BidiClassifier
             case UnicodeCategory.SpacingCombiningMark:
             case UnicodeCategory.DecimalDigitNumber:
             case UnicodeCategory.LetterNumber: return BidiType.L;
-            default: return BidiType.ON; // emoji, symbols, private use
+            default: return BidiType.ON;
         }
     }
 
@@ -74,9 +77,9 @@ internal static class BidiClassifier
             case 0x09: case 0x0B: case 0x1F: return BidiType.S;
             case 0x0A: case 0x0D: case 0x1C: case 0x1D: case 0x1E: return BidiType.B;
             case 0x0C: case 0x20: return BidiType.WS;
-            case 0x23: case 0x24: case 0x25: return BidiType.ET;     // # $ %
-            case 0x2B: case 0x2D: return BidiType.ES;                // + -
-            case 0x2C: case 0x2E: case 0x2F: case 0x3A: return BidiType.CS; // , . / :
+            case 0x23: case 0x24: case 0x25: return BidiType.ET;
+            case 0x2B: case 0x2D: return BidiType.ES;
+            case 0x2C: case 0x2E: case 0x2F: case 0x3A: return BidiType.CS;
         }
         if (c <= 0x1B || c == 0x7F) return BidiType.BN;
         if (c >= '0' && c <= '9') return BidiType.EN;
@@ -90,9 +93,9 @@ internal static class BidiClassifier
         switch ((int)c)
         {
             case 0x85: return BidiType.B;
-            case 0xA0: return BidiType.CS;                                   // no-break space
+            case 0xA0: return BidiType.CS;
             case 0xA2: case 0xA3: case 0xA4: case 0xA5: case 0xB0: case 0xB1: return BidiType.ET;
-            case 0xB2: case 0xB3: case 0xB9: return BidiType.EN;             // superscript digits
+            case 0xB2: case 0xB3: case 0xB9: return BidiType.EN;
             case 0xAA: case 0xB5: case 0xBA: return BidiType.L;
         }
         if (c >= 0xC0 && c != 0xD7 && c != 0xF7) return BidiType.L;
@@ -105,8 +108,8 @@ internal static class BidiClassifier
         switch ((int)c)
         {
             case 0x200B: case 0x200C: case 0x200D: return BidiType.BN;
-            case 0x200E: return BidiType.L;                                  // LRM
-            case 0x200F: return BidiType.R;                                  // RLM
+            case 0x200E: return BidiType.L;
+            case 0x200F: return BidiType.R;
             case 0x2028: return BidiType.WS;
             case 0x2029: return BidiType.B;
             case 0x202A: return BidiType.LRE;
@@ -120,27 +123,31 @@ internal static class BidiClassifier
             case 0x2067: return BidiType.RLI;
             case 0x2068: return BidiType.FSI;
             case 0x2069: return BidiType.PDI;
-            case 0x2044: return BidiType.CS;                                 // fraction slash
+            case 0x2044: return BidiType.CS;
             case 0x207A: case 0x207B: case 0x208A: case 0x208B: return BidiType.ES;
-            case 0x2212: return BidiType.ES;                                 // minus sign
+            case 0x2212: return BidiType.ES;
+            case 0x212E: return BidiType.ET;
             case 0x2213: return BidiType.ET;
         }
-        if (c >= 0x2030 && c <= 0x2034) return BidiType.ET;                  // per mille, prime
+        if (c >= 0x2030 && c <= 0x2034) return BidiType.ET;
         if (c >= 0x2060 && c <= 0x2064) return BidiType.BN;
         if (c >= 0x206A && c <= 0x206F) return BidiType.BN;
         if (c == 0x2070 || (c >= 0x2074 && c <= 0x2079) || (c >= 0x2080 && c <= 0x2089)) return BidiType.EN;
-        if (c >= 0x20A0 && c <= 0x20CF) return BidiType.ET;                  // currency symbols
-        if (c >= 0x2488 && c <= 0x249B) return BidiType.EN;                  // digit full stop
+        if (c >= 0x20A0 && c <= 0x20CF) return BidiType.ET;
+        if (c >= 0x2488 && c <= 0x249B) return BidiType.EN;
         return FromCategory(c);
     }
 
-    /// <summary>Hebrew, Arabic, Syriac, Thaana, NKo, Samaritan, Mandaic and the Arabic supplements/extended blocks.</summary>
+    /// <summary>
+    /// Hebrew (0590-05FF), NKo (07C0-07FF), Samaritan and Mandaic (0800-085F) are R; Arabic, Syriac, Thaana and the
+    /// Arabic supplement and extended blocks are AL, with the Arabic block's numbers, separators and symbols classed
+    /// individually.
+    /// </summary>
     private static BidiType RtlBlocks(char c)
     {
         var cat = CharUnicodeInfo.GetUnicodeCategory(c);
         if (cat == UnicodeCategory.NonSpacingMark || cat == UnicodeCategory.EnclosingMark) return BidiType.NSM;
 
-        // Arabic block specifics: numbers, separators and symbols inside the letter range
         if (c >= 0x0600 && c <= 0x06FF)
         {
             if (c <= 0x0605 || (c >= 0x0660 && c <= 0x0669) || c == 0x066B || c == 0x066C || c == 0x06DD) return BidiType.AN;
@@ -150,14 +157,24 @@ internal static class BidiClassifier
             if (c == 0x0606 || c == 0x0607 || c == 0x060E || c == 0x060F || c == 0x06DE || c == 0x06E9) return BidiType.ON;
             return BidiType.AL;
         }
-        if (c == 0x08E2) return BidiType.AN;
+        if (c == 0x08E2 || c == 0x0890 || c == 0x0891) return BidiType.AN;
 
-        // Hebrew (0590-05FF), NKo (07C0-07FF), Samaritan (0800-083F), Mandaic (0840-085F) are R;
-        // Arabic-script blocks and Syriac/Thaana (0700-07BF) and 0860-08FF are AL.
         if (c < 0x0600) return BidiType.R;
         if (c >= 0x07C0 && c <= 0x085F)
             return (c >= 0x07F6 && c <= 0x07F9) ? BidiType.ON : BidiType.R;
         return BidiType.AL;
+    }
+
+    /// <summary>The small form variants (FE50-FE6A) keep the classes of the punctuation they shrink.</summary>
+    private static BidiType SmallForm(char c)
+    {
+        switch ((int)c)
+        {
+            case 0xFE50: case 0xFE52: case 0xFE55: return BidiType.CS;
+            case 0xFE5F: case 0xFE69: case 0xFE6A: return BidiType.ET;
+            case 0xFE62: case 0xFE63: return BidiType.ES;
+            default: return BidiType.ON;
+        }
     }
 
     private static BidiType PresentationFormsA(char c)
@@ -169,7 +186,7 @@ internal static class BidiClassifier
             return BidiType.R;
         }
         if (c == 0xFD3E || c == 0xFD3F || c == 0xFDFD) return BidiType.ON;
-        if (c >= 0xFDD0 && c <= 0xFDEF) return BidiType.BN; // noncharacters
+        if (c >= 0xFDD0 && c <= 0xFDEF) return BidiType.BN;
         return BidiType.AL;
     }
 
@@ -199,7 +216,7 @@ internal static class BidiClassifier
             case UnicodeCategory.OtherNotAssigned: return BidiType.ON;
             case UnicodeCategory.PrivateUse:
             case UnicodeCategory.Surrogate: return BidiType.L;
-            default: return BidiType.L; // letters, spacing marks, decimal digits of other scripts, letter numbers
+            default: return BidiType.L;
         }
     }
 }

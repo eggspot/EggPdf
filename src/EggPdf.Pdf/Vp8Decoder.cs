@@ -21,56 +21,61 @@ internal sealed class Vp8Frame
 internal sealed partial class Vp8Decoder
 {
     private const int NumSegments = 4;
-    private const int Bps = 32;                          // stride of the per-macroblock scratch buffer
-    private const int YOffset = Bps + 8;                 // scratch layout: 1 border row above luma, 8 border columns to the left
+
+    /// <summary>Stride of the per-macroblock scratch buffer.</summary>
+    private const int Bps = 32;
+
+    /// <summary>Luma's start in the scratch buffer, after one border row above and 8 border columns to the left.</summary>
+    private const int YOffset = Bps + 8;
     private const int UOffset = YOffset + Bps * 16 + Bps;
     private const int VOffset = UOffset + 16;
     private const int ScratchSize = Bps * 26;
 
-    // Sub-block / 16x16 prediction modes (B_* numbering; DC/TM/V/H map to the first four)
+    /// <summary>Prediction modes in the sub-block (B_*) numbering; the 16x16 DC/TM/V/H modes map to the first four.</summary>
     private const int ModeDc = 0, ModeTm = 1, ModeVe = 2, ModeHe = 3;
+
+    private const int SubblockDc = 0, SubblockTm = 1, SubblockVe = 2, SubblockHe = 3, SubblockRd = 4, SubblockVr = 5,
+        SubblockLd = 6, SubblockVl = 7, SubblockHd = 8, SubblockHu = 9;
 
     private readonly byte[] _data;
     private readonly int _offset, _length;
 
     private int _width, _height, _mbW, _mbH;
 
-    // Segment header
     private bool _useSegment, _updateSegmentMap, _absoluteDelta = true;
     private readonly int[] _segQuant = new int[NumSegments], _segFilter = new int[NumSegments];
     private readonly int[] _segProba = { 255, 255, 255 };
 
-    // Filter header
     private bool _simpleFilter, _useLfDelta;
     private int _filterLevel, _sharpness, _filterType;
     private readonly int[] _refLfDelta = new int[4], _modeLfDelta = new int[4];
 
-    // Quantizers per segment: [DC, AC] for luma, Y2 and chroma
+    /// <summary>Dequantization factors per segment, [DC, AC], for luma, the Y2 block and chroma.</summary>
     private readonly int[][] _y1Mat = new int[NumSegments][], _y2Mat = new int[NumSegments][], _uvMat = new int[NumSegments][];
 
-    private byte[] _probas = Array.Empty<byte>();        // [type][band][ctx][11], possibly updated by the frame header
+    /// <summary>Coefficient probabilities, [type][band][context][11], as updated by the frame header.</summary>
+    private byte[] _probas = Array.Empty<byte>();
     private bool _useSkipProba;
     private int _skipProba;
 
     private Vp8BoolDecoder _modeReader = null!;
     private Vp8BoolDecoder[] _tokenReaders = Array.Empty<Vp8BoolDecoder>();
 
-    // Per-frame contexts
     private byte[] _intraTop = Array.Empty<byte>();
     private readonly byte[] _intraLeft = new byte[4];
     private byte[] _nzTopY = Array.Empty<byte>(), _nzTopU = Array.Empty<byte>(), _nzTopV = Array.Empty<byte>(), _nzTopDc = Array.Empty<byte>();
     private readonly byte[] _nzLeftY = new byte[4], _nzLeftU = new byte[2], _nzLeftV = new byte[2];
     private byte _nzLeftDc;
 
-    // Current macroblock
     private int _segment;
     private bool _skip, _isI4x4;
     private readonly byte[] _modes = new byte[16];
     private int _uvMode;
     private readonly short[] _coeffs = new short[384];
+    private readonly short[] _y2Coeffs = new short[16];
+    private readonly int[] _transformScratch = new int[16];
     private readonly bool[] _blockHasCoeffs = new bool[24];
 
-    // Per-macroblock filter parameters (frame-wide, applied after reconstruction)
     private int[] _filterLimit = Array.Empty<int>(), _filterInterior = Array.Empty<int>(), _filterHev = Array.Empty<int>();
     private bool[] _filterInner = Array.Empty<bool>();
 
@@ -81,11 +86,11 @@ internal sealed partial class Vp8Decoder
         _data = data; _offset = offset; _length = length;
     }
 
-    /// <summary>Decode the key frame in <paramref name="data"/>[offset..offset+length); null when it is malformed or unsupported.</summary>
+    /// <summary>Decode the key frame in <paramref name="data"/>[offset..offset+length); null when it is malformed or unsupported, never an exception.</summary>
     public static Vp8Frame? Decode(byte[] data, int offset, int length)
     {
         try { return new Vp8Decoder(data, offset, length).Run(); }
-        catch (Exception) { return null; } // infallible by convention: a corrupt stream is "no image"
+        catch (Exception) { return null; }
     }
 
     private Vp8Frame? Run()
@@ -128,8 +133,10 @@ internal sealed partial class Vp8Decoder
         return _frame;
     }
 
-    // ── Headers (RFC 6386 sections 9 and 19.2) ───────────────────────────────
-
+    /// <summary>
+    /// The frame tag and key-frame header (RFC 6386 sections 9 and 19.2). The color space and clamping type are read
+    /// and ignored (output is always clamped), as is refresh_entropy_probs, which only matters across frames.
+    /// </summary>
     private bool ParseHeaders()
     {
         if (_length < 10) return false;
@@ -153,8 +160,8 @@ internal sealed partial class Vp8Decoder
         if (firstPartSize > available) return false;
 
         var br = _modeReader = new Vp8BoolDecoder(_data, partStart, firstPartSize);
-        br.ReadFlag(); // color space
-        br.ReadFlag(); // clamping type: output is always clamped
+        br.ReadFlag();
+        br.ReadFlag();
 
         ParseSegmentHeader(br);
         ParseFilterHeader(br);
@@ -163,7 +170,7 @@ internal sealed partial class Vp8Decoder
         if (!SetupTokenPartitions(partStart + firstPartSize, available - firstPartSize, partitions)) return false;
 
         ParseQuantizers(br);
-        br.ReadFlag(); // refresh_entropy_probs: irrelevant for a single frame
+        br.ReadFlag();
         ParseCoefficientProbabilities(br);
 
         _useSkipProba = br.ReadFlag() != 0;
@@ -177,7 +184,8 @@ internal sealed partial class Vp8Decoder
         if (!_useSegment) return;
 
         _updateSegmentMap = br.ReadFlag() != 0;
-        if (br.ReadFlag() != 0) // update segment feature data
+        bool updateSegmentFeatureData = br.ReadFlag() != 0;
+        if (updateSegmentFeatureData)
         {
             _absoluteDelta = br.ReadFlag() != 0;
             for (int s = 0; s < NumSegments; s++) _segQuant[s] = br.ReadOptionalSigned(7);
@@ -193,7 +201,7 @@ internal sealed partial class Vp8Decoder
         _filterLevel = br.ReadLiteral(6);
         _sharpness = br.ReadLiteral(3);
         _useLfDelta = br.ReadFlag() != 0;
-        if (_useLfDelta && br.ReadFlag() != 0) // update deltas
+        if (_useLfDelta && br.ReadFlag() != 0)
         {
             for (int i = 0; i < 4; i++) if (br.ReadFlag() != 0) _refLfDelta[i] = br.ReadSigned(6);
             for (int i = 0; i < 4; i++) if (br.ReadFlag() != 0) _modeLfDelta[i] = br.ReadSigned(6);
@@ -242,11 +250,14 @@ internal sealed partial class Vp8Decoder
             _y2Mat[s] = new[]
             {
                 Vp8Tables.DcTable[Clip(q + y2Dc, 127)] * 2,
-                Math.Max(8, (Vp8Tables.AcTable[Clip(q + y2Ac, 127)] * 101581) >> 16), // = x * 155 / 100
+                Math.Max(8, (Vp8Tables.AcTable[Clip(q + y2Ac, 127)] * Y2AcScale155Percent) >> 16),
             };
             _uvMat[s] = new[] { Vp8Tables.DcTable[Clip(q + uvDc, 117)], Vp8Tables.AcTable[Clip(q + uvAc, 127)] };
         }
     }
+
+    /// <summary>155/100 in 16.16 fixed point: the Y2 AC factor is 155% of the AC table entry.</summary>
+    private const int Y2AcScale155Percent = 101581;
 
     private static int Clip(int v, int max) => v < 0 ? 0 : v > max ? max : v;
 
@@ -257,8 +268,7 @@ internal sealed partial class Vp8Decoder
             _probas[i] = br.ReadBool(Vp8Tables.CoeffsUpdateProba[i]) != 0 ? (byte)br.ReadLiteral(8) : Vp8Tables.CoeffsProba0[i];
     }
 
-    // ── Per-macroblock modes (RFC 6386 section 11) ───────────────────────────
-
+    /// <summary>A macroblock's segment, skip flag and intra modes (RFC 6386 section 11).</summary>
     private void ParseIntraMode(int mbX)
     {
         var br = _modeReader;
@@ -310,21 +320,20 @@ internal sealed partial class Vp8Decoder
     private static int ReadSubblockMode(Vp8BoolDecoder br, int p)
     {
         var prob = Vp8Tables.BModesProba;
-        if (br.ReadBool(prob[p]) == 0) return 0;      // B_DC_PRED
-        if (br.ReadBool(prob[p + 1]) == 0) return 1;  // B_TM_PRED
-        if (br.ReadBool(prob[p + 2]) == 0) return 2;  // B_VE_PRED
+        if (br.ReadBool(prob[p]) == 0) return SubblockDc;
+        if (br.ReadBool(prob[p + 1]) == 0) return SubblockTm;
+        if (br.ReadBool(prob[p + 2]) == 0) return SubblockVe;
         if (br.ReadBool(prob[p + 3]) == 0)
         {
-            if (br.ReadBool(prob[p + 4]) == 0) return 3; // B_HE_PRED
-            return br.ReadBool(prob[p + 5]) == 0 ? 4 : 5; // B_RD_PRED : B_VR_PRED
+            if (br.ReadBool(prob[p + 4]) == 0) return SubblockHe;
+            return br.ReadBool(prob[p + 5]) == 0 ? SubblockRd : SubblockVr;
         }
-        if (br.ReadBool(prob[p + 6]) == 0) return 6;      // B_LD_PRED
-        if (br.ReadBool(prob[p + 7]) == 0) return 7;      // B_VL_PRED
-        return br.ReadBool(prob[p + 8]) == 0 ? 8 : 9;     // B_HD_PRED : B_HU_PRED
+        if (br.ReadBool(prob[p + 6]) == 0) return SubblockLd;
+        if (br.ReadBool(prob[p + 7]) == 0) return SubblockVl;
+        return br.ReadBool(prob[p + 8]) == 0 ? SubblockHd : SubblockHu;
     }
 
-    // ── Residual tokens (RFC 6386 section 13) ────────────────────────────────
-
+    /// <summary>A skipped macroblock (RFC 6386 section 13): no coefficients, and its non-zero contexts are cleared.</summary>
     private bool SkipResiduals(int mbX)
     {
         Array.Clear(_coeffs, 0, _coeffs.Length);
@@ -339,7 +348,10 @@ internal sealed partial class Vp8Decoder
         return false;
     }
 
-    /// <summary>Parse all coefficient blocks of the macroblock into <see cref="_coeffs"/>; returns whether any is non-zero.</summary>
+    /// <summary>
+    /// Parse all coefficient blocks of the macroblock into <see cref="_coeffs"/>; returns whether any is non-zero. In
+    /// 16x16 mode the Y2 block carries the 16 luma DC coefficients through a Walsh-Hadamard transform.
+    /// </summary>
     private bool ParseResiduals(Vp8BoolDecoder br, int mbX)
     {
         Array.Clear(_coeffs, 0, _coeffs.Length);
@@ -350,8 +362,8 @@ internal sealed partial class Vp8Decoder
 
         if (!_isI4x4)
         {
-            // The Y2 block carries the 16 luma DC coefficients through a Walsh-Hadamard transform
-            var dc = new short[16];
+            var dc = _y2Coeffs;
+            Array.Clear(dc, 0, dc.Length);
             int ctx = _nzTopDc[mbX] + _nzLeftDc;
             int nz = ReadCoefficients(br, 1, ctx, y2, 0, dc, 0);
             _nzTopDc[mbX] = _nzLeftDc = (byte)(nz > 0 ? 1 : 0);
@@ -415,7 +427,8 @@ internal sealed partial class Vp8Decoder
 
     /// <summary>
     /// Decode one block's tokens starting at coefficient <paramref name="n"/>, dequantize into
-    /// <paramref name="outp"/> (raster order), and return the position after the last non-zero coefficient.
+    /// <paramref name="outp"/> (raster order), and return the position after the last non-zero coefficient. A zero
+    /// first bit ends the block; zero second bits are a run of zero coefficients.
     /// </summary>
     private int ReadCoefficients(Vp8BoolDecoder br, int type, int ctx, int[] dq, int n, short[] outp, int outOffset)
     {
@@ -423,8 +436,8 @@ internal sealed partial class Vp8Decoder
         int p = ProbaIndex(type, Vp8Tables.Bands[n], ctx);
         for (; n < 16; n++)
         {
-            if (br.ReadBool(probas[p]) == 0) return n; // end of block
-            while (br.ReadBool(probas[p + 1]) == 0)    // run of zero coefficients
+            if (br.ReadBool(probas[p]) == 0) return n;
+            while (br.ReadBool(probas[p + 1]) == 0)
             {
                 n++;
                 if (n == 16) return 16;

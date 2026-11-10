@@ -20,8 +20,15 @@ public static partial class VariableFontInstancer
     private struct Component
     {
         public int Flags, GlyphIndex, Arg1, Arg2;
-        public byte[] Transform; // 0, 2, 4 or 8 raw bytes (scale / x-y scale / 2x2)
+
+        /// <summary>The raw transform bytes: none, 2 (scale), 4 (x and y scale) or 8 (2x2 matrix), as F2Dot14 values.</summary>
+        public byte[] Transform;
     }
+
+    private const int HeadCheckSumAdjustment = 8, HeadIndexToLocFormat = 50;
+    private const int MaxpNumGlyphs = 4, MaxpMaxPoints = 6, MaxpMaxContours = 8, MaxpMaxZones = 14;
+    private const int HheaAdvanceWidthMax = 10, HheaMinLeftSideBearing = 12, HheaMinRightSideBearing = 14, HheaXMaxExtent = 16;
+    private const int ScaledComponentOffset = 0x0800;
 
     private const int ArgsAreWords = 0x0001, ArgsAreXyValues = 0x0002, WeHaveScale = 0x0008, MoreComponents = 0x0020,
         WeHaveXyScale = 0x0040, WeHaveTwoByTwo = 0x0080, WeHaveInstructions = 0x0100;
@@ -62,8 +69,6 @@ public static partial class VariableFontInstancer
             return Assemble();
         }
 
-        // ── Reading the default outlines ─────────────────────────────────────
-
         private int GlyphStart(int gid) => _locaFormat == 0 ? U16(_d, _loca + gid * 2) * 2 : (int)U32(_d, _loca + gid * 4);
 
         private (int advance, int lsb) DefaultMetrics(int gid)
@@ -73,11 +78,12 @@ public static partial class VariableFontInstancer
             return (advance, lsb);
         }
 
+        /// <summary>The instanced glyph, built once; a component cycle reads the inner reference as an empty glyph.</summary>
         private InstancedGlyph Instance(int gid)
         {
             var done = _glyphs[gid];
             if (done != null) return done;
-            if (_inProgress[gid]) return new InstancedGlyph(); // a component cycle: treat the inner reference as empty
+            if (_inProgress[gid]) return new InstancedGlyph();
             _inProgress[gid] = true;
 
             var glyph = BuildGlyph(gid);
@@ -121,6 +127,10 @@ public static partial class VariableFontInstancer
             result.Advance = Math.Max(0, (int)Math.Round(result.Advance + delta));
         }
 
+        /// <summary>
+        /// Apply the gvar deltas to a simple glyph's points and its two horizontal phantom points (the vertical ones
+        /// are unused). The left phantom point moves too, so the new side bearing is xMin minus its new position.
+        /// </summary>
         private void BuildSimpleGlyph(int gid, int g, int contours, int xMin0, int lsb0, InstancedGlyph result)
         {
             var ends = new int[contours];
@@ -161,7 +171,6 @@ public static partial class VariableFontInstancer
                 ys[i] = v;
             }
 
-            // Phantom points: left and right side bearing points (vertical ones are unused here)
             xs[pointCount] = xMin0 - lsb0;
             xs[pointCount + 1] = xMin0 - lsb0 + result.Advance;
 
@@ -183,14 +192,18 @@ public static partial class VariableFontInstancer
             result.HasOutline = pointCount > 0;
             result.XMin = xMin; result.YMin = yMin; result.XMax = xMax; result.YMax = yMax;
             result.PointsX = nx; result.PointsY = ny;
-            // The left phantom point moves too; the side bearing that reproduces its position is xMin - pp1.
             float pp1 = xs[pointCount] + dx[pointCount];
             result.LeftSideBearing = (int)Math.Round(xMin - pp1);
             result.Data = WriteSimpleGlyph(ends, nx, ny, flags, xMin, yMin, xMax, yMax);
         }
 
-        // ── Composite glyphs ─────────────────────────────────────────────────
-
+        /// <summary>
+        /// Apply the gvar deltas to a composite glyph: its "points" are the component offsets followed by the phantom
+        /// points. It is re-serialized with word-sized arguments (a moved offset may no longer fit a byte) and no
+        /// instructions. The composite's own points, for anchor matching and bounds, are its components' transformed
+        /// points in order; an anchor-point component (no ARGS_ARE_XY_VALUES) aligns a child point with one already
+        /// placed.
+        /// </summary>
         private void BuildCompositeGlyph(int gid, int g, int xMin0, int lsb0, InstancedGlyph result)
         {
             var components = new List<Component>();
@@ -222,7 +235,6 @@ public static partial class VariableFontInstancer
                 components.Add(c);
             } while ((flags & MoreComponents) != 0);
 
-            // Component offsets are the "points" of a composite glyph, followed by the phantom points
             int n = components.Count;
             var ox = new float[n + 4]; var oy = new float[n + 4];
             for (int i = 0; i < n; i++)
@@ -237,14 +249,11 @@ public static partial class VariableFontInstancer
             _gvar.Accumulate(gid, _coords, n + 4, null, ox, oy, dx, dy);
             SetAdvance(gid, result, dx);
 
-            // Serialize with word-sized arguments (an offset may no longer fit a byte), no instructions
             var w = new List<byte>(10 + n * 12);
             void U16w(int v) { w.Add((byte)(v >> 8)); w.Add((byte)v); }
 
-            // The composite's own points are its components' transformed points, in order: anchor-point
-            // components (no ARGS_ARE_XY_VALUES) align a child point with one already placed
             var allX = new List<int>(); var allY = new List<int>();
-            U16w(-1); U16w(0); U16w(0); U16w(0); U16w(0); // header, bounds patched below
+            U16w(-1); U16w(0); U16w(0); U16w(0); U16w(0);
             for (int i = 0; i < n; i++)
             {
                 var c = components[i];
@@ -272,6 +281,12 @@ public static partial class VariableFontInstancer
                     offX = offY = 0;
                     if (a1 < allX.Count && a2 < tx.Length) { offX = allX[a1] - tx[a2]; offY = allY[a1] - ty[a2]; }
                 }
+                else if ((c.Flags & ScaledComponentOffset) != 0)
+                {
+                    var (a, b, cc, d) = TransformMatrix(c.Transform);
+                    offX = (int)Math.Round(a * a1 + cc * a2);
+                    offY = (int)Math.Round(b * a1 + d * a2);
+                }
                 for (int k = 0; k < tx.Length; k++) { allX.Add(tx[k] + offX); allY.Add(ty[k] + offY); }
             }
 
@@ -298,14 +313,13 @@ public static partial class VariableFontInstancer
         }
 
 
-        /// <summary>A child glyph's points under a component's 2x2 / scale transform (offset applied by the caller).</summary>
+        /// <summary>
+        /// A child glyph's points under a component's 2x2 / scale transform, x' = a*x + c*y and y' = b*x + d*y (offset
+        /// applied by the caller).
+        /// </summary>
         private static (int[] x, int[] y) TransformPoints(InstancedGlyph child, byte[] t)
         {
-            float a = 1, b = 0, cc = 0, d = 1; // x' = a*x + cc*y ; y' = b*x + d*y
-            if (t.Length == 2) { a = d = F2Dot14(t, 0); }
-            else if (t.Length == 4) { a = F2Dot14(t, 0); d = F2Dot14(t, 2); }
-            else if (t.Length == 8) { a = F2Dot14(t, 0); b = F2Dot14(t, 2); cc = F2Dot14(t, 4); d = F2Dot14(t, 6); }
-
+            var (a, b, cc, d) = TransformMatrix(t);
             var xs = new int[child.PointsX.Length]; var ys = new int[xs.Length];
             for (int i = 0; i < xs.Length; i++)
             {
@@ -315,10 +329,17 @@ public static partial class VariableFontInstancer
             return (xs, ys);
         }
 
+        /// <summary>A component's transform as the matrix (a, b, c, d) of x' = a*x + c*y, y' = b*x + d*y.</summary>
+        private static (float a, float b, float c, float d) TransformMatrix(byte[] t)
+        {
+            if (t.Length == 2) { float s = F2Dot14(t, 0); return (s, 0, 0, s); }
+            if (t.Length == 4) return (F2Dot14(t, 0), 0, 0, F2Dot14(t, 2));
+            if (t.Length == 8) return (F2Dot14(t, 0), F2Dot14(t, 2), F2Dot14(t, 4), F2Dot14(t, 6));
+            return (1, 0, 0, 1);
+        }
+
         private byte[] Assemble() => AssembleFont(_s, _glyphs!, _numHMetrics);
     }
-
-    // ── Reassembling the font ────────────────────────────────────────────────
 
     private static readonly HashSet<string> DroppedTables = new HashSet<string>
     {
@@ -327,7 +348,11 @@ public static partial class VariableFontInstancer
 
     /// <summary>
     /// A static TrueType font from the source's non-outline tables plus freshly built glyphs (glyf, long loca, hmtx,
-    /// head/hhea bounds, a version 1.0 maxp). Variation and PostScript-outline tables are dropped.
+    /// head/hhea bounds, a version 1.0 maxp). Variation and PostScript-outline tables are dropped. hmtx keeps its
+    /// layout, so glyphs past numberOfHMetrics still share the last advance. head's checkSumAdjustment is zeroed
+    /// rather than recomputed; a CFF source's version 0.5 maxp is replaced by a 1.0 table, which glyf outlines need,
+    /// with maxContours bounded by maxPoints and two zones. glyf and loca are added even when the source had none
+    /// (PostScript outlines).
     /// </summary>
     private static byte[] AssembleFont(Sfnt source, InstancedGlyph?[] glyphs, int numHMetrics)
     {
@@ -342,7 +367,6 @@ public static partial class VariableFontInstancer
         }
         PutU32(loca, numGlyphs * 4, (uint)glyf.Count);
 
-        // hmtx keeps its layout; advances of glyphs past numberOfHMetrics stay shared
         var hmtx = new byte[numHMetrics * 4 + (numGlyphs - numHMetrics) * 2];
         int advanceMax = 0, maxPoints = 0;
         for (int g = 0; g < numGlyphs; g++)
@@ -364,8 +388,8 @@ public static partial class VariableFontInstancer
         var replaced = new Dictionary<string, byte[]> { ["glyf"] = glyf.ToArray(), ["loca"] = loca, ["hmtx"] = hmtx };
 
         var head = Slice(source, "head");
-        PutI16(head, 50, 1);                       // indexToLocFormat: long
-        PutU32(head, 8, 0);                        // checkSumAdjustment: recomputed by consumers if they care
+        PutI16(head, HeadIndexToLocFormat, 1);
+        PutU32(head, HeadCheckSumAdjustment, 0);
         int gxMin = int.MaxValue, gyMin = int.MaxValue, gxMax = int.MinValue, gyMax = int.MinValue;
         foreach (var glyph in glyphs)
         {
@@ -377,19 +401,19 @@ public static partial class VariableFontInstancer
         replaced["head"] = head;
 
         var hhea = Slice(source, "hhea");
-        PutI16(hhea, 10, advanceMax);
+        PutI16(hhea, HheaAdvanceWidthMax, advanceMax);
+        WriteHorizontalExtents(hhea, glyphs, numHMetrics);
         replaced["hhea"] = hhea;
 
-        // CFF fonts carry a version 0.5 maxp; glyf outlines need the full 1.0 table
         var maxp = Slice(source, "maxp");
         if (U32(maxp, 0) == 0x00005000)
         {
             maxp = new byte[32];
             PutU32(maxp, 0, 0x00010000);
-            PutI16(maxp, 4, numGlyphs);
-            PutI16(maxp, 6, maxPoints);
-            PutI16(maxp, 8, maxPoints);        // contours <= points
-            PutI16(maxp, 14, 2);               // maxZones
+            PutI16(maxp, MaxpNumGlyphs, numGlyphs);
+            PutI16(maxp, MaxpMaxPoints, maxPoints);
+            PutI16(maxp, MaxpMaxContours, maxPoints);
+            PutI16(maxp, MaxpMaxZones, 2);
         }
         replaced["maxp"] = maxp;
 
@@ -399,8 +423,32 @@ public static partial class VariableFontInstancer
             if (DroppedTables.Contains(tag)) continue;
             tables[tag] = replaced.TryGetValue(tag, out var body) ? body : Slice(source, tag);
         }
-        foreach (var kv in replaced) tables[kv.Key] = kv.Value; // glyf/loca are new when the source had PostScript outlines
+        foreach (var kv in replaced) tables[kv.Key] = kv.Value;
         return WriteFont(tables);
+    }
+
+    /// <summary>
+    /// hhea's minLeftSideBearing, minRightSideBearing and xMaxExtent for the instanced glyphs (those with an outline),
+    /// so they describe the instance rather than the source's default location.
+    /// </summary>
+    private static void WriteHorizontalExtents(byte[] hhea, InstancedGlyph?[] glyphs, int numHMetrics)
+    {
+        int minLsb = int.MaxValue, minRsb = int.MaxValue, maxExtent = int.MinValue;
+        int sharedAdvance = numHMetrics > 0 && numHMetrics <= glyphs.Length ? glyphs[numHMetrics - 1]!.Advance : 0;
+        for (int g = 0; g < glyphs.Length; g++)
+        {
+            var glyph = glyphs[g]!;
+            if (!glyph.HasOutline) continue;
+            int advance = g < numHMetrics ? glyph.Advance : sharedAdvance;
+            int extent = glyph.LeftSideBearing + (glyph.XMax - glyph.XMin);
+            minLsb = Math.Min(minLsb, glyph.LeftSideBearing);
+            minRsb = Math.Min(minRsb, advance - extent);
+            maxExtent = Math.Max(maxExtent, extent);
+        }
+        if (maxExtent == int.MinValue) return;
+        PutI16(hhea, HheaMinLeftSideBearing, minLsb);
+        PutI16(hhea, HheaMinRightSideBearing, minRsb);
+        PutI16(hhea, HheaXMaxExtent, maxExtent);
     }
 
     private static byte[] Slice(Sfnt sfnt, string tag)

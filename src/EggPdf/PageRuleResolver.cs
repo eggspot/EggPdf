@@ -12,21 +12,34 @@ namespace EggPdf;
 /// </summary>
 internal static class PageRuleResolver
 {
-    /// <summary>Standard page sizes in CSS pixels at 96dpi. Converted to PDF points via PxToPt (×0.75).</summary>
+    /// <summary>
+    /// Standard page sizes (portrait) in CSS pixels at 96dpi, from their millimetre or inch dimensions; PxToPt
+    /// (×0.75) turns them into PDF points, e.g. A4 210mm × 297mm = 793.70px × 1122.52px = 595.28pt × 841.89pt.
+    /// </summary>
     private static readonly Dictionary<string, (float Width, float Height)> PageSizes =
         new Dictionary<string, (float, float)>(StringComparer.OrdinalIgnoreCase)
         {
-            { "a3", (1122.52f, 1587.40f) },  // 297mm × 420mm at 96dpi → ×0.75 = 841.89pt × 1190.55pt
-            { "a4", (793.70f, 1122.52f) },   // 210mm × 297mm at 96dpi → ×0.75 = 595.28pt × 841.89pt
-            { "a5", (559.37f, 793.70f) },    // 148mm × 210mm at 96dpi → ×0.75 = 419.53pt × 595.28pt
-            { "letter", (816f, 1056f) },     // 8.5in × 11in  at 96dpi → ×0.75 = 612pt × 792pt
-            { "legal", (816f, 1344f) },      // 8.5in × 14in  at 96dpi → ×0.75 = 612pt × 1008pt
-            { "tabloid", (1056f, 1632f) },   // 11in × 17in   at 96dpi → ×0.75 = 792pt × 1224pt
+            { "a3", (1122.52f, 1587.40f) },
+            { "a4", (793.70f, 1122.52f) },
+            { "a5", (559.37f, 793.70f) },
+            { "letter", (816f, 1056f) },
+            { "legal", (816f, 1344f) },
+            { "tabloid", (1056f, 1632f) },
+            { "ledger", (1056f, 1632f) },
+            { "b5", (665.20f, 944.88f) },
+            { "b4", (944.88f, 1334.17f) },
+            { "jis-b5", (687.87f, 971.34f) },
+            { "jis-b4", (971.34f, 1375.75f) },
         };
+
+    private const int Top = 0, Right = 1, Bottom = 2, Left = 3;
 
     /// <summary>
     /// Resolve @page rules from all stylesheets. Last rule wins (cascade).
-    /// Returns resolved page dimensions and margins in CSS pixels.
+    /// Returns resolved page dimensions and margins in CSS pixels. Only the base (unselected) rule's size and margins
+    /// apply to the whole document, since layout runs in a single pass; <c>:first</c>/<c>:left</c>/<c>:right</c>
+    /// rules contribute margin boxes, resolved per page type at paint time (see MarginBoxRenderer), and
+    /// <c>@page &lt;name&gt;</c> rules are kept for <see cref="ForNamedPage"/>.
     /// </summary>
     public static PageSettings Resolve(List<CssStyleSheet> stylesheets)
     {
@@ -38,13 +51,6 @@ internal static class PageRuleResolver
             for (int r = 0; r < sheet.PageRules.Count; r++)
             {
                 var rule = sheet.PageRules[r];
-
-                // The base (unselected) @page rule sets page size/margins for the
-                // whole document -- this engine lays out in a single pass, so a
-                // :first/:left/:right rule's own size/margin declarations aren't
-                // applied (that would need a different page size mid-layout).
-                // Their margin-box declarations ARE honored, as a per-page-type
-                // override resolved at paint time (see MarginBoxRenderer).
                 Dictionary<string, PageMarginBoxSettings>? targetMarginBoxes;
                 if (string.IsNullOrEmpty(rule.PageSelector))
                 {
@@ -60,8 +66,6 @@ internal static class PageRuleResolver
                     targetMarginBoxes = settings.RightPageMarginBoxes;
                 else if (IsNamedPageSelector(rule.PageSelector))
                 {
-                    // @page <name> { ... }: applies to pages holding elements with `page: <name>`;
-                    // resolved per page group by ForNamedPage rather than folded into the base.
                     string key = rule.PageSelector!.Trim();
                     if (!settings.NamedRules.TryGetValue(key, out var namedList))
                         settings.NamedRules[key] = namedList = new List<CssPageRule>();
@@ -69,7 +73,7 @@ internal static class PageRuleResolver
                     targetMarginBoxes = null;
                 }
                 else
-                    targetMarginBoxes = null; // unrecognized page selector
+                    targetMarginBoxes = null;
 
                 if (targetMarginBoxes == null)
                     continue;
@@ -78,6 +82,7 @@ internal static class PageRuleResolver
             }
         }
 
+        ResolveMargins(settings);
         return settings;
     }
 
@@ -138,9 +143,14 @@ internal static class PageRuleResolver
                 ApplyDeclaration(settings, rule.Declarations[d]);
             CollectMarginBoxes(rule, settings.MarginBoxes);
         }
+        ResolveMargins(settings);
         return settings;
     }
 
+    /// <summary>
+    /// Record one @page declaration. Margins are kept as written and resolved by <see cref="ResolveMargins"/> once
+    /// the page size is final, so a percentage margin follows the page size wherever <c>size</c> is declared.
+    /// </summary>
     private static void ApplyDeclaration(PageSettings settings, CssDeclaration decl)
     {
         switch (decl.Property)
@@ -152,18 +162,31 @@ internal static class PageRuleResolver
                 ParseMarginShorthand(settings, decl.Value);
                 break;
             case "margin-top":
-                settings.MarginTop = ResolvePageLength(decl.Value);
+                settings.MarginValues[Top] = decl.Value;
                 break;
             case "margin-right":
-                settings.MarginRight = ResolvePageLength(decl.Value);
+                settings.MarginValues[Right] = decl.Value;
                 break;
             case "margin-bottom":
-                settings.MarginBottom = ResolvePageLength(decl.Value);
+                settings.MarginValues[Bottom] = decl.Value;
                 break;
             case "margin-left":
-                settings.MarginLeft = ResolvePageLength(decl.Value);
+                settings.MarginValues[Left] = decl.Value;
                 break;
         }
+    }
+
+    /// <summary>
+    /// Resolve the declared margins to CSS pixels; percentages are of the page width for the left and right margins
+    /// and of the page height for the top and bottom ones. An undeclared side keeps its value.
+    /// </summary>
+    private static void ResolveMargins(PageSettings settings)
+    {
+        var values = settings.MarginValues;
+        if (values[Top] != null) settings.MarginTop = ResolvePageLength(values[Top]!, settings.PageHeightPx);
+        if (values[Right] != null) settings.MarginRight = ResolvePageLength(values[Right]!, settings.PageWidthPx);
+        if (values[Bottom] != null) settings.MarginBottom = ResolvePageLength(values[Bottom]!, settings.PageHeightPx);
+        if (values[Left] != null) settings.MarginLeft = ResolvePageLength(values[Left]!, settings.PageWidthPx);
     }
 
     private static void ParseSize(PageSettings settings, string value)
@@ -198,7 +221,6 @@ internal static class PageRuleResolver
             }
             else
             {
-                // Custom dimension
                 float resolved = ResolvePageLength(part);
                 if (resolved > 0)
                 {
@@ -217,7 +239,6 @@ internal static class PageRuleResolver
 
             if (landscape)
             {
-                // Swap width and height
                 settings.PageWidthPx = size.Height;
                 settings.PageHeightPx = size.Width;
             }
@@ -229,12 +250,10 @@ internal static class PageRuleResolver
         }
         else if (customCount == 1)
         {
-            // Single dimension = square page
             settings.PageWidthPx = customW;
             settings.PageHeightPx = customW;
         }
 
-        // Handle landscape/portrait keywords without named size but with current dimensions
         if (namedSize == null && customCount == 0)
         {
             if (landscape && settings.PageWidthPx < settings.PageHeightPx)
@@ -261,44 +280,16 @@ internal static class PageRuleResolver
         if (parts.Length == 0)
             return;
 
-        float top, right, bottom, left;
-
-        switch (parts.Length)
-        {
-            case 1:
-                top = right = bottom = left = ResolvePageLength(parts[0]);
-                break;
-            case 2:
-                top = bottom = ResolvePageLength(parts[0]);
-                right = left = ResolvePageLength(parts[1]);
-                break;
-            case 3:
-                top = ResolvePageLength(parts[0]);
-                right = left = ResolvePageLength(parts[1]);
-                bottom = ResolvePageLength(parts[2]);
-                break;
-            default: // 4+
-                top = ResolvePageLength(parts[0]);
-                right = ResolvePageLength(parts[1]);
-                bottom = ResolvePageLength(parts[2]);
-                left = ResolvePageLength(parts[3]);
-                break;
-        }
-
-        settings.MarginTop = top;
-        settings.MarginRight = right;
-        settings.MarginBottom = bottom;
-        settings.MarginLeft = left;
+        var values = settings.MarginValues;
+        values[Top] = parts[0];
+        values[Right] = parts.Length > 1 ? parts[1] : parts[0];
+        values[Bottom] = parts.Length > 2 ? parts[2] : parts[0];
+        values[Left] = parts.Length > 3 ? parts[3] : values[Right];
     }
 
-    /// <summary>
-    /// Resolve a CSS length value to CSS pixels. Uses BlockLayout.ResolveLength
-    /// with 0 containing size and 16px default font size.
-    /// </summary>
-    private static float ResolvePageLength(string value)
-    {
-        return BlockLayout.ResolveLength(value, 0, 16f);
-    }
+    /// <summary>A CSS length in CSS pixels, with percentages of <paramref name="percentBasis"/> and em at 16px.</summary>
+    private static float ResolvePageLength(string value, float percentBasis = 0f) =>
+        BlockLayout.ResolveLength(value, percentBasis, 16f);
 }
 
 /// <summary>
@@ -324,11 +315,8 @@ internal class PageSettings
     /// <summary>Left margin in CSS pixels.</summary>
     public float MarginLeft { get; set; }
 
-    /// <summary>Whether any @page rule was found.</summary>
-    public bool HasPageSize => PageWidthPx != 793.70f || PageHeightPx != 1122.52f;
-
-    /// <summary>Whether any margin was specified.</summary>
-    public bool HasMargins => MarginTop > 0 || MarginRight > 0 || MarginBottom > 0 || MarginLeft > 0;
+    /// <summary>The declared margins as written (top, right, bottom, left; null when undeclared), resolved against the final page size.</summary>
+    public string?[] MarginValues { get; } = new string?[4];
 
     /// <summary>Content area width (page width minus horizontal margins).</summary>
     public float ContentWidthPx => PageWidthPx - MarginLeft - MarginRight;
@@ -366,6 +354,7 @@ internal class PageSettings
             PageWidthPx = PageWidthPx, PageHeightPx = PageHeightPx,
             MarginTop = MarginTop, MarginRight = MarginRight, MarginBottom = MarginBottom, MarginLeft = MarginLeft,
         };
+        Array.Copy(MarginValues, copy.MarginValues, MarginValues.Length);
         foreach (var kv in MarginBoxes) copy.MarginBoxes[kv.Key] = kv.Value;
         foreach (var kv in FirstPageMarginBoxes) copy.FirstPageMarginBoxes[kv.Key] = kv.Value;
         foreach (var kv in LeftPageMarginBoxes) copy.LeftPageMarginBoxes[kv.Key] = kv.Value;

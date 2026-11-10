@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using EggPdf.Css.Parser;
+using EggPdf.Html.Dom;
 
 namespace EggPdf.Css.Cascade;
 
@@ -53,7 +54,13 @@ public partial class CascadeResolver
         }
     }
 
-    private HashSet<string> ApplyWinnersInCascadeOrder(Dictionary<string, CascadeWinner> winners, ComputedStyle style)
+    /// <summary>
+    /// Applies the winning declarations in cascade order. A logical declaration (margin-inline-start, ...) is applied to
+    /// its physical property right away, for the element's predicted direction and writing mode, so the later of a
+    /// logical and a physical declaration wins, as in browsers.
+    /// </summary>
+    private HashSet<string> ApplyWinnersInCascadeOrder(Dictionary<string, CascadeWinner> winners, ComputedStyle style,
+        bool isRtl, bool isVertical)
     {
         var ordered = _orderedWinnersScratch;
         ordered.Clear();
@@ -68,6 +75,7 @@ public partial class CascadeResolver
             {
                 if (!CssShorthandExpander.TryExpand(winner.Property, winner.Value, style))
                     style.Set(winner.Property, winner.Value);
+                LogicalPropertyResolver.Apply(style, winner.Property, winner.Value, isRtl, isVertical, overwrite: true, null, null);
                 continue;
             }
 
@@ -77,11 +85,13 @@ public partial class CascadeResolver
                 style.Set(kv.Key, kv.Value);
                 importantProperties.Add(kv.Key);
             }
+            LogicalPropertyResolver.Apply(style, winner.Property, winner.Value, isRtl, isVertical, overwrite: true, null, importantProperties);
         }
         return importantProperties;
     }
 
-    private static void ApplyInlineStyle(string inlineCss, ComputedStyle style, HashSet<string> importantProperties)
+    private static void ApplyInlineStyle(string inlineCss, ComputedStyle style, HashSet<string> importantProperties,
+        bool isRtl, bool isVertical)
     {
         foreach (var decl in CssInlineParser.Parse(inlineCss))
         {
@@ -89,6 +99,7 @@ public partial class CascadeResolver
             {
                 if (!CssShorthandExpander.TryExpand(decl.Property, decl.Value, style))
                     style.Set(decl.Property, decl.Value);
+                LogicalPropertyResolver.Apply(style, decl.Property, decl.Value, isRtl, isVertical, overwrite: true, null, null);
                 continue;
             }
             if (importantProperties.Contains(decl.Property)) continue;
@@ -97,7 +108,48 @@ public partial class CascadeResolver
                 if (!importantProperties.Contains(kv.Key))
                     style.Set(kv.Key, kv.Value);
             }
+            LogicalPropertyResolver.Apply(style, decl.Property, decl.Value, isRtl, isVertical, overwrite: true, importantProperties, null);
         }
+    }
+
+    /// <summary>
+    /// The element's direction and writing mode before its declarations are applied, so logical properties can be
+    /// mapped in cascade order: an !important author declaration, then the inline style, then the winning author
+    /// declaration, then the <c>dir</c> attribute, then what the element inherits.
+    /// </summary>
+    private static (bool IsRtl, bool IsVertical) PredictWritingDirection(Dictionary<string, CascadeWinner> winners,
+        HtmlElement element, string? inlineCss, ComputedStyle inherited)
+    {
+        string? direction = null, writingMode = null;
+        bool hasDirection = winners.TryGetValue("direction", out var directionWinner);
+        bool hasWritingMode = winners.TryGetValue("writing-mode", out var modeWinner);
+        if (hasDirection && directionWinner.Important) direction = directionWinner.Value;
+        if (hasWritingMode && modeWinner.Important) writingMode = modeWinner.Value;
+
+        if (!string.IsNullOrEmpty(inlineCss) &&
+            (inlineCss!.IndexOf("direction", StringComparison.OrdinalIgnoreCase) >= 0 ||
+             inlineCss.IndexOf("writing-mode", StringComparison.OrdinalIgnoreCase) >= 0))
+        {
+            foreach (var decl in CssInlineParser.Parse(inlineCss))
+            {
+                if (decl.Property == "direction") direction ??= decl.Value;
+                else if (decl.Property == "writing-mode") writingMode ??= decl.Value;
+            }
+        }
+
+        if (hasDirection) direction ??= directionWinner.Value;
+        if (hasWritingMode) writingMode ??= modeWinner.Value;
+        if (direction == null)
+        {
+            var dirAttribute = element.GetAttribute("dir");
+            if (string.Equals(dirAttribute, "rtl", StringComparison.OrdinalIgnoreCase)) direction = "rtl";
+            else if (string.Equals(dirAttribute, "ltr", StringComparison.OrdinalIgnoreCase)) direction = "ltr";
+        }
+        direction ??= inherited.Get("direction");
+        writingMode ??= inherited.Get("writing-mode");
+
+        bool isVertical = writingMode != null && writingMode.IndexOf("vertical", StringComparison.OrdinalIgnoreCase) >= 0;
+        return (direction == "rtl", isVertical);
     }
 
     private static ComputedStyle Expanded(string property, string value)

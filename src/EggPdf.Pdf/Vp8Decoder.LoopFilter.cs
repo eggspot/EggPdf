@@ -1,14 +1,16 @@
 namespace EggPdf.Pdf;
 
-// The in-loop deblocking filter (RFC 6386 section 15): applied macroblock by macroblock in raster
-// order, each one first across its left edge and inner vertical edges, then across its top edge
-// and inner horizontal edges. Pixel arithmetic follows the specification's integer formulas.
 internal sealed partial class Vp8Decoder
 {
     private static int Sclip1(int v) => v < -128 ? -128 : v > 127 ? 127 : v;
     private static int Sclip2(int v) => v < -16 ? -16 : v > 15 ? 15 : v;
     private static int Abs(int v) => v < 0 ? -v : v;
 
+    /// <summary>
+    /// The in-loop deblocking filter (RFC 6386 section 15): applied macroblock by macroblock in raster order, each one
+    /// first across its left edge and inner vertical edges, then across its top edge and inner horizontal edges. Pixel
+    /// arithmetic follows the specification's integer formulas.
+    /// </summary>
     private void ApplyLoopFilter()
     {
         var f = _frame;
@@ -119,7 +121,7 @@ internal sealed partial class Vp8Decoder
         return Abs(p1 - p0) > thresh || Abs(q1 - q0) > thresh;
     }
 
-    // 4 pixels in, 2 pixels out
+    /// <summary>The common filter: reads two pixels each side of the edge and adjusts the one on each side.</summary>
     private static void DoFilter2(byte[] p, int i, int step)
     {
         int p1 = p[i - 2 * step], p0 = p[i - step], q0 = p[i], q1 = p[i + step];
@@ -130,7 +132,7 @@ internal sealed partial class Vp8Decoder
         p[i] = Clip8(q0 - a1);
     }
 
-    // 4 pixels in, 4 pixels out
+    /// <summary>The subblock-edge filter: reads two pixels each side of the edge and adjusts all four.</summary>
     private static void DoFilter4(byte[] p, int i, int step)
     {
         int p1 = p[i - 2 * step], p0 = p[i - step], q0 = p[i], q1 = p[i + step];
@@ -144,7 +146,7 @@ internal sealed partial class Vp8Decoder
         p[i + step] = Clip8(q1 - a3);
     }
 
-    // 6 pixels in, 6 pixels out
+    /// <summary>The macroblock-edge filter: reads three pixels each side of the edge and adjusts all six.</summary>
     private static void DoFilter6(byte[] p, int i, int step)
     {
         int p2 = p[i - 3 * step], p1 = p[i - 2 * step], p0 = p[i - step];

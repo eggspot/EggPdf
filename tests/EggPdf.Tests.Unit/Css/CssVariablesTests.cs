@@ -411,6 +411,27 @@ public class CssVariablesTests
     }
 
     [Fact]
+    public void CustomPropertyNames_AreCaseSensitive()
+    {
+        var style = ResolveChain(
+            "div { --Brand: red; --brand: blue; color: var(--Brand); background-color: var(--brand); }",
+            "<div>x</div>", "div");
+
+        style.Color.Should().Be("red");
+        style.BackgroundColor.Should().Be("blue");
+        style.Get("--Brand").Should().Be("red");
+        style.Get("--BRAND").Should().BeNull();
+    }
+
+    [Fact]
+    public void CustomPropertyNames_InInlineStyle_AreCaseSensitive()
+    {
+        var declarations = CssInlineParser.Parse("--Accent: green; COLOR: var(--Accent)");
+
+        declarations.Select(d => d.Property).Should().Equal("--Accent", "color");
+    }
+
+    [Fact]
     public void FunctionNameEndingInVar_IsNotAVarReference()
     {
         var style = ResolveChain(

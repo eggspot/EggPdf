@@ -50,7 +50,10 @@ public partial class PdfDocument
     /// 14289-1, PDF 1.7-based) for backward compatibility; <see cref="PdfUaVersion.Ua2"/> (ISO
     /// 14289-2:2024, PDF 2.0-based) switches the header to <c>%PDF-2.0</c>, declares the PDF 2.0
     /// structure namespace on every structure element, and resolves landmark regions straight to
-    /// their standard fallback type instead of a custom name + RoleMap.
+    /// their standard fallback type instead of a custom name + RoleMap (veraPDF 8.2.4-1 requires every element to
+    /// belong to a declared namespace; StructureTreeBuilder's Ua2LandmarkFallback picks the type, so no RoleMapNS is
+    /// needed). A ParentTree gap (<c>null</c>) marks an MCID that was opened but never attributed to an element via
+    /// <see cref="PdfStructureElement.AddContentRef"/>.
     /// </summary>
     public PdfUaVersion UaVersion { get; set; } = PdfUaVersion.Ua1;
 
@@ -115,24 +118,22 @@ public partial class PdfDocument
     }
 
     /// <summary>
-    /// Write every structure element object, then StructTreeRoot and the ParentTree number tree
-    /// that maps each page's /StructParents index + MCID back to the owning element (a no-op
-    /// unless <see cref="StructureTree"/> is set).
+    /// Write every structure element object, then PDF/UA-2's Namespace object, StructTreeRoot and the ParentTree
+    /// number tree that maps each page's /StructParents index + MCID back to the owning element (a no-op unless
+    /// <see cref="StructureTree"/> is set). Page entries are filled in while each element's /K array is written:
+    /// page index to (MCID to the owning element's object number). A link annotation's /StructParent key maps
+    /// directly to its element, since an annotation has exactly one owner. Annotation keys are all at least the page
+    /// count, so writing them after the page entries keeps /Nums ascending, as a number tree requires.
     /// </summary>
     private void WriteStructureObjects(PdfStreamWriter writer, PdfObjectAllocator alloc, List<(int pageDict, int contentStream)> pageObjs)
     {
         if (StructureTree == null) return;
 
-        // pageIndex -> (mcid -> owning structure element's object number), filled in while
-        // writing each element's /K array so the ParentTree can be built from it afterward.
         var parentTreeEntries = new SortedDictionary<int, SortedDictionary<int, int>>();
-        // Link annotations' /StructParent key -> owning element's object number -- a direct entry
-        // (not an array), since unlike page content an annotation has exactly one owning element.
         var annotParentTreeEntries = new SortedDictionary<int, int>();
 
         WriteStructElemRecursive(writer, alloc, StructureTree, _structTreeRootObj, pageObjs, parentTreeEntries, annotParentTreeEntries);
 
-        // PDF/UA-2's Namespace object, written before StructTreeRoot references it.
         if (_pdf2NamespaceObj != 0)
         {
             alloc.RecordOffset(_pdf2NamespaceObj, writer.Position);
@@ -156,10 +157,6 @@ public partial class PdfDocument
         rootDict.Append($" /ParentTreeNextKey {nextKey}");
         if (_pdf2NamespaceObj != 0)
         {
-            // PDF/UA-2 (veraPDF 8.2.4-1): every structure element must belong to a declared
-            // namespace -- landmark regions are resolved straight to their standard fallback type
-            // (see StructureTreeBuilder's Ua2LandmarkFallback) rather than needing a custom-type
-            // RoleMapNS entry, so a plain /RoleMap (PDF 1.7's simpler mechanism) isn't needed here.
             rootDict.Append($" /Namespaces [{_pdf2NamespaceObj} 0 R]");
         }
         else
@@ -187,9 +184,6 @@ public partial class PdfDocument
                 if (mcid > maxMcid) maxMcid = mcid;
             for (int mcid = 0; mcid <= maxMcid; mcid++)
             {
-                // Every MCID PdfPage hands out is registered against exactly one element by the
-                // caller (see PdfStructureElement.AddContentRef); a gap here means a marked-content
-                // span was opened but never attributed to a structure element.
                 if (pageEntry.Value.TryGetValue(mcid, out int elemObj))
                     nums.Append(elemObj).Append(" 0 R ");
                 else
@@ -197,9 +191,6 @@ public partial class PdfDocument
             }
             nums.Append("] ");
         }
-        // Annotation keys are all >= _pages.Count, i.e. strictly greater than every page key above,
-        // so appending them after the page entries keeps /Nums in the ascending order a PDF number
-        // tree requires without needing to interleave the two spaces.
         foreach (var annotEntry in annotParentTreeEntries)
             nums.Append(annotEntry.Key).Append(' ').Append(annotEntry.Value).Append(" 0 R ");
         nums.Append("] >>");
