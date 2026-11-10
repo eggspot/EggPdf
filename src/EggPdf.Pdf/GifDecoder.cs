@@ -10,15 +10,19 @@ namespace EggPdf.Pdf;
 /// </summary>
 internal static class GifDecoder
 {
+    private const byte TrailerIntroducer = 0x3B;
+    private const byte ExtensionIntroducer = 0x21;
+    private const byte ImageDescriptorIntroducer = 0x2C;
+    private const byte GraphicControlExtensionLabel = 0xF9;
+
     /// <summary>Check if data starts with GIF signature ("GIF87a" or "GIF89a").</summary>
     internal static bool IsGif(byte[] data)
     {
         if (data == null || data.Length < 6)
             return false;
-        // "GIF8" prefix
-        return data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x38
-            && (data[4] == 0x37 || data[4] == 0x39) // '7' or '9'
-            && data[5] == 0x61; // 'a'
+        return data[0] == (byte)'G' && data[1] == (byte)'I' && data[2] == (byte)'F' && data[3] == (byte)'8'
+            && (data[4] == (byte)'7' || data[4] == (byte)'9')
+            && data[5] == (byte)'a';
     }
 
     /// <summary>
@@ -43,17 +47,14 @@ internal static class GifDecoder
         if (!IsGif(data))
             return null;
 
-        int pos = 6; // skip signature
+        int pos = 6;
 
-        // Logical Screen Descriptor (7 bytes)
         if (pos + 7 > data.Length)
             return null;
 
         int screenWidth = data[pos] | (data[pos + 1] << 8);
         int screenHeight = data[pos + 2] | (data[pos + 3] << 8);
         byte packed = data[pos + 4];
-        // byte bgColorIndex = data[pos + 5]; // background color index
-        // byte pixelAspect = data[pos + 6];
         pos += 7;
 
         if (screenWidth <= 0 || screenHeight <= 0)
@@ -62,7 +63,6 @@ internal static class GifDecoder
         bool hasGlobalColorTable = (packed & 0x80) != 0;
         int globalColorTableSize = 1 << ((packed & 0x07) + 1);
 
-        // Read Global Color Table
         byte[]? globalColorTable = null;
         if (hasGlobalColorTable)
         {
@@ -74,7 +74,6 @@ internal static class GifDecoder
             pos += tableBytes;
         }
 
-        // Parse blocks until we find an image descriptor
         int transparentColorIndex = -1;
         bool hasTransparency = false;
 
@@ -82,17 +81,17 @@ internal static class GifDecoder
         {
             byte introducer = data[pos++];
 
-            if (introducer == 0x3B) // Trailer
+            if (introducer == TrailerIntroducer)
                 break;
 
-            if (introducer == 0x21) // Extension
+            if (introducer == ExtensionIntroducer)
             {
                 if (pos >= data.Length)
                     return null;
 
                 byte label = data[pos++];
 
-                if (label == 0xF9) // Graphic Control Extension
+                if (label == GraphicControlExtensionLabel)
                 {
                     if (pos >= data.Length)
                         return null;
@@ -105,20 +104,18 @@ internal static class GifDecoder
                     transparentColorIndex = data[pos + 3];
                     pos += blockSize;
 
-                    // Skip block terminator
                     if (pos < data.Length && data[pos] == 0x00)
                         pos++;
                 }
                 else
                 {
-                    // Skip other extensions (sub-blocks)
                     if (!SkipSubBlocks(data, ref pos))
                         return null;
                 }
                 continue;
             }
 
-            if (introducer == 0x2C) // Image Descriptor
+            if (introducer == ImageDescriptorIntroducer)
             {
                 if (pos + 9 > data.Length)
                     return null;
@@ -137,7 +134,6 @@ internal static class GifDecoder
                 bool isInterlaced = (imgPacked & 0x40) != 0;
                 int localColorTableSize = 1 << ((imgPacked & 0x07) + 1);
 
-                // Read Local Color Table (overrides global)
                 byte[]? colorTable = globalColorTable;
                 if (hasLocalColorTable)
                 {
@@ -152,35 +148,28 @@ internal static class GifDecoder
                 if (colorTable == null)
                     return null;
 
-                // LZW Minimum Code Size
                 if (pos >= data.Length)
                     return null;
                 int lzwMinCodeSize = data[pos++];
                 if (lzwMinCodeSize < 2 || lzwMinCodeSize > 12)
                     return null;
 
-                // Read LZW compressed data from sub-blocks
                 byte[]? compressedData = ReadSubBlockData(data, ref pos);
                 if (compressedData == null || compressedData.Length == 0)
                     return null;
 
-                // LZW decompress
                 byte[]? indices = LzwDecompress(compressedData, lzwMinCodeSize, imgWidth * imgHeight);
                 if (indices == null)
                     return null;
 
-                // Handle interlacing
                 if (isInterlaced)
                     indices = Deinterlace(indices, imgWidth, imgHeight);
 
-                // Convert palette indices to pixels
                 int colorEntries = colorTable.Length / 3;
 
-                // Determine output dimensions: use screen size for placement
                 int outWidth = screenWidth;
                 int outHeight = screenHeight;
 
-                // If image descriptor covers entire screen, use image directly
                 if (imgLeft == 0 && imgTop == 0 && imgWidth == screenWidth && imgHeight == screenHeight)
                 {
                     outWidth = imgWidth;
@@ -188,7 +177,6 @@ internal static class GifDecoder
                 }
                 else
                 {
-                    // Use image dimensions if they're the main content
                     outWidth = imgWidth;
                     outHeight = imgHeight;
                 }
@@ -240,14 +228,12 @@ internal static class GifDecoder
                 }
             }
 
-            // Unknown block type -- skip
             break;
         }
 
-        return null; // no image found
+        return null;
     }
 
-    /// <summary>LZW decompression for GIF image data.</summary>
     private static byte[]? LzwDecompress(byte[] compressed, int minCodeSize, int expectedPixels)
     {
         int clearCode = 1 << minCodeSize;
@@ -255,15 +241,11 @@ internal static class GifDecoder
         int nextCode = eoiCode + 1;
         int codeSize = minCodeSize + 1;
 
-        // Code table: each entry is a (prefix, suffix) pair
-        // For codes < clearCode, the entry is just the single byte value
-        // We use parallel arrays for performance
-        const int MaxTableSize = 4096; // 12-bit max
+        const int MaxTableSize = 4096;
         int[] prefixes = new int[MaxTableSize];
         byte[] suffixes = new byte[MaxTableSize];
         int[] lengths = new int[MaxTableSize];
 
-        // Initialize table with single-character entries
         for (int i = 0; i < clearCode; i++)
         {
             prefixes[i] = -1;
@@ -274,7 +256,6 @@ internal static class GifDecoder
         var output = new byte[expectedPixels];
         int outputPos = 0;
 
-        // Bit reader state
         int bitPos = 0;
         int totalBits = compressed.Length * 8;
 
@@ -290,7 +271,6 @@ internal static class GifDecoder
 
             if (code == clearCode)
             {
-                // Reset table
                 nextCode = eoiCode + 1;
                 codeSize = minCodeSize + 1;
                 prevCode = -1;
@@ -299,9 +279,8 @@ internal static class GifDecoder
 
             if (prevCode == -1)
             {
-                // First code after clear
                 if (code >= clearCode)
-                    return null; // invalid
+                    return null;
                 if (outputPos < expectedPixels)
                     output[outputPos++] = (byte)code;
                 prevCode = code;
@@ -311,7 +290,6 @@ internal static class GifDecoder
             byte firstChar;
             if (code < nextCode)
             {
-                // Code is in table - output its string
                 int len = (code < clearCode) ? 1 : lengths[code];
                 if (outputPos + len > expectedPixels)
                     len = expectedPixels - outputPos;
@@ -322,14 +300,12 @@ internal static class GifDecoder
             }
             else if (code == nextCode)
             {
-                // Special case: code not yet in table
                 firstChar = GetFirstChar(prevCode, prefixes, suffixes, clearCode);
                 int prevLen = (prevCode < clearCode) ? 1 : lengths[prevCode];
                 int len = prevLen + 1;
                 if (outputPos + len > expectedPixels)
                     len = expectedPixels - outputPos;
 
-                // Output: previous string + first char of previous string
                 if (len > 1)
                     OutputString(output, outputPos, prevCode, len - 1, prefixes, suffixes, clearCode);
                 if (len > 0)
@@ -338,10 +314,9 @@ internal static class GifDecoder
             }
             else
             {
-                return null; // invalid code
+                return null;
             }
 
-            // Add new entry to table
             if (nextCode < MaxTableSize)
             {
                 prefixes[nextCode] = prevCode;
@@ -349,7 +324,6 @@ internal static class GifDecoder
                 lengths[nextCode] = ((prevCode < clearCode) ? 1 : lengths[prevCode]) + 1;
                 nextCode++;
 
-                // Increase code size if needed
                 if (nextCode > (1 << codeSize) && codeSize < 12)
                     codeSize++;
             }
@@ -357,10 +331,8 @@ internal static class GifDecoder
             prevCode = code;
         }
 
-        // If we got fewer pixels than expected, that's OK for partial images
         if (outputPos < expectedPixels)
         {
-            // Fill remaining with 0
             for (int i = outputPos; i < expectedPixels; i++)
                 output[i] = 0;
         }
@@ -382,10 +354,8 @@ internal static class GifDecoder
         return result;
     }
 
-    /// <summary>Get the first character of a code's string.</summary>
     private static byte GetFirstChar(int code, int[] prefixes, byte[] suffixes, int clearCode)
     {
-        // Walk the chain to find the first character
         int c = code;
         int safety = 4096;
         while (c >= clearCode + 2 && safety-- > 0)
@@ -393,11 +363,9 @@ internal static class GifDecoder
         return (c < 0) ? (byte)0 : (byte)c;
     }
 
-    /// <summary>Output a code's string to the output buffer.</summary>
     private static void OutputString(byte[] output, int outputPos, int code, int length,
         int[] prefixes, byte[] suffixes, int clearCode)
     {
-        // Write backwards from the end
         int writePos = outputPos + length - 1;
         int c = code;
         int safety = 4096;
@@ -405,7 +373,6 @@ internal static class GifDecoder
         {
             if (c < clearCode + 2)
             {
-                // Single character code
                 if (c < 0) c = 0;
                 output[writePos] = (byte)c;
                 break;
@@ -415,31 +382,27 @@ internal static class GifDecoder
         }
     }
 
-    /// <summary>Deinterlace GIF image data (4-pass interlacing).</summary>
+    /// <summary>Deinterlace GIF image data (4-pass interlacing: every 8th row from 0, every 8th from 4, every 4th from 2, every 2nd from 1).</summary>
     private static byte[] Deinterlace(byte[] indices, int width, int height)
     {
         var result = new byte[width * height];
         int srcRow = 0;
 
-        // Pass 1: rows 0, 8, 16, ...
         for (int y = 0; y < height; y += 8)
         {
             Buffer.BlockCopy(indices, srcRow * width, result, y * width, width);
             srcRow++;
         }
-        // Pass 2: rows 4, 12, 20, ...
         for (int y = 4; y < height; y += 8)
         {
             Buffer.BlockCopy(indices, srcRow * width, result, y * width, width);
             srcRow++;
         }
-        // Pass 3: rows 2, 6, 10, ...
         for (int y = 2; y < height; y += 4)
         {
             Buffer.BlockCopy(indices, srcRow * width, result, y * width, width);
             srcRow++;
         }
-        // Pass 4: rows 1, 3, 5, ...
         for (int y = 1; y < height; y += 2)
         {
             Buffer.BlockCopy(indices, srcRow * width, result, y * width, width);
@@ -449,7 +412,6 @@ internal static class GifDecoder
         return result;
     }
 
-    /// <summary>Read sub-block data into a single byte array.</summary>
     private static byte[]? ReadSubBlockData(byte[] data, ref int pos)
     {
         using var ms = new System.IO.MemoryStream();
@@ -458,7 +420,7 @@ internal static class GifDecoder
         {
             byte blockSize = data[pos++];
             if (blockSize == 0)
-                break; // block terminator
+                break;
 
             if (pos + blockSize > data.Length)
                 return null;
@@ -470,14 +432,13 @@ internal static class GifDecoder
         return ms.ToArray();
     }
 
-    /// <summary>Skip sub-blocks (used for extensions we don't care about).</summary>
     private static bool SkipSubBlocks(byte[] data, ref int pos)
     {
         while (pos < data.Length)
         {
             byte blockSize = data[pos++];
             if (blockSize == 0)
-                return true; // block terminator
+                return true;
 
             pos += blockSize;
             if (pos > data.Length)
