@@ -4,13 +4,8 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary>
-/// Unit tests for AspectRatioLayout: parsing and applying CSS aspect-ratio property.
-/// </summary>
 public class AspectRatioLayoutTests
 {
-    // ── ParseAspectRatio ────────────────────────────────────────────────────
-
     [Fact]
     public void Parse_16by9_ReturnsCorrectRatio()
         => AspectRatioLayout.ParseAspectRatio("16/9").Should().BeApproximately(16f / 9f, 0.001f);
@@ -25,8 +20,8 @@ public class AspectRatioLayoutTests
 
     [Fact]
     public void Parse_SingleNumber_ReturnsRatio()
-        // "1" means 1/1 square
-        => AspectRatioLayout.ParseAspectRatio("1").Should().BeApproximately(1f, 0.001f);
+        => AspectRatioLayout.ParseAspectRatio("1").Should().BeApproximately(1f, 0.001f,
+            "a single number n means n/1, so \"1\" is a square");
 
     [Fact]
     public void Parse_SingleDecimal_ReturnsRatio()
@@ -46,8 +41,8 @@ public class AspectRatioLayoutTests
 
     [Fact]
     public void Parse_AutoWith16by9_ReturnsRatio()
-        // "auto 16/9" – the auto fallback is stripped, ratio still parsed
-        => AspectRatioLayout.ParseAspectRatio("auto 16/9").Should().BeApproximately(16f / 9f, 0.001f);
+        => AspectRatioLayout.ParseAspectRatio("auto 16/9").Should().BeApproximately(16f / 9f, 0.001f,
+            "the auto fallback keyword is dropped and the ratio still parses");
 
     [Fact]
     public void Parse_ZeroDenominator_ReturnsNull()
@@ -55,45 +50,38 @@ public class AspectRatioLayoutTests
 
     [Fact]
     public void Parse_NegativeRatio_ReturnsNull()
-        // Negative ratio is invalid; ParseFloat returns negative but ratio <= 0 guard catches it
-        => AspectRatioLayout.ParseAspectRatio("-1").Should().BeNull();
-
-    // ── ApplyAspectRatio ────────────────────────────────────────────────────
+        => AspectRatioLayout.ParseAspectRatio("-1").Should().BeNull("a ratio must be positive");
 
     [Fact]
     public void Apply_WidthSpecified_ComputesHeight()
     {
-        // 16:9 with width 320 → height = 320 / (16/9) = 180
         var (w, h) = AspectRatioLayout.ApplyAspectRatio(320f, null, 16f / 9f, 600f);
         w.Should().BeApproximately(320, 0.1f);
-        h.Should().BeApproximately(180, 0.5f);
+        h.Should().BeApproximately(180, 0.5f, "320 / (16/9) = 180");
     }
 
     [Fact]
     public void Apply_HeightSpecified_ComputesWidth()
     {
-        // 16:9 with height 180 → width = 180 * (16/9) = 320
         var (w, h) = AspectRatioLayout.ApplyAspectRatio(null, 180f, 16f / 9f, 600f);
-        w.Should().BeApproximately(320, 0.5f);
+        w.Should().BeApproximately(320, 0.5f, "180 * (16/9) = 320");
         h.Should().BeApproximately(180, 0.1f);
     }
 
     [Fact]
     public void Apply_NeitherSpecified_UsesContainingWidth()
     {
-        // Both auto: use containing=400, height = 400 / (16/9) ≈ 225
         var (w, h) = AspectRatioLayout.ApplyAspectRatio(null, null, 16f / 9f, 400f);
-        w.Should().BeApproximately(400, 0.1f);
-        h.Should().BeApproximately(225, 1f);
+        w.Should().BeApproximately(400, 0.1f, "an auto width fills the 400px containing block");
+        h.Should().BeApproximately(225, 1f, "400 / (16/9) = 225");
     }
 
     [Fact]
     public void Apply_BothSpecified_RatioIgnored()
     {
-        // Both specified explicitly → ratio is ignored, values returned as-is
         var (w, h) = AspectRatioLayout.ApplyAspectRatio(200f, 500f, 16f / 9f, 600f);
-        w.Should().BeApproximately(200, 0.1f);
-        h.Should().BeApproximately(500, 0.1f);
+        w.Should().BeApproximately(200, 0.1f, "with both sizes given the ratio has nothing to compute");
+        h.Should().BeApproximately(500, 0.1f, "with both sizes given the ratio has nothing to compute");
     }
 
     [Fact]
@@ -104,19 +92,15 @@ public class AspectRatioLayoutTests
         h.Should().BeApproximately(100, 0.1f);
     }
 
-    // ── integration: aspect-ratio in layout ────────────────────────────────
-
     [Fact]
     public void Layout_AspectRatio_ElementExistsWithCorrectWidth()
     {
-        // Layout engine parses aspect-ratio; height may come from content or ratio depending on implementation
         var root = LayoutTestHelper.Layout(
             "<div style='width: 320px; aspect-ratio: 16/9'></div>", 600, 800);
 
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
         div!.Width.Should().BeApproximately(320, 1f);
-        // aspect-ratio is stored in style
         div.Style.Get("aspect-ratio").Should().Be("16/9");
     }
 
@@ -133,9 +117,8 @@ public class AspectRatioLayoutTests
     }
 
     [Fact]
-    public void Layout_NoAspectRatio_HeightFromContent()
+    public void Layout_NoAspectRatio_ExplicitHeightUsed()
     {
-        // Without aspect-ratio, explicit height is used
         var root = LayoutTestHelper.Layout(
             "<div style='width: 200px; height: 80px'></div>", 600, 800);
 
@@ -147,7 +130,6 @@ public class AspectRatioLayoutTests
     [Fact]
     public void Layout_AspectRatio_WidthKnown_HeightComputed()
     {
-        // width=320, aspect-ratio=16/9 → height must be 320*(9/16)=180
         var root = LayoutTestHelper.Layout(
             "<div style='width: 320px; aspect-ratio: 16/9'></div>", 600, 800);
 
@@ -172,13 +154,12 @@ public class AspectRatioLayoutTests
     [Fact]
     public void Layout_AspectRatio_ExplicitHeightWins()
     {
-        // Both width and height specified — aspect-ratio is ignored per spec
         var root = LayoutTestHelper.Layout(
             "<div style='width: 200px; height: 50px; aspect-ratio: 16/9'></div>", 600, 800);
 
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
         div!.Height.Should().BeApproximately(50f, 2f,
-            "explicit height should override aspect-ratio computation");
+            "with both width and height specified, CSS ignores aspect-ratio");
     }
 }
