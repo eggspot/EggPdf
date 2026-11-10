@@ -7,11 +7,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// letter-spacing is painted via the PDF Tc operator but must also be part of
-/// text MEASUREMENT, otherwise word boxes are too narrow and consecutive words
-/// overlap (the "QUÉ ĐỂXÁCTHỰC" bug in letter-spaced captions).
-/// </summary>
 public class LetterSpacingMeasureTests
 {
     [Fact]
@@ -20,8 +15,9 @@ public class LetterSpacingMeasureTests
         float baseWidth = TextMeasurer.MeasureWidth("ABCD", 16, "Arial", null, null);
         float spaced = TextMeasurer.MeasureWidth("ABCD", 16, "Arial", null, null, 2f);
 
-        // PDF Tc applies after every glyph, including the last: 4 glyphs × 2px
-        spaced.Should().BeApproximately(baseWidth + 8f, 0.01f);
+        spaced.Should().BeApproximately(baseWidth + 8f, 0.01f,
+            "measurement must include the letter-spacing the PDF Tc operator paints after every glyph, the last " +
+            "included: 4 glyphs x 2px");
     }
 
     private static float FindTextX(byte[] pdf, string text)
@@ -35,7 +31,6 @@ public class LetterSpacingMeasureTests
     [Fact]
     public async Task LetterSpacedWords_SecondWordShiftsBySpacing()
     {
-        // The <b> sibling forces the mixed-inline path, which lays out per-word boxes
         var plain = await HtmlToPdf.RenderAsync(
             "<html><body><p>HELLO WORLD <b>X</b></p></body></html>");
         var spaced = await HtmlToPdf.RenderAsync(
@@ -44,9 +39,8 @@ public class LetterSpacingMeasureTests
         float plainGap = FindTextX(plain, " WORLD") - FindTextX(plain, "HELLO");
         float spacedGap = FindTextX(spaced, " WORLD") - FindTextX(spaced, "HELLO");
 
-        // "HELLO" is 5 glyphs (the boundary space belongs to the next word's box);
-        // 5 × 4px = 20px = 15pt wider gap (±2pt tolerance)
         (spacedGap - plainGap).Should().BeApproximately(15f, 2f,
-            "the second word must start after the letter-spaced width of the first");
+            "with the <b> sibling forcing per-word boxes, the second word starts after the letter-spaced first one: " +
+            "'HELLO' is 5 glyphs x 4px = 20px = 15pt wider, or the words overlap");
     }
 }

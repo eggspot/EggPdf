@@ -6,16 +6,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// A text node whose sibling is a &lt;span&gt; explicitly styled <c>display: block</c> (a common
-/// pattern -- e.g. a caption line followed by a URL/link line, like a QR code caption) must still
-/// honor text-align on its container. The tag-name-based "does this parent have inline siblings"
-/// check treated every &lt;span&gt; as inline regardless of its computed display, routing the text
-/// through the word-by-word inline-flow path -- which has no text-align centering support at all
-/// (each word's LayoutBox.Width equals its own ContentWidth, so PdfRenderer's
-/// `box.ContentWidth &lt; box.Width` centering gate never fires) -- instead of the normal
-/// per-line text path that does.
-/// </summary>
 public class TextAlignWithBlockSiblingTests
 {
     [Fact]
@@ -29,10 +19,12 @@ public class TextAlignWithBlockSiblingTests
 
         var content = Encoding.ASCII.GetString(pdf);
         var m = Regex.Match(content, @"(-?\d+\.\d+) (-?\d+\.\d+) Td \(Short caption\) Tj");
-        m.Success.Should().BeTrue("'Short caption' should be painted as a single line, not split word-by-word");
+        m.Success.Should().BeTrue(
+            "a <span> styled display:block is a block sibling, so 'Short caption' takes the per-line text path and " +
+            "is painted as one line, not the word-by-word inline path");
 
         float x = float.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
         x.Should().BeGreaterThan(20f,
-            "the caption must be centered within the 300px container, not flush against its left edge");
+            "the caption (like a QR code caption above its link line) is centered in the 300px container, not flush left");
     }
 }

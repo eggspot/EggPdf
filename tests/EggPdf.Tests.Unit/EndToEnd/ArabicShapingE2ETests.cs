@@ -29,8 +29,8 @@ public class ArabicShapingE2ETests
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf);
 
-        // The mixed-script line is emitted as glyph-id text (a literal "Invoice" string never appears).
-        text.Should().MatchRegex(@"BT [^\n]*(> Tj|\] TJ)[^\n]* ET", "the mixed line is painted as glyph-id text");
+        text.Should().MatchRegex(@"BT [^\n]*(> Tj|\] TJ)[^\n]* ET",
+            "the mixed Latin/Arabic line is painted as glyph-id text, so no literal 'Invoice' string appears");
         PdfAssert.PageCount(text).Should().Be(1);
         if (System.IO.File.Exists(System.IO.Path.Combine(
                 System.Environment.GetFolderPath(System.Environment.SpecialFolder.Fonts), "arial.ttf")))

@@ -1,13 +1,12 @@
+using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// End-to-end tests for border styles: dashed, dotted, double, groove, ridge, inset, outset.
-/// </summary>
 public class BorderStyleE2ETests
 {
     [Fact]
@@ -18,7 +17,6 @@ public class BorderStyleE2ETests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Dashed");
-        // Dashed border should produce dash array operator 'd'
         text.Should().MatchRegex(@"\[[\d.]+ [\d.]+\] [\d.]+ d", "dashed border should set dash pattern");
     }
 
@@ -41,9 +39,7 @@ public class BorderStyleE2ETests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Double");
-        // Double border draws two separate lines per side
-        // Look for multiple stroke operations
-        text.Should().Contain("l S", "double border should stroke line segments");
+        PdfAssert.Count(text, "l S").Should().BeGreaterOrEqualTo(8, "a double border strokes two lines on each of the four sides");
     }
 
     [Fact]
@@ -54,8 +50,8 @@ public class BorderStyleE2ETests
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Groove");
-        // Groove uses two different stroke colors
-        text.Should().Contain("RG", "groove border should set stroke colors");
+        Regex.Matches(text, @"[\d.]+ [\d.]+ [\d.]+ RG").Cast<Match>().Select(m => m.Value).Distinct().Count()
+            .Should().BeGreaterOrEqualTo(2, "a groove border strokes its sides in a darker and a lighter shade");
     }
 
     [Fact]
@@ -108,13 +104,12 @@ public class BorderStyleE2ETests
     [Fact]
     public async Task SolidBorder_StillWorks()
     {
-        // Regression test: solid borders should still work with per-side rendering
         var html = "<div style='border: 1px solid black; width: 200px; height: 100px'>Solid</div>";
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = Encoding.ASCII.GetString(pdf);
 
         text.Should().Contain("Solid");
-        text.Should().Contain("RG"); // stroke color
+        text.Should().Contain("0.00 0.00 0.00 RG", "a solid black border is still stroked in black with per-side rendering");
     }
 
     [Fact]

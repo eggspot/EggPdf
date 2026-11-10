@@ -5,11 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// SVG feGaussianBlur: PDF has no vector blur primitive, so a blurred shape is
-/// rasterized to a bitmap (SvgRenderer.Blur.cs) and embedded as an image XObject with
-/// an alpha soft mask instead of the normal vector path operators.
-/// </summary>
 public class SvgBlurFilterTests
 {
     private static string Latin1(byte[] pdf) => Encoding.Latin1.GetString(pdf);
@@ -28,7 +23,8 @@ public class SvgBlurFilterTests
         var pdf = await HtmlToPdf.RenderAsync(html);
         var text = Latin1(pdf);
 
-        text.Should().Contain("/Subtype /Image", "a blurred shape must rasterize and embed as an image XObject");
+        text.Should().Contain("/Subtype /Image",
+            "PDF has no vector blur, so a blurred shape is rasterized and embedded as an image XObject");
         text.Should().Contain("/SMask", "the blurred shape's alpha channel must carry through as a soft mask so it composites correctly");
     }
 
@@ -119,8 +115,6 @@ public class SvgBlurFilterTests
     [Fact]
     public async Task UnsupportedPrimitiveFilter_ShapeRendersNormallyWithoutCrash()
     {
-        // An unknown primitive is not implemented; the shape must still render (via the normal
-        // unfiltered vector path), not crash or silently vanish.
         var html = @"
             <svg width='100' height='100'>
                 <defs><filter id='noise'><feFoo/></filter></defs>
@@ -129,8 +123,8 @@ public class SvgBlurFilterTests
 
         var pdf = await HtmlToPdf.RenderAsync(html);
         var text = Latin1(pdf);
-        text.Should().NotContain("/Subtype /Image");
-        text.Should().Contain("1.00 0.00 0.00 rg", "the shape must still paint (unfiltered) via the normal vector fill color");
+        text.Should().NotContain("/Subtype /Image", "an unknown filter primitive is not applied");
+        text.Should().Contain("1.00 0.00 0.00 rg", "the shape still paints unfiltered through the normal vector path, not vanishing");
     }
 
     [Fact]

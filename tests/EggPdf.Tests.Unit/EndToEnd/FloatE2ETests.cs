@@ -5,10 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// End-to-end tests for CSS float layout: HTML-to-PDF pipeline.
-/// Verifies that floated elements produce correct PDF output.
-/// </summary>
 public class FloatE2ETests
 {
     [Fact]

@@ -5,12 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// font-feature-settings changes which glyph a codepoint maps to (GSUB single
-/// substitution), so two elements declaring different active features on the same
-/// font family must not share one embedded-font/glyph-map entry -- see
-/// StandardFontMetrics.ResolvePdfFontName's "-Feat-..." composite key suffix.
-/// </summary>
 public class FontFeatureSettingsRenderTests
 {
     private static string Latin1(byte[] pdf) => Encoding.Latin1.GetString(pdf);
@@ -57,14 +51,13 @@ public class FontFeatureSettingsRenderTests
     [Fact]
     public async Task FontFeatureSettings_NoMatchingGsubFeature_StillPaintsUnsubstitutedText()
     {
-        // Most installed fonts have no "xyz1"-style custom feature; this must
-        // degrade gracefully to the unsubstituted glyph, never throw.
         var html = "<p style=\"font-family: Arial; font-feature-settings: 'xyz1' 1\">Hello</p>";
 
         byte[] pdf = await HtmlToPdf.RenderAsync(html);
         var text = PdfAssert.ValidPdf(pdf);
 
-        // Embedded Arial: five glyph ids (4 hex digits each) under the feature-keyed font; standard-font fallback: literal.
-        text.Should().MatchRegex(@"\(Hello\) Tj|<[0-9A-F]{20}> Tj", "'Hello' is painted as five unsubstituted glyphs");
+        text.Should().MatchRegex(@"\(Hello\) Tj|<[0-9A-F]{20}> Tj",
+            "a feature the font doesn't have degrades to the five unsubstituted glyphs: four hex digits each when " +
+            "Arial is embedded, or literal text with the standard font");
     }
 }

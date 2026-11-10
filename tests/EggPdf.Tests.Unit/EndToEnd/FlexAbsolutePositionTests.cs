@@ -6,11 +6,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// Regression tests: absolutely positioned children of a flex container are
-/// out-of-flow — they must not consume flex space, and their top/right/bottom/left
-/// offsets must be honored relative to the positioned container.
-/// </summary>
 public class FlexAbsolutePositionTests
 {
     private static (float x, float y) FindTextPosition(byte[] pdf, string text)
@@ -47,8 +42,6 @@ public class FlexAbsolutePositionTests
     [Fact]
     public async Task AbsoluteChild_ContainingBlockIsPaddingBox_InsideBorder()
     {
-        // CSS 2.1 §10.1: the containing block of an absolutely positioned element
-        // is the ancestor's PADDING box — offsets count from inside the border.
         var pdf = await HtmlToPdf.RenderAsync(
             "<html><body style=\"margin:0;padding:0\">" +
             "<div style=\"position:relative;border:10px solid #000;width:100px;height:100px\">" +
@@ -61,9 +54,9 @@ public class FlexAbsolutePositionTests
         m.Success.Should().BeTrue("the absolute child's red background must be painted");
 
         float x = float.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
-        // left:0 lands at the padding edge: 10px border = 7.5pt from the box origin
         x.Should().BeApproximately(7.5f, 1f,
-            "left:0 must offset from inside the parent's border, not its border-box edge");
+            "an absolute box's containing block is the ancestor's padding box (CSS 2.1 §10.1), so left:0 lands inside " +
+            "the 10px (7.5pt) border, not at the border-box edge");
     }
 
     [Fact]
@@ -76,7 +69,6 @@ public class FlexAbsolutePositionTests
 
         var content = Encoding.ASCII.GetString(pdf);
 
-        // Red fill rect: "1.00 0.00 0.00 rg" then "x y w h re f"
         var match = Regex.Match(content,
             @"1\.00 0\.00 0\.00 rg\s+(-?\d+\.\d+) (-?\d+\.\d+) (-?\d+\.\d+) (-?\d+\.\d+) re f");
         match.Success.Should().BeTrue("the absolute child's red background must be painted");
@@ -84,11 +76,9 @@ public class FlexAbsolutePositionTests
         float x = float.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
         float w = float.Parse(match.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture);
 
-        // Container content starts at body offset (~6pt); container is 300px = 225pt wide.
-        // right:10px => box right edge at containerX + 225 - 7.5, box left = right - 37.5.
-        // With container at x≈6: expected x ≈ 6 + 225 - 7.5 - 37.5 = 186.
         w.Should().BeApproximately(37.5f, 1f, "50px = 37.5pt");
         x.Should().BeGreaterThan(150f,
-            "right:10px must place the box near the container's right edge, not at its left origin");
+            "right:10px puts the box near the right edge of the 300px (225pt) container that starts at ~6pt: " +
+            "6 + 225 - 7.5 - 37.5 = 186, not at its left origin");
     }
 }

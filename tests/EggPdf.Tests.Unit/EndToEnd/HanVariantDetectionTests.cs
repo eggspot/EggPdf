@@ -5,10 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// Han ideographs look different per region, and unmarked text gives no hint, so the preferred regional
-/// font follows the document's <c>lang</c> and otherwise the other scripts present in it.
-/// </summary>
 public class HanVariantDetectionTests
 {
     private static HanVariant Detect(string html) => HtmlToPdf.DetectHanVariant(HtmlParser.Parse(html));

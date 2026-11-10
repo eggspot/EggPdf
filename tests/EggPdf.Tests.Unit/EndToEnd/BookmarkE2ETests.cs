@@ -35,12 +35,10 @@ public class BookmarkE2ETests
     [Fact]
     public async Task LongDocument_BookmarksNavigateCorrectly()
     {
-        // Create a document with enough content to span multiple pages
         var sb = new StringBuilder();
         sb.Append("<h1>Introduction</h1>");
         sb.Append("<p>Intro text.</p>");
 
-        // Add enough content to push past a page boundary
         for (int i = 0; i < 50; i++)
             sb.Append($"<p>Filler paragraph {i} to push content to next page.</p>");
 
@@ -54,11 +52,9 @@ public class BookmarkE2ETests
         text.Should().Contain("Introduction");
         text.Should().Contain("Conclusion");
 
-        // Should have /Dest entries pointing to pages
-        text.Should().Contain("/Dest");
+        text.Should().Contain("/Dest", "each bookmark points at its heading's page");
         text.Should().Contain("/XYZ");
-
-        // Should have multiple pages
+        PdfAssert.PageCount(text).Should().BeGreaterThan(1, "the 50 filler paragraphs push the conclusion onto a later page");
         text.Should().Contain("/Count 2", because: "there are 2 top-level bookmarks");
     }
 

@@ -12,12 +12,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// Issue #240: text in a script the document's font lacks (Hangul in Arial, ...) painted as missing-glyph
-/// boxes. Fallback is chosen from installed fonts' real coverage for every script, so each test returns
-/// early when this machine has no font covering the sample (minimal CI images), like the other
-/// system-font tests; the fallback logic itself is covered with synthetic fonts in FontFallbackResolverTests.
-/// </summary>
 public class FontFallbackE2ETests
 {
     public static IEnumerable<object[]> Scripts() => new[]
@@ -136,8 +130,7 @@ public class FontFallbackE2ETests
 
         var pdf = await HtmlToPdf.RenderAsync("<html><body style='font-family: Arial'><p>" + hangul + "</p></body></html>");
 
-        // A full CJK font is many megabytes; two glyphs must stay small
-        pdf.Length.Should().BeLessThan(1_000_000);
+        pdf.Length.Should().BeLessThan(1_000_000, "a full CJK font is many megabytes, and two subsetted glyphs must stay small");
     }
 
     [Fact]
@@ -157,9 +150,6 @@ public class FontFallbackE2ETests
     [Fact]
     public async Task CjkText_WrapsAccordingToItsRealGlyphWidth()
     {
-        // 10 ideographs at 20px are ~200px wide; the old flat half-em estimate (10px each = 100px)
-        // would let them sit on one line inside a 120px box. word-break:break-all makes every
-        // character a break opportunity, so the wrap point depends only on the measured widths.
         const string han = "一二三四五六七八九十";
         if (!MachineCanDraw(han)) return;
 
@@ -168,7 +158,9 @@ public class FontFallbackE2ETests
         var pdf = await HtmlToPdf.RenderAsync(html);
 
         var lines = Regex.Matches(Encoding.Latin1.GetString(pdf), @"<[0-9A-Fa-f]{4,}>\s*Tj").Count;
-        lines.Should().Be(2, "6 characters fit in 120px at their real 20px advance, so 10 characters take two lines");
+        lines.Should().Be(2,
+            "break-all lets every character break, and 6 fit in 120px at their real 20px advance, so the 10 take two " +
+            "lines; a flat half-em estimate (10px each) would have put them on one");
     }
 
     [Fact]
@@ -177,12 +169,12 @@ public class FontFallbackE2ETests
         var warnings = new WarningCollector();
         var options = new PdfRenderOptions { Warnings = warnings };
 
-        // U+10FFFD is a Private Use code point in plane 16: no installed font maps it
         var pdf = await HtmlToPdf.RenderAsync("<html><body style='font-family: Arial'><p>Ref \U0010FFFD end</p></body></html>", options);
 
         pdf.Length.Should().BeGreaterThan(0, "rendering still succeeds");
         var warning = warnings.Warnings.Should().ContainSingle(w => w.Code == WarningCodes.GlyphMissing).Subject;
-        warning.Message.Should().Contain("U+10FFFD").And.Contain("Arial");
+        warning.Message.Should().Contain("U+10FFFD", "this plane-16 private use code point is mapped by no installed font")
+            .And.Contain("Arial");
         warning.Level.Should().Be(RenderWarningLevel.Warning);
     }
 
@@ -291,7 +283,6 @@ public class FontFallbackE2ETests
         {
             TextMeasurer.GlyphAdvanceProvider = (family, weight, style, cp) => cp == 0x1F600 ? 2.0f : -1f;
 
-            // One emoji (two UTF-16 units) at 2em replaces the flat 2 x 0.5em estimate: 40px, not 20 + 2 x 40
             TextMeasurer.MeasureWidth("\U0001F600", 20, "Arial").Should().BeApproximately(40f, 0.01f);
         }
         finally
