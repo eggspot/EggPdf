@@ -27,6 +27,8 @@ public static partial class VariableFontInstancer
 
     private const int HeadCheckSumAdjustment = 8, HeadIndexToLocFormat = 50;
     private const int MaxpNumGlyphs = 4, MaxpMaxPoints = 6, MaxpMaxContours = 8, MaxpMaxZones = 14;
+    private const int HheaAdvanceWidthMax = 10, HheaMinLeftSideBearing = 12, HheaMinRightSideBearing = 14, HheaXMaxExtent = 16;
+    private const int ScaledComponentOffset = 0x0800;
 
     private const int ArgsAreWords = 0x0001, ArgsAreXyValues = 0x0002, WeHaveScale = 0x0008, MoreComponents = 0x0020,
         WeHaveXyScale = 0x0040, WeHaveTwoByTwo = 0x0080, WeHaveInstructions = 0x0100;
@@ -279,6 +281,12 @@ public static partial class VariableFontInstancer
                     offX = offY = 0;
                     if (a1 < allX.Count && a2 < tx.Length) { offX = allX[a1] - tx[a2]; offY = allY[a1] - ty[a2]; }
                 }
+                else if ((c.Flags & ScaledComponentOffset) != 0)
+                {
+                    var (a, b, cc, d) = TransformMatrix(c.Transform);
+                    offX = (int)Math.Round(a * a1 + cc * a2);
+                    offY = (int)Math.Round(b * a1 + d * a2);
+                }
                 for (int k = 0; k < tx.Length; k++) { allX.Add(tx[k] + offX); allY.Add(ty[k] + offY); }
             }
 
@@ -311,11 +319,7 @@ public static partial class VariableFontInstancer
         /// </summary>
         private static (int[] x, int[] y) TransformPoints(InstancedGlyph child, byte[] t)
         {
-            float a = 1, b = 0, cc = 0, d = 1;
-            if (t.Length == 2) { a = d = F2Dot14(t, 0); }
-            else if (t.Length == 4) { a = F2Dot14(t, 0); d = F2Dot14(t, 2); }
-            else if (t.Length == 8) { a = F2Dot14(t, 0); b = F2Dot14(t, 2); cc = F2Dot14(t, 4); d = F2Dot14(t, 6); }
-
+            var (a, b, cc, d) = TransformMatrix(t);
             var xs = new int[child.PointsX.Length]; var ys = new int[xs.Length];
             for (int i = 0; i < xs.Length; i++)
             {
@@ -323,6 +327,15 @@ public static partial class VariableFontInstancer
                 ys[i] = (int)Math.Round(b * child.PointsX[i] + d * child.PointsY[i]);
             }
             return (xs, ys);
+        }
+
+        /// <summary>A component's transform as the matrix (a, b, c, d) of x' = a*x + c*y, y' = b*x + d*y.</summary>
+        private static (float a, float b, float c, float d) TransformMatrix(byte[] t)
+        {
+            if (t.Length == 2) { float s = F2Dot14(t, 0); return (s, 0, 0, s); }
+            if (t.Length == 4) return (F2Dot14(t, 0), 0, 0, F2Dot14(t, 2));
+            if (t.Length == 8) return (F2Dot14(t, 0), F2Dot14(t, 2), F2Dot14(t, 4), F2Dot14(t, 6));
+            return (1, 0, 0, 1);
         }
 
         private byte[] Assemble() => AssembleFont(_s, _glyphs!, _numHMetrics);
@@ -388,7 +401,8 @@ public static partial class VariableFontInstancer
         replaced["head"] = head;
 
         var hhea = Slice(source, "hhea");
-        PutI16(hhea, 10, advanceMax);
+        PutI16(hhea, HheaAdvanceWidthMax, advanceMax);
+        WriteHorizontalExtents(hhea, glyphs, numHMetrics);
         replaced["hhea"] = hhea;
 
         var maxp = Slice(source, "maxp");
@@ -411,6 +425,30 @@ public static partial class VariableFontInstancer
         }
         foreach (var kv in replaced) tables[kv.Key] = kv.Value;
         return WriteFont(tables);
+    }
+
+    /// <summary>
+    /// hhea's minLeftSideBearing, minRightSideBearing and xMaxExtent for the instanced glyphs (those with an outline),
+    /// so they describe the instance rather than the source's default location.
+    /// </summary>
+    private static void WriteHorizontalExtents(byte[] hhea, InstancedGlyph?[] glyphs, int numHMetrics)
+    {
+        int minLsb = int.MaxValue, minRsb = int.MaxValue, maxExtent = int.MinValue;
+        int sharedAdvance = numHMetrics > 0 && numHMetrics <= glyphs.Length ? glyphs[numHMetrics - 1]!.Advance : 0;
+        for (int g = 0; g < glyphs.Length; g++)
+        {
+            var glyph = glyphs[g]!;
+            if (!glyph.HasOutline) continue;
+            int advance = g < numHMetrics ? glyph.Advance : sharedAdvance;
+            int extent = glyph.LeftSideBearing + (glyph.XMax - glyph.XMin);
+            minLsb = Math.Min(minLsb, glyph.LeftSideBearing);
+            minRsb = Math.Min(minRsb, advance - extent);
+            maxExtent = Math.Max(maxExtent, extent);
+        }
+        if (maxExtent == int.MinValue) return;
+        PutI16(hhea, HheaMinLeftSideBearing, minLsb);
+        PutI16(hhea, HheaMinRightSideBearing, minRsb);
+        PutI16(hhea, HheaXMaxExtent, maxExtent);
     }
 
     private static byte[] Slice(Sfnt sfnt, string tag)
