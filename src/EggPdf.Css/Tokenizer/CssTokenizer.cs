@@ -10,6 +10,9 @@ namespace EggPdf.Css.Tokenizer;
 /// </summary>
 public class CssTokenizer
 {
+    private const string CdoText = "<!--";
+    private const string CdcText = "-->";
+
     private readonly string _input;
     private int _pos;
 
@@ -20,7 +23,6 @@ public class CssTokenizer
 
     public CssToken NextToken()
     {
-        // Skip comments
         SkipComments();
 
         if (_pos >= _input.Length)
@@ -28,46 +30,49 @@ public class CssTokenizer
 
         char c = _input[_pos];
 
-        // Whitespace
         if (IsWhitespace(c))
         {
             while (_pos < _input.Length && IsWhitespace(_input[_pos])) _pos++;
             return new CssToken { Type = CssTokenType.Whitespace, Value = " " };
         }
 
-        // String
         if (c == '"' || c == '\'')
             return ConsumeString(c);
 
-        // Hash
         if (c == '#')
         {
             _pos++;
-            var name = ConsumeIdent();
-            return new CssToken { Type = CssTokenType.Hash, Value = name };
+            if (_pos < _input.Length && (IsIdentChar(_input[_pos]) || StartsValidEscape(_pos)))
+                return new CssToken { Type = CssTokenType.Hash, Value = ConsumeIdent() };
+            return Delim('#');
         }
 
-        // At-keyword
         if (c == '@')
         {
             _pos++;
-            var name = ConsumeIdent();
-            return new CssToken { Type = CssTokenType.AtKeyword, Value = name };
+            if (WouldStartIdentifier(_pos))
+                return new CssToken { Type = CssTokenType.AtKeyword, Value = ConsumeIdent() };
+            return Delim('@');
         }
 
-        // Number, dimension, percentage
-        if (IsDigit(c) || (c == '.' && _pos + 1 < _input.Length && IsDigit(_input[_pos + 1])) ||
-            ((c == '-' || c == '+') && _pos + 1 < _input.Length && (IsDigit(_input[_pos + 1]) || _input[_pos + 1] == '.')))
-        {
+        if (StartsNumber(_pos))
             return ConsumeNumeric();
-        }
 
-        if (IsIdentStart(c) || c == '-' || StartsValidEscape(_pos))
+        if (c == '<' && StartsWithAt(_pos, CdoText))
         {
-            return ConsumeIdentLike();
+            _pos += CdoText.Length;
+            return new CssToken { Type = CssTokenType.CDO, Value = CdoText };
         }
 
-        // Single-character tokens
+        if (c == '-' && StartsWithAt(_pos, CdcText))
+        {
+            _pos += CdcText.Length;
+            return new CssToken { Type = CssTokenType.CDC, Value = CdcText };
+        }
+
+        if (WouldStartIdentifier(_pos))
+            return ConsumeIdentLike();
+
         _pos++;
         return c switch
         {
@@ -80,31 +85,27 @@ public class CssTokenizer
             ')' => new CssToken { Type = CssTokenType.RightParen, Value = ")" },
             '[' => new CssToken { Type = CssTokenType.LeftBracket, Value = "[" },
             ']' => new CssToken { Type = CssTokenType.RightBracket, Value = "]" },
-            _ => new CssToken { Type = CssTokenType.Delim, Value = c.ToString() }
+            _ => Delim(c)
         };
     }
+
+    private static CssToken Delim(char c) => new() { Type = CssTokenType.Delim, Value = c.ToString() };
+
+    private bool StartsWithAt(int pos, string text)
+        => pos + text.Length <= _input.Length && string.CompareOrdinal(_input, pos, text, 0, text.Length) == 0;
 
     private void SkipComments()
     {
         while (_pos + 1 < _input.Length && _input[_pos] == '/' && _input[_pos + 1] == '*')
         {
-            _pos += 2;
-            while (_pos + 1 < _input.Length)
-            {
-                if (_input[_pos] == '*' && _input[_pos + 1] == '/')
-                {
-                    _pos += 2;
-                    break;
-                }
-                _pos++;
-            }
-            if (_pos >= _input.Length) break;
+            int end = _input.IndexOf("*/", _pos + 2, StringComparison.Ordinal);
+            _pos = end < 0 ? _input.Length : end + 2;
         }
     }
 
     private CssToken ConsumeString(char quote)
     {
-        _pos++; // skip opening quote
+        _pos++;
         var sb = new StringBuilder();
         while (_pos < _input.Length)
         {
@@ -116,7 +117,7 @@ public class CssTokenizer
                 CssStringEscapes.AppendEscape(_input, ref _pos, sb);
                 continue;
             }
-            if (c == '\n') break; // bad string
+            if (c == '\n') break;
             sb.Append(c);
             _pos++;
         }
@@ -125,69 +126,68 @@ public class CssTokenizer
 
     private CssToken ConsumeNumeric()
     {
-        var numStr = new StringBuilder();
+        int start = _pos;
 
-        // Optional sign
-        if (_pos < _input.Length && (_input[_pos] == '-' || _input[_pos] == '+'))
-        {
-            numStr.Append(_input[_pos]);
+        if (_input[_pos] == '-' || _input[_pos] == '+')
             _pos++;
-        }
 
-        // Integer part
         while (_pos < _input.Length && IsDigit(_input[_pos]))
-        {
-            numStr.Append(_input[_pos]);
             _pos++;
-        }
 
-        // Decimal part
         if (_pos + 1 < _input.Length && _input[_pos] == '.' && IsDigit(_input[_pos + 1]))
         {
-            numStr.Append('.');
             _pos++;
             while (_pos < _input.Length && IsDigit(_input[_pos]))
-            {
-                numStr.Append(_input[_pos]);
                 _pos++;
-            }
         }
 
-        double numValue = 0;
-        double.TryParse(numStr.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out numValue);
+        if (StartsExponent(_pos))
+        {
+            _pos++;
+            if (_input[_pos] == '-' || _input[_pos] == '+')
+                _pos++;
+            while (_pos < _input.Length && IsDigit(_input[_pos]))
+                _pos++;
+        }
 
-        // Check for % (percentage)
+        string number = _input.Substring(start, _pos - start);
+        double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out double numValue);
+
         if (_pos < _input.Length && _input[_pos] == '%')
         {
             _pos++;
-            return new CssToken { Type = CssTokenType.Percentage, NumericValue = numValue, Value = numStr.ToString() + "%" };
+            return new CssToken { Type = CssTokenType.Percentage, NumericValue = numValue, Value = number + "%" };
         }
 
-        // Check for unit (dimension)
-        if (_pos < _input.Length && (IsIdentStart(_input[_pos]) || _input[_pos] == '-'))
+        if (WouldStartIdentifier(_pos))
         {
             var unit = ConsumeIdent();
-            return new CssToken { Type = CssTokenType.Dimension, NumericValue = numValue, Unit = unit, Value = numStr.ToString() + unit };
+            return new CssToken { Type = CssTokenType.Dimension, NumericValue = numValue, Unit = unit, Value = number + unit };
         }
 
-        return new CssToken { Type = CssTokenType.Number, NumericValue = numValue, Value = numStr.ToString() };
+        return new CssToken { Type = CssTokenType.Number, NumericValue = numValue, Value = number };
+    }
+
+    /// <summary>An 'e' or 'E' followed by digits, optionally signed, continues a number as its exponent.</summary>
+    private bool StartsExponent(int pos)
+    {
+        if (pos >= _input.Length || (_input[pos] != 'e' && _input[pos] != 'E'))
+            return false;
+        int next = pos + 1;
+        if (next < _input.Length && (_input[next] == '-' || _input[next] == '+'))
+            next++;
+        return next < _input.Length && IsDigit(_input[next]);
     }
 
     private CssToken ConsumeIdentLike()
     {
         var name = ConsumeIdent();
 
-        // Check for function: ident followed by (
         if (_pos < _input.Length && _input[_pos] == '(')
         {
-            _pos++; // consume (
-
-            // Special case: url(
+            _pos++;
             if (string.Equals(name, "url", StringComparison.OrdinalIgnoreCase))
-            {
                 return ConsumeUrl();
-            }
-
             return new CssToken { Type = CssTokenType.Function, Value = name };
         }
 
@@ -196,30 +196,25 @@ public class CssTokenizer
 
     private CssToken ConsumeUrl()
     {
-        // Skip whitespace
         while (_pos < _input.Length && IsWhitespace(_input[_pos])) _pos++;
 
         if (_pos >= _input.Length)
             return new CssToken { Type = CssTokenType.Url, Value = "" };
 
-        // Quoted URL
         if (_input[_pos] == '"' || _input[_pos] == '\'')
         {
             var str = ConsumeString(_input[_pos]);
-            // Skip to )
             while (_pos < _input.Length && _input[_pos] != ')') _pos++;
-            if (_pos < _input.Length) _pos++; // skip )
+            if (_pos < _input.Length) _pos++;
             return new CssToken { Type = CssTokenType.Url, Value = str.Value };
         }
 
-        // Unquoted URL
         var sb = new StringBuilder();
         while (_pos < _input.Length && _input[_pos] != ')' && !IsWhitespace(_input[_pos]))
         {
             sb.Append(_input[_pos]);
             _pos++;
         }
-        // Skip whitespace and )
         while (_pos < _input.Length && IsWhitespace(_input[_pos])) _pos++;
         if (_pos < _input.Length && _input[_pos] == ')') _pos++;
 
@@ -248,6 +243,35 @@ public class CssTokenizer
             }
         }
         return sb.ToString();
+    }
+
+    /// <summary>CSS Syntax "check if three code points would start a number".</summary>
+    private bool StartsNumber(int pos)
+    {
+        char c = _input[pos];
+        if (c == '+' || c == '-')
+        {
+            if (pos + 1 >= _input.Length) return false;
+            if (IsDigit(_input[pos + 1])) return true;
+            return _input[pos + 1] == '.' && pos + 2 < _input.Length && IsDigit(_input[pos + 2]);
+        }
+        if (c == '.')
+            return pos + 1 < _input.Length && IsDigit(_input[pos + 1]);
+        return IsDigit(c);
+    }
+
+    /// <summary>CSS Syntax "check if three code points would start an ident sequence".</summary>
+    private bool WouldStartIdentifier(int pos)
+    {
+        if (pos >= _input.Length) return false;
+        char c = _input[pos];
+        if (c == '-')
+        {
+            if (pos + 1 >= _input.Length) return false;
+            char next = _input[pos + 1];
+            return IsIdentStart(next) || next == '-' || StartsValidEscape(pos + 1);
+        }
+        return IsIdentStart(c) || StartsValidEscape(pos);
     }
 
     private bool StartsValidEscape(int pos) =>

@@ -22,7 +22,9 @@ public enum CssTokenType
     LeftCurly,
     RightCurly,
     Delim,
-    EOF
+    EOF,
+    CDO,
+    CDC
 }
 
 /// <summary>A CSS token per CSS Syntax Level 3.</summary>

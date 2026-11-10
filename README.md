@@ -208,7 +208,8 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   border-style/inset/border-radius corners, `float: inline-start`/`inline-end`) resolve to their
   mirrored physical values; table columns lay out right-to-left and list markers hang on the
   right, matching a browser
-- CSS Custom Properties (`var()`)
+- CSS Custom Properties (`var()`), computed where they are declared as in Chrome (reference cycles fall
+  back), and CSS nesting at any depth (selector lists, nested `@media`/`@supports`/`@layer`)
 - Legacy HTML presentational attributes, mapped as the HTML rendering spec does (author CSS wins):
   `width`/`height` (`"200px"`, `"50%"`), table `border`/`cellpadding`/`cellspacing`/`align`
   (`center` centers the table, `left`/`right` float it), cell `nowrap`/`valign`, `bgcolor`/`background`,
