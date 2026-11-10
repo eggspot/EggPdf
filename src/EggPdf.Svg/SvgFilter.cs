@@ -54,7 +54,7 @@ internal sealed partial class SvgFilter
 
     private SvgFilter(SvgElement element) { _element = element; }
 
-    /// <summary>Parse a &lt;filter&gt; element; null when it has no primitives or uses an unsupported one.</summary>
+    /// <summary>Parse a &lt;filter&gt; element; null when it has no primitives, uses an unsupported one, or has a lighting primitive without a light source.</summary>
     public static SvgFilter? TryParse(SvgElement filterElement)
     {
         var filter = new SvgFilter(filterElement);
@@ -76,7 +76,7 @@ internal sealed partial class SvgFilter
                     });
                     break;
                 case "fediffuselighting": case "fespecularlighting":
-                    if (FindLight(child) == null) return null; // a lighting primitive is meaningless without a light
+                    if (FindLight(child) == null) return null;
                     filter._primitives.Add(new Primitive
                     {
                         Kind = child.TagName,
@@ -103,8 +103,6 @@ internal sealed partial class SvgFilter
             default: return fallback;
         }
     }
-
-    // ── Filter region ─────────────────────────────────────────────────────────
 
     /// <summary>
     /// The filter region in the filtered element's local coordinates (default -10%/-10%/120%/120%
@@ -138,14 +136,14 @@ internal sealed partial class SvgFilter
         return float.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out float n) ? (percent ? n / 100f : n) : fallback;
     }
 
-    // ── Evaluation ────────────────────────────────────────────────────────────
-
-    /// <summary>Run the primitives over <paramref name="source"/> (the sRGB SourceGraphic) and return the sRGB result.</summary>
+    /// <summary>
+    /// Run the primitives over <paramref name="source"/> (the sRGB SourceGraphic) and return the sRGB result. Each
+    /// result's primitive subregion (in pixels) is kept for feTile.
+    /// </summary>
     public FilterImage Run(FilterImage source, in FilterRunContext ctx)
     {
         var named = new Dictionary<string, FilterImage>();
         FilterImage? previous = null;
-        // Each result's primitive subregion (pixels), needed by feTile
         var subregions = new Dictionary<FilterImage, (int x0, int y0, int x1, int y1)>();
 
         foreach (var prim in _primitives)
@@ -254,7 +252,8 @@ internal sealed partial class SvgFilter
                 case "fediffuselighting": case "fespecularlighting":
                     output = Lighting(el, Input("in"), prim.Kind == "fespecularlighting", linear, ctx);
                     break;
-                default: // fedropshadow
+                case "fedropshadow":
+                default:
                     output = DropShadow(el, Input("in"), linear, ctx);
                     break;
             }
@@ -389,7 +388,6 @@ internal sealed partial class SvgFilter
         var ws = el.GetAttribute("width"); var hs = el.GetAttribute("height");
         if (xs.Length == 0 && ys.Length == 0 && ws.Length == 0 && hs.Length == 0) return img;
 
-        // Map the specified user-space rectangle into canvas space; unspecified sides keep the canvas edge
         float x0 = 0, y0 = 0, x1 = img.Width, y1 = img.Height;
         float ux = Number(xs, float.NaN), uy = Number(ys, float.NaN);
         float uw = Number(ws, float.NaN), uh = Number(hs, float.NaN);
@@ -411,8 +409,6 @@ internal sealed partial class SvgFilter
 
     private static (float x, float y) Map(in FilterRunContext c, float x, float y)
         => (c.A * x + c.C * y + c.E, c.B * x + c.D * y + c.F);
-
-    // ── Value parsing ─────────────────────────────────────────────────────────
 
     /// <summary>An attribute, or the same-named declaration inside a style="" attribute.</summary>
     internal static string Prop(SvgElement el, string name)

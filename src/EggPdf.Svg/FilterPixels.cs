@@ -9,11 +9,10 @@ namespace EggPdf.Svg;
 /// </summary>
 internal static partial class FilterPixels
 {
-    // ── Gaussian blur ─────────────────────────────────────────────────────────
-
     /// <summary>
     /// feGaussianBlur as the Filter Effects spec computes it: a true Gaussian kernel for small
-    /// deviations, three successive box blurs (an excellent, O(n) approximation) from sigma 2 up.
+    /// deviations, three successive box blurs (an excellent, O(n) approximation) from sigma 2 up. With an even box
+    /// size d, the first two boxes are offset left and right by half a pixel and the third has size d+1, centred.
     /// </summary>
     public static FilterImage Blur(FilterImage src, float sigmaX, float sigmaY)
     {
@@ -49,9 +48,9 @@ internal static partial class FilterPixels
         else
         {
             int r = d / 2;
-            BoxPass(img.Px, tmp, lineCount, lineLen, elem, line, r, r - 1);   // window offset left
-            BoxPass(tmp, img.Px, lineCount, lineLen, elem, line, r - 1, r);   // window offset right
-            BoxPass(img.Px, tmp, lineCount, lineLen, elem, line, r, r);       // size d+1, centred
+            BoxPass(img.Px, tmp, lineCount, lineLen, elem, line, r, r - 1);
+            BoxPass(tmp, img.Px, lineCount, lineLen, elem, line, r - 1, r);
+            BoxPass(img.Px, tmp, lineCount, lineLen, elem, line, r, r);
             Array.Copy(tmp, img.Px, tmp.Length);
         }
     }
@@ -110,8 +109,6 @@ internal static partial class FilterPixels
         }
     }
 
-    // ── Geometry ──────────────────────────────────────────────────────────────
-
     /// <summary>feOffset: shift the image by whole pixels; uncovered pixels become transparent.</summary>
     public static FilterImage Offset(FilterImage src, float dx, float dy)
     {
@@ -131,7 +128,10 @@ internal static partial class FilterPixels
         return result;
     }
 
-    /// <summary>feMorphology: per-channel min (erode) or max (dilate) over a (2rx+1) x (2ry+1) window.</summary>
+    /// <summary>
+    /// feMorphology: per-channel min (erode) or max (dilate) over a (2rx+1) x (2ry+1) window. Outside the image is
+    /// transparent black, so it wins every erode and loses every dilate.
+    /// </summary>
     public static FilterImage Morphology(FilterImage src, bool dilate, int radiusX, int radiusY)
     {
         var current = src;
@@ -154,7 +154,6 @@ internal static partial class FilterPixels
                     for (int k = -radius; k <= radius; k++)
                     {
                         int sx = horizontal ? x + k : x, sy = horizontal ? y : y + k;
-                        // Outside the image is transparent black: it wins every erode, loses every dilate
                         float v = sx < 0 || sx >= w || sy < 0 || sy >= h ? 0f : src.Px[(sy * w + sx) * 4 + c];
                         best = dilate ? Math.Max(best, v) : Math.Min(best, v);
                     }
@@ -165,8 +164,7 @@ internal static partial class FilterPixels
         return result;
     }
 
-    // ── Color ─────────────────────────────────────────────────────────────────
-
+    /// <summary>feFlood: the whole image in one premultiplied color.</summary>
     public static FilterImage Flood(int width, int height, bool linear, float r, float g, float b, float a)
     {
         var img = new FilterImage(width, height, linear);
@@ -285,8 +283,6 @@ internal static partial class FilterPixels
         return result;
     }
 
-    // ── Compositing ───────────────────────────────────────────────────────────
-
     /// <summary>feMerge / source-over: <paramref name="top"/> drawn over <paramref name="bottom"/>.</summary>
     public static FilterImage Over(FilterImage top, FilterImage bottom)
     {
@@ -299,7 +295,10 @@ internal static partial class FilterPixels
         return result;
     }
 
-    /// <summary>feComposite. <paramref name="src"/> is <c>in</c>, <paramref name="dst"/> is <c>in2</c>.</summary>
+    /// <summary>
+    /// feComposite. <paramref name="src"/> is <c>in</c>, <paramref name="dst"/> is <c>in2</c>; an unknown operator is
+    /// <c>over</c>. Premultiplied color is then capped at alpha, which <c>arithmetic</c> can otherwise exceed.
+    /// </summary>
     public static FilterImage Composite(FilterImage src, FilterImage dst, string op, float k1, float k2, float k3, float k4)
     {
         var result = new FilterImage(src.Width, src.Height, src.Linear);
@@ -316,11 +315,10 @@ internal static partial class FilterPixels
                     case "atop": v = s * da + d * (1f - sa); break;
                     case "xor": v = s * (1f - da) + d * (1f - sa); break;
                     case "arithmetic": v = k1 * s * d + k2 * s + k3 * d + k4; break;
-                    default: v = s + d * (1f - sa); break; // over
+                    default: v = s + d * (1f - sa); break;
                 }
                 result.Px[i + c] = Clamp01(v);
             }
-            // Premultiplied colour can never exceed alpha (arithmetic can violate that)
             float a = result.Px[i + 3];
             for (int c = 0; c < 3; c++) if (result.Px[i + c] > a) result.Px[i + c] = a;
         }
@@ -345,7 +343,7 @@ internal static partial class FilterPixels
         return result;
     }
 
-    /// <summary>The separable blend functions of Compositing and Blending Level 1 (cb backdrop, cs source).</summary>
+    /// <summary>The separable blend functions of Compositing and Blending Level 1 (cb backdrop, cs source); an unknown mode is <c>normal</c>.</summary>
     private static float BlendChannel(string mode, float cb, float cs)
     {
         switch (mode)
@@ -366,7 +364,7 @@ internal static partial class FilterPixels
             }
             case "difference": return Math.Abs(cb - cs);
             case "exclusion": return cb + cs - 2f * cb * cs;
-            default: return cs; // normal
+            default: return cs;
         }
     }
 
