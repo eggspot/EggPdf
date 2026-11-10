@@ -87,7 +87,6 @@ public class PdfStructureTreeTests
     public void ContentStream_HasMatchingBdcEmc()
     {
         var (doc, _) = DocWithTaggedParagraph();
-        // Content streams are FlateDecode-compressed by default; disable compression to inspect the raw stream text.
         doc.CompressContentStreams = false;
         var text = Encoding.Latin1.GetString(doc.ToByteArray());
 
@@ -106,8 +105,7 @@ public class PdfStructureTreeTests
         text.Should().Contain("<pdfuaid:part>1</pdfuaid:part>");
         text.Should().Contain("<dc:title>");
         text.Should().Contain("My Title");
-        // Tagging alone doesn't need an ICC output intent -- that's a PDF/A-only requirement.
-        text.Should().NotContain("/OutputIntents");
+        text.Should().NotContain("/OutputIntents", "tagging alone needs no ICC output intent; only PDF/A does");
     }
 
     [Fact]
@@ -124,7 +122,8 @@ public class PdfStructureTreeTests
     [Fact]
     public void StructureTree_NoTitleSet_DefaultsToPlaceholder()
     {
-        var doc = new PdfDocument(); // no Title set
+        var doc = new PdfDocument();
+        doc.Title.Should().BeNullOrEmpty();
         var page = doc.AddPage(595.28f, 841.89f);
         var docElem = new PdfStructureElement("Document");
         int mcid = page.BeginMarkedContent("P");
@@ -200,13 +199,11 @@ public class PdfStructureTreeTests
 
         var text = Encoding.Latin1.GetString(doc.ToByteArray());
 
-        // The annotation must be an indirect object (referenced from /Annots, not written inline)
-        // so /Type /OBJR /Obj can point back to the exact same dictionary.
-        text.Should().MatchRegex(@"/Annots \[\s*\d+ 0 R");
+        text.Should().MatchRegex(@"/Annots \[\s*\d+ 0 R",
+            "a tagged annotation is an indirect object, not written inline, so /Type /OBJR /Obj can point back to it");
         text.Should().Contain("/Type /OBJR");
-        // One page (index 0) already occupies ParentTree key 0, so the annotation's own key
-        // starts at 1 -- it must never collide with a page's /StructParents value.
-        text.Should().Contain("/StructParent 1");
+        text.Should().Contain("/StructParent 1",
+            "the page already holds ParentTree key 0, so the annotation's key starts at 1 and never collides with /StructParents");
         text.Should().Contain("/Subtype /Link");
     }
 
@@ -220,7 +217,8 @@ public class PdfStructureTreeTests
         page.EndMarkedContent();
         docElem.AddContentRef(page.PageIndex, mcid);
         doc.StructureTree = docElem;
-        page.AddLink(72, 700, 100, 20, "https://example.com"); // TaggedElement left null
+        var link = page.AddLink(72, 700, 100, 20, "https://example.com");
+        link.TaggedElement.Should().BeNull();
 
         var text = Encoding.Latin1.GetString(doc.ToByteArray());
 
