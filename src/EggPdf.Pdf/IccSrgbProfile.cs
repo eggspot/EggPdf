@@ -6,10 +6,8 @@ namespace EggPdf.Pdf;
 /// <summary>
 /// Generates a minimal but structurally valid ICC v2 RGB Display (matrix/TRC) profile
 /// approximating sRGB (IEC 61966-2-1), for PDF/A OutputIntent's required DestOutputProfile.
-/// Primaries and white point are the standard D50-adapted sRGB values; the tone curve is
-/// approximated as a single gamma-2.2 'curv' tag rather than sRGB's exact piecewise curve --
-/// sufficient for the structural conformance a PDF/A OutputIntent requires, not a colorimetric
-/// reference profile. The profile is identical on every call, so it is built once.
+/// Primaries and white point are the standard D50-adapted sRGB values, and the tone curves sample
+/// sRGB's exact piecewise transfer function. The profile is identical on every call, so it is built once.
 /// </summary>
 public static class IccSrgbProfile
 {
@@ -18,6 +16,7 @@ public static class IccSrgbProfile
     private const uint ProfileVersion2_1 = 0x02100000;
     private const uint PerceptualIntent = 0;
     private const double D50X = 0.9642, D50Y = 1.0000, D50Z = 0.8249;
+    private const int CurveEntries = 1024;
 
     private static readonly byte[] Cached = Build();
 
@@ -39,9 +38,9 @@ public static class IccSrgbProfile
             ("rXYZ", BuildXyzTag(0.4360, 0.2225, 0.0139)),
             ("gXYZ", BuildXyzTag(0.3851, 0.7169, 0.0971)),
             ("bXYZ", BuildXyzTag(0.1431, 0.0606, 0.7139)),
-            ("rTRC", BuildGammaCurveTag(2.2)),
-            ("gTRC", BuildGammaCurveTag(2.2)),
-            ("bTRC", BuildGammaCurveTag(2.2)),
+            ("rTRC", BuildSrgbCurveTag()),
+            ("gTRC", BuildSrgbCurveTag()),
+            ("bTRC", BuildSrgbCurveTag()),
         };
 
         int tagTableSize = 4 + tags.Length * TagEntrySize;
@@ -133,13 +132,21 @@ public static class IccSrgbProfile
         return buf;
     }
 
-    /// <summary>curveType ('curv') with a single entry -- a pure power-law gamma curve as a u8Fixed8Number.</summary>
-    private static byte[] BuildGammaCurveTag(double gamma)
+    /// <summary>
+    /// curveType ('curv') sampling the exact sRGB transfer function (a linear segment below 0.04045, then the 2.4 power
+    /// curve) at <see cref="CurveEntries"/> evenly spaced inputs, as 16-bit values.
+    /// </summary>
+    private static byte[] BuildSrgbCurveTag()
     {
-        var buf = new byte[4 + 4 + 4 + 2];
+        var buf = new byte[4 + 4 + 4 + 2 * CurveEntries];
         WriteAscii(buf, 0, "curv");
-        WriteU32(buf, 8, 1);
-        WriteU16(buf, 12, (ushort)Math.Round(gamma * 256.0));
+        WriteU32(buf, 8, CurveEntries);
+        for (int i = 0; i < CurveEntries; i++)
+        {
+            double encoded = i / (double)(CurveEntries - 1);
+            double linear = encoded <= 0.04045 ? encoded / 12.92 : Math.Pow((encoded + 0.055) / 1.055, 2.4);
+            WriteU16(buf, 12 + 2 * i, (ushort)Math.Round(linear * 65535.0));
+        }
         return buf;
     }
 
