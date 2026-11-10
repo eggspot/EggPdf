@@ -4,11 +4,8 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary>Tests for font-variant properties: small-caps, numeric variants.</summary>
 public class FontVariantTests
 {
-    // ── font-variant: small-caps ────────────────────────────────────────────
-
     [Fact]
     public void FontVariant_SmallCaps_StylePreserved()
     {
@@ -41,8 +38,6 @@ public class FontVariantTests
         h1!.Style.Get("font-variant-caps").Should().Be("all-small-caps");
     }
 
-    // ── font-variant-numeric ─────────────────────────────────────────────────
-
     [Fact]
     public void FontVariantNumeric_OldstyleNums_StylePreserved()
     {
@@ -62,8 +57,6 @@ public class FontVariantTests
         p!.Style.Get("font-variant-numeric").Should().Be("tabular-nums");
     }
 
-    // ── font-variant shorthand expansion ────────────────────────────────────
-
     [Fact]
     public void FontVariant_Normal_StylePreserved()
     {
@@ -76,7 +69,6 @@ public class FontVariantTests
     [Fact]
     public void FontVariant_Inherited_FromParent()
     {
-        // font-variant is an inherited property
         var root = LayoutTestHelper.Layout(
             "<div style='font-variant: small-caps'><span>child</span></div>", 400, 600);
         var span = root.FindByTag("span");
@@ -84,8 +76,6 @@ public class FontVariantTests
         span!.Style.Get("font-variant").Should().Be("small-caps",
             "font-variant is inherited and should propagate to children");
     }
-
-    // ── font-feature-settings ────────────────────────────────────────────────
 
     [Fact]
     public void FontFeatureSettings_Liga0_StylePreserved()
@@ -117,8 +107,6 @@ public class FontVariantTests
             "font-feature-settings is inherited");
     }
 
-    // ── font-synthesis ───────────────────────────────────────────────────────
-
     [Fact]
     public void FontSynthesis_None_StylePreserved()
     {
@@ -147,8 +135,6 @@ public class FontVariantTests
             "font-synthesis is inherited");
     }
 
-    // ── font-size-adjust ─────────────────────────────────────────────────────
-
     [Fact]
     public void FontSizeAdjust_NumericValue_StylePreserved()
     {
@@ -168,10 +154,8 @@ public class FontVariantTests
     }
 
     [Fact]
-    public void FontSizeAdjust_AffectsEffectiveFontSize()
+    public void FontSizeAdjust_WithFontSize_LaysOutTheParagraph()
     {
-        // font-size: 20px, font-size-adjust: 0.5 → effective size = 20 * 0.5 / x-height-ratio
-        // For a layout test we just verify the element renders without crash
         var root = LayoutTestHelper.Layout(
             "<p style='font-size: 20px; font-size-adjust: 0.5'>Hello</p>", 400, 600);
         var p = root.FindByTag("p");

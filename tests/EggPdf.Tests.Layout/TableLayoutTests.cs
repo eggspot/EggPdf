@@ -23,14 +23,7 @@ public class TableLayoutTests
         var root = LayoutTestHelper.Layout(
             "<table><tbody><tr><td>Cell</td></tr></tbody></table>", 600, 800);
 
-        // tr may be nested inside tbody
-        var tr = root.FindByTag("tr");
-        if (tr == null)
-        {
-            // Also check tbody children
-            var tbody = root.FindByTag("tbody");
-            tbody.Should().NotBeNull();
-        }
+        root.FindByTag("tr").Should().NotBeNull("a row nested in tbody still gets a layout box");
     }
 
     [Fact]
@@ -127,7 +120,6 @@ public class TableLayoutTests
     [Fact]
     public void VerticalAlignMiddle_ShiftsContentDown()
     {
-        // Cell with explicit height and vertical-align:middle
         var html = @"<table><tr>
             <td style='height: 100px; vertical-align: middle;'>Mid</td>
             <td style='height: 100px; vertical-align: top;'>Top</td>
@@ -137,19 +129,15 @@ public class TableLayoutTests
         var cells = root.FindAllByTag("td");
         cells.Should().HaveCount(2);
 
-        // Middle-aligned cell: children should be shifted down from top
         var midCell = cells[0];
         var topCell = cells[1];
+        midCell.Children.Should().NotBeEmpty();
+        topCell.Children.Should().NotBeEmpty();
 
-        if (midCell.Children.Count > 0 && topCell.Children.Count > 0)
-        {
-            // The first child of middle cell should be below the first child of top cell
-            // (relative to their respective cells)
-            float midChildRelY = midCell.Children[0].Y - midCell.Y;
-            float topChildRelY = topCell.Children[0].Y - topCell.Y;
-            midChildRelY.Should().BeGreaterOrEqualTo(topChildRelY,
-                "middle-aligned content should be shifted down");
-        }
+        float midChildRelY = midCell.Children[0].Y - midCell.Y;
+        float topChildRelY = topCell.Children[0].Y - topCell.Y;
+        midChildRelY.Should().BeGreaterOrEqualTo(topChildRelY,
+            "within its own cell, middle-aligned content is not above top-aligned content");
     }
 
     [Fact]
@@ -162,13 +150,10 @@ public class TableLayoutTests
 
         var cell = root.FindByTag("td");
         cell.Should().NotBeNull();
+        cell!.Children.Should().NotBeEmpty();
 
-        if (cell!.Children.Count > 0)
-        {
-            // Bottom-aligned: child should be near the bottom of the cell
-            float childRelY = cell.Children[0].Y - cell.Y;
-            childRelY.Should().BeGreaterThan(0, "bottom-aligned content should be shifted down");
-        }
+        float childRelY = cell.Children[0].Y - cell.Y;
+        childRelY.Should().BeGreaterThan(0, "bottom-aligned content should be shifted down");
     }
 
     [Fact]
@@ -183,10 +168,9 @@ public class TableLayoutTests
         var cells = root.FindAllByTag("td");
         cells.Should().HaveCount(2);
 
-        // Second cell should have left border zeroed (shared with first cell's right)
         var secondCell = cells[1];
         var leftBorderWidth = secondCell.Style.Get("border-left-width");
-        leftBorderWidth.Should().Be("0", "shared edge border should be zeroed in collapse mode");
+        leftBorderWidth.Should().Be("0", "the edge shared with the first cell's right border is drawn once, in collapse mode");
     }
 
     [Fact]
@@ -201,7 +185,6 @@ public class TableLayoutTests
         var cells = root.FindAllByTag("td");
         cells.Should().HaveCount(2);
 
-        // In separate mode, second cell should keep its left border
         var secondCell = cells[1];
         var leftBorderWidth = secondCell.Style.Get("border-left-width");
         leftBorderWidth.Should().NotBe("0", "separate mode should keep all borders");
@@ -221,7 +204,6 @@ public class TableLayoutTests
         var cells = root.FindAllByTag("td");
         cells.Should().HaveCount(4);
 
-        // Verify cells are edge-to-edge: each cell's X == previous cell's X + Width
         for (int i = 1; i < cells.Count; i++)
         {
             var prevRightEdge = cells[i - 1].X + cells[i - 1].Width;
@@ -230,7 +212,6 @@ public class TableLayoutTests
                 $"cell {i} X ({currentX}) should equal cell {i - 1} right edge ({prevRightEdge}) - no gaps");
         }
 
-        // Verify total width of all cells fills the row
         var row = root.FindByTag("tr");
         row.Should().NotBeNull();
         var firstCellX = cells[0].X;
@@ -243,7 +224,6 @@ public class TableLayoutTests
     [Fact]
     public void BorderCollapse_WithStyleTag_CellsEdgeToEdge()
     {
-        // Test with CSS from <style> tag (uses CascadeResolver)
         var css = @"table { width: 100%; border-collapse: collapse; }
             th, td { border: 1px solid #ddd; padding: 10px; }";
         var html = @"<html><head><style>" + css + @"</style></head><body>
@@ -253,17 +233,15 @@ public class TableLayoutTests
 
         var document = EggPdf.Html.HtmlParser.Parse(html);
         var sheet = EggPdf.Css.Parser.CssStyleSheetParser.Parse(css);
-        var cascade = new EggPdf.Css.Cascade.CascadeResolver(new[] { sheet }, "print");
-        var root = BlockLayout.LayoutDocument(document, 595, 842, cascade);
+        var cascadeFromAStyleTag = new EggPdf.Css.Cascade.CascadeResolver(new[] { sheet }, "print");
+        var root = BlockLayout.LayoutDocument(document, 595, 842, cascadeFromAStyleTag);
 
-        // Verify border-collapse was actually resolved
         var table = root.FindByTag("table");
         table!.Style.Get("border-collapse").Should().Be("collapse");
 
         var headerCells = root.FindAllByTag("th");
         headerCells.Should().HaveCount(4);
 
-        // Verify header cells are edge-to-edge
         for (int i = 1; i < headerCells.Count; i++)
         {
             var prevRightEdge = headerCells[i - 1].X + headerCells[i - 1].Width;
@@ -272,7 +250,6 @@ public class TableLayoutTests
                 $"header cell {i} X ({currentX:F2}) should equal cell {i - 1} right edge ({prevRightEdge:F2})");
         }
 
-        // Verify data cells
         var dataCells = root.FindAllByTag("td");
         dataCells.Should().HaveCount(4);
 
@@ -298,7 +275,6 @@ public class TableLayoutTests
         var rows = root.FindAllByTag("tr");
         rows.Should().HaveCountGreaterOrEqualTo(4, "header + 3 body rows");
 
-        // Each row should have a unique, increasing Y position
         for (int i = 1; i < rows.Count; i++)
         {
             rows[i].Y.Should().BeGreaterThan(rows[i - 1].Y,
@@ -309,7 +285,6 @@ public class TableLayoutTests
     [Fact]
     public void RowCells_EqualHeight()
     {
-        // One cell has more content; both should end up same height
         var html = @"<table><tr>
             <td>Short</td>
             <td>This is a much longer cell content that should not break</td>
@@ -318,14 +293,12 @@ public class TableLayoutTests
 
         var cells = root.FindAllByTag("td");
         cells.Should().HaveCount(2);
-        cells[0].Height.Should().Be(cells[1].Height, "cells in same row should have equal height");
+        cells[0].Height.Should().Be(cells[1].Height, "cells in same row should have equal height, whatever their content");
     }
 
     [Fact]
     public void VisibilityCollapse_TableRow_TakesNoSpace()
     {
-        // Row 2 is visibility:collapse — it must not contribute height to the table.
-        // Row 3 should start at the same Y as Row 2 would have if Row 2 were not there.
         var html =
             "<table>" +
             "<tr id='r1'><td style='padding:10px'>Row1</td></tr>" +
@@ -341,10 +314,7 @@ public class TableLayoutTests
         var r2 = rows[1];
         var r3 = rows[2];
 
-        // Collapsed row should have zero height in layout
         r2.Height.Should().Be(0f, "visibility:collapse row must contribute no height");
-
-        // Row 3 should start where Row 2 would have started (immediately after Row 1)
         r3.Y.Should().BeApproximately(r1.Y + r1.Height, 1f,
             "row after collapsed row should be positioned as if collapsed row does not exist");
     }
@@ -352,7 +322,6 @@ public class TableLayoutTests
     [Fact]
     public void VisibilityCollapse_NonTableElement_KeepsSpace()
     {
-        // visibility:collapse on non-table elements behaves like visibility:hidden — keeps space
         var html =
             "<div>" +
             "<p id='p1' style='height:30px'>Para1</p>" +
@@ -367,16 +336,11 @@ public class TableLayoutTests
         var p2 = paras[1];
         var p3 = paras[2];
 
-        // p2 (non-table) with visibility:collapse still occupies its 30px
         p2.Height.Should().BeApproximately(30f, 1f,
-            "visibility:collapse on non-table element should not collapse height");
-
-        // p3 starts after p2 (space is preserved)
+            "visibility:collapse on a non-table element acts like visibility:hidden and keeps its space");
         p3.Y.Should().BeGreaterThan(p2.Y,
             "p3 should start below p2 even though p2 has visibility:collapse");
     }
-
-    // ── empty-cells ──────────────────────────────────────────────────────────
 
     [Fact]
     public void EmptyCells_Show_StylePreserved()
@@ -398,10 +362,8 @@ public class TableLayoutTests
     }
 
     [Fact]
-    public void EmptyCells_Hide_EmptyCellHasNoBackground()
+    public void EmptyCells_Hide_EmptyCellInheritsHideFromTheTable()
     {
-        // With empty-cells: hide the empty td should have no background painted.
-        // We test this by checking the td box's style has empty-cells inherited from table.
         var root = LayoutTestHelper.Layout(
             "<table style='empty-cells:hide; border-collapse:separate'>" +
             "<tr><td id='empty'></td><td>content</td></tr>" +
@@ -410,7 +372,6 @@ public class TableLayoutTests
         var tds = root.FindAllByTag("td");
         tds.Should().HaveCountGreaterOrEqualTo(2);
 
-        // Empty td should have empty-cells:hide in its resolved style
         var emptyTd = tds.Find(td =>
         {
             var text = string.Concat(td.Children.Where(b => !string.IsNullOrEmpty(b.Text)).Select(b => b.Text));
@@ -418,6 +379,6 @@ public class TableLayoutTests
         });
         emptyTd.Should().NotBeNull("empty td should still have a layout box");
         emptyTd!.Style.Get("empty-cells").Should().Be("hide",
-            "empty-cells should be inherited from the table into the td");
+            "empty-cells is inherited from the table, which is what keeps the empty cell's background unpainted");
     }
 }

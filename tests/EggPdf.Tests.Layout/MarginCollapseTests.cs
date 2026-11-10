@@ -17,9 +17,8 @@ public class MarginCollapseTests
         var divs = root.FindAllByTag("div");
         divs.Should().HaveCountGreaterOrEqualTo(2);
 
-        // Collapsed margin = max(20, 30) = 30, not 50
         float gap = divs[1].Y - (divs[0].Y + divs[0].Height);
-        gap.Should().BeApproximately(30, 1f);
+        gap.Should().BeApproximately(30, 1f, "the collapsed margin is max(20, 30) = 30, not their sum 50");
     }
 
     [Fact]
@@ -40,8 +39,6 @@ public class MarginCollapseTests
     [Fact]
     public void Paragraphs_DefaultMargins_Collapse()
     {
-        // <p> has default margin-top: 1em and margin-bottom: 1em
-        // Adjacent paragraphs should collapse: gap = 1em, not 2em
         var root = LayoutTestHelper.Layout(
             "<p>First paragraph</p><p>Second paragraph</p>",
             600, 800);
@@ -49,9 +46,9 @@ public class MarginCollapseTests
         var ps = root.FindAllByTag("p");
         ps.Should().HaveCountGreaterOrEqualTo(2);
 
-        // Gap between paragraphs should be ~16px (1em at 16px), not ~32px
         float gap = ps[1].Y - (ps[0].Y + ps[0].Height);
-        gap.Should().BeLessThan(25); // should be around 16px (1em)
+        gap.Should().BeApproximately(16, 1f,
+            "the 1em bottom and top margins of adjacent paragraphs collapse to one 16px gap, not 32px");
     }
 
     [Fact]
@@ -81,12 +78,10 @@ public class MarginCollapseTests
         var divs = root.FindAllByTag("div");
         divs.Should().HaveCountGreaterOrEqualTo(3);
 
-        // Gap between 1 and 2: max(10, 20) = 20
         float gap12 = divs[1].Y - (divs[0].Y + divs[0].Height);
-        gap12.Should().BeApproximately(20, 1f);
+        gap12.Should().BeApproximately(20, 1f, "max(10, 20)");
 
-        // Gap between 2 and 3: max(15, 25) = 25
         float gap23 = divs[2].Y - (divs[1].Y + divs[1].Height);
-        gap23.Should().BeApproximately(25, 1f);
+        gap23.Should().BeApproximately(25, 1f, "max(15, 25)");
     }
 }

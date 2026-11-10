@@ -4,11 +4,8 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary>Tests for @counter-style at-rule: custom counter styles for list markers.</summary>
 public class CounterStyleTests
 {
-    // ── @counter-style cyclic ────────────────────────────────────────────────
-
     [Fact]
     public void CounterStyle_Cyclic_FirstItemUsesFirstSymbol()
     {
@@ -25,7 +22,6 @@ public class CounterStyleTests
         var lis = root.FindAllByTag("li");
         lis.Should().HaveCount(3);
 
-        // First item marker should contain "★"
         bool found1 = false, found2 = false, found3 = false;
         foreach (var box in lis[0].Children)
             if (box.Text?.Contains("★") == true) { found1 = true; break; }
@@ -38,8 +34,6 @@ public class CounterStyleTests
         found2.Should().BeTrue("second li should have ☆ marker (cyclic)");
         found3.Should().BeTrue("third li cycles back to ★");
     }
-
-    // ── @counter-style symbolic ──────────────────────────────────────────────
 
     [Fact]
     public void CounterStyle_Symbolic_RepeatsSymbols()
@@ -57,7 +51,6 @@ public class CounterStyleTests
         var lis = root.FindAllByTag("li");
         lis.Should().HaveCount(3);
 
-        // All markers should contain "•"
         foreach (var li in lis)
         {
             bool hasMarker = false;
@@ -66,8 +59,6 @@ public class CounterStyleTests
             hasMarker.Should().BeTrue("each li should have a • marker");
         }
     }
-
-    // ── @counter-style with prefix/suffix ───────────────────────────────────
 
     [Fact]
     public void CounterStyle_CustomSuffix_AppliedToMarkers()
@@ -82,14 +73,11 @@ public class CounterStyleTests
         var li = root.FindByTag("li");
         li.Should().NotBeNull();
 
-        // Marker should contain "(" somewhere
         bool hasOpen = false;
         foreach (var box in li!.Children)
             if (box.Text?.Contains("(") == true) { hasOpen = true; break; }
         hasOpen.Should().BeTrue("custom prefix '(' should appear in marker");
     }
-
-    // ── @counter-style extends ───────────────────────────────────────────────
 
     [Fact]
     public void CounterStyle_Extends_UsesParentSystem()
@@ -105,14 +93,11 @@ public class CounterStyleTests
         var lis = root.FindAllByTag("li");
         lis.Should().HaveCount(2);
 
-        // First marker should be "1. ", second "2. "
         bool found1 = false;
         foreach (var box in lis[0].Children)
             if (box.Text != null && box.Text.Contains("1")) { found1 = true; break; }
         found1.Should().BeTrue("extends decimal: first marker should contain '1'");
     }
-
-    // ── counter-set ──────────────────────────────────────────────────────────
 
     [Fact]
     public void CounterSet_StylePreserved()
@@ -127,8 +112,6 @@ public class CounterStyleTests
     [Fact]
     public void CounterSet_SetsCounterValue()
     {
-        // counter-reset on parent creates the counter, counter-set on child sets it to 5.
-        // The marker of the only li should show "6" (counter-set 5, then increment 1).
         var root = LayoutTestHelper.Layout(
             "<style>" +
             "ol { counter-reset: n; }" +

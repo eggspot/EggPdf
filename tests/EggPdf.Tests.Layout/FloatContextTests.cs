@@ -12,7 +12,7 @@ public class FloatContextTests
         var ctx = new FloatContext();
         ctx.AddLeftFloat(x: 10, y: 0, width: 50, height: 100);
 
-        ctx.GetLeftOffset(y: 50, lineHeight: 20).Should().Be(60f); // 10 + 50
+        ctx.GetLeftOffset(y: 50, lineHeight: 20).Should().Be(60f, "the float's right edge is x 10 + width 50");
     }
 
     [Fact]
@@ -28,9 +28,10 @@ public class FloatContextTests
     public void GetRightOffset_RectangularFloat_ReturnsConsumedWidth()
     {
         var ctx = new FloatContext();
-        ctx.AddRightFloat(x: 250, y: 0, width: 50, height: 100); // container right edge at 300
+        ctx.AddRightFloat(x: 250, y: 0, width: 50, height: 100);
 
-        ctx.GetRightOffset(y: 50, lineHeight: 20, containerRight: 300).Should().Be(50f);
+        ctx.GetRightOffset(y: 50, lineHeight: 20, containerRight: 300).Should().Be(50f,
+            "the float occupies x 250..300 at the container's right edge");
     }
 
     [Fact]
@@ -40,8 +41,8 @@ public class FloatContextTests
         ctx.AddLeftFloat(x: 0, y: 0, width: 50, height: 100);
         ctx.AddRightFloat(x: 250, y: 0, width: 50, height: 100);
 
-        // container: X=0, width=300 -> right edge 300; left float takes 50, right float takes 50
-        ctx.GetAvailableWidth(y: 50, lineHeight: 20, containerWidth: 300, containerX: 0).Should().Be(200f);
+        ctx.GetAvailableWidth(y: 50, lineHeight: 20, containerWidth: 300, containerX: 0).Should().Be(200f,
+            "each float takes 50px of the 300px container");
     }
 
     [Fact]
@@ -62,21 +63,16 @@ public class FloatContextTests
         ctx.GetContentStartX(y: 500, lineHeight: 20, containerX: 10).Should().Be(10f);
     }
 
-    // ── shape-outside integration ────────────────────────────────────────────
-
     [Fact]
     public void GetLeftOffset_CircleShape_NarrowerThanFloatNearTopAndBottom()
     {
-        // A 100x100 float with circle(50%): center (50,50), radius 50 (closest-side)
         var shape = ShapeOutsideParser.Parse("circle(50%)", 100, 100, 16);
-        shape.Should().NotBeNull();
+        shape.Should().NotBeNull("circle(50%) on a 100x100 float is centered at (50,50) with radius 50");
 
         var ctx = new FloatContext();
         ctx.AddLeftFloat(x: 0, y: 0, width: 100, height: 100, shape: shape);
 
-        // At the vertical center, the circle reaches its full radius -> right edge = 100
         float centerOffset = ctx.GetLeftOffset(y: 50, lineHeight: 1);
-        // Near the top edge, the circle has barely started -> right edge much less than 100
         float topOffset = ctx.GetLeftOffset(y: 1, lineHeight: 1);
 
         centerOffset.Should().BeApproximately(100f, 1f, "the circle spans its full width at the vertical center");
@@ -86,9 +82,6 @@ public class FloatContextTests
     [Fact]
     public void GetLeftOffset_CircleShape_NarrowsToCenterXAtItsTopTangentPoint()
     {
-        // A circle is tangent to a horizontal line at its very top point, touching it at
-        // exactly x=cx (not 0) -- the circle's leftmost bounding square corner (x=0..cx)
-        // has NO shape presence at all at that exact Y, unlike the plain rectangular float.
         var shape = ShapeOutsideParser.Parse("circle(50%)", 100, 100, 16);
         var ctx = new FloatContext();
         ctx.AddLeftFloat(x: 0, y: 0, width: 100, height: 100, shape: shape);
@@ -112,15 +105,13 @@ public class FloatContextTests
     {
         var shape = ShapeOutsideParser.Parse("circle(50%)", 100, 100, 16);
         var ctx = new FloatContext();
-        ctx.AddRightFloat(x: 200, y: 0, width: 100, height: 100, shape: shape); // container right = 300
+        ctx.AddRightFloat(x: 200, y: 0, width: 100, height: 100, shape: shape);
 
         float centerConsumed = ctx.GetRightOffset(y: 50, lineHeight: 1, containerRight: 300);
         float topConsumed = ctx.GetRightOffset(y: 1, lineHeight: 1, containerRight: 300);
 
         topConsumed.Should().BeLessThan(centerConsumed, "less width is consumed near the circle's narrow top than its wide center");
     }
-
-    // ── ShapeOutsideParser ────────────────────────────────────────────────────
 
     [Theory]
     [InlineData(null)]

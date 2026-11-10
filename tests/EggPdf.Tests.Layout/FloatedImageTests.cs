@@ -5,7 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary><c>&lt;img style="float:left|right"&gt;</c> leaves normal flow and text wraps around it.</summary>
 public class FloatedImageTests
 {
     private static readonly string Words = string.Join(" ", Enumerable.Repeat("word", 80));

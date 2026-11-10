@@ -5,10 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary>
-/// direction:rtl support beyond the box-model/text-align logical properties already covered
-/// by LogicalPropertyTests: table column visual order and list marker positioning.
-/// </summary>
 public class RtlTableAndListTests
 {
     [Fact]
@@ -19,8 +15,7 @@ public class RtlTableAndListTests
             300, 600);
         var cells = root.FindAllByTag("td");
         cells.Should().HaveCount(3);
-        // Regression guard: DOM order A,B,C stays left-to-right in LTR.
-        cells[0].X.Should().BeLessThan(cells[1].X);
+        cells[0].X.Should().BeLessThan(cells[1].X, "in LTR the DOM order A, B, C stays left to right");
         cells[1].X.Should().BeLessThan(cells[2].X);
     }
 
@@ -32,7 +27,6 @@ public class RtlTableAndListTests
             300, 600);
         var cells = root.FindAllByTag("td");
         cells.Should().HaveCount(3);
-        // In RTL, DOM order A,B,C must lay out right-to-left: A rightmost, C leftmost.
         cells[0].X.Should().BeGreaterThan(cells[1].X,
             "the first <td> in DOM order must render at the right edge in an RTL table");
         cells[1].X.Should().BeGreaterThan(cells[2].X);

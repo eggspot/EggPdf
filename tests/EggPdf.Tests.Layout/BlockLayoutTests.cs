@@ -6,18 +6,7 @@ namespace EggPdf.Tests.Layout;
 
 public class BlockLayoutTests
 {
-    [Fact]
-    public void SingleDiv_FillsContainingBlockWidth()
-    {
-        var root = LayoutTestHelper.Layout("<div style='background-color:red'></div>", 600, 800);
-
-        var body = root.FindByTag("body");
-        body.Should().NotBeNull();
-
-        // Body div should exist within the layout
-        var div = root.FindByTag("div");
-        div.Should().NotBeNull();
-    }
+    private const float BodyMargin = 8f;
 
     [Fact]
     public void FixedWidthHeight_CorrectDimensions()
@@ -41,8 +30,7 @@ public class BlockLayoutTests
         var divs = root.FindAllByTag("div");
         divs.Should().HaveCountGreaterOrEqualTo(2);
 
-        // Second div should be below first
-        divs[1].Y.Should().BeGreaterThanOrEqualTo(divs[0].Y + divs[0].Height);
+        divs[1].Y.Should().BeGreaterThanOrEqualTo(divs[0].Y + divs[0].Height, "the second block starts below the first");
     }
 
     [Fact]
@@ -53,9 +41,8 @@ public class BlockLayoutTests
 
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
-        // Content is 100x50, padding adds 20 to each dimension
-        div!.Width.Should().BeApproximately(120, 0.1f);
-        div.Height.Should().BeApproximately(70, 0.1f);
+        div!.Width.Should().BeApproximately(120, 0.1f, "10px padding on each side adds 20px to the 100px content width");
+        div.Height.Should().BeApproximately(70, 0.1f, "10px padding on each side adds 20px to the 50px content height");
     }
 
     [Fact]
@@ -66,7 +53,7 @@ public class BlockLayoutTests
 
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
-        div!.X.Should().BeGreaterThanOrEqualTo(20);
+        div!.X.Should().BeApproximately(BodyMargin + 20, 0.5f, "margin-left: 20px inside the body's 8px margin");
     }
 
     [Fact]
@@ -77,8 +64,8 @@ public class BlockLayoutTests
 
         var div = root.FindByTag("div");
         div.Should().NotBeNull();
-        // Auto width = containing block width (minus body margin)
-        div!.Width.Should().BeGreaterThan(0);
+        div!.Width.Should().BeApproximately(600 - 2 * BodyMargin, 0.5f,
+            "an auto-width block fills the 600px page less the body's margins");
     }
 
     [Fact]
@@ -92,24 +79,10 @@ public class BlockLayoutTests
         var divs = root.FindAllByTag("div");
         divs.Should().HaveCountGreaterOrEqualTo(2);
 
-        // Child should be inside parent
         var parent = divs[0];
         var child = divs[1];
-        child.X.Should().BeGreaterThanOrEqualTo(parent.X);
-        child.Y.Should().BeGreaterThanOrEqualTo(parent.Y);
-    }
-
-    [Fact]
-    public void DisplayNone_NotLaidOut()
-    {
-        var root = LayoutTestHelper.Layout(
-            "<div style='height: 50px'></div>" +
-            "<div style='display: none; height: 100px'></div>" +
-            "<div style='height: 30px'></div>", 600, 800);
-
-        var divs = root.FindAllByTag("div");
-        // The hidden div should not appear in layout
-        // At minimum, the third div should not be offset by 100px
+        child.X.Should().BeGreaterThanOrEqualTo(parent.X, "the child is inside its parent");
+        child.Y.Should().BeGreaterThanOrEqualTo(parent.Y, "the child is inside its parent");
     }
 
     [Fact]
