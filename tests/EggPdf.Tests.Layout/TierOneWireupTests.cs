@@ -39,21 +39,34 @@ public class TierOneWireupTests
     [Fact]
     public void TextWrap_Balance_FirstLineNotFullWidth()
     {
+        const string tenWords = "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10";
         var htmlBalanced = LayoutTestHelper.Layout(
-            "<p style='text-wrap:balance; width:200px; font-size:12px'>" +
-            "word1 word2 word3 word4 word5 word6</p>", 400, 600);
+            "<p style='text-wrap:balance; width:200px; font-size:12px'>" + tenWords + "</p>", 400, 600);
         var htmlNormal = LayoutTestHelper.Layout(
-            "<p style='width:200px; font-size:12px'>" +
-            "word1 word2 word3 word4 word5 word6</p>", 400, 600);
+            "<p style='width:200px; font-size:12px'>" + tenWords + "</p>", 400, 600);
 
         var balancedBoxes = htmlBalanced.FindByTag("p")!.Children.FindAll(b => !string.IsNullOrEmpty(b.Text));
         var normalBoxes = htmlNormal.FindByTag("p")!.Children.FindAll(b => !string.IsNullOrEmpty(b.Text));
 
-        if (balancedBoxes.Count >= 2 && normalBoxes.Count >= 2)
-        {
-            balancedBoxes[0].ContentWidth.Should().BeLessThan(normalBoxes[0].ContentWidth,
-                "text-wrap:balance should reduce first-line width to balance with subsequent lines");
-        }
+        normalBoxes.Should().HaveCount(2, "ten words at 12px fill two 200px lines");
+        balancedBoxes.Should().HaveCount(2, "balancing evens the lines out without adding one");
+        balancedBoxes[0].ContentWidth.Should().BeLessThan(normalBoxes[0].ContentWidth,
+            "text-wrap:balance shortens the first line to even it out with the next");
+    }
+
+    [Fact]
+    public void TextWrap_Balance_PlainText_LinesEndUpCloseInWidth()
+    {
+        var root = LayoutTestHelper.Layout(
+            "<h2 style='text-wrap:balance; width:300px; font-size:20px'>" +
+            "A heading that wraps onto a second line with one short word</h2>", 400, 600);
+
+        var lines = root.FindByTag("h2")!.Children.FindAll(b => !string.IsNullOrEmpty(b.Text));
+
+        lines.Should().HaveCount(2);
+        float widthDifference = System.Math.Abs(lines[0].ContentWidth - lines[1].ContentWidth);
+        widthDifference.Should().BeLessThan(lines[0].ContentWidth / 3f,
+            "a balanced heading splits its words so both lines are of similar width, not one long line and a short orphan");
     }
 
     [Fact]
