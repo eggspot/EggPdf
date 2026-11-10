@@ -392,7 +392,8 @@ public class InvoiceService(IRazorToPdfConverter pdf)
   external-CMS two-step flow for HSMs
 - Password protection with permission flags — view-only PDFs that block editing/copying (RC4 40/128-bit)
 - AcroForm fields (fillable forms from HTML form elements)
-- PDF merging
+- PDF merging: every page is copied with its fonts, images, resources and annotations (streams stay
+  compressed); outlines, form fields and page labels of the inputs are not carried over
 - Read existing PDFs from any producer (`PdfReader.Open(bytes)`, or `Open(stream)` / `Open(path)` for files larger
   than memory, 64-bit offsets included: page count, displayed page size and rotation,
   encryption flag): classic and stream cross-references, incremental updates, object streams, damaged files repaired

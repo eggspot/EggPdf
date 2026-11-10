@@ -342,6 +342,15 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 - XML escaping also drops C0 controls other than tab, LF and CR, which XML 1.0 forbids: titles and
   authors come from arbitrary HTML and must not break the packet.
 
+## EggPdf.Pdf/PdfMergeWriter.cs
+
+- Merging copies object graphs, not page text: each page dictionary (minus /Parent, /StructParents and
+  /B, plus inherited /Resources, /MediaBox, /CropBox and /Rotate) and every object it reaches get new
+  object numbers; streams are copied byte for byte, still filtered, in 64 KB chunks.
+- Every page of an input is numbered before any copying, so a link or annotation pointing at another page
+  of the same input lands on the copied page. A reference into an input's page tree, catalog, outlines or
+  structure tree is written as null rather than dragging the whole document along.
+
 ## EggPdf.Pdf/PdfEncryption.cs
 
 - The writer always declares revision 3, whose algorithms are tied to the revision, not the key length: 50
