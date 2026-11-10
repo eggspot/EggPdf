@@ -176,9 +176,12 @@ public static partial class BlockLayout
         int lines = CountGreedyLines(words, containerWidth);
         if (!TextWrapBalance.ShouldBalance("balance", lines)) return containerWidth;
 
-        return TextWrapBalance.FindNarrowestWidthKeepingLineCount(containerWidth, lines,
-            width => CountGreedyLines(words, width));
+        return NarrowestInlineWidthKeepingLineCount(words, containerWidth, lines);
     }
+
+    private static float NarrowestInlineWidthKeepingLineCount(
+        List<(float Width, float SpaceBefore, bool BreaksBefore)> words, float containerWidth, int lines) =>
+        TextWrapBalance.FindNarrowestWidthKeepingLineCount(containerWidth, lines, width => CountGreedyLines(words, width));
 
     private static float BalancedPlainTextWrapWidth(string text, float fontSize, string? fontFamily,
         string? fontWeight, string? fontStyle, float containerWidth, string whiteSpace, bool breakWord,
