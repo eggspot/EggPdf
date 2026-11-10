@@ -5,8 +5,17 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Svg;
 
-public class FilterPixelsBlendAndMorphologyTests
+public class FilterPixelsTests
 {
+    [Fact]
+    public void Turbulence_HugeOctaveCount_MatchesTheLastContributingOctave()
+    {
+        FilterImage Noise(int octaves) => FilterPixels.Turbulence(64, 64, false, 0.05f, 0.05f, octaves, 4, true, false,
+            0f, 0f, 1f, 0f, 0f, 64f, 64f);
+
+        Noise(int.MaxValue).Px.Should().Equal(Noise(FilterPixels.MaxContributingOctaves).Px);
+    }
+
     private static FilterImage Pixel(float r, float g, float b, float a)
     {
         var img = new FilterImage(1, 1);

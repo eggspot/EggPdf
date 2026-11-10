@@ -27,6 +27,12 @@ internal static partial class FilterPixels
 {
     private const int BSize = 0x100, BMask = 0xff, PerlinN = 0x1000;
 
+    /// <summary>
+    /// Octaves past this add less than 2^-24 each, below what an 8-bit channel can show, and their doubled
+    /// frequencies overflow the lattice arithmetic; a huge numOctaves would otherwise cost time per pixel for nothing.
+    /// </summary>
+    internal const int MaxContributingOctaves = 24;
+
     private sealed class Lattice
     {
         public readonly int[] Map = new int[BSize + BSize + 2];
@@ -165,6 +171,7 @@ internal static partial class FilterPixels
     {
         var img = new FilterImage(width, height, linear);
         var lattice = new Lattice((long)Math.Round((double)seed));
+        octaves = Math.Min(octaves, MaxContributingOctaves);
         var c = new float[4];
         for (int y = 0; y < height; y++)
         {
