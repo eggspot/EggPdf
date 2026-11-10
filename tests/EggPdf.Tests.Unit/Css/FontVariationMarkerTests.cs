@@ -16,11 +16,13 @@ public class FontVariationMarkerTests
         return s;
     }
 
+    /// <summary>
+    /// The font-family's variation axes as "tag=value;...", formatted invariantly so the assertions don't depend
+    /// on the machine's regional settings ("87,5" under a decimal-comma culture).
+    /// </summary>
     private static string Axes(ComputedStyle s)
     {
         FontVariationMarker.Split(s.Get("font-family"), out var axes);
-        // Invariant on purpose: formatting the float with the current culture would make the assertions
-        // themselves depend on the machine's regional settings ("87,5" under a decimal-comma culture).
         return axes == null ? "" : string.Join(";", axes.Select(kv => kv.Key + "=" + kv.Value.ToString(CultureInfo.InvariantCulture)));
     }
 
