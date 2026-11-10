@@ -964,16 +964,10 @@ public static partial class BlockLayout
 
                 textData = ApplyTextTransformForMeasure(textData, style);
 
-                float balanceWidth = childContainingWidth;
-                var textWrapProp = style.Get("text-wrap");
-                if (textWrapProp == "balance")
-                {
-                    float totalTextWidth = TextMeasurer.MeasureWidth(textData, fontSize, fontFamily, fontWeight, fontStyle);
-                    var preWrapLines = TextMeasurer.WrapText(textData, fontSize, fontFamily, fontWeight, fontStyle,
-                        childContainingWidth, whiteSpaceProp, breakWord, enableHyphenation);
-                    if (TextWrapBalance.ShouldBalance(textWrapProp, preWrapLines.Count))
-                        balanceWidth = TextWrapBalance.CalculateBalancedWidth(totalTextWidth, childContainingWidth, preWrapLines.Count);
-                }
+                float balanceWidth = style.Get("text-wrap") == "balance"
+                    ? BalancedPlainTextWrapWidth(textData, fontSize, fontFamily, fontWeight, fontStyle,
+                        childContainingWidth, whiteSpaceProp, breakWord, enableHyphenation, blockLetterSpacing)
+                    : childContainingWidth;
 
                 float firstLineWidth = balanceWidth - textIndent;
                 var lines = TextMeasurer.WrapText(textData, fontSize, fontFamily, fontWeight, fontStyle,

@@ -9,6 +9,10 @@ namespace EggPdf.Layout;
 /// </summary>
 public static class TextWrapBalance
 {
+    private const int MaxBalancedLines = 10;
+    private const float WidthSlackForRounding = 1f;
+    private const int SearchSteps = 12;
+
     /// <summary>
     /// Calculate the optimal line width for balanced text wrapping.
     /// Instead of filling each line to the maximum width, reduces the
@@ -18,20 +22,13 @@ public static class TextWrapBalance
     /// <param name="maxLineWidth">Maximum available line width.</param>
     /// <param name="lineCount">Number of lines the text wraps to at max width.</param>
     /// <returns>Optimal width for balanced lines.</returns>
+    [Obsolete("No longer used by the layout engine: the average line width plus 5% often lets the greedy first line through unchanged. Layout now searches for the narrowest width that keeps the line count.")]
     public static float CalculateBalancedWidth(float totalTextWidth, float maxLineWidth, int lineCount)
     {
         if (lineCount <= 1 || totalTextWidth <= maxLineWidth)
             return maxLineWidth;
 
-        // Target: distribute text evenly across lines
-        // Optimal width = totalTextWidth / lineCount + small margin
-        float idealWidth = totalTextWidth / lineCount;
-
-        // Add 5% margin to avoid excessive wrapping from rounding
-        idealWidth *= 1.05f;
-
-        // Don't exceed max width
-        return Math.Min(idealWidth, maxLineWidth);
+        return Math.Min(totalTextWidth / lineCount * 1.05f, maxLineWidth);
     }
 
     /// <summary>
@@ -41,7 +38,20 @@ public static class TextWrapBalance
     public static bool ShouldBalance(string? textWrap, int lineCount)
     {
         if (textWrap != "balance") return false;
-        if (lineCount > 10) return false; // Spec limits to 10 lines
+        if (lineCount > MaxBalancedLines) return false;
         return lineCount > 1;
+    }
+
+    internal static float FindNarrowestWidthKeepingLineCount(float maxLineWidth, int lineCountAtMaxWidth,
+        Func<float, int> countLinesAtWidth)
+    {
+        float tooNarrow = 0f, wideEnough = maxLineWidth;
+        for (int step = 0; step < SearchSteps; step++)
+        {
+            float mid = (tooNarrow + wideEnough) / 2f;
+            if (countLinesAtWidth(mid) <= lineCountAtMaxWidth) wideEnough = mid;
+            else tooNarrow = mid;
+        }
+        return Math.Min(maxLineWidth, wideEnough + WidthSlackForRounding);
     }
 }
