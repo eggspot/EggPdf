@@ -88,8 +88,7 @@ public class GeometryTests
     {
         var a4 = PageSizes.A4;
 
-        // A4 = 210 x 297 mm = 595.28 x 841.89 pt (at 72dpi / PDF points)
-        a4.Width.Should().BeApproximately(595.28f, 0.01f);
+        a4.Width.Should().BeApproximately(595.28f, 0.01f, "A4 is 210 x 297 mm, which is 595.28 x 841.89 PDF points");
         a4.Height.Should().BeApproximately(841.89f, 0.01f);
     }
 
@@ -98,8 +97,7 @@ public class GeometryTests
     {
         var letter = PageSizes.Letter;
 
-        // Letter = 8.5 x 11 in = 612 x 792 pt (at 72dpi / PDF points)
-        letter.Width.Should().Be(612f);
+        letter.Width.Should().Be(612f, "Letter is 8.5 x 11 in, which is 612 x 792 PDF points");
         letter.Height.Should().Be(792f);
     }
 
@@ -116,15 +114,12 @@ public class GeometryTests
     [Fact]
     public void PdfCoordinates_PxToPt_CorrectFactor()
     {
-        // 1px = 1/96 inch, 1pt = 1/72 inch
-        // px to pt = 72/96 = 0.75
-        PdfCoordinates.PxToPt.Should().BeApproximately(0.75f, 0.001f);
+        PdfCoordinates.PxToPt.Should().BeApproximately(0.75f, 0.001f, "a px is 1/96 inch and a pt 1/72 inch, so 72/96");
     }
 
     [Fact]
     public void PdfCoordinates_ToPdfLength_ConvertsCorrectly()
     {
-        // 96px = 72pt = 1 inch
-        PdfCoordinates.ToPdfLength(96f).Should().BeApproximately(72f, 0.01f);
+        PdfCoordinates.ToPdfLength(96f).Should().BeApproximately(72f, 0.01f, "96px and 72pt are both one inch");
     }
 }
