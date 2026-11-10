@@ -4,18 +4,8 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary>
-/// Tests for shape-outside on floats: property storage, shape-margin application, and
-/// and text wrapping. Per-line wrapping around circle()/ellipse()/polygon()/inset() shapes
-/// (the exclusion narrowing near a float's edges) is covered in detail by
-/// <see cref="FloatTextWrapTests"/>, <see cref="FloatContextTests"/> and
-/// <see cref="ShapeOutsidePolygonTests"/>; url() shapes fall back to the float's plain
-/// rectangular exclusion (see ShapeOutsideParser).
-/// </summary>
 public class ShapeOutsideTests
 {
-    // ── style storage ────────────────────────────────────────────────────────
-
     [Fact]
     public void ShapeOutside_Circle_StyleStored()
     {
@@ -48,13 +38,9 @@ public class ShapeOutsideTests
         div!.Style.Get("shape-outside").Should().Be("inset(10px)");
     }
 
-    // ── shape-margin ─────────────────────────────────────────────────────────
-
     [Fact]
     public void ShapeMargin_ExpandsFloatClearance()
     {
-        // A float with shape-margin:20px should clear more space than one without.
-        // We test this by comparing where subsequent siblings start (below the float).
         var rootNoMargin = LayoutTestHelper.Layout(
             "<body style='margin:0'>" +
             "<div style='float:left; width:60px; height:40px'>F</div>" +
@@ -67,22 +53,15 @@ public class ShapeOutsideTests
             "<div style='clear:left; height:10px'>After</div>" +
             "</body>", 300, 600);
 
-        // The "After" div should start lower in the shape-margin version
-        var afterNoMargin = rootNoMargin.FindAllByTag("div");
-        var afterWithMargin = rootWithMargin.FindAllByTag("div");
-
-        // Find the non-float divs (After sibling)
-        var afterBoxNoMargin = afterNoMargin.Find(b => !b.IsFloat);
-        var afterBoxWithMargin = afterWithMargin.Find(b => !b.IsFloat);
+        var afterBoxNoMargin = rootNoMargin.FindAllByTag("div").Find(b => !b.IsFloat);
+        var afterBoxWithMargin = rootWithMargin.FindAllByTag("div").Find(b => !b.IsFloat);
 
         afterBoxNoMargin.Should().NotBeNull();
         afterBoxWithMargin.Should().NotBeNull();
 
         afterBoxWithMargin!.Y.Should().BeGreaterThan(afterBoxNoMargin!.Y,
-            "shape-margin should expand the float's clear zone downward");
+            "shape-margin expands the float's clear zone, so the cleared sibling starts lower");
     }
-
-    // ── text wrapping ────────────────────────────────────────────────────────
 
     [Fact]
     public void ShapeOutside_WithText_WrapsAroundTheFloatThenReturnsToFullWidth()
