@@ -36,9 +36,9 @@ internal sealed class FilterImageSource
 /// A parsed &lt;filter&gt;: an ordered graph of primitives evaluated over premultiplied float
 /// bitmaps, in linearRGB or sRGB per <c>color-interpolation-filters</c> as browsers do.
 /// Supported: feGaussianBlur, feOffset, feFlood, feColorMatrix, feComponentTransfer, feMerge,
-/// feBlend, feComposite, feMorphology, feDropShadow. A filter using any other primitive
-/// (feTurbulence, feImage, feTile, feConvolveMatrix, feDisplacementMap, lighting) is not
-/// parsed at all, so its element paints unfiltered rather than with a wrong partial result.
+/// feBlend, feComposite, feMorphology, feDropShadow, feTurbulence, feConvolveMatrix, feDisplacementMap, feTile,
+/// feImage, feDiffuseLighting and feSpecularLighting. A filter using any other element is not parsed at all, so
+/// its element paints unfiltered rather than with a wrong partial result.
 /// </summary>
 internal sealed partial class SvgFilter
 {

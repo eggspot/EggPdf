@@ -140,24 +140,41 @@ internal static partial class FilterPixels
         return current;
     }
 
+    /// <summary>
+    /// One axis of feMorphology in time independent of the radius: a monotonic queue of candidate positions per line
+    /// and channel keeps the window's extreme at its head. An erode window that reaches past the image is 0.
+    /// </summary>
     private static FilterImage MorphAxis(FilterImage src, bool dilate, int radius, bool horizontal)
     {
-        var result = new FilterImage(src.Width, src.Height, src.Linear);
         int w = src.Width, h = src.Height;
-        for (int y = 0; y < h; y++)
+        int lineLen = horizontal ? w : h, lineCount = horizontal ? h : w;
+        int elem = horizontal ? 4 : w * 4, line = horizontal ? w * 4 : 4;
+        var px = src.Px;
+        var result = new FilterImage(w, h, src.Linear);
+        var output = result.Px;
+        var queue = new int[lineLen];
+
+        for (int l = 0; l < lineCount; l++)
         {
-            for (int x = 0; x < w; x++)
+            int baseIdx = l * line;
+            for (int c = 0; c < 4; c++)
             {
-                for (int c = 0; c < 4; c++)
+                int head = 0, tail = 0, next = 0;
+                for (int i = 0; i < lineLen; i++)
                 {
-                    float best = dilate ? 0f : 1f;
-                    for (int k = -radius; k <= radius; k++)
+                    int windowEnd = Math.Min(lineLen - 1, i + radius);
+                    for (; next <= windowEnd; next++)
                     {
-                        int sx = horizontal ? x + k : x, sy = horizontal ? y : y + k;
-                        float v = sx < 0 || sx >= w || sy < 0 || sy >= h ? 0f : src.Px[(sy * w + sx) * 4 + c];
-                        best = dilate ? Math.Max(best, v) : Math.Min(best, v);
+                        float v = px[baseIdx + next * elem + c];
+                        while (tail > head && (dilate ? px[baseIdx + queue[tail - 1] * elem + c] <= v
+                                                      : px[baseIdx + queue[tail - 1] * elem + c] >= v))
+                            tail--;
+                        queue[tail++] = next;
                     }
-                    result.Px[(y * w + x) * 4 + c] = best;
+                    while (queue[head] < i - radius) head++;
+
+                    bool windowLeavesImage = i - radius < 0 || i + radius >= lineLen;
+                    output[baseIdx + i * elem + c] = !dilate && windowLeavesImage ? 0f : px[baseIdx + queue[head] * elem + c];
                 }
             }
         }
@@ -314,6 +331,7 @@ internal static partial class FilterPixels
                     case "out": v = s * (1f - da); break;
                     case "atop": v = s * da + d * (1f - sa); break;
                     case "xor": v = s * (1f - da) + d * (1f - sa); break;
+                    case "lighter": v = s + d; break;
                     case "arithmetic": v = k1 * s * d + k2 * s + k3 * d + k4; break;
                     default: v = s + d * (1f - sa); break;
                 }
@@ -325,22 +343,96 @@ internal static partial class FilterPixels
         return result;
     }
 
-    /// <summary>feBlend: <paramref name="top"/> is <c>in</c>, <paramref name="backdrop"/> is <c>in2</c>.</summary>
+    /// <summary>
+    /// feBlend: <paramref name="top"/> is <c>in</c>, <paramref name="backdrop"/> is <c>in2</c>. Every blend mode of
+    /// Compositing and Blending Level 1, the non-separable hue, saturation, color and luminosity included.
+    /// </summary>
     public static FilterImage Blend(FilterImage top, FilterImage backdrop, string mode)
     {
+        bool nonSeparable = mode == "hue" || mode == "saturation" || mode == "color" || mode == "luminosity";
         var result = new FilterImage(top.Width, top.Height, top.Linear);
         for (int i = 0; i < result.Px.Length; i += 4)
         {
             float sa = top.Px[i + 3], ba = backdrop.Px[i + 3];
             result.Px[i + 3] = sa + ba - sa * ba;
-            for (int c = 0; c < 3; c++)
+
+            float csR = Unpremultiply(top.Px[i], sa), csG = Unpremultiply(top.Px[i + 1], sa), csB = Unpremultiply(top.Px[i + 2], sa);
+            float cbR = Unpremultiply(backdrop.Px[i], ba), cbG = Unpremultiply(backdrop.Px[i + 1], ba), cbB = Unpremultiply(backdrop.Px[i + 2], ba);
+            float br, bg, bb;
+            if (nonSeparable) (br, bg, bb) = BlendNonSeparable(mode, cbR, cbG, cbB, csR, csG, csB);
+            else
             {
-                float sp = top.Px[i + c], bp = backdrop.Px[i + c];
-                float cs = sa > 0f ? sp / sa : 0f, cb = ba > 0f ? bp / ba : 0f;
-                result.Px[i + c] = (1f - ba) * sp + (1f - sa) * bp + sa * ba * BlendChannel(mode, cb, cs);
+                br = BlendChannel(mode, cbR, csR);
+                bg = BlendChannel(mode, cbG, csG);
+                bb = BlendChannel(mode, cbB, csB);
             }
+
+            result.Px[i] = (1f - ba) * top.Px[i] + (1f - sa) * backdrop.Px[i] + sa * ba * br;
+            result.Px[i + 1] = (1f - ba) * top.Px[i + 1] + (1f - sa) * backdrop.Px[i + 1] + sa * ba * bg;
+            result.Px[i + 2] = (1f - ba) * top.Px[i + 2] + (1f - sa) * backdrop.Px[i + 2] + sa * ba * bb;
         }
         return result;
+    }
+
+    private static float Unpremultiply(float channel, float alpha) => alpha > 0f ? channel / alpha : 0f;
+
+    /// <summary>The non-separable blend functions of Compositing and Blending Level 1 (backdrop cb, source cs).</summary>
+    private static (float r, float g, float b) BlendNonSeparable(string mode, float cbR, float cbG, float cbB,
+        float csR, float csG, float csB)
+    {
+        switch (mode)
+        {
+            case "hue":
+            {
+                var (r, g, b) = SetSaturation(csR, csG, csB, Saturation(cbR, cbG, cbB));
+                return SetLuminosity(r, g, b, Luminosity(cbR, cbG, cbB));
+            }
+            case "saturation":
+            {
+                var (r, g, b) = SetSaturation(cbR, cbG, cbB, Saturation(csR, csG, csB));
+                return SetLuminosity(r, g, b, Luminosity(cbR, cbG, cbB));
+            }
+            case "color":
+                return SetLuminosity(csR, csG, csB, Luminosity(cbR, cbG, cbB));
+            default:
+                return SetLuminosity(cbR, cbG, cbB, Luminosity(csR, csG, csB));
+        }
+    }
+
+    private static float Luminosity(float r, float g, float b) => 0.3f * r + 0.59f * g + 0.11f * b;
+
+    private static float Saturation(float r, float g, float b) =>
+        Math.Max(r, Math.Max(g, b)) - Math.Min(r, Math.Min(g, b));
+
+    private static (float r, float g, float b) SetLuminosity(float r, float g, float b, float luminosity)
+    {
+        float d = luminosity - Luminosity(r, g, b);
+        return ClipColor(r + d, g + d, b + d);
+    }
+
+    private static (float r, float g, float b) ClipColor(float r, float g, float b)
+    {
+        float l = Luminosity(r, g, b);
+        float n = Math.Min(r, Math.Min(g, b)), x = Math.Max(r, Math.Max(g, b));
+        if (n < 0f)
+        {
+            float scale = l / (l - n);
+            r = l + (r - l) * scale; g = l + (g - l) * scale; b = l + (b - l) * scale;
+        }
+        if (x > 1f)
+        {
+            float scale = (1f - l) / (x - l);
+            r = l + (r - l) * scale; g = l + (g - l) * scale; b = l + (b - l) * scale;
+        }
+        return (r, g, b);
+    }
+
+    private static (float r, float g, float b) SetSaturation(float r, float g, float b, float saturation)
+    {
+        float max = Math.Max(r, Math.Max(g, b)), min = Math.Min(r, Math.Min(g, b));
+        if (max <= min) return (0f, 0f, 0f);
+        float scale = saturation / (max - min);
+        return ((r - min) * scale, (g - min) * scale, (b - min) * scale);
     }
 
     /// <summary>The separable blend functions of Compositing and Blending Level 1 (cb backdrop, cs source); an unknown mode is <c>normal</c>.</summary>
