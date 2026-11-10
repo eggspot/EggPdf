@@ -7,23 +7,18 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary>
-/// Integration tests reproducing the Invoice Pro template layout.
-/// Uses CascadeResolver (not BasicStyleResolver) to verify real rendering path.
-/// A4 page width = 793.70px at 96dpi. No @page margins in this template.
-/// </summary>
 public class InvoiceLayoutTests
 {
-    // A4 at 96dpi (CSS pixels): 210mm / 25.4 * 96
-    private const float A4Width = 793.7f;
-    private const float A4Height = 1122.52f;
+    private const float CssPixelsPerInch = 96f;
+    private const float MillimetersPerInch = 25.4f;
+    private const float A4Width = 210f / MillimetersPerInch * CssPixelsPerInch;
+    private const float A4Height = 297f / MillimetersPerInch * CssPixelsPerInch;
 
-    private static LayoutBox LayoutWithCascade(string html, float pageWidth = A4Width, float pageHeight = A4Height)
+    private static LayoutBox LayoutWithRealCascade(string html, float pageWidth = A4Width, float pageHeight = A4Height)
     {
         var document = HtmlParser.Parse(html);
         var sheets = new System.Collections.Generic.List<CssStyleSheet>();
 
-        // Extract <style> tags from <head>
         if (document.Head != null)
         {
             foreach (var node in document.Head.ChildNodes)
@@ -52,13 +47,11 @@ public class InvoiceLayoutTests
     [Fact]
     public void InvoiceBody_ContentWidth_Is_PageWidth_Minus_Padding()
     {
-        // Body has padding: 40px and margin: 0 auto on A4 page
-        var root = LayoutWithCascade(InvoiceHtml);
+        var root = LayoutWithRealCascade(InvoiceProTemplateExcerpt);
 
         var body = root.FindByTag("body");
         body.Should().NotBeNull();
 
-        // Padding 40px each side: body.ContentWidth = A4Width - 40 - 40 = 713.7
         body!.ContentWidth.Should().BeApproximately(A4Width - 80f, 2f,
             "body has padding: 40px so ContentWidth = A4Width - 80");
     }
@@ -66,20 +59,14 @@ public class InvoiceLayoutTests
     [Fact]
     public void InvoiceHeader_RightFlexItem_StaysWithinPage()
     {
-        var root = LayoutWithCascade(InvoiceHtml);
+        var root = LayoutWithRealCascade(InvoiceProTemplateExcerpt);
 
-        // The header has display:flex; justify-content:space-between
-        // Right item is the address div (second child of the header flex container)
         var body = root.FindByTag("body");
         body.Should().NotBeNull();
+        body!.Children.Should().NotBeEmpty("the space-between header flex container is the body's first child");
 
-        // Find the header flex container (first div in body)
-        var headerFlex = body!.Children.Count > 0 ? body.Children[0] : null;
-        headerFlex.Should().NotBeNull("header flex container should be first child of body");
-
-        // Right item: second child of header flex container
-        headerFlex!.Children.Count.Should().BeGreaterOrEqualTo(2,
-            "header flex row should have 2 flex items");
+        var headerFlex = body.Children[0];
+        headerFlex.Children.Should().HaveCount(2, "the header holds the logo and the address block");
 
         var rightItem = headerFlex.Children[1];
         float rightEdge = rightItem.X + rightItem.Width;
@@ -93,9 +80,8 @@ public class InvoiceLayoutTests
     [Fact]
     public void InvoiceHeader_RightFlexItem_TextBoxesWithinPage()
     {
-        var root = LayoutWithCascade(InvoiceHtml);
+        var root = LayoutWithRealCascade(InvoiceProTemplateExcerpt);
 
-        // All text boxes (including Acme Corporation LLC) must stay within page width
         var allBoxes = new System.Collections.Generic.List<LayoutBox>();
         CollectAll(root, allBoxes);
 
@@ -111,15 +97,8 @@ public class InvoiceLayoutTests
     [Fact]
     public void InvoiceFourItemFlex_RightItem_AmountDue_WithinPage()
     {
-        var root = LayoutWithCascade(InvoiceHtml);
+        var root = LayoutWithRealCascade(InvoiceProTemplateExcerpt);
 
-        // Find the 4-item flex row (second flex div in body)
-        // The right-most item has "flex: 1; text-align: right" and contains "Amount Due (USD)"
-        var body = root.FindByTag("body");
-        body.Should().NotBeNull();
-
-        // There should be multiple flex containers in body
-        // Find text box containing "Amount Due"
         var allBoxes = new System.Collections.Generic.List<LayoutBox>();
         CollectAll(root, allBoxes);
 
@@ -133,7 +112,7 @@ public class InvoiceLayoutTests
             }
         }
 
-        amountDueBox.Should().NotBeNull("should find 'Amount Due (USD)' text box");
+        amountDueBox.Should().NotBeNull("the right-aligned last item of the four-item flex row says 'Amount Due (USD)'");
 
         float rightEdge = amountDueBox!.X + amountDueBox.Width;
         rightEdge.Should().BeLessThanOrEqualTo(A4Width + 1f,
@@ -149,8 +128,7 @@ public class InvoiceLayoutTests
             CollectAll(child, result);
     }
 
-    // The Invoice Pro template HTML (simplified to relevant parts)
-    private const string InvoiceHtml = @"<!DOCTYPE html>
+    private const string InvoiceProTemplateExcerpt =@"<!DOCTYPE html>
 <html lang=""en""><head><meta charset=""UTF-8"">
     <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
     <title>Invoice #INV-2026-00001</title>
