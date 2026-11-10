@@ -8,14 +8,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// A PDF is a machine format: the same input must produce the same operators whatever the host's
-/// regional settings are. A decimal comma ("0,5 0 0 rg"), a typographic minus sign, another calendar
-/// in a date or a different time separator each corrupt the file or its metadata. Rendering under
-/// cultures that differ from the invariant one in exactly those ways, and comparing against the
-/// invariant render, catches every code path that formats or parses a value without
-/// <see cref="CultureInfo.InvariantCulture"/> -- including string concatenation, which no analyzer sees.
-/// </summary>
 public class CultureInvarianceTests
 {
     /// <summary>
@@ -24,8 +16,10 @@ public class CultureInvarianceTests
     /// </summary>
     public static TheoryData<string> Cultures => new() { "de-DE", "sv-SE", "fi-FI", "th-TH", "ar-SA" };
 
-    // Fractional and negative values everywhere numbers reach the output: lengths, colors, transforms,
-    // gradients, shadows, SVG paths, letter-spacing, counters, font axes.
+    /// <summary>
+    /// Fractional and negative values everywhere numbers reach the output: lengths, colors, transforms,
+    /// gradients, shadows, SVG paths, letter-spacing, counters, font axes.
+    /// </summary>
     private const string Corpus = @"<!DOCTYPE html><html lang='en'><head><style>
         @page { size: A4; margin: 17.5mm 12.3mm; @bottom-center { content: 'Page ' counter(page) ' of ' counter(pages); } }
         body { font-family: Arial, sans-serif; font-size: 10.5pt; line-height: 1.35; margin: 0; }
@@ -94,11 +88,22 @@ public class CultureInvarianceTests
         return text;
     }
 
+    private static bool HostHasCulture(string cultureName)
+    {
+        try
+        {
+            _ = new CultureInfo(cultureName);
+            return true;
+        }
+        catch (CultureNotFoundException)
+        {
+            return false;
+        }
+    }
+
     private static void ShouldMatchInvariantRender(Func<byte[]> render, string cultureName)
     {
-        // Hosts running with invariant globalization have only the invariant culture: nothing to compare
-        try { _ = new CultureInfo(cultureName); }
-        catch (CultureNotFoundException) { return; }
+        if (!HostHasCulture(cultureName)) return;
 
         var invariant = Normalize(Render(render, ""));
         var localized = Normalize(Render(render, cultureName));
@@ -141,8 +146,7 @@ public class CultureInvarianceTests
     [Fact]
     public void Render_UnderCommaDecimalCulture_NeverWritesADecimalCommaOperand()
     {
-        try { _ = new CultureInfo("de-DE"); }
-        catch (CultureNotFoundException) { return; }
+        if (!HostHasCulture("de-DE")) return;
 
         var pdf = Normalize(Render(() => HtmlToPdf.Render(Corpus), "de-DE"));
         Regex.IsMatch(pdf, @"(?m)^\s*-?\d+,\d+ (?:-?\d+,\d+ )*(?:rg|RG|re|m|l|c|cm|Td|Tm|w|Tf|g|G)\b")
@@ -152,8 +156,7 @@ public class CultureInvarianceTests
     [Fact]
     public void Render_UnderBuddhistCalendarCulture_StampsTheGregorianYear()
     {
-        try { _ = new CultureInfo("th-TH"); }
-        catch (CultureNotFoundException) { return; }
+        if (!HostHasCulture("th-TH")) return;
 
         var pdf = Encoding.Latin1.GetString(Render(() => HtmlToPdf.Render(Corpus), "th-TH"));
         pdf.Should().Contain("/CreationDate (D:" + DateTime.UtcNow.Year.ToString(CultureInfo.InvariantCulture));
