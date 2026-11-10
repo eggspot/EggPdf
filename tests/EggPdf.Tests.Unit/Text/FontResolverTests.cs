@@ -40,21 +40,18 @@ public class FontResolverTests
     {
         var resolver = new FontResolver();
 
-        // Calling twice with same name should return same (cached) result
         var result1 = resolver.Resolve("sans-serif");
         var result2 = resolver.Resolve("sans-serif");
 
-        // Both should be the same reference (cached)
-        if (result1 != null)
-            ReferenceEquals(result1, result2).Should().BeTrue();
+        ReferenceEquals(result1, result2).Should().BeTrue("the second lookup of the same family returns the cached result");
     }
 
     [Fact]
     public void Resolve_NonexistentFont_ReturnsNull()
     {
         var resolver = new FontResolver();
-        var result = resolver.Resolve("CompletelyMadeUpFontXYZ123");
 
-        // May return null (no font found) or a fallback -- both acceptable
+        resolver.Resolve("CompletelyMadeUpFontXYZ123").Should().BeNull(
+            "no installed font file is named like it and it is no generic family, so the caller falls back");
     }
 }
