@@ -13,6 +13,9 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +28,7 @@ jobs:
       - name: Run benchmarks (short)
         run: |
           cd benchmarks/EggPdf.Benchmarks
-          dotnet run -c Release -- --filter '*' --job short --exporters json markdown
+          dotnet run -c Release -- --filter '*' --job short --exporters github
         continue-on-error: true
 
       - name: Parse results
@@ -33,11 +36,13 @@ jobs:
         run: |
           RESULTS_DIR="benchmarks/EggPdf.Benchmarks/BenchmarkDotNet.Artifacts/results"
           if [ -d "$RESULTS_DIR" ]; then
-            REPORT=$(find "$RESULTS_DIR" -name "*-report.md" | head -1)
-            if [ -n "$REPORT" ]; then
-              echo "report<<EOF" >> $GITHUB_OUTPUT
-              cat "$REPORT" >> $GITHUB_OUTPUT
-              echo "EOF" >> $GITHUB_OUTPUT
+            REPORTS=$(find "$RESULTS_DIR" -name "*-report-github.md" | sort)
+            if [ -n "$REPORTS" ]; then
+              {
+                echo "report<<EOF"
+                for REPORT in $REPORTS; do cat "$REPORT"; echo; done
+                echo "EOF"
+              } >> "$GITHUB_OUTPUT"
             fi
           fi
 
@@ -70,7 +75,7 @@ jobs:
       - name: Run benchmarks (full)
         run: |
           cd benchmarks/EggPdf.Benchmarks
-          dotnet run -c Release -- --filter '*' --exporters json markdown
+          dotnet run -c Release -- --filter '*' --exporters fulljson github
         continue-on-error: true
 
       - name: Upload results
