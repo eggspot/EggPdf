@@ -27,7 +27,6 @@ public static class CssVariableResolver
         if (!hasVar && !hasEnv)
             return value;
 
-        // Resolve env() first, then var()
         string result = hasEnv ? ResolveEnv(value) : value;
         if (result.IndexOf(VarPrefix, StringComparison.OrdinalIgnoreCase) >= 0)
             result = ResolveVariablesRecursive(result, style, 0);
@@ -68,7 +67,7 @@ public static class CssVariableResolver
 
             result.Append(value, pos, startIdx - pos);
 
-            int openParen = startIdx + EnvPrefix.Length - 1; // position of '('
+            int openParen = startIdx + EnvPrefix.Length - 1;
             int closeParen = FindMatchingParen(value, openParen);
             if (closeParen < 0)
             {
@@ -78,7 +77,6 @@ public static class CssVariableResolver
 
             string envContent = value.Substring(openParen + 1, closeParen - openParen - 1).Trim();
 
-            // Parse env name and optional fallback
             string envName;
             string? fallback;
             ParseVarContent(envContent, out envName, out fallback);
@@ -87,7 +85,6 @@ public static class CssVariableResolver
                 result.Append("0px");
             else if (fallback != null)
                 result.Append(fallback.Trim());
-            // else: unknown, no fallback -> empty (per CSS spec)
 
             pos = closeParen + 1;
         }
@@ -107,7 +104,6 @@ public static class CssVariableResolver
         if (startIdx < 0)
             return value;
 
-        // Build result with resolved var() references
         int pos = 0;
         var result = new System.Text.StringBuilder(value.Length);
 
@@ -120,47 +116,28 @@ public static class CssVariableResolver
                 break;
             }
 
-            // Append text before var(
             result.Append(value, pos, startIdx - pos);
 
-            // Find matching closing paren, accounting for nested parens
             int openParen = startIdx + VarPrefix.Length;
             int closeParen = FindMatchingParen(value, openParen - 1);
             if (closeParen < 0)
             {
-                // No matching paren, append rest as-is
                 result.Append(value, startIdx, value.Length - startIdx);
                 break;
             }
 
-            // Extract content inside var(...)
             string varContent = value.Substring(openParen, closeParen - openParen).Trim();
 
-            // Parse variable name and optional fallback
             string varName;
             string? fallback;
             ParseVarContent(varContent, out varName, out fallback);
 
-            // Look up the custom property
             string? resolved = style.Get(varName);
 
             if (resolved != null)
-            {
-                // The resolved value itself may contain var() references
-                string finalValue = ResolveVariablesRecursive(resolved, style, depth + 1);
-                result.Append(finalValue);
-            }
+                result.Append(ResolveVariablesRecursive(resolved, style, depth + 1));
             else if (fallback != null)
-            {
-                // Fallback may also contain var() references
-                string finalFallback = ResolveVariablesRecursive(fallback.Trim(), style, depth + 1);
-                result.Append(finalFallback);
-            }
-            else
-            {
-                // No value and no fallback: leave empty (CSS spec: invalid at computed-value time)
-                // Return empty string for the var() so the property becomes effectively unset
-            }
+                result.Append(ResolveVariablesRecursive(fallback.Trim(), style, depth + 1));
 
             pos = closeParen + 1;
         }
@@ -193,7 +170,7 @@ public static class CssVariableResolver
                     return i;
             }
         }
-        return -1; // no matching paren
+        return -1;
     }
 
     /// <summary>
@@ -202,7 +179,6 @@ public static class CssVariableResolver
     /// </summary>
     private static void ParseVarContent(string content, out string varName, out string? fallback)
     {
-        // Find first comma that isn't inside nested parentheses
         int depth = 0;
         int commaIdx = -1;
         for (int i = 0; i < content.Length; i++)
@@ -249,13 +225,12 @@ public static class CssVariableResolver
     private static bool HasCycleRecursive(string propertyName, ComputedStyle style, int depth)
     {
         if (depth >= MaxDepth)
-            return true; // treat deep nesting as a cycle
+            return true;
 
         string? value = style.Get(propertyName);
         if (string.IsNullOrEmpty(value))
             return false;
 
-        // Scan for var() references in the value
         int pos = 0;
         while (pos < value.Length)
         {
