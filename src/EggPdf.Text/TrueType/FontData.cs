@@ -159,10 +159,21 @@ internal class KernData
         _pairs[key] = value;
     }
 
+    private System.Collections.Generic.List<ClassPairKerning>? _classPairs;
+
+    public void AddClassPairs(ClassPairKerning classPairs) =>
+        (_classPairs ??= new System.Collections.Generic.List<ClassPairKerning>()).Add(classPairs);
+
     public int GetKerning(ushort leftGlyph, ushort rightGlyph)
     {
         long key = ((long)leftGlyph << 16) | rightGlyph;
-        return _pairs.TryGetValue(key, out var val) ? val : 0;
+        if (_pairs.TryGetValue(key, out var val)) return val;
+        if (_classPairs != null)
+        {
+            for (int i = 0; i < _classPairs.Count; i++)
+                if (_classPairs[i].TryGetKerning(leftGlyph, rightGlyph, out int xAdvance)) return xAdvance;
+        }
+        return 0;
     }
 
     public int Count => _pairs.Count;

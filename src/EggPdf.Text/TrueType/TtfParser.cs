@@ -77,14 +77,15 @@ public static class TtfParser
         if (tables.TryGetValue("head", out var head))
             ParseHead(data, (int)head.offset, font);
 
+        int numberOfHMetrics = 0;
         if (tables.TryGetValue("hhea", out var hhea))
-            ParseHhea(data, (int)hhea.offset, font);
+            numberOfHMetrics = ParseHhea(data, (int)hhea.offset, font);
 
         if (tables.TryGetValue("maxp", out var maxp))
             ParseMaxp(data, (int)maxp.offset, font);
 
         if (tables.TryGetValue("hmtx", out var hmtx))
-            ParseHmtx(data, (int)hmtx.offset, font);
+            ParseHmtx(data, (int)hmtx.offset, numberOfHMetrics, font);
 
         if (tables.TryGetValue("cmap", out var cmap))
             ParseCmap(data, (int)cmap.offset, font);
@@ -115,9 +116,7 @@ public static class TtfParser
         font.UnitsPerEm = ReadUInt16(data, ref pos);
     }
 
-    private static int _numberOfHMetrics;
-
-    private static void ParseHhea(byte[] data, int offset, FontData font)
+    private static int ParseHhea(byte[] data, int offset, FontData font)
     {
         int pos = offset + 4;
         font.Ascent = ReadInt16(data, ref pos);
@@ -125,7 +124,7 @@ public static class TtfParser
         font.LineGap = ReadInt16(data, ref pos);
 
         pos = offset + HheaNumberOfHMetricsOffset;
-        _numberOfHMetrics = ReadUInt16(data, ref pos);
+        return ReadUInt16(data, ref pos);
     }
 
     private static void ParseMaxp(byte[] data, int offset, FontData font)
@@ -134,9 +133,8 @@ public static class TtfParser
         font.NumGlyphs = ReadUInt16(data, ref pos);
     }
 
-    private static void ParseHmtx(byte[] data, int offset, FontData font)
+    private static void ParseHmtx(byte[] data, int offset, int numMetrics, FontData font)
     {
-        int numMetrics = _numberOfHMetrics;
         font.AdvanceWidths = new ushort[font.NumGlyphs];
 
         int pos = offset;
@@ -328,6 +326,7 @@ public static class TtfParser
         {
             if (pos + 6 > data.Length) break;
 
+            int subtableStart = pos;
             ushort subVersion = ReadUInt16(data, ref pos);
             ushort subLength = ReadUInt16(data, ref pos);
             ushort coverage = ReadUInt16(data, ref pos);
@@ -353,7 +352,7 @@ public static class TtfParser
             }
             else
             {
-                pos = offset + subLength;
+                pos = subtableStart + subLength;
             }
         }
     }
@@ -423,7 +422,7 @@ public static class TtfParser
             ushort lookupFlag = ReadUInt16(data, ref lPos);
             ushort subtableCount = ReadUInt16(data, ref lPos);
 
-            if (lookupType != 2) continue;
+            if (lookupType != PairAdjustmentLookup && lookupType != ExtensionLookup) continue;
 
             for (int st = 0; st < subtableCount; st++)
             {
@@ -433,12 +432,35 @@ public static class TtfParser
                 int stPos = lookupPos + subtableOffset;
                 if (stPos + 2 > data.Length) continue;
 
-                int stSave = stPos;
-                ushort posFormat = ReadUInt16(data, ref stPos);
+                if (lookupType == ExtensionLookup)
+                {
+                    if (stPos + 8 > data.Length) continue;
+                    int extPos = stPos + 2;
+                    if (ReadUInt16(data, ref extPos) != PairAdjustmentLookup) continue;
+                    stPos += (int)ReadUInt32(data, ref extPos);
+                    if (stPos < 0 || stPos + 2 > data.Length) continue;
+                }
 
-                if (posFormat == 1)
-                    ParseGposPairFormat1(data, stSave, font);
+                ParseGposPairSubtable(data, stPos, font);
             }
+        }
+    }
+
+    private const ushort PairAdjustmentLookup = 2;
+    private const ushort ExtensionLookup = 9;
+
+    private static void ParseGposPairSubtable(byte[] data, int subtableOffset, FontData font)
+    {
+        int pos = subtableOffset;
+        ushort posFormat = ReadUInt16(data, ref pos);
+        if (posFormat == 1)
+        {
+            ParseGposPairFormat1(data, subtableOffset, font);
+        }
+        else if (posFormat == 2)
+        {
+            var classKerning = ClassPairKerning.Parse(data, subtableOffset);
+            if (classKerning != null) font.Kern!.AddClassPairs(classKerning);
         }
     }
 
@@ -491,7 +513,7 @@ public static class TtfParser
 
                 psPos += vr1Size + vr2Size;
 
-                if (xAdvance != 0)
+                if ((valueFormat1 & XAdvanceFlag) != 0)
                     font.Kern!.Add(leftGlyph, secondGlyph, xAdvance);
             }
         }
@@ -706,8 +728,8 @@ public static class TtfParser
                 ushort startGlyph = ReadUInt16(data, ref pos);
                 ushort endGlyph = ReadUInt16(data, ref pos);
                 ushort startCoverageIndex = ReadUInt16(data, ref pos);
-                for (ushort g = startGlyph; g <= endGlyph; g++)
-                    glyphs.Add(g);
+                for (int g = startGlyph; g <= endGlyph; g++)
+                    glyphs.Add((ushort)g);
             }
         }
 

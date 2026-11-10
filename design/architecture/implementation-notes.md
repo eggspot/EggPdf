@@ -368,6 +368,9 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
   A format 12 table maps at most 500,000 code points, a guard against corrupt group counts.
 - Kerning comes from the `kern` table (format 0, horizontal, not cross-stream) and from the GPOS `kern`
   feature's pair-adjustment lookups; only the first glyph's x-advance is used.
+- GPOS class-based pair kerning (PairPos format 2) and kerning wrapped in extension lookups (type 9)
+  are read too: `KernData` checks explicit pairs first (a zero pair is an exception that stops class
+  kerning), then the class subtables in order, as OpenType applies them.
 - GSUB is read only for single substitutions (lookup type 1) per feature tag, for `font-feature-settings`
   such as `zero`, `smcp`, `tnum`; ligature and contextual lookups belong to the complex-script shaper.
 - CPAL palette 0 is stored BGRA. COLRv0 layers use palette index 0xFFFF for "current text colour";
@@ -381,9 +384,15 @@ project keeps code comment-free (see CLAUDE.md), so they live here, grouped by f
 - hmtx keeps each glyph's real left side bearing: rasterizers place an outline at (xMin - lsb), so a zero
   lsb shifts glyphs whose outline doesn't start at x = 0, most visibly zero-width combining marks.
 - The cmap uses format 4 (delta mapping only, so a segment must be contiguous in both code points and
-  glyph IDs) unless a code point is outside the BMP, which needs format 12.
+  glyph IDs) unless a code point is outside the BMP, or the format 4 table would not fit its 16-bit
+  length (thousands of separated code points); both cases use format 12.
+- The subset keeps the font's `post` header (italic angle, underline, isFixedPitch) as version 3.0,
+  without glyph names.
 
 ## EggPdf.Text/TrueType/SfntWriter.cs
 
 - A rebuilt simple glyph is written with no hinting instructions: its outline was rebuilt (CFF conversion,
   variable-font instancing), so the original instructions no longer apply.
+- `WriteFont` writes tables in ordinal (binary) tag order, so `OS/2` comes first, and sets
+  `head.checkSumAdjustment` so the whole file sums to 0xB1B0AFBA. The subsetter, TTC face extraction and
+  variable-font instancing all assemble fonts through it.
