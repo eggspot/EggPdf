@@ -6,18 +6,11 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// Flex free-space math must account for item margins — otherwise flex:1
-/// over-grows and pushes later items (the certificate's page footer) off the
-/// bottom of a fixed-height page.
-/// </summary>
 public class FlexOverflowRegressionTests
 {
     [Fact]
     public async Task FixedHeightColumnFlex_WithMargins_KeepsLastItemOnPage()
     {
-        // Mirrors the certificate's .page: full-page column flex, flex:1 body,
-        // margined footer. Every text op must stay within the page (y >= 0).
         var pdf = await HtmlToPdf.RenderAsync(
             "<html><body style=\"margin:0;padding:0\">" +
             "<div style=\"display:flex;flex-direction:column;min-height:297mm;box-sizing:border-box;padding:16mm 14mm\">" +
@@ -34,7 +27,8 @@ public class FlexOverflowRegressionTests
         {
             float y = float.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
             y.Should().BeGreaterThan(0f,
-                $"'{m.Groups[3].Value}' must stay on the page — margins must be part of flex free-space");
+                $"'{m.Groups[3].Value}' must stay on the page: item margins count against flex free space, or the " +
+                "flex:1 body over-grows and pushes the footer off the fixed-height page");
         }
     }
 }
