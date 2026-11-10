@@ -443,10 +443,12 @@ public class AdvancedFeatureTests
     {
         var html = "<h2 style='text-wrap: balance; width: 300px'>A moderately long heading that should be balanced</h2>";
         byte[] pdf = HtmlToPdf.Render(html);
-        var text = PdfAssert.ValidPdf(pdf, "(A moderately) Tj");
+        var text = PdfAssert.ValidPdf(pdf, "(should be balanced) Tj");
 
-        // Greedy wrapping would fit "A moderately long" on the first line; balancing shortens it.
-        text.Should().NotContain("(A moderately long) Tj");
+        text.Should().NotContain("(balanced) Tj",
+            "greedy wrapping leaves 'balanced' alone on the last line; balancing gives it words from the line above");
+        text.Should().NotContain("(should be) Tj",
+            "balancing keeps the greedy three lines instead of adding a fourth");
     }
 
     [Fact]
