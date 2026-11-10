@@ -15,18 +15,12 @@ public class TableCellLayoutTests
         var tds = root.FindAllByTag("td");
         tds.Should().HaveCount(2);
 
-        // Cells should be side-by-side (different X, same Y)
         tds[1].X.Should().BeGreaterThan(tds[0].X, "Cell B should be to the right of Cell A");
     }
 
     [Fact]
     public void DisplayTableCell_DirectChildOfDisplayTable_NoRowWrapper_SideBySide()
     {
-        // The common "fake table via CSS display, no real <table>/<tr> markup" pattern used
-        // for equal-height columns. Real <table><tr><td> always gets an implicit table-row
-        // display from the UA stylesheet's tr mapping; a plain div with display:table whose
-        // children are display:table-cell has no such wrapper, so it must act as an implicit
-        // single row itself (CSS 2.1 anonymous table-row generation, simplified).
         var root = LayoutTestHelper.Layout(
             "<div style='display:table; width:600px'>" +
             "<div class='cell' style='display:table-cell'>Left</div>" +
@@ -36,7 +30,9 @@ public class TableCellLayoutTests
         var cells = root.FindAll(b => b.Element?.GetAttribute("class") == "cell");
         cells.Should().HaveCount(2);
 
-        cells[0].Y.Should().Be(cells[1].Y, "cells with no row wrapper must still lay out on the same row");
+        cells[0].Y.Should().Be(cells[1].Y,
+            "the equal-height-columns pattern has no tr; per CSS 2.1 the cells get an anonymous table row, " +
+            "so they lay out on one row");
         cells[1].X.Should().BeGreaterThan(cells[0].X, "the second cell must sit to the right of the first, not stacked below it");
     }
 
@@ -49,11 +45,10 @@ public class TableCellLayoutTests
         var tds = root.FindAllByTag("td");
         tds.Should().HaveCount(3);
 
-        // Each cell should get roughly 1/3 of the table width
         float expectedWidth = 600f / 3f;
-        tds[0].Width.Should().BeApproximately(expectedWidth, 10f);
-        tds[1].Width.Should().BeApproximately(expectedWidth, 10f);
-        tds[2].Width.Should().BeApproximately(expectedWidth, 10f);
+        tds[0].Width.Should().BeApproximately(expectedWidth, 10f, "each cell gets about a third of the table");
+        tds[1].Width.Should().BeApproximately(expectedWidth, 10f, "each cell gets about a third of the table");
+        tds[2].Width.Should().BeApproximately(expectedWidth, 10f, "each cell gets about a third of the table");
     }
 
     [Fact]
@@ -65,7 +60,6 @@ public class TableCellLayoutTests
         var trs = root.FindAllByTag("tr");
         trs.Should().HaveCount(2);
 
-        // Rows should stack vertically
         trs[1].Y.Should().BeGreaterThan(trs[0].Y, "Row 2 should be below Row 1");
     }
 
@@ -94,17 +88,12 @@ public class TableCellLayoutTests
         var tds = root.FindAllByTag("td");
         tds.Should().HaveCount(2);
 
-        // Find text boxes inside cells
         var leftText = FindTextInSubtree(tds[0], "Left");
         var rightText = FindTextInSubtree(tds[1], "Right");
 
         leftText.Should().NotBeNull("'Left' text should be in first cell");
         rightText.Should().NotBeNull("'Right' text should be in second cell");
-
-        if (leftText != null && rightText != null)
-        {
-            rightText.X.Should().BeGreaterThan(leftText.X, "Right text should be positioned after Left text");
-        }
+        rightText!.X.Should().BeGreaterThan(leftText!.X, "Right text should be positioned after Left text");
     }
 
     [Fact]
@@ -117,19 +106,16 @@ public class TableCellLayoutTests
             "</tbody></table>", 600, 800);
 
         var trs = root.FindAllByTag("tr");
-        trs.Should().HaveCountGreaterOrEqualTo(2);
+        trs.Should().HaveCount(2);
 
-        // First row: 2 cells (one spanning 2 columns)
         var row1Cells = GetCellsInRow(trs[0]);
-        row1Cells.Should().HaveCount(2);
+        row1Cells.Should().HaveCount(2, "the first row has a colspan=2 cell and a single-column cell");
 
-        // The spanning cell spans 2 of 3 columns
         row1Cells[0].Width.Should().BeGreaterThan(50f,
             "colspan=2 cell should have substantial width");
         row1Cells[1].Width.Should().BeGreaterThan(50f,
             "single column cell should have substantial width");
 
-        // Both cells together should approximately equal the table width
         float totalCellWidth = row1Cells[0].Width + row1Cells[1].Width;
         totalCellWidth.Should().BeApproximately(600f, 30f,
             "cell widths should sum to approximately the table width");
@@ -146,16 +132,12 @@ public class TableCellLayoutTests
         var tds = root.FindAllByTag("td");
         tds.Should().HaveCount(2);
 
-        // First cell at column 0, second cell at column 1 (spanning 2 columns)
-        tds[1].X.Should().BeGreaterThan(tds[0].X);
+        tds[1].X.Should().BeGreaterThan(tds[0].X, "the colspan=2 cell starts at the second column");
     }
 
     [Fact]
     public void ThHeader_PercentageWidth_ContentWidthReflectsColumnWidth()
     {
-        // Regression: th with width:20% was being resolved relative to the CELL width (20%),
-        // not the table width — yielding content width = 20% of 20% of table = 4% of table.
-        // The text "Line Total" then wrapped to two lines inside a ~20px cell.
         var root = LayoutTestHelper.Layout(
             "<table style='width: 500px; border-collapse: collapse'><thead><tr>" +
             "<th style='width: 50%'>Description</th>" +
@@ -166,19 +148,16 @@ public class TableCellLayoutTests
         var ths = root.FindAllByTag("th");
         ths.Should().HaveCount(3);
 
-        // Last th should be 20% of table width = 100px, not 20% of 100px = 20px
         ths[2].Width.Should().BeApproximately(100f, 5f,
-            "th with width:20% should get 20% of TABLE width, not 20% of itself");
+            "th with width:20% should get 20% of the 500px TABLE (100px), not 20% of itself (20px)");
 
-        // "Line Total" must fit on a single text line (not wrap to two)
         var lineBox = FindTextInSubtree(ths[2], "Line Total");
-        lineBox.Should().NotBeNull("Line Total text should be a single text box");
+        lineBox.Should().NotBeNull("'Line Total' fits on one line, so it stays a single text box instead of wrapping");
     }
 
     [Fact]
     public void TdCell_PercentageWidth_ContentWidthReflectsColumnWidth()
     {
-        // Same regression check for td cells
         var root = LayoutTestHelper.Layout(
             "<table style='width: 500px; border-collapse: collapse'><tbody><tr>" +
             "<td style='width: 80%'>Long description text here</td>" +
@@ -188,9 +167,8 @@ public class TableCellLayoutTests
         var tds = root.FindAllByTag("td");
         tds.Should().HaveCount(2);
 
-        // Second td: 20% of 500px = 100px
         tds[1].Width.Should().BeApproximately(100f, 5f,
-            "td with width:20% should get 20% of TABLE width, not 20% of itself");
+            "td with width:20% should get 20% of the 500px TABLE (100px), not 20% of itself");
     }
 
     private static System.Collections.Generic.List<LayoutBox> GetCellsInRow(LayoutBox row)
