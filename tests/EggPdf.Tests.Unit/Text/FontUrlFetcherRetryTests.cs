@@ -5,11 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Text;
 
-/// <summary>
-/// A transient network failure must not poison a font URL for the process
-/// lifetime — failures may only suppress retries for a bounded window,
-/// while successful fetches stay cached forever (font URLs are immutable).
-/// </summary>
 [Collection(EggPdf.Tests.Unit.EndToEnd.ResourceLoadingCollection.Name)]
 public class FontUrlFetcherRetryTests
 {
@@ -27,7 +22,8 @@ public class FontUrlFetcherRetryTests
         {
             FontUrlFetcher.Fetch(url).Should().BeNull("the first fetch fails");
             FontUrlFetcher.Fetch(url).Should().Equal(FakeFont,
-                "a failed fetch must be retried once the retry window elapses");
+                "a transient network failure must not poison a font URL for the process lifetime: it is retried " +
+                "once the retry window elapses");
         }
         finally
         {
@@ -46,7 +42,7 @@ public class FontUrlFetcherRetryTests
         {
             FontUrlFetcher.Fetch(url).Should().Equal(FakeFont);
             FontUrlFetcher.Fetch(url).Should().Equal(FakeFont);
-            calls.Should().Be(1, "a successful fetch is cached for the process lifetime");
+            calls.Should().Be(1, "a font URL's content doesn't change, so a successful fetch is cached for the process lifetime");
         }
         finally
         {
