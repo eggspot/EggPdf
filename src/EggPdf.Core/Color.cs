@@ -40,23 +40,23 @@ public readonly struct Color : IEquatable<Color>
 
         switch (len)
         {
-            case 3: // #RGB
+            case 3:
                 return FromRgb(
                     ParseHexPair(hex[offset], hex[offset]),
                     ParseHexPair(hex[offset + 1], hex[offset + 1]),
                     ParseHexPair(hex[offset + 2], hex[offset + 2]));
-            case 4: // #RGBA
+            case 4:
                 return FromRgba(
                     ParseHexPair(hex[offset], hex[offset]),
                     ParseHexPair(hex[offset + 1], hex[offset + 1]),
                     ParseHexPair(hex[offset + 2], hex[offset + 2]),
                     ParseHexPair(hex[offset + 3], hex[offset + 3]));
-            case 6: // #RRGGBB
+            case 6:
                 return FromRgb(
                     ParseHexPair(hex[offset], hex[offset + 1]),
                     ParseHexPair(hex[offset + 2], hex[offset + 3]),
                     ParseHexPair(hex[offset + 4], hex[offset + 5]));
-            case 8: // #RRGGBBAA
+            case 8:
                 return FromRgba(
                     ParseHexPair(hex[offset], hex[offset + 1]),
                     ParseHexPair(hex[offset + 2], hex[offset + 3]),
@@ -98,72 +98,57 @@ public readonly struct Color : IEquatable<Color>
         if (value == "transparent")
             return Transparent;
 
-        // Hex colors
         if (value.StartsWith("#"))
         {
             try { return FromHex(value); }
             catch { return null; }
         }
 
-        // rgb() / rgba()
         if (value.StartsWith("rgb", StringComparison.OrdinalIgnoreCase))
         {
             return TryParseRgbFunction(value);
         }
 
-        // hsl() / hsla()
         if (value.StartsWith("hsl", StringComparison.OrdinalIgnoreCase))
         {
             return TryParseHslFunction(value);
         }
 
-        // color-mix()
         if (value.StartsWith("color-mix(", StringComparison.OrdinalIgnoreCase))
             return TryParseColorMix(value);
 
-        // light-dark(): PDF is always light context — return the first argument
         if (value.StartsWith("light-dark(", StringComparison.OrdinalIgnoreCase))
             return TryParseLightDark(value);
 
-        // hwb()
         if (value.StartsWith("hwb(", StringComparison.OrdinalIgnoreCase))
             return TryParseHwb(value);
 
-        // oklch()
         if (value.StartsWith("oklch(", StringComparison.OrdinalIgnoreCase))
             return TryParseOklch(value);
 
-        // oklab()
         if (value.StartsWith("oklab(", StringComparison.OrdinalIgnoreCase))
             return TryParseOklab(value);
 
-        // lch()
         if (value.StartsWith("lch(", StringComparison.OrdinalIgnoreCase))
             return TryParseLch(value);
 
-        // lab()
         if (value.StartsWith("lab(", StringComparison.OrdinalIgnoreCase))
             return TryParseLab(value);
 
-        // color()
         if (value.StartsWith("color(", StringComparison.OrdinalIgnoreCase))
             return TryParseColorFunction(value);
 
-        // Named colors
         return TryParseNamed(value);
     }
 
     private static Color? TryParseRgbFunction(string value)
     {
-        // rgb(255, 0, 0) or rgba(255, 0, 0, 0.5)
-        // Also modern: rgb(255 0 0 / 0.5)
         int openParen = value.IndexOf('(');
         int closeParen = value.LastIndexOf(')');
         if (openParen < 0 || closeParen < 0) return null;
 
         var inner = value.Substring(openParen + 1, closeParen - openParen - 1).Trim();
 
-        // Handle / separator for alpha: "255 0 0 / 0.5"
         float alpha = 1f;
         int slashIdx = inner.IndexOf('/');
         if (slashIdx >= 0)
@@ -188,7 +173,6 @@ public readonly struct Color : IEquatable<Color>
 
     private static Color? TryParseHslFunction(string value)
     {
-        // hsl(120, 100%, 50%) or hsla(120, 100%, 50%, 0.5)
         int openParen = value.IndexOf('(');
         int closeParen = value.LastIndexOf(')');
         if (openParen < 0 || closeParen < 0) return null;
@@ -206,14 +190,13 @@ public readonly struct Color : IEquatable<Color>
         var parts = inner.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 3) return null;
 
-        float h = ParseColorNumber(parts[0].Trim().TrimEnd('d', 'e', 'g'), false); // remove "deg"
+        float h = ParseColorNumber(parts[0].Trim().TrimEnd('d', 'e', 'g'), false);
         float s = ParseColorNumber(parts[1].Trim().TrimEnd('%'), false) / 100f;
         float l = ParseColorNumber(parts[2].Trim().TrimEnd('%'), false) / 100f;
 
         if (parts.Length >= 4 && slashIdx < 0)
             alpha = ParseColorNumber(parts[3].Trim(), true);
 
-        // HSL to RGB conversion
         HslToRgb(h, s, l, out byte r, out byte g, out byte b);
         return FromRgba(r, g, b, ClampByte(alpha * 255f));
     }
@@ -243,7 +226,7 @@ public readonly struct Color : IEquatable<Color>
 
     private static void HslToRgb(float h, float s, float l, out byte r, out byte g, out byte b)
     {
-        h = ((h % 360) + 360) % 360; // normalize to 0-360
+        h = ((h % 360) + 360) % 360;
         float c = (1 - Math.Abs(2 * l - 1)) * s;
         float x = c * (1 - Math.Abs((h / 60f) % 2 - 1));
         float m = l - c / 2;
@@ -263,30 +246,23 @@ public readonly struct Color : IEquatable<Color>
 
     private static Color? TryParseColorMix(string value)
     {
-        // color-mix(in <colorspace>, <color1> [<pct>], <color2> [<pct>])
-        // We support srgb, hsl (all treated as sRGB linear mix for now)
         int openParen = value.IndexOf('(');
         int closeParen = value.LastIndexOf(')');
         if (openParen < 0 || closeParen < 0) return null;
 
         var inner = value.Substring(openParen + 1, closeParen - openParen - 1).Trim();
 
-        // Split on commas to get: "in srgb", "red 30%", "blue"
         var parts = inner.Split(',');
         if (parts.Length != 3) return null;
 
-        // parts[0] = "in srgb" — ignore color space, always do sRGB
-        // parts[1] = "red 30%"  parts[2] = "blue 70%"
         var (c1, p1) = ParseColorWithOptionalPct(parts[1].Trim());
         var (c2, p2) = ParseColorWithOptionalPct(parts[2].Trim());
 
         if (c1 == null || c2 == null) return null;
 
-        // If neither has a percentage, default to 50/50
         float w1 = p1 ?? (p2.HasValue ? 1f - p2.Value : 0.5f);
         float w2 = p2 ?? (1f - w1);
 
-        // Normalize so they sum to 1
         float total = w1 + w2;
         if (total <= 0) return null;
         w1 /= total;
@@ -299,16 +275,15 @@ public readonly struct Color : IEquatable<Color>
         return FromRgba(r, g, b, a);
     }
 
+    /// <summary>light-dark(light, dark): a PDF is always rendered in the light color scheme, so this is the first argument.</summary>
     private static Color? TryParseLightDark(string value)
     {
-        // light-dark(lightColor, darkColor) — PDF context is always light, return first arg.
         int openParen = value.IndexOf('(');
         int closeParen = value.LastIndexOf(')');
         if (openParen < 0 || closeParen < 0) return null;
 
         var inner = value.Substring(openParen + 1, closeParen - openParen - 1).Trim();
 
-        // Split on first top-level comma, respecting nested parens
         int commaPos = -1;
         int depth = 0;
         for (int i = 0; i < inner.Length; i++)
@@ -323,10 +298,8 @@ public readonly struct Color : IEquatable<Color>
         return TryParse(lightPart);
     }
 
-    // ── hwb() ────────────────────────────────────────────────────────────────
     private static Color? TryParseHwb(string value)
     {
-        // hwb(hue whiteness% blackness% [/ alpha])
         var inner = ExtractInner(value); if (inner == null) return null;
         float alpha = 1f;
         var slashIdx = inner.IndexOf('/');
@@ -340,9 +313,7 @@ public readonly struct Color : IEquatable<Color>
         float h = ParseColorNumber(parts[0].TrimEnd('d','e','g'), false);
         float w = ParseColorNumber(parts[1].TrimEnd('%'), false) / 100f;
         float b = ParseColorNumber(parts[2].TrimEnd('%'), false) / 100f;
-        // Normalize: if w+b > 1, scale them
         if (w + b > 1f) { float s = w + b; w /= s; b /= s; }
-        // HWB to RGB: start with hue, add white, add black
         HslToRgb(h, 1f, 0.5f, out byte r0, out byte g0, out byte b0);
         float rf = r0 / 255f, gf = g0 / 255f, bf = b0 / 255f;
         rf = rf * (1f - w - b) + w;
@@ -351,10 +322,8 @@ public readonly struct Color : IEquatable<Color>
         return FromRgba(ClampByte(rf * 255f), ClampByte(gf * 255f), ClampByte(bf * 255f), ClampByte(alpha * 255f));
     }
 
-    // ── oklab() ──────────────────────────────────────────────────────────────
     private static Color? TryParseOklab(string value)
     {
-        // oklab(L a b [/ alpha])  L: 0-1, a/b: -0.5..0.5
         var inner = ExtractInner(value); if (inner == null) return null;
         float alpha = 1f;
         var slashIdx = inner.IndexOf('/');
@@ -369,10 +338,8 @@ public readonly struct Color : IEquatable<Color>
         return FromRgba(ClampByte(r * 255f), ClampByte(g * 255f), ClampByte(bl * 255f), ClampByte(alpha * 255f));
     }
 
-    // ── oklch() ──────────────────────────────────────────────────────────────
     private static Color? TryParseOklch(string value)
     {
-        // oklch(L C H [/ alpha])  L: 0-1, C: 0+, H: 0-360deg
         var inner = ExtractInner(value); if (inner == null) return null;
         float alpha = 1f;
         var slashIdx = inner.IndexOf('/');
@@ -390,10 +357,8 @@ public readonly struct Color : IEquatable<Color>
         return FromRgba(ClampByte(r * 255f), ClampByte(g * 255f), ClampByte(bl * 255f), ClampByte(alpha * 255f));
     }
 
-    // ── lab() ────────────────────────────────────────────────────────────────
     private static Color? TryParseLab(string value)
     {
-        // lab(L a b [/ alpha])  L: 0-100, a/b: -125..125
         var inner = ExtractInner(value); if (inner == null) return null;
         float alpha = 1f;
         var slashIdx = inner.IndexOf('/');
@@ -407,10 +372,8 @@ public readonly struct Color : IEquatable<Color>
         return FromRgba(ClampByte(r * 255f), ClampByte(g * 255f), ClampByte(bl * 255f), ClampByte(alpha * 255f));
     }
 
-    // ── lch() ────────────────────────────────────────────────────────────────
     private static Color? TryParseLch(string value)
     {
-        // lch(L C H [/ alpha])  L: 0-100, C: 0+, H: 0-360deg
         var inner = ExtractInner(value); if (inner == null) return null;
         float alpha = 1f;
         var slashIdx = inner.IndexOf('/');
@@ -427,17 +390,14 @@ public readonly struct Color : IEquatable<Color>
         return FromRgba(ClampByte(r * 255f), ClampByte(g * 255f), ClampByte(bl * 255f), ClampByte(alpha * 255f));
     }
 
-    // ── color() ──────────────────────────────────────────────────────────────
     private static Color? TryParseColorFunction(string value)
     {
-        // color(colorspace c1 c2 c3 [/ alpha])
         var inner = ExtractInner(value); if (inner == null) return null;
         float alpha = 1f;
         var slashIdx = inner.IndexOf('/');
         if (slashIdx >= 0) { alpha = ParseColorNumber(inner.Substring(slashIdx + 1).Trim(), true); inner = inner.Substring(0, slashIdx).Trim(); }
         var parts = inner.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 4) return null;
-        // parts[0] = colorspace, parts[1..3] = components
         float c1 = ParseColorNumber(parts[1], false);
         float c2 = ParseColorNumber(parts[2], false);
         float c3 = ParseColorNumber(parts[3], false);
@@ -445,12 +405,11 @@ public readonly struct Color : IEquatable<Color>
         float r, g, b;
         if (cs == "display-p3")
         {
-            // Approximate display-p3 → sRGB via linear transform (simplified)
             r = Math.Max(0, Math.Min(1, 0.8225f * c1 + 0.1774f * c2 + 0.0001f * c3));
             g = Math.Max(0, Math.Min(1, 0.0332f * c1 + 0.9669f * c2 - 0.0001f * c3));
             b = Math.Max(0, Math.Min(1, 0.0171f * c1 + 0.0724f * c2 + 0.9108f * c3));
         }
-        else // srgb, srgb-linear, a98-rgb, prophoto-rgb, rec2020 — all mapped directly for simplicity
+        else
         {
             r = Math.Max(0, Math.Min(1, c1));
             g = Math.Max(0, Math.Min(1, c2));
@@ -458,8 +417,6 @@ public readonly struct Color : IEquatable<Color>
         }
         return FromRgba(ClampByte(r * 255f), ClampByte(g * 255f), ClampByte(b * 255f), ClampByte(alpha * 255f));
     }
-
-    // ── Color space conversion helpers ───────────────────────────────────────
 
     private static string? ExtractInner(string value)
     {
@@ -471,7 +428,6 @@ public readonly struct Color : IEquatable<Color>
 
     private static void OklabToSrgb(float L, float a, float b, out float r, out float g, out float bl)
     {
-        // Oklab → LMS → linear sRGB → sRGB
         float l_ = L + 0.3963377774f * a + 0.2158037573f * b;
         float m_ = L - 0.1055613458f * a - 0.0638541728f * b;
         float s_ = L - 0.0894841775f * a - 1.2914855480f * b;
@@ -489,7 +445,6 @@ public readonly struct Color : IEquatable<Color>
 
     private static void CieLabToSrgb(float L, float a, float b, out float r, out float g, out float bl)
     {
-        // CIE Lab → XYZ D65 → linear sRGB → sRGB
         float fy = (L + 16f) / 116f;
         float fx = a / 500f + fy;
         float fz = fy - b / 200f;
@@ -497,7 +452,6 @@ public readonly struct Color : IEquatable<Color>
         float X = (fx > d ? fx * fx * fx : 3f * d * d * (fx - 4f / 29f)) * 0.95047f;
         float Y = (fy > d ? fy * fy * fy : 3f * d * d * (fy - 4f / 29f)) * 1.00000f;
         float Z = (fz > d ? fz * fz * fz : 3f * d * d * (fz - 4f / 29f)) * 1.08883f;
-        // XYZ D65 → linear sRGB
         float lr =  3.2404542f * X - 1.5371385f * Y - 0.4985314f * Z;
         float lg = -0.9692660f * X + 1.8760108f * Y + 0.0415560f * Z;
         float lb =  0.0556434f * X - 0.2040259f * Y + 1.0572252f * Z;
@@ -515,8 +469,6 @@ public readonly struct Color : IEquatable<Color>
 
     private static (Color? color, float? pct) ParseColorWithOptionalPct(string token)
     {
-        // token = "red 30%" or "blue" or "#ff0000 50%"
-        // Find a trailing percentage
         float? pct = null;
         var lastSpace = token.LastIndexOf(' ');
         if (lastSpace > 0)
