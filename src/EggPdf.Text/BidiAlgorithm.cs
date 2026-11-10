@@ -81,7 +81,6 @@ public static partial class BidiAlgorithm
         foreach (var seq in sequences)
             ResolveSequence(text, seq, original, types, levels, removed, paraLevel);
 
-        // Removed characters adopt the level of the character before them (or the paragraph level)
         int prevLevel = paraLevel;
         for (int i = 0; i < n; i++)
         {
@@ -91,8 +90,6 @@ public static partial class BidiAlgorithm
         ApplyL1(original, levels, removed, paraLevel);
         return levels;
     }
-
-    // ── Classification ───────────────────────────────────────────────────────
 
     private static BidiType[] ClassifyAll(string text)
     {
@@ -124,8 +121,6 @@ public static partial class BidiAlgorithm
     private static bool IsNeutralOrIsolate(BidiType t)
         => t == BidiType.B || t == BidiType.S || t == BidiType.WS || t == BidiType.ON || IsIsolateInitiator(t) || t == BidiType.PDI;
 
-    // ── BD9: matching isolate initiators and PDIs ────────────────────────────
-
     private static void MatchIsolates(BidiType[] original, int[] matchingPdi, int[] matchingInitiator)
     {
         int n = original.Length;
@@ -144,12 +139,11 @@ public static partial class BidiAlgorithm
         }
     }
 
-    // ── X1-X8: explicit levels ───────────────────────────────────────────────
-
+    /// <summary>One entry of the X1-X8 directional status stack; <see cref="Override"/> is ON for no override, else L or R.</summary>
     private struct Status
     {
         public int Level;
-        public BidiType Override; // ON = neutral, L or R = directional override
+        public BidiType Override;
         public bool Isolate;
     }
 
@@ -259,8 +253,6 @@ public static partial class BidiAlgorithm
         return false;
     }
 
-    // ── X10: level runs and isolating run sequences ──────────────────────────
-
     private static List<List<int>> BuildLevelRuns(int[] levels, bool[] removed, int[] runOf)
     {
         var runs = new List<List<int>>();
@@ -289,7 +281,8 @@ public static partial class BidiAlgorithm
         foreach (var run in runs)
         {
             int first = run[0];
-            if (original[first] == BidiType.PDI && matchingInitiator[first] != -1) continue; // continues an earlier sequence
+            bool continuesEarlierSequence = original[first] == BidiType.PDI && matchingInitiator[first] != -1;
+            if (continuesEarlierSequence) continue;
 
             var sequence = new List<int>();
             var current = run;
@@ -307,15 +300,16 @@ public static partial class BidiAlgorithm
         return sequences;
     }
 
-    // ── W, N, I rules over one isolating run sequence ────────────────────────
-
+    /// <summary>
+    /// Resolves one isolating run sequence: sos and eos from the levels of the neighbouring kept characters, then the
+    /// weak rules, paired brackets, neutral rules and implicit levels.
+    /// </summary>
     private static void ResolveSequence(string text, List<int> seq, BidiType[] original, BidiType[] types,
         int[] levels, bool[] removed, int paraLevel)
     {
         int count = seq.Count;
         int level = levels[seq[0]];
 
-        // sos / eos from the levels of the neighbouring non-removed characters
         int before = PreviousKept(removed, seq[0]);
         int after = NextKept(removed, seq[count - 1]);
         int prevLevel = before >= 0 ? levels[before] : paraLevel;
@@ -329,9 +323,13 @@ public static partial class BidiAlgorithm
         ApplyWeakRules(t, sos);
         ApplyBracketRules(text, seq, original, t, level, sos);
         ApplyNeutralRules(t, sos, eos, level);
+        ApplyImplicitLevels(seq, t, levels, level);
+    }
 
-        // I1 / I2
-        for (int i = 0; i < count; i++)
+    /// <summary>I1 and I2: R, and numbers, rise above an even level; L, EN and AN rise above an odd level.</summary>
+    private static void ApplyImplicitLevels(List<int> seq, BidiType[] t, int[] levels, int level)
+    {
+        for (int i = 0; i < seq.Count; i++)
         {
             int idx = seq[i];
             if (level % 2 == 0)
@@ -359,11 +357,15 @@ public static partial class BidiAlgorithm
         return -1;
     }
 
+    /// <summary>
+    /// W1: an NSM takes the previous type (ON after an isolate initiator or PDI). W2: EN after AL becomes AN. W3: AL
+    /// becomes R. W4: a single separator between two numbers of the same kind joins them. W5: a run of ET next to an
+    /// EN becomes EN. W6: remaining separators and terminators become neutral. W7: EN after L becomes L.
+    /// </summary>
     private static void ApplyWeakRules(BidiType[] t, BidiType sos)
     {
         int n = t.Length;
 
-        // W1: NSM takes the previous type (ON after an isolate initiator or PDI)
         for (int i = 0; i < n; i++)
         {
             if (t[i] != BidiType.NSM) continue;
@@ -371,7 +373,6 @@ public static partial class BidiAlgorithm
             else t[i] = IsIsolateInitiator(t[i - 1]) || t[i - 1] == BidiType.PDI ? BidiType.ON : t[i - 1];
         }
 
-        // W2: EN after AL becomes AN
         var lastStrong = sos;
         for (int i = 0; i < n; i++)
         {
@@ -379,10 +380,8 @@ public static partial class BidiAlgorithm
             else if (t[i] == BidiType.EN && lastStrong == BidiType.AL) t[i] = BidiType.AN;
         }
 
-        // W3: AL becomes R
         for (int i = 0; i < n; i++) if (t[i] == BidiType.AL) t[i] = BidiType.R;
 
-        // W4: a single separator between two numbers of the same kind joins them
         for (int i = 1; i < n - 1; i++)
         {
             if (t[i] == BidiType.ES && t[i - 1] == BidiType.EN && t[i + 1] == BidiType.EN) t[i] = BidiType.EN;
@@ -390,7 +389,6 @@ public static partial class BidiAlgorithm
             else if (t[i] == BidiType.CS && t[i - 1] == BidiType.AN && t[i + 1] == BidiType.AN) t[i] = BidiType.AN;
         }
 
-        // W5: a run of ET next to an EN becomes EN
         for (int i = 0; i < n; i++)
         {
             if (t[i] != BidiType.ET) continue;
@@ -401,11 +399,9 @@ public static partial class BidiAlgorithm
             i = end - 1;
         }
 
-        // W6: remaining separators and terminators are neutral
         for (int i = 0; i < n; i++)
             if (t[i] == BidiType.ES || t[i] == BidiType.ET || t[i] == BidiType.CS) t[i] = BidiType.ON;
 
-        // W7: EN after L becomes L
         lastStrong = sos;
         for (int i = 0; i < n; i++)
         {
@@ -414,6 +410,7 @@ public static partial class BidiAlgorithm
         }
     }
 
+    /// <summary>N1: a run of neutrals between two strong types of the same direction takes it; N2: otherwise the embedding direction.</summary>
     private static void ApplyNeutralRules(BidiType[] t, BidiType sos, BidiType eos, int level)
     {
         int n = t.Length;
@@ -427,7 +424,7 @@ public static partial class BidiAlgorithm
 
             var leading = i == 0 ? sos : StrongOf(t[i - 1]);
             var trailing = end == n ? eos : StrongOf(t[end]);
-            var resolved = leading == trailing ? leading : embedding; // N1, else N2
+            var resolved = leading == trailing ? leading : embedding;
             for (int k = i; k < end; k++) t[k] = resolved;
             i = end - 1;
         }
@@ -436,11 +433,10 @@ public static partial class BidiAlgorithm
     /// <summary>Numbers count as R for neutral resolution (N1).</summary>
     private static BidiType StrongOf(BidiType t) => t == BidiType.L ? BidiType.L : BidiType.R;
 
-    // ── L1 and L2 ────────────────────────────────────────────────────────────
-
+    /// <summary>L1: segment and paragraph separators, and whitespace before them or at the end of the line, take the paragraph level.</summary>
     private static void ApplyL1(BidiType[] original, int[] levels, bool[] removed, int paraLevel)
     {
-        bool trailing = true; // the end of the line counts as a separator
+        bool trailing = true;
         for (int i = original.Length - 1; i >= 0; i--)
         {
             var t = original[i];
@@ -488,7 +484,14 @@ public static partial class BidiAlgorithm
             }
         }
 
-        // Reversal flips surrogate pairs; put each pair back in high-then-low order
+        RestoreSurrogatePairOrder(text, order);
+        return order;
+    }
+
+    /// <summary>Reversing a run flips surrogate pairs; this puts each pair back in high-then-low order.</summary>
+    private static void RestoreSurrogatePairOrder(string text, int[] order)
+    {
+        int n = order.Length;
         for (int i = 0; i + 1 < n; i++)
         {
             if (char.IsLowSurrogate(text[order[i]]) && char.IsHighSurrogate(text[order[i + 1]]) && order[i + 1] == order[i] - 1)
@@ -497,6 +500,5 @@ public static partial class BidiAlgorithm
                 i++;
             }
         }
-        return order;
     }
 }
