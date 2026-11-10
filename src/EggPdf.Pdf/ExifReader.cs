@@ -32,7 +32,7 @@ public static class ExifReader
                 if (jpegData[pos] != 0xFF) break;
                 byte marker = jpegData[pos + 1];
 
-                if (marker == App1Marker)
+                if (marker == App1Marker && IsExifSegment(jpegData, pos + 4))
                 {
                     int segLen = (jpegData[pos + 2] << 8) | jpegData[pos + 3];
                     return ParseExifOrientation(jpegData, pos + 4, segLen - 2);
@@ -48,6 +48,10 @@ public static class ExifReader
 
         return 1;
     }
+
+    /// <summary>An APP1 segment holds Exif data only when it starts with "Exif"; XMP and other APP1 payloads are skipped.</summary>
+    private static bool IsExifSegment(byte[] data, int offset)
+        => offset + 4 <= data.Length && data[offset] == 'E' && data[offset + 1] == 'x' && data[offset + 2] == 'i' && data[offset + 3] == 'f';
 
     private static int ParseExifOrientation(byte[] data, int offset, int length)
     {
