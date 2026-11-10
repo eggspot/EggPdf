@@ -4,10 +4,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary>
-/// Tests for box model edge cases: min/max-height, border-box sizing,
-/// overflow, percentage dimensions, and padding/margin shorthands.
-/// </summary>
 public class BoxModelTests
 {
     [Fact]

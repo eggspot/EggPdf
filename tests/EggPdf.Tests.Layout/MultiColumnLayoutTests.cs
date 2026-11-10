@@ -5,9 +5,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary>
-/// Tests for MultiColumnLayout: column count/width resolution and content distribution.
-/// </summary>
 public class MultiColumnLayoutTests
 {
     [Fact]
