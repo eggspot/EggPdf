@@ -15,7 +15,6 @@ public class TextMeasurerTests
     [Fact]
     public void MeasureWidth_Helvetica_NarrowCharsNarrowerThanWideChars()
     {
-        // 'i' is much narrower than 'W' in Helvetica
         float iWidth = TextMeasurer.MeasureWidth("i", 16, null);
         float wWidth = TextMeasurer.MeasureWidth("W", 16, null);
 
@@ -48,8 +47,7 @@ public class TextMeasurerTests
         float regular = TextMeasurer.MeasureWidth("Hello World", 16, null, null, null);
         float bold = TextMeasurer.MeasureWidth("Hello World", 16, null, "bold", null);
 
-        // Bold is typically wider because of thicker strokes
-        bold.Should().BeGreaterOrEqualTo(regular);
+        bold.Should().BeGreaterOrEqualTo(regular, "bold glyphs have thicker strokes and are at least as wide");
     }
 
     [Fact]
@@ -88,8 +86,7 @@ public class TextMeasurerTests
         var regularLines = TextMeasurer.WrapText("Hello World Test Text Here", 16, null, null, null, 150);
         var boldLines = TextMeasurer.WrapText("Hello World Test Text Here", 16, null, "bold", null, 150);
 
-        // Bold text may wrap to more lines since characters are wider
-        boldLines.Count.Should().BeGreaterOrEqualTo(regularLines.Count);
+        boldLines.Count.Should().BeGreaterOrEqualTo(regularLines.Count, "wider bold glyphs can only add line breaks");
     }
 
     [Fact]
@@ -98,8 +95,7 @@ public class TextMeasurerTests
         float helvetica = TextMeasurer.MeasureWidth("Hello", 16, "sans-serif");
         float times = TextMeasurer.MeasureWidth("Hello", 16, "serif");
 
-        // They should produce different widths (different font metrics)
-        helvetica.Should().NotBe(times);
+        helvetica.Should().NotBe(times, "serif and sans-serif map to fonts with different metrics");
     }
 
     [Fact]
@@ -119,12 +115,8 @@ public class TextMeasurerTests
     [Fact]
     public void WrapText_Hyphenation_LongWordGetsHyphenated()
     {
-        // "hyphenation" is a long English word that should be hyphenable
-        // With a narrow container, hyphenation should insert a hyphen to break the word
         var lines = TextMeasurer.WrapText("hyphenation", 16, null, null, null, 60f, "normal", false, true);
-        // At least one line should end with a hyphen, or there should be more than one line
-        lines.Should().HaveCountGreaterThan(1, "long word should be split with hyphenation");
-        // All except possibly the last line should end with a hyphen
+        lines.Should().HaveCountGreaterThan(1, "a long word in a 60px line is split with hyphenation");
         for (int i = 0; i < lines.Count - 1; i++)
             lines[i].Should().EndWith("-", $"line {i} should end with a hyphen when hyphenation is enabled");
     }
@@ -132,19 +124,15 @@ public class TextMeasurerTests
     [Fact]
     public void WrapText_Hyphenation_ShortWord_NotHyphenated()
     {
-        // "run" is too short to hyphenate (< leftMin + rightMin = 5 chars)
         var lines = TextMeasurer.WrapText("run", 16, null, null, null, 10f, "normal", false, true);
-        // Should produce 1 line without hyphen (word too short to hyphenate)
-        lines.Count.Should().Be(1);
+        lines.Should().HaveCount(1, "a word shorter than leftMin + rightMin (5 characters) is never hyphenated");
         lines[0].Should().NotEndWith("-");
     }
 
     [Fact]
     public void WrapText_Hyphenation_Disabled_NoHyphens()
     {
-        // Without hyphenation, long words are not split with hyphens
         var lines = TextMeasurer.WrapText("hyphenation", 16, null, null, null, 60f, "normal", false, false);
-        // Should produce one line (not broken) without hyphens
         foreach (var line in lines)
             line.Should().NotEndWith("-");
     }
