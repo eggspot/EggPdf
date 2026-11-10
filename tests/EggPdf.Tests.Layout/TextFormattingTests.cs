@@ -4,14 +4,8 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary>
-/// Tests for text formatting properties: text-align, text-transform, text-indent,
-/// letter-spacing, word-spacing, line-height, text-decoration, white-space variants.
-/// </summary>
 public class TextFormattingTests
 {
-    // ── text-align ──────────────────────────────────────────────────────────
-
     [Fact]
     public void TextAlign_Left_StylePreserved()
     {
@@ -52,8 +46,6 @@ public class TextFormattingTests
         p!.Style.Get("text-align").Should().Be("justify");
     }
 
-    // ── text-transform ──────────────────────────────────────────────────────
-
     [Fact]
     public void TextTransform_Uppercase_StylePreserved()
     {
@@ -82,8 +74,6 @@ public class TextFormattingTests
         p!.Style.Get("text-transform").Should().Be("capitalize");
     }
 
-    // ── text-indent ─────────────────────────────────────────────────────────
-
     [Fact]
     public void TextIndent_StylePreserved()
     {
@@ -93,8 +83,6 @@ public class TextFormattingTests
         p.Should().NotBeNull();
         p!.Style.Get("text-indent").Should().Be("30px");
     }
-
-    // ── letter-spacing / word-spacing ───────────────────────────────────────
 
     [Fact]
     public void LetterSpacing_StylePreserved()
@@ -115,8 +103,6 @@ public class TextFormattingTests
         p.Should().NotBeNull();
         p!.Style.Get("word-spacing").Should().Be("5px");
     }
-
-    // ── line-height ─────────────────────────────────────────────────────────
 
     [Fact]
     public void LineHeight_Unitless_StylePreserved()
@@ -154,8 +140,6 @@ public class TextFormattingTests
         pLarge!.Height.Should().BeGreaterThan(pNormal!.Height,
             "larger line-height should produce taller text box");
     }
-
-    // ── text-decoration ─────────────────────────────────────────────────────
 
     [Fact]
     public void TextDecoration_Underline_StylePreserved()
@@ -221,11 +205,9 @@ public class TextFormattingTests
         var root = LayoutTestHelper.Layout(
             "<p style='text-decoration: underline wavy'>Text</p>", 400, 600);
         var p = root.FindByTag("p");
-        // text-decoration shorthand with style=wavy should set text-decoration-style
-        p!.Style.Get("text-decoration-style").Should().Be("wavy");
+        p!.Style.Get("text-decoration-style").Should().Be("wavy",
+            "the text-decoration shorthand's wavy keyword sets text-decoration-style");
     }
-
-    // ── white-space ─────────────────────────────────────────────────────────
 
     [Fact]
     public void WhiteSpace_Nowrap_StylePreserved()
@@ -245,8 +227,6 @@ public class TextFormattingTests
         var p = root.FindByTag("p");
         p!.Style.Get("white-space").Should().Be("pre-wrap");
     }
-
-    // ── font properties ─────────────────────────────────────────────────────
 
     [Fact]
     public void FontSize_Px_ProducesPositiveHeight()
@@ -288,8 +268,6 @@ public class TextFormattingTests
         p!.Style.Get("font-family").Should().Contain("Arial");
     }
 
-    // ── color ───────────────────────────────────────────────────────────────
-
     [Fact]
     public void Color_StylePreserved()
     {
@@ -297,11 +275,9 @@ public class TextFormattingTests
             "<p style='color: #ff0000'>Red text</p>", 600, 800);
         var p = root.FindByTag("p");
         p.Should().NotBeNull();
-        // Color should be stored in style (exact value depends on cascade parsing)
-        p!.Style.Get("color").Should().NotBeNullOrEmpty();
+        p!.Style.Get("color").Should().NotBeNullOrEmpty(
+            "the color is kept in the computed style, in whatever form the cascade normalizes it to");
     }
-
-    // ── inheritance ─────────────────────────────────────────────────────────
 
     [Fact]
     public void FontSize_InheritedByChildren()
@@ -326,8 +302,6 @@ public class TextFormattingTests
             "larger font size should produce taller text boxes");
     }
 
-    // ── initial-letter (drop cap) ────────────────────────────────────────────
-
     [Fact]
     public void InitialLetter_StyleStoredOnParagraph()
     {
@@ -342,7 +316,6 @@ public class TextFormattingTests
     [Fact]
     public void InitialLetter_3_FirstLetterTallerThanNormalText()
     {
-        // With initial-letter:3, the first letter box should be about 3x taller than normal text
         var root = LayoutTestHelper.Layout(
             "<body style='margin:0'>" +
             "<p style='initial-letter:3; font-size:12px; width:300px'>Once upon a time in a land far away</p>" +
@@ -351,22 +324,19 @@ public class TextFormattingTests
         var p = root.FindByTag("p");
         p.Should().NotBeNull();
 
-        // Find the first text child — should be the drop-cap letter 'O'
         var textBoxes = p!.Children.FindAll(b => !string.IsNullOrEmpty(b.Text));
         textBoxes.Should().NotBeEmpty("paragraph should have text boxes");
 
         var firstLetterBox = textBoxes[0];
         firstLetterBox.Text.Should().Be("O", "first text box should contain only the first letter");
 
-        // Normal line height at 12px ≈ 14-16px. Drop cap at 3 lines ≈ 42-48px.
         firstLetterBox.Height.Should().BeGreaterThan(30f,
-            "initial-letter:3 should make first letter at least 3x taller than base font size");
+            "a 12px line is ~14-16px tall, so a drop cap spanning 3 lines is ~42-48px, well above 30px");
     }
 
     [Fact]
     public void InitialLetter_1_SameHeightAsNormalText()
     {
-        // initial-letter:1 should behave like normal text (no enlargement)
         var rootNormal = LayoutTestHelper.Layout(
             "<p style='font-size:12px; width:200px'>Hello world</p>", 400, 600);
         var rootDrop = LayoutTestHelper.Layout(
@@ -378,12 +348,9 @@ public class TextFormattingTests
         normalFirstBox.Should().NotBeNull();
         dropFirstBox.Should().NotBeNull();
 
-        // Heights should be similar (within 5px)
         dropFirstBox!.Height.Should().BeApproximately(normalFirstBox!.Height, 5f,
             "initial-letter:1 should not significantly change text height");
     }
-
-    // ── text-align-last ─────────────────────────────────────────────────────
 
     [Fact]
     public void TextAlignLast_Center_StylePreserved()
@@ -413,8 +380,6 @@ public class TextFormattingTests
         var p = root.FindByTag("p");
         p!.Style.Get("text-align-last").Should().Be("left");
     }
-
-    // ── text-emphasis ────────────────────────────────────────────────────────
 
     [Fact]
     public void TextEmphasis_Dot_StylePreserved()
@@ -458,8 +423,6 @@ public class TextFormattingTests
             "text-emphasis-color is an inherited property");
     }
 
-    // ── hanging-punctuation ──────────────────────────────────────────────────
-
     [Fact]
     public void HangingPunctuation_StylePreserved()
     {
@@ -484,13 +447,11 @@ public class TextFormattingTests
     [Fact]
     public void HangingPunctuation_None_IsDefault()
     {
-        // Default value is none — no special handling
         var root = LayoutTestHelper.Layout(
             "<p>Normal text</p>", 400, 600);
         var p = root.FindByTag("p");
         p.Should().NotBeNull();
         var val = p!.Style.Get("hanging-punctuation");
-        // Default is null/empty or "none" — either is acceptable
         (val == null || val == "" || val == "none").Should().BeTrue(
             "default hanging-punctuation should be none or unset");
     }
@@ -498,8 +459,6 @@ public class TextFormattingTests
     [Fact]
     public void HangingPunctuation_First_InlineBoxStartsBeforeContentEdge()
     {
-        // When hanging-punctuation: first and text starts with an opening quote,
-        // the first inline text box X should be less than the paragraph's content edge (p.X + p.PaddingLeft)
         var root = LayoutTestHelper.Layout(
             "<p style='hanging-punctuation: first; margin: 0; padding: 0'>\"Quoted text goes here\"</p>",
             400, 600);
