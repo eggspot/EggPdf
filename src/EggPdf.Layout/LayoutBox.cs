@@ -18,6 +18,13 @@ public class LayoutBox
     public float ContentWidth { get; set; }
     public float ContentHeight { get; set; }
 
+    /// <summary>
+    /// The height of the in-flow content laid out inside the box, before an explicit height, min-height or
+    /// aspect-ratio set <see cref="ContentHeight"/>; NaN for a box that wasn't laid out as a block. A table cell's
+    /// vertical-align positions this content within the row.
+    /// </summary>
+    internal float FlowContentHeight { get; set; } = float.NaN;
+
     public float PaddingTop { get; set; }
     public float PaddingRight { get; set; }
     public float PaddingBottom { get; set; }
