@@ -5,8 +5,7 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary>shape-outside: url() image alpha shapes and inset() rounded corners.</summary>
-[Collection("ShapeImageLoader")] // the loader is a shared thread-static hook
+[Collection("ShapeOutsideParser.ImageLoader is a shared static hook")]
 public class ShapeOutsideUrlTests : IDisposable
 {
     public ShapeOutsideUrlTests() { ShapeOutsideParser.ImageLoader = null; }
@@ -35,13 +34,12 @@ public class ShapeOutsideUrlTests : IDisposable
     [Fact]
     public void Url_TransparentRows_DoNotIndentText()
     {
-        // Only the bottom half of the image has pixels
         ShapeOutsideParser.ImageLoader = _ => Mask(10, 10, (x, y) => (byte)(y >= 5 ? 255 : 0));
         var shape = ShapeOutsideParser.Parse("url(m.png)", 100, 100, 16);
 
         var ctx = new FloatContext();
         ctx.AddLeftFloat(0, 0, 100, 100, shape);
-        ctx.GetLeftOffset(y: 20, lineHeight: 10).Should().Be(0f, "the top rows of the mask are fully transparent");
+        ctx.GetLeftOffset(y: 20, lineHeight: 10).Should().Be(0f, "only the bottom half of the mask is opaque");
         ctx.GetLeftOffset(y: 70, lineHeight: 10).Should().BeApproximately(100f, 1f);
     }
 
@@ -52,8 +50,9 @@ public class ShapeOutsideUrlTests : IDisposable
         var shape = ShapeOutsideParser.Parse("url(m.png)", 100, 100, 16);
 
         var ctx = new FloatContext();
-        ctx.AddRightFloat(200, 0, 100, 100, shape); // container right edge at 300
-        ctx.GetRightOffset(y: 50, lineHeight: 1, containerRight: 300).Should().BeApproximately(70f, 1f);
+        ctx.AddRightFloat(200, 0, 100, 100, shape);
+        ctx.GetRightOffset(y: 50, lineHeight: 1, containerRight: 300).Should().BeApproximately(70f, 1f,
+            "the opaque region starts at local x=30, so it consumes 300 - (200 + 30) = 70");
     }
 
     [Fact]
@@ -114,15 +113,15 @@ public class ShapeOutsideUrlTests : IDisposable
     [Fact]
     public void Inset_PerCornerRadii_AreHonoured()
     {
-        // Only the top-left corner is rounded: the right edge stays square at the top
         var shape = ShapeOutsideParser.Parse("inset(0 round 50px 0 0 0)", 100, 100, 16);
         var ctx = new FloatContext();
         ctx.AddLeftFloat(0, 0, 100, 100, shape);
-        ctx.GetLeftOffset(y: 0.5f, lineHeight: 1).Should().BeApproximately(100f, 1f);
+        ctx.GetLeftOffset(y: 0.5f, lineHeight: 1).Should().BeApproximately(100f, 1f,
+            "only the top-left corner is rounded, so the right edge stays square at the top");
 
         var right = new FloatContext();
         right.AddRightFloat(200, 0, 100, 100, shape);
-        // The right float's left edge at the top is pushed in by the rounded top-left corner
-        right.GetRightOffset(y: 0, lineHeight: 1, containerRight: 300).Should().BeLessThan(75f);
+        right.GetRightOffset(y: 0, lineHeight: 1, containerRight: 300).Should().BeLessThan(75f,
+            "the rounded top-left corner pushes a right float's left edge in at the top");
     }
 }
