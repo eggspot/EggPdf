@@ -5,30 +5,31 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.Pdf;
 
-/// <summary>
-/// PdfDocument's color-glyph query methods (ContainsColorGlyphs/TryGetColorLayers/
-/// TryGetGlyphAdvancePt) are what BoxPainter's per-codepoint color-glyph stepping loop
-/// relies on -- these are pure data-flow tests against a synthetically registered
-/// embedded font, independent of any real font file.
-/// </summary>
 public class PdfDocumentColorGlyphTests
 {
+    private const int GrinningFace = 0x1F600;
+    private const ushort EmojiBaseGlyph = 3, RedLayerGlyph = 5, TextColorLayerGlyph = 6;
+    private const ushort EmojiBaseGlyphWidth = 500, LastGlyphWidth = 200;
+    private const int UnitsPerEm = 1000;
+    private const float FontSizePt = 24f;
+
     private static PdfDocument BuildDocWithColorFont()
     {
         var doc = new PdfDocument();
         var colorLayers = new Dictionary<int, List<(ushort newGlyphId, float r, float g, float b, bool useTextColor)>>
         {
-            [0x1F600] = new List<(ushort, float, float, float, bool)>
+            [GrinningFace] = new List<(ushort, float, float, float, bool)>
             {
-                (5, 1f, 0f, 0f, false), // red layer
-                (6, 0f, 0f, 0f, true),  // text-color layer
+                (RedLayerGlyph, 1f, 0f, 0f, false),
+                (TextColorLayerGlyph, 0f, 0f, 0f, true),
             }
         };
+        var widthsByNewGlyphId = new ushort[] { 0, 0, 0, EmojiBaseGlyphWidth, 0, 300, LastGlyphWidth };
 
         doc.AddEmbeddedFont("EmojiFont", new byte[] { 0x00 },
-            new Dictionary<int, ushort> { [0x1F600] = 3 }, // base glyph 3 for the emoji codepoint
-            new ushort[] { 0, 0, 0, 500, 0, 300, 200 }, // widths indexed by new glyph id; gid 3 -> 500
-            unitsPerEm: 1000, ascent: 800, descent: -200,
+            new Dictionary<int, ushort> { [GrinningFace] = EmojiBaseGlyph },
+            widthsByNewGlyphId,
+            unitsPerEm: UnitsPerEm, ascent: 800, descent: -200,
             colorLayers: colorLayers);
 
         return doc;
@@ -38,7 +39,7 @@ public class PdfDocumentColorGlyphTests
     public void ContainsColorGlyphs_TextWithColorCodepoint_ReturnsTrue()
     {
         var doc = BuildDocWithColorFont();
-        string emoji = char.ConvertFromUtf32(0x1F600);
+        string emoji = char.ConvertFromUtf32(GrinningFace);
 
         doc.ContainsColorGlyphs("EmojiFont", "Hi " + emoji).Should().BeTrue();
     }
@@ -61,13 +62,13 @@ public class PdfDocumentColorGlyphTests
     public void TryGetColorLayers_KnownColorCodepoint_ReturnsLayersInOrder()
     {
         var doc = BuildDocWithColorFont();
-        var found = doc.TryGetColorLayers("EmojiFont", 0x1F600, out var layers);
+        var found = doc.TryGetColorLayers("EmojiFont", GrinningFace, out var layers);
 
         found.Should().BeTrue();
         layers.Should().HaveCount(2);
-        layers![0].newGlyphId.Should().Be(5);
+        layers![0].newGlyphId.Should().Be(RedLayerGlyph);
         layers[0].useTextColor.Should().BeFalse();
-        layers[1].newGlyphId.Should().Be(6);
+        layers[1].newGlyphId.Should().Be(TextColorLayerGlyph);
         layers[1].useTextColor.Should().BeTrue();
     }
 
@@ -83,25 +84,25 @@ public class PdfDocumentColorGlyphTests
     public void TryGetGlyphAdvancePt_KnownGlyph_ScalesByUnitsPerEmAndFontSize()
     {
         var doc = BuildDocWithColorFont();
-        // gid 3 -> width 500, unitsPerEm 1000, fontSize 24pt -> 500/1000*24 = 12pt
-        doc.TryGetGlyphAdvancePt("EmojiFont", 3, 24f, out var advance).Should().BeTrue();
-        advance.Should().BeApproximately(12f, 0.01f);
+
+        doc.TryGetGlyphAdvancePt("EmojiFont", EmojiBaseGlyph, FontSizePt, out var advance).Should().BeTrue();
+        advance.Should().BeApproximately(12f, 0.01f, "500 units of a 1000-unit em at 24pt is 12pt");
     }
 
     [Fact]
     public void TryGetGlyphAdvancePt_GlyphIdBeyondWidthsArray_FallsBackToLastWidth()
     {
         var doc = BuildDocWithColorFont();
-        doc.TryGetGlyphAdvancePt("EmojiFont", 999, 24f, out var advance).Should().BeTrue();
-        // last width in the array (index 6) = 200 -> 200/1000*24 = 4.8pt
-        advance.Should().BeApproximately(4.8f, 0.01f);
+
+        doc.TryGetGlyphAdvancePt("EmojiFont", 999, FontSizePt, out var advance).Should().BeTrue();
+        advance.Should().BeApproximately(4.8f, 0.01f, "the last width, 200 units of a 1000-unit em at 24pt, is 4.8pt");
     }
 
     [Fact]
     public void TryGetGlyphAdvancePt_UnknownFont_ReturnsFalse()
     {
         var doc = BuildDocWithColorFont();
-        doc.TryGetGlyphAdvancePt("NoSuchFont", 3, 24f, out var advance).Should().BeFalse();
+        doc.TryGetGlyphAdvancePt("NoSuchFont", EmojiBaseGlyph, FontSizePt, out var advance).Should().BeFalse();
         advance.Should().Be(0);
     }
 }
