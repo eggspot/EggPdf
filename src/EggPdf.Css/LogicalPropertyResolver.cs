@@ -68,9 +68,12 @@ public static class LogicalPropertyResolver
     /// </summary>
     internal static bool Apply(ComputedStyle style, string property, string value, bool isRTL, bool isVertical,
         bool overwrite, ISet<string>? protectedProperties, ICollection<string>? applied)
-    {
-        if (!LogicalNames.Contains(property)) return false;
+        => LogicalNames.Contains(property) &&
+           ApplyLogical(style, property, value, isRTL, isVertical, overwrite, protectedProperties, applied);
 
+    private static bool ApplyLogical(ComputedStyle style, string property, string value, bool isRTL, bool isVertical,
+        bool overwrite, ISet<string>? protectedProperties, ICollection<string>? applied)
+    {
         void Set(string physical, string physicalValue)
         {
             if (protectedProperties != null && protectedProperties.Contains(physical)) return;
