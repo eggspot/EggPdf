@@ -110,9 +110,9 @@ internal sealed partial class Vp8Decoder
     private static int Mul2(int a) => (a * 35468) >> 16;
 
     /// <summary>Inverse 4x4 DCT of one block (RFC 6386 section 14), a vertical then a horizontal pass, added onto the prediction in the scratch buffer.</summary>
-    private static void InverseDct(short[] coeffs, int at, byte[] dst, int dstAt)
+    private void InverseDct(short[] coeffs, int at, byte[] dst, int dstAt)
     {
-        var tmp = new int[16];
+        var tmp = _transformScratch;
         for (int i = 0; i < 4; i++)
         {
             int in0 = coeffs[at + i], in4 = coeffs[at + 4 + i], in8 = coeffs[at + 8 + i], in12 = coeffs[at + 12 + i];
@@ -139,9 +139,9 @@ internal sealed partial class Vp8Decoder
     }
 
     /// <summary>Inverse Walsh-Hadamard transform of the Y2 block: the 16 results become the DC of each luma block.</summary>
-    private static void InverseWalshHadamard(short[] input, short[] output)
+    private void InverseWalshHadamard(short[] input, short[] output)
     {
-        var tmp = new int[16];
+        var tmp = _transformScratch;
         for (int i = 0; i < 4; i++)
         {
             int a0 = input[i] + input[12 + i];

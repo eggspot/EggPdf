@@ -72,6 +72,8 @@ internal sealed partial class Vp8Decoder
     private readonly byte[] _modes = new byte[16];
     private int _uvMode;
     private readonly short[] _coeffs = new short[384];
+    private readonly short[] _y2Coeffs = new short[16];
+    private readonly int[] _transformScratch = new int[16];
     private readonly bool[] _blockHasCoeffs = new bool[24];
 
     private int[] _filterLimit = Array.Empty<int>(), _filterInterior = Array.Empty<int>(), _filterHev = Array.Empty<int>();
@@ -360,7 +362,8 @@ internal sealed partial class Vp8Decoder
 
         if (!_isI4x4)
         {
-            var dc = new short[16];
+            var dc = _y2Coeffs;
+            Array.Clear(dc, 0, dc.Length);
             int ctx = _nzTopDc[mbX] + _nzLeftDc;
             int nz = ReadCoefficients(br, 1, ctx, y2, 0, dc, 0);
             _nzTopDc[mbX] = _nzLeftDc = (byte)(nz > 0 ? 1 : 0);
