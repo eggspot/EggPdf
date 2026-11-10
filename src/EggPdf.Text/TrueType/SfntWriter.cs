@@ -25,10 +25,19 @@ internal static class SfntWriter
         return sum;
     }
 
-    /// <summary>Assemble a TrueType (0x00010000) font file from its tables, sorted by tag as the format requires.</summary>
-    public static byte[] WriteFont(SortedDictionary<string, byte[]> tables)
+    private const uint ChecksumMagic = 0xB1B0AFBA;
+    private const int HeadCheckSumAdjustmentOffset = 8;
+
+    /// <summary>
+    /// Assemble a TrueType (0x00010000) font file from its tables, in ordinal tag order as the format requires,
+    /// with the head table's checkSumAdjustment set so the whole file sums to 0xB1B0AFBA.
+    /// </summary>
+    public static byte[] WriteFont(IDictionary<string, byte[]> tables)
     {
-        int count = tables.Count;
+        var tags = new List<string>(tables.Keys);
+        tags.Sort(StringComparer.Ordinal);
+
+        int count = tags.Count;
         int dirSize = 12 + count * 16;
         int total = dirSize;
         foreach (var t in tables.Values) total += (t.Length + 3) & ~3;
@@ -43,17 +52,26 @@ internal static class SfntWriter
         PutI16(output, 8, entrySelector);
         PutI16(output, 10, count * 16 - searchRange);
 
-        int record = 12, offset = dirSize;
-        foreach (var kv in tables)
+        int record = 12, offset = dirSize, headOffset = -1;
+        foreach (var tag in tags)
         {
-            for (int i = 0; i < 4; i++) output[record + i] = (byte)kv.Key[i];
-            PutU32(output, record + 4, Checksum(kv.Value));
+            var table = tables[tag];
+            if (tag == "head" && table.Length >= HeadCheckSumAdjustmentOffset + 4)
+            {
+                table = (byte[])table.Clone();
+                PutU32(table, HeadCheckSumAdjustmentOffset, 0);
+                headOffset = offset;
+            }
+            for (int i = 0; i < 4; i++) output[record + i] = (byte)tag[i];
+            PutU32(output, record + 4, Checksum(table));
             PutU32(output, record + 8, (uint)offset);
-            PutU32(output, record + 12, (uint)kv.Value.Length);
-            Array.Copy(kv.Value, 0, output, offset, kv.Value.Length);
-            offset += (kv.Value.Length + 3) & ~3;
+            PutU32(output, record + 12, (uint)table.Length);
+            Array.Copy(table, 0, output, offset, table.Length);
+            offset += (table.Length + 3) & ~3;
             record += 16;
         }
+        if (headOffset >= 0)
+            PutU32(output, headOffset + HeadCheckSumAdjustmentOffset, unchecked(ChecksumMagic - Checksum(output)));
         return output;
     }
 
@@ -70,9 +88,9 @@ internal static class SfntWriter
         U16w(ends.Length);
         U16w(xMin); U16w(yMin); U16w(xMax); U16w(yMax);
         foreach (int e in ends) U16w(e);
-        U16w(0); // no instructions: the outline was rebuilt, so any original hinting no longer applies
+        U16w(0);
 
-        for (int i = 0; i < n; i++) w.Add((byte)(flags[i] & 0x01)); // on-curve bit only; 16-bit coordinates
+        for (int i = 0; i < n; i++) w.Add((byte)(flags[i] & 0x01));
         int prev = 0;
         for (int i = 0; i < n; i++) { U16w(xs[i] - prev); prev = xs[i]; }
         prev = 0;

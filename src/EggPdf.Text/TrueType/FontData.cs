@@ -96,7 +96,6 @@ public class FontData
     {
         if (glyphId < AdvanceWidths.Length)
             return AdvanceWidths[glyphId];
-        // Last width applies to remaining glyphs
         return AdvanceWidths.Length > 0 ? AdvanceWidths[AdvanceWidths.Length - 1] : (ushort)0;
     }
 
@@ -123,7 +122,6 @@ public class FontData
             var gid = GetGlyphId(text[i]);
             width += GetAdvanceWidth(gid);
 
-            // Apply kerning
             if (i > 0 && Kern != null)
                 width += Kern.GetKerning(prevGid, gid);
 
@@ -153,7 +151,6 @@ internal class CmapData
 /// <summary>Kerning pair data from kern or GPOS table.</summary>
 internal class KernData
 {
-    // Pack (left, right) into a single long key for fast lookup
     private readonly System.Collections.Generic.Dictionary<long, short> _pairs = new();
 
     public void Add(ushort leftGlyph, ushort rightGlyph, short value)
@@ -162,10 +159,21 @@ internal class KernData
         _pairs[key] = value;
     }
 
+    private System.Collections.Generic.List<ClassPairKerning>? _classPairs;
+
+    public void AddClassPairs(ClassPairKerning classPairs) =>
+        (_classPairs ??= new System.Collections.Generic.List<ClassPairKerning>()).Add(classPairs);
+
     public int GetKerning(ushort leftGlyph, ushort rightGlyph)
     {
         long key = ((long)leftGlyph << 16) | rightGlyph;
-        return _pairs.TryGetValue(key, out var val) ? val : 0;
+        if (_pairs.TryGetValue(key, out var val)) return val;
+        if (_classPairs != null)
+        {
+            for (int i = 0; i < _classPairs.Count; i++)
+                if (_classPairs[i].TryGetKerning(leftGlyph, rightGlyph, out int xAdvance)) return xAdvance;
+        }
+        return 0;
     }
 
     public int Count => _pairs.Count;
