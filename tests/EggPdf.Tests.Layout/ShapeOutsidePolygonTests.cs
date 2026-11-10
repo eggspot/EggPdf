@@ -4,15 +4,13 @@ using Xunit;
 
 namespace EggPdf.Tests.Layout;
 
-/// <summary>shape-outside: polygon() and inset() exclusion shapes.</summary>
 public class ShapeOutsidePolygonTests
 {
     [Fact]
     public void Polygon_Triangle_WidensFromApexToBase()
     {
-        // Apex at the top centre, base along the bottom: a right-pointing wedge for a left float
         var shape = ShapeOutsideParser.Parse("polygon(50% 0, 100% 100%, 0 100%)", 100, 100, 16);
-        shape.Should().NotBeNull();
+        shape.Should().NotBeNull("the triangle has its apex at the top centre and its base along the bottom");
 
         var ctx = new FloatContext();
         ctx.AddLeftFloat(0, 0, 100, 100, shape);
@@ -29,23 +27,22 @@ public class ShapeOutsidePolygonTests
     {
         var shape = ShapeOutsideParser.Parse("polygon(50% 0, 100% 100%, 0 100%)", 100, 100, 16);
         var ctx = new FloatContext();
-        ctx.AddRightFloat(x: 200, y: 0, width: 100, height: 100, shape: shape); // container right = 300
+        ctx.AddRightFloat(x: 200, y: 0, width: 100, height: 100, shape: shape);
 
-        // Left edge at y=50 is x=25 local -> the float consumes 300 - (200 + 25) = 75
-        ctx.GetRightOffset(y: 50, lineHeight: 1, containerRight: 300).Should().BeApproximately(75f, 1f);
+        ctx.GetRightOffset(y: 50, lineHeight: 1, containerRight: 300).Should().BeApproximately(75f, 1f,
+            "at y=50 the shape's left edge is at local x=25, so it consumes 300 - (200 + 25) = 75");
     }
 
     [Fact]
     public void Polygon_LineBoxSpanningAVertex_SeesTheVertexNotJustTheSamples()
     {
-        // A spike at y=40 reaches x=100 between the top/middle/bottom sample points of a 30px line
-        // box at y=30..60 -> sampling top(30)/mid(45)/bottom(60) alone would miss most of it.
         var shape = ShapeOutsideParser.Parse("polygon(0 0, 10px 0, 10px 39px, 100px 40px, 10px 41px, 10px 100%, 0 100%)", 100, 100, 16);
         var ctx = new FloatContext();
         ctx.AddLeftFloat(0, 0, 100, 100, shape);
 
         ctx.GetLeftOffset(y: 30, lineHeight: 30).Should().BeApproximately(100f, 0.5f,
-            "the whole line box must clear the spike that pokes into it");
+            "the spike reaches x=100 at y=40, between the 30px line box's top, middle and bottom samples (30, 45, 60), " +
+            "and the whole line box must still clear it");
     }
 
     [Fact]
@@ -55,22 +52,21 @@ public class ShapeOutsidePolygonTests
         shape.Should().NotBeNull();
         var ctx = new FloatContext();
         ctx.AddLeftFloat(0, 0, 100, 100, shape);
-        // Right triangle (0,0)-(50,0)-(50,50): the vertical edge at x=50 is its right side
-        ctx.GetLeftOffset(y: 1, lineHeight: 1).Should().BeApproximately(50f, 0.5f);
+        ctx.GetLeftOffset(y: 1, lineHeight: 1).Should().BeApproximately(50f, 0.5f,
+            "the right triangle (0,0)-(50,0)-(50,50) has its vertical edge at x=50 as its right side");
         ctx.GetLeftOffset(y: 60, lineHeight: 1).Should().Be(0f);
     }
 
     [Fact]
     public void Polygon_RowOutsideTheShape_DoesNotIndentContent()
     {
-        // The shape only covers the top half; below it lines run at full width even though the
-        // float box itself extends to y=100.
         var shape = ShapeOutsideParser.Parse("polygon(0 0, 100% 0, 100% 50%, 0 50%)", 100, 100, 16);
         var ctx = new FloatContext();
         ctx.AddLeftFloat(0, 0, 100, 100, shape);
 
         ctx.GetLeftOffset(y: 20, lineHeight: 10).Should().BeApproximately(100f, 0.5f);
-        ctx.GetLeftOffset(y: 70, lineHeight: 10).Should().Be(0f);
+        ctx.GetLeftOffset(y: 70, lineHeight: 10).Should().Be(0f,
+            "the shape covers only the top half, so lines below it run at full width though the float box goes on to y=100");
     }
 
     [Fact]
