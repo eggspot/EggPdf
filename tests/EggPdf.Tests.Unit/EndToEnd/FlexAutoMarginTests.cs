@@ -6,10 +6,6 @@ using Xunit;
 
 namespace EggPdf.Tests.Unit.EndToEnd;
 
-/// <summary>
-/// Auto margins on flex items absorb positive free space (CSS Flexbox §8.1) —
-/// margin-top:auto pushes a footer to the bottom of a column flex container.
-/// </summary>
 public class FlexAutoMarginTests
 {
     private static float FindTextY(byte[] pdf, string text)
@@ -33,9 +29,8 @@ public class FlexAutoMarginTests
         float topY = FindTextY(pdf, "TOPCONTENT");
         float footerY = FindTextY(pdf, "BOTTOMFOOTER");
 
-        // 600px = 450pt container from the page top (841.89): footer should sit
-        // near y ≈ 841.89 - 450 + lineHeight ≈ 403, far below the top item.
         (topY - footerY).Should().BeGreaterThan(380f,
-            "margin-top:auto must absorb the free space and push the footer to the bottom");
+            "an auto margin absorbs the free space (CSS Flexbox §8.1), pushing the footer to the bottom of the 600px " +
+            "(450pt) container, near y = 841.89 - 450 + line height = ~403");
     }
 }
